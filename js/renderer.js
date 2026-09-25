@@ -19,7 +19,9 @@
     'drop-shadow(0 0 2px #000) drop-shadow(0 0 1px #000) drop-shadow(2px 3px 4px rgba(0,0,0,.9))'
   ];
   var DEFAULT_SHADOW = 2;
-  var IN_MS = 180;            // tco-in (animate=1)
+  var IN_MS = 180;            // tco-in / tco-in-x (animate=1)
+  var SLIDE_MS = 250;         // layout=horizontal, animate=1: the row glides left to make room for a new line
+  var LAYOUT_SETTLE_MS = 300; // after a live layout switch no trimming, until the builder has resized the preview too
   var FADE_OUT_MS = 1000;     // tco-fade length; the line is gone exactly `fade` seconds after it arrived
   var FLUSH_FALLBACK_MS = 250;
   var SWEEP_MS = 1000;        // fade safety sweep, in case animationend never fires
@@ -51,6 +53,7 @@
       }
     }
     o.size = FONT_PX[o.size] ? o.size : 'medium';
+    o.layout = o.layout === 'horizontal' ? 'horizontal' : 'vertical';
     o.align = o.align === 'top' ? 'top' : 'bottom';
     o.shadow = clampInt(o.shadow, 0, 3, DEFAULT_SHADOW);
     o.bg = clampInt(o.bg, 0, 100, 0);
@@ -102,10 +105,14 @@
     return { expired: false, delay: Math.round(total - dur - age), duration: Math.round(dur) };
   }
 
-  // Inline `animation` value for a line ('' = none).
-  function animString(isNew, animate, timing) {
+  // Lines are in DOM order, newest last, except in a vertical chat with align=top (newest first).
+  // A horizontal row always ends with the newest line on the right; align only moves the row up or down.
+  function newestFirst(c) { return !!c && c.layout !== 'horizontal' && c.align === 'top'; }
+
+  // Inline `animation` value for a line ('' = none). A horizontal row slides new lines in sideways.
+  function animString(isNew, animate, timing, layout) {
     var parts = [];
-    if (isNew && animate) parts.push('tco-in ' + IN_MS + 'ms ease-out');
+    if (isNew && animate) parts.push((layout === 'horizontal' ? 'tco-in-x ' : 'tco-in ') + IN_MS + 'ms ease-out');
     if (timing && !timing.expired) parts.push('tco-fade ' + timing.duration + 'ms linear ' + timing.delay + 'ms forwards');
     return parts.join(', ');
   }
@@ -213,6 +220,32 @@
       }
     }
     return c;
+  }
+
+  // layout=horizontal: lines sit in one row, oldest first on the left. Count the leading lines whose
+  // right edge is at or left of viewLeft (reads stop at the first line still in view).
+  function overflowCountX(n, rectAt, viewLeft) {
+    var c = 0;
+    for (var i = 0; i < n; i++) {
+      if (rectAt(i).right <= viewLeft) c++;
+      else break;
+    }
+    return c;
+  }
+
+  // How far (px) a running slide still had to go when a new one starts: what the row showed on screen,
+  // at most the slide's own offset. After SLIDE_MS the slide is over even if a paused renderer (a hidden
+  // OBS source, where flushes come from the fallback timer) never drew it, so offsets can't pile up.
+  function slideLeft(visualShift, slideDx, elapsed) {
+    if (!(slideDx > 0) || !(elapsed < SLIDE_MS) || !(visualShift > 0)) return 0;
+    return Math.min(visualShift, slideDx);
+  }
+
+  // Where the next slide starts (px right of home): what was left, plus how far the newest old line moved
+  // left when the new lines went in. Under a pixel is no slide.
+  function slideDelta(left, xBefore, xAfter) {
+    var dx = (left > 0 ? left : 0) + (xBefore - xAfter);
+    return dx >= 1 ? dx : 0;
   }
 
   // New DOM order (indexes) after reversing lines, keeping each notice + its message line together.
@@ -430,7 +463,9 @@
     var styleEl = null;
     var held = false, destroyed = false;
     var scheduled = false, rafId = null, flushTimer = null;
-    var trimTimer = null, sweepTimer = null;
+    var trimTimer = null, sweepTimer = null, slideTimer = null;
+    var slideAt = 0, slideDx = 0;
+    var settleUntil = 0, settleTimer = null;
     var seq = 0, flushes = 0;
     var ro = null;
 
@@ -691,13 +726,13 @@
     }
 
     function insertGroups(groups, now) {
-      var top = cfg.align === 'top';
+      var top = newestFirst(cfg);
       var frag = doc.createDocumentFragment();
       for (var gi = 0; gi < groups.length; gi++) {
         var g = groups[top ? groups.length - 1 - gi : gi];
         for (var li = 0; li < g.length; li++) {
           var line = g[li];
-          var anim = animString(true, cfg.animate, fadeTiming(cfg.fade, now - recs.get(line).born));
+          var anim = animString(true, cfg.animate, fadeTiming(cfg.fade, now - recs.get(line).born), cfg.layout);
           if (anim) line.style.animation = anim;
           frag.appendChild(line);
         }
@@ -709,7 +744,7 @@
     function capLines() {
       var extra = linesEl.childElementCount - cfg.max;
       if (extra <= 0) return false;
-      var top = cfg.align === 'top';
+      var top = newestFirst(cfg);
       for (; extra > 0; extra--) removeLine(top ? linesEl.lastElementChild : linesEl.firstElementChild);
       return true;
     }
@@ -727,16 +762,37 @@
     }
 
     // Remove lines that are fully outside the chat box (the newest line is never removed).
-    function trimOverflow() {
+    // slack (horizontal only, px): the row is about to slide in from that far right, so a line counts
+    // as outside only if it is also out of view at the start of the slide.
+    function trimOverflow(slack) {
       if (destroyed) return;
+      var wait = settleUntil - Date.now();
+      if (wait > 0) {
+        if (!settleTimer) {
+          settleTimer = setTimeout(function () {
+            settleTimer = null;
+            trimOverflow();
+          }, wait + 10);
+        }
+        return;
+      }
       var kids = linesEl.children;
       var n = kids.length;
       if (!n) return;
       var view = rootEl.getBoundingClientRect();
-      if (!(view.height > 0)) return; // not laid out (hidden iframe, display:none): measure nothing
-      var top = cfg.align === 'top';
-      var cnt = overflowCount(n, function (i) { return kids[i].getBoundingClientRect(); }, cfg.align, view.top, view.bottom);
+      var rectAt = function (i) { return kids[i].getBoundingClientRect(); };
+      var cnt;
+      // Not laid out (hidden iframe, display:none): measure nothing.
+      if (cfg.layout === 'horizontal') {
+        if (!(view.width > 0)) return;
+        cnt = overflowCountX(n, rectAt, view.left - (slack > 0 ? slack : 0));
+      } else {
+        if (!(view.height > 0)) return;
+        cnt = overflowCount(n, rectAt, cfg.align, view.top, view.bottom);
+      }
+      cnt = Math.min(cnt, n - 1);
       if (!cnt) return;
+      var top = newestFirst(cfg);
       var victims = [];
       for (var i = 0; i < cnt; i++) victims.push(top ? kids[n - 1 - i] : kids[i]);
       for (var j = 0; j < victims.length; j++) removeLine(victims[j]);
@@ -748,6 +804,47 @@
         trimTimer = null;
         trimOverflow();
       }, 0);
+    }
+
+    // ----- horizontal slide (layout=horizontal, animate=1) -----
+    // A new line at the right end pushes the whole row left. Measure the newest old line before and
+    // after the new lines go in, start the row that much further right, and let it glide back.
+    function clearSlide() {
+      if (slideTimer) { clearTimeout(slideTimer); slideTimer = null; }
+      slideDx = 0;
+      linesEl.style.transition = '';
+      linesEl.style.transform = '';
+    }
+    // Before new lines go in: stop any running slide, noting how far it still had to go.
+    function slideStart(now) {
+      if (cfg.layout !== 'horizontal' || !cfg.animate) return null;
+      var el = linesEl.lastElementChild;
+      if (!el) return null;
+      var running = slideDx > 0 && now - slideAt < SLIDE_MS;
+      var visual = running ? el.getBoundingClientRect().right : 0; // includes the running transform
+      linesEl.style.transition = 'none';
+      linesEl.style.transform = 'none';
+      var x = el.getBoundingClientRect().right;
+      return { el: el, x: x, left: running ? slideLeft(visual - x, slideDx, now - slideAt) : 0 };
+    }
+    // After: how far right the row must start so the lines already on screen don't jump.
+    function slideOffset(s) {
+      return s.el.parentNode === linesEl ? slideDelta(s.left, s.x, s.el.getBoundingClientRect().right) : 0;
+    }
+    function startSlide(dx, now) {
+      if (!(dx > 0)) { clearSlide(); return; }
+      slideAt = now;
+      slideDx = dx;
+      linesEl.style.transform = 'translateX(' + Math.round(dx * 100) / 100 + 'px)';
+      void linesEl.offsetWidth; // style flush: the transition starts from the shifted position
+      linesEl.style.transition = 'transform ' + SLIDE_MS + 'ms ease-out';
+      linesEl.style.transform = '';
+      if (slideTimer) clearTimeout(slideTimer);
+      // Lines still peeking in at the left edge when the slide started are out of view once it ends.
+      slideTimer = setTimeout(function () {
+        slideTimer = null;
+        trimOverflow();
+      }, SLIDE_MS + 50);
     }
 
     // Re-time every line's fade from its arrival time (after align/fade changes or a reorder).
@@ -823,6 +920,7 @@
       var now = Date.now();
       var changed = false;
       var entries = queue.drain();
+      var slide = entries.length ? slideStart(now) : null;
       if (entries.length) {
         // Newest first so at most cfg.max lines get built, then back to arrival order.
         var groups = [];
@@ -849,7 +947,13 @@
       }
       if (sweepExpired(now)) changed = true;
       if (capLines()) changed = true;
-      if (changed) trimOverflow();
+      if (changed) {
+        var dx = slide ? slideOffset(slide) : 0;
+        trimOverflow(dx);
+        if (slide) startSlide(dx, now);
+      } else if (slide) {
+        startSlide(slide.left, now); // nothing went in after all: finish the interrupted slide
+      }
       flushes++;
     }
 
@@ -886,6 +990,8 @@
       var cl = rootEl.classList;
       var sizes = Object.keys(FONT_PX);
       for (var i = 0; i < sizes.length; i++) cl.toggle('size-' + sizes[i], c.size === sizes[i]);
+      cl.toggle('layout-horizontal', c.layout === 'horizontal');
+      cl.toggle('layout-vertical', c.layout !== 'horizontal');
       cl.toggle('align-top', c.align === 'top');
       cl.toggle('align-bottom', c.align !== 'top');
       cl.toggle('animate', !!c.animate);
@@ -906,10 +1012,17 @@
       ensureSweepTimer();
       if (!prev) return;
       var restart = false;
-      if (prev.align !== cfg.align) {
+      if (newestFirst(prev) !== newestFirst(cfg)) {
         reverseLines();
         restart = true; // moving nodes restarts CSS animations
       }
+      if (prev.layout !== cfg.layout) {
+        clearSlide();
+        // Lines that don't fit the new layout at the old size may fit once the builder resizes the
+        // preview (it sends the layout first), so trim once both have landed.
+        settleUntil = Date.now() + LAYOUT_SETTLE_MS;
+      }
+      if (!cfg.animate) clearSlide();
       if (prev.fade !== cfg.fade) restart = true;
       if (restart) restartFades(Date.now());
       if (changedAny(prev, cfg, FILTER_KEYS)) sweepFilters();
@@ -962,6 +1075,7 @@
       queue.clear();
       byId.clear();
       byUser.clear();
+      clearSlide();
       linesEl.textContent = '';
     }
 
@@ -1039,6 +1153,8 @@
       clearSchedule();
       if (trimTimer) { clearTimeout(trimTimer); trimTimer = null; }
       if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
+      if (slideTimer) { clearTimeout(slideTimer); slideTimer = null; }
+      if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
       if (ro) { ro.disconnect(); ro = null; }
       linesEl.removeEventListener('animationend', onAnimEnd);
       doc.removeEventListener('visibilitychange', onVisibility);
@@ -1077,6 +1193,8 @@
       EMOTE_EM: EMOTE_EM,
       SHADOWS: SHADOWS,
       IN_MS: IN_MS,
+      SLIDE_MS: SLIDE_MS,
+      LAYOUT_SETTLE_MS: LAYOUT_SETTLE_MS,
       FADE_OUT_MS: FADE_OUT_MS,
       FLUSH_FALLBACK_MS: FLUSH_FALLBACK_MS,
       DELETED_TTL_MS: DELETED_TTL_MS,
@@ -1093,10 +1211,14 @@
       bgAlpha: bgAlpha,
       fontVar: fontVar,
       fadeTiming: fadeTiming,
+      newestFirst: newestFirst,
       animString: animString,
       Ring: Ring,
       DeletedIds: DeletedIds,
       overflowCount: overflowCount,
+      overflowCountX: overflowCountX,
+      slideLeft: slideLeft,
+      slideDelta: slideDelta,
       reverseGroups: reverseGroups,
       pickUrl: pickUrl,
       annClass: annClass,

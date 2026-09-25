@@ -25,7 +25,8 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
   - Replies, `/me` messages, first-time chatter and channel-point highlights.
   - Timeouts, bans and deleted messages disappear from the overlay.
   - Shared Chat messages show the source channel's avatar and badges.
-- **Clean look by default:** white text with a soft drop shadow on a transparent background. You can change the size, font, shadow, background, alignment, fade-out and line limit.
+- **Vertical or horizontal:** a classic chat column, or a single row that runs sideways like a ticker, for a bar along the top or bottom of the stream.
+- **Clean look by default:** white text with a soft drop shadow on a transparent background. You can change the layout, size, font, shadow, background, alignment, fade-out and line limit.
 - **Config builder** (`index.html`) with a live preview, a demo mode, and copy or download buttons.
 
 ## Quick start
@@ -35,7 +36,7 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
 1. In your GitHub repo, go to **Settings → Pages**, choose **Deploy from a branch**, and pick `main` / `(root)`.
 2. Open `https://<your-user>.github.io/Twitch-Chat-Overlay/`. That page is the builder. To pre-fill it, add options to its URL, for example `?channel=yourname`.
 3. Enter your channel, adjust the look, and press **Copy** next to the overlay URL.
-4. In OBS: **Sources → + → Browser**. Paste the URL, then set **Width** and **Height** to the same size as the builder preview (default 450 × 700).
+4. In OBS: **Sources → + → Browser**. Paste the URL, then set **Width** and **Height** to the same size as the builder preview (450 × 700 for the vertical layout, 1920 × 100 for the horizontal one).
 5. In the same dialog, **uncheck** "Shutdown source when not visible" and "Refresh browser when scene becomes active". Leaving them on makes the chat reconnect and clear on every scene switch.
 
 ### Option B: a folder on your PC
@@ -63,7 +64,8 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `font` | `Inter` | font name | Any Google Font or system font (Arial, Segoe UI, Verdana, …). |
 | `shadow` | `2` | `0`–`3` | Drop-shadow strength behind text and emotes. |
 | `bg` | `0` | `0`–`100` | Opacity of a dark background box behind each message. |
-| `align` | `bottom` | `bottom`, `top` | `bottom`: newest message at the bottom. `top`: newest message at the top. |
+| `layout` | `vertical` | `vertical`, `horizontal` | `vertical`: messages stack in a column. `horizontal`: messages sit side by side in one row, new ones come in on the right and older ones slide off to the left. In a row, a message longer than the source is cut off with an ellipsis, and GIFs and gigantified emotes are drawn at emote height. |
+| `align` | `bottom` | `bottom`, `top` | `bottom`: newest message at the bottom. `top`: newest message at the top. With `layout=horizontal` the newest message is always on the right, and `align` picks the edge the row lines up on. |
 | `animate` | `1` | bool | Slide and fade in new messages. |
 | `fade` | `0` | `0`–`3600` | Seconds before a message fades out. `0` means never. |
 | `max` | `50` | `1`–`200` | Maximum number of messages on screen. |
@@ -92,6 +94,7 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | Selector | Element |
 |---|---|
 | `#chat` | the whole overlay |
+| `#chat.layout-horizontal` | the overlay in the horizontal layout |
 | `.line` | one message |
 | `.line.notice` | a sub, raid or other notice |
 | `.line.action` | a `/me` message |
@@ -101,7 +104,7 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `.emote` | emote images |
 | `.reply` | reply header |
 
-For example, `.line { text-transform: uppercase; }` or `.badge { display: none; }`.
+For example, `.line { text-transform: uppercase; }`, `.badge { display: none; }`, or `.layout-horizontal .line { max-width: 30em; }` to cut long messages shorter in the horizontal layout.
 
 ## Services this overlay contacts
 

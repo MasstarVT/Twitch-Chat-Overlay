@@ -125,10 +125,12 @@ test('parsePasted reads settings.example.js as shipped and once edited by hand',
     .replace(/^ {2}\/\/ /gm, '  ')
     .replace("size: 'medium'", "size: 'large'")
     .replace('shadow: 2', 'shadow: 0')
+    .replace("layout: 'vertical'", "layout: 'horizontal'")
     .replace('bots: false', 'bots: true');
   const r2 = builder.parsePasted(edited);
   assert.ok(r2, 'edited settings.js parses');
-  assert.strictEqual(r2.count, 8);
+  assert.strictEqual(r2.count, 9);
+  assert.strictEqual(r2.cfg.layout, 'horizontal');
   assert.strictEqual(r2.cfg.channel, 'xqc');
   assert.strictEqual(r2.cfg.size, 'large');
   assert.strictEqual(r2.cfg.shadow, 0);
@@ -234,6 +236,42 @@ test('the preview frame boots with every badge and paint loader on', () => {
 test('events help mentions announcements', () => {
   assert.match(builder.META.events.label, /announcements/);
   assert.match(builder.META.events.help, /announce/);
+});
+
+test('layout: first in Look, and the align field reads differently for a horizontal row', () => {
+  assert.strictEqual(builder.groupLayout()[0].keys[0], 'layout');
+  assert.ok(builder.META.layout.help);
+  const v = builder.fieldText('align', 'vertical');
+  const hz = builder.fieldText('align', 'horizontal');
+  assert.strictEqual(v.label, builder.META.align.label);
+  assert.notStrictEqual(hz.label, v.label);
+  assert.match(hz.help, /right/);
+  // fields without a horizontal wording read the same in both layouts
+  assert.deepStrictEqual(builder.fieldText('size', 'horizontal'), builder.fieldText('size', 'vertical'));
+  assert.strictEqual(builder.fieldText('bg', 'horizontal').help, builder.META.bg.help);
+});
+
+test('layoutPreviewSize swaps a suggested preview size and keeps one the user typed', () => {
+  const S = builder.LAYOUT_SIZES;
+  assert.deepStrictEqual(S.vertical, { w: 450, h: 700 });
+  assert.deepStrictEqual(builder.layoutPreviewSize({ w: 450, h: 700 }, 'vertical', 'horizontal'), S.horizontal);
+  assert.deepStrictEqual(builder.layoutPreviewSize({ w: S.horizontal.w, h: S.horizontal.h }, 'horizontal', 'vertical'), S.vertical);
+  assert.strictEqual(builder.layoutPreviewSize({ w: 600, h: 700 }, 'vertical', 'horizontal'), null, 'a size the user typed stays');
+  assert.strictEqual(builder.layoutPreviewSize({ w: 450, h: 700 }, 'vertical', 'vertical'), null);
+  assert.strictEqual(builder.layoutPreviewSize({ w: 450, h: 700 }, 'vertical', 'diagonal'), null);
+  assert.strictEqual(builder.layoutPreviewSize(null, 'vertical', 'horizontal'), null);
+});
+
+test('the wide preview row is for a horizontal chat in a landscape source', () => {
+  assert.strictEqual(builder.wantsWidePreview('horizontal', 1920, 100), true);
+  assert.strictEqual(builder.wantsWidePreview('horizontal', 450, 800), false, 'a portrait source keeps the side column');
+  assert.strictEqual(builder.wantsWidePreview('vertical', 1920, 100), false);
+  // stage height follows the source's shape, within 150px .. 45% of the window
+  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 100, 950), 150);
+  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 300, 950), 265);
+  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 1080, 950), 428);
+  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 1080, 200), 150, 'never under 150px');
+  assert.strictEqual(builder.wideStageHeight(0, 30, 1920, 100, 950), 150);
 });
 
 test('fitScale scales down only', () => {

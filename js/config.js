@@ -13,6 +13,7 @@
     font: { type: 'font', def: 'Inter' },
     shadow: { type: 'int', min: 0, max: 3, def: 2 },
     bg: { type: 'int', min: 0, max: 100, def: 0 },
+    layout: { type: 'enum', values: ['vertical', 'horizontal'], def: 'vertical' },
     align: { type: 'enum', values: ['bottom', 'top'], def: 'bottom' },
     animate: { type: 'bool', def: true },
     fade: { type: 'int', min: 0, max: 3600, def: 0 },
@@ -47,7 +48,7 @@
   var KEYS = Object.keys(SPEC);
 
   // Settings the overlay can apply in place (the builder sends these via postMessage).
-  var LIVE_KEYS = ['size', 'font', 'shadow', 'bg', 'align', 'animate', 'fade', 'max', 'bots',
+  var LIVE_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'bots',
     'hide_commands', 'block', 'events', 'replies', 'first_msg', 'gifs', 'badges', 'badges_twitch',
     'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies',
     'paints', 'readable'];

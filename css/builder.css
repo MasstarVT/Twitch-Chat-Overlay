@@ -83,6 +83,26 @@ input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visibl
   }
 }
 
+/* layout=horizontal in a landscape source: the preview gets its own full-width row above the settings
+   instead of the tall side column. builder.js sizes the stage to the source's shape (150px and up) and
+   adds .pin-preview, which keeps the row in view while scrolling, only when it is short for the window. */
+.layout.wide-preview .preview { height: auto; min-height: 0; }
+.layout.wide-preview .stage { flex: none; height: 150px; }
+@media (min-width: 1000px) {
+  .layout.wide-preview {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "top" "preview" "settings";
+    grid-template-rows: auto;
+  }
+  .layout.wide-preview .preview { position: static; }
+  .layout.wide-preview.pin-preview .preview {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+}
+
 /* ---------- cards / groups ---------- */
 .card {
   background: var(--panel);

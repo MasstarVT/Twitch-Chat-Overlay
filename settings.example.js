@@ -12,6 +12,7 @@ window.TCO_SETTINGS = {
   // size: 'medium',      // small | medium | large
   // font: 'Inter',       // any Google Font or system font name
   // shadow: 2,           // 0-3
+  // layout: 'vertical',  // vertical | horizontal (one row, like a ticker)
   // fade: 0,             // seconds before a message fades out (0 = never)
   // max: 50,             // maximum lines on screen
   // bots: false,         // show messages from known bots

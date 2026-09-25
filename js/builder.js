@@ -20,6 +20,8 @@
   var BACKDROPS = ['dark', 'light', 'checker', 'busy'];
   var SIZE_LIMITS = { w: [100, 3840], h: [100, 2160] };
   var UI_DEFAULTS = { w: 450, h: 700, backdrop: 'dark' };
+  // Suggested OBS source size per layout: a column, or a full-width bar on a 1080p canvas.
+  var LAYOUT_SIZES = { vertical: { w: 450, h: 700 }, horizontal: { w: 1920, h: 100 } };
 
   // Font suggestions live in config.js, which the overlay shares (config.canonicalFont uses them).
   var GOOGLE_FONTS = config.GOOGLE_FONTS;
@@ -32,7 +34,11 @@
     shadow: { label: 'Text shadow', widget: 'range', names: ['None', 'Light', 'Medium', 'Strong'] },
     bg: { label: 'Line background', widget: 'range', unit: '%',
       help: 'A dark rounded box behind each message. Helps on bright or busy scenes.' },
-    align: { label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' } },
+    layout: { label: 'Layout', options: { vertical: 'Vertical', horizontal: 'Horizontal' },
+      help: 'Vertical stacks messages in a column. Horizontal puts them side by side in one row, like a ticker: new messages come in on the right and older ones slide off to the left.' },
+    align: { label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' },
+      // Shown instead while layout is horizontal (see syncLabels).
+      horizontal: { label: 'Row sits', help: 'Whether the row runs along the bottom or the top edge of the source. New messages always come in on the right.' } },
     animate: { label: 'Slide in new messages' },
     fade: { label: 'Fade out after (seconds)', help: '0 keeps messages until newer ones push them out.' },
     max: { label: 'Max messages on screen', help: 'From 1 to 200.' },
@@ -76,7 +82,7 @@
   var LOAD_KEYS = ['badges', 'paints'].concat(BADGE_SUBS);
 
   var GROUPS = [
-    { id: 'look', title: 'Look', keys: ['size', 'font', 'shadow', 'bg', 'align', 'animate'] },
+    { id: 'look', title: 'Look', keys: ['layout', 'size', 'font', 'shadow', 'bg', 'align', 'animate'] },
     { id: 'behavior', title: 'Behavior', keys: ['fade', 'max', 'bots', 'hide_commands', 'block', 'events',
       'replies', 'first_msg', 'history', 'shared', 'gifs'] },
     { id: 'emotes', title: 'Emotes', keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz'],
@@ -247,6 +253,33 @@
     return count ? { cfg: config.parse(params), count: count } : null;
   }
 
+  // The preview size to switch to when the layout changes, or null to keep the current one. Only a
+  // size still at the old layout's suggestion is swapped, so a size the user typed in stays.
+  function layoutPreviewSize(ui, prevLayout, nextLayout) {
+    var from = LAYOUT_SIZES[prevLayout], to = LAYOUT_SIZES[nextLayout];
+    if (!from || !to || prevLayout === nextLayout || !ui) return null;
+    return ui.w === from.w && ui.h === from.h ? { w: to.w, h: to.h } : null;
+  }
+
+  // A field's label and help for the current layout (a META entry's `horizontal` overrides them).
+  function fieldText(key, layout) {
+    var m = META[key] || {};
+    var alt = layout === 'horizontal' && m.horizontal ? m.horizontal : {};
+    return { label: alt.label || m.label || key, help: alt.help || m.help || '' };
+  }
+
+  // The full-width preview row (.wide-preview) is for a horizontal chat in a landscape source; a portrait
+  // source keeps the tall side column, where it stays readable.
+  function wantsWidePreview(layout, w, h) { return layout === 'horizontal' && w > h; }
+
+  // Height (px, border-box) of the wide preview's stage: the source's shape at the available width plus
+  // the stage's own padding and border, between 150px and 45% of the window.
+  function wideStageHeight(availW, chrome, w, h, winH) {
+    var want = Math.ceil(availW * h / w) + chrome;
+    var max = Math.max(150, Math.round(winH * 0.45));
+    return Math.max(150, Math.min(max, want || 150));
+  }
+
   // Scale factor (<= 1) that fits a w×h source into the available box.
   function fitScale(w, h, availW, availH) {
     if (!(w > 0) || !(h > 0) || !(availW > 0) || !(availH > 0)) return 1;
@@ -331,8 +364,9 @@
 
   function addHelp(row, key, input) {
     var m = META[key] || {};
-    if (!m.help) return null;
-    var p = h('p', 'help', m.help);
+    if (!m.help && !m.horizontal) return null; // text that follows the layout needs the element either way
+    var p = h('p', 'help', m.help || '');
+    p.hidden = !m.help;
     p.id = 'h-' + key;
     row.appendChild(p);
     if (input) input.setAttribute('aria-describedby', p.id);
@@ -373,7 +407,8 @@
       }
       case 'seg': {
         var fs = h('fieldset', 'seg-field');
-        fs.appendChild(h('legend', 'field-label', labelFor(key)));
+        field.labelEl = h('legend', 'field-label', labelFor(key));
+        fs.appendChild(field.labelEl);
         var seg = h('div', 'seg');
         var radios = [];
         spec.values.forEach(function (val) {
@@ -390,7 +425,7 @@
         });
         fs.appendChild(seg);
         row.appendChild(fs);
-        addHelp(row, key, fs);
+        field.helpEl = addHelp(row, key, fs);
         field.inputs = radios;
         field.set = function (v) { radios.forEach(function (r) { r.checked = r.value === v; }); };
         break;
@@ -559,9 +594,43 @@
     });
   }
 
+  // Fields whose wording depends on the layout (META `horizontal`; segmented fields only).
+  function syncLabels() {
+    for (var k in B.fields) {
+      var f = B.fields[k];
+      if (!f.labelEl || !META[k] || !META[k].horizontal) continue;
+      var t = fieldText(k, B.cfg.layout);
+      f.labelEl.textContent = t.label;
+      if (f.helpEl) {
+        f.helpEl.textContent = t.help;
+        f.helpEl.hidden = !t.help;
+      }
+    }
+  }
+
   function syncForm() {
     for (var k in B.fields) B.fields[k].set(B.cfg[k]);
     syncDisabled();
+    syncLabels();
+  }
+
+  // After a layout change: relabel, and the preview size becomes a bar (or a column again) unless the
+  // user set it. fit() then picks the preview row or column.
+  function followLayout(prevLayout, nextLayout) {
+    // The frame hears about the layout before it is resized, so the overlay holds off trimming lines
+    // until both have landed (renderer LAYOUT_SETTLE_MS) instead of trimming for the wrong one.
+    postNow();
+    syncLabels();
+    var s = layoutPreviewSize(B.ui, prevLayout, nextLayout);
+    if (s) {
+      B.ui.w = s.w;
+      B.ui.h = s.h;
+      $('pw').value = String(s.w);
+      $('ph').value = String(s.h);
+      renderSizes();
+      saveUi();
+    }
+    fit();
   }
 
   // One setting changed from the form. Returns false when the value is invalid.
@@ -569,7 +638,9 @@
     var v = config.coerce(key, raw);
     if (v === undefined) return false;
     if (sameValue(B.cfg[key], v)) return true;
+    var prev = B.cfg[key];
     B.cfg[key] = v;
+    if (key === 'layout') followLayout(prev, v);
     onChanged(key);
     return true;
   }
@@ -589,6 +660,7 @@
     B.cfg = next;
     RELOAD_KEYS.forEach(function (k) { if (!sameValue(prev[k], next[k])) reload = true; });
     syncForm();
+    if (prev.layout !== next.layout) followLayout(prev.layout, next.layout);
     $('channel').value = next.channel || '';
     if (next.channel !== B.ch.login || B.ch.state === 'bad') checkChannel(next.channel);
     renderOutputs();
@@ -872,22 +944,31 @@
     fit();
   }
 
+  function postNow() {
+    clearTimeout(B.postTimer);
+    B.postTimer = null;
+    var f = B.frame;
+    if (!f || !f.contentWindow) return;
+    try { f.contentWindow.postMessage({ type: 'tco-config', cfg: previewCfg() }, '*'); } catch (e) { /* ignore */ }
+  }
+
   // Coalesce bursts (slider drags) into one message per ~frame.
   function postLive() {
     if (B.postTimer) return;
-    B.postTimer = setTimeout(function () {
-      B.postTimer = null;
-      var f = B.frame;
-      if (!f || !f.contentWindow) return;
-      try { f.contentWindow.postMessage({ type: 'tco-config', cfg: previewCfg() }, '*'); } catch (e) { /* ignore */ }
-    }, 30);
+    B.postTimer = setTimeout(postNow, 30);
   }
 
   function fit() {
     var stage = $('stage'), box = $('frame-box');
+    var wide = wantsWidePreview(B.cfg.layout, B.ui.w, B.ui.h);
+    $('builder').classList.toggle('wide-preview', wide);
     var cs = root.getComputedStyle(stage);
+    var padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     var aw = stage.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
-    var ah = stage.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    stage.style.height = wide ? wideStageHeight(aw, padV + (parseFloat(cs.borderTopWidth) || 0) +
+      (parseFloat(cs.borderBottomWidth) || 0), B.ui.w, B.ui.h, root.innerHeight) + 'px' : '';
+    var ah = stage.clientHeight - padV;
+    pinPreview(wide);
     var s = fitScale(B.ui.w, B.ui.h, aw, ah);
     box.style.width = Math.floor(B.ui.w * s) + 'px';
     box.style.height = Math.floor(B.ui.h * s) + 'px';
@@ -897,6 +978,23 @@
       B.frame.style.transform = s < 1 ? 'scale(' + s + ')' : 'none';
     }
     $('scale-note').textContent = B.ui.w + ' × ' + B.ui.h + (s < 1 ? ' · shown at ' + Math.round(s * 100) + '%' : ' · 100%');
+  }
+
+  function fitSoon() {
+    if (B.fitQueued) return;
+    B.fitQueued = true;
+    var run = function () { B.fitQueued = false; fit(); };
+    if (root.requestAnimationFrame) root.requestAnimationFrame(run);
+    else setTimeout(run, 16);
+  }
+
+  // The wide preview stays pinned above the scrolling settings only while it leaves most of the window
+  // free. Scroll padding then keeps #settings (the skip link) and focused fields from landing under it.
+  function pinPreview(wide) {
+    var pv = $('preview');
+    var pin = wide && root.innerWidth >= 1000 && pv.offsetHeight <= root.innerHeight * 0.4;
+    $('builder').classList.toggle('pin-preview', pin);
+    document.documentElement.style.scrollPaddingTop = pin ? (pv.offsetHeight + 16) + 'px' : '';
   }
 
   function setBackdrop(v) {
@@ -950,8 +1048,10 @@
       });
     });
 
-    if (root.ResizeObserver) new root.ResizeObserver(function () { fit(); }).observe($('stage'));
-    else root.addEventListener('resize', fit);
+    // A frame later: fit() may resize the stage it observes, which inside the callback is a loop warning.
+    if (root.ResizeObserver) new root.ResizeObserver(fitSoon).observe($('stage'));
+    // Also for height-only window changes: the wide stage's height and pinning follow the window.
+    root.addEventListener('resize', fitSoon);
   }
 
   // ---------- wiring ----------
@@ -1045,6 +1145,7 @@
       frameSig: null,
       reloadTimer: null,
       postTimer: null,
+      fitQueued: false,
       storage: undefined
     };
     var u = loadStored(STORE_UI);
@@ -1063,6 +1164,10 @@
     var init = initialCfg();
     renderChannel();
     replaceCfg(init.cfg);
+    // A stored preview size may belong to the other layout (1920×100 saved in a horizontal session,
+    // then ?channel=… opens a vertical one): swap it like a layout switch would.
+    var other = B.cfg.layout === 'horizontal' ? 'vertical' : 'horizontal';
+    if (layoutPreviewSize(B.ui, other, B.cfg.layout)) followLayout(other, B.cfg.layout);
     scheduleReload(0);
     setupLocalFile(init.fromQuery);
     fit();
@@ -1074,6 +1179,7 @@
     GROUPS: GROUPS,
     BADGE_SUBS: BADGE_SUBS,
     LOAD_KEYS: LOAD_KEYS,
+    LAYOUT_SIZES: LAYOUT_SIZES,
     RELOAD_KEYS: RELOAD_KEYS,
     GOOGLE_FONTS: GOOGLE_FONTS,
     SYSTEM_FONT_NAMES: SYSTEM_FONT_NAMES,
@@ -1085,6 +1191,10 @@
     parsePasted: parsePasted,
     relaxedJson: relaxedJson,
     frameBootCfg: frameBootCfg,
+    layoutPreviewSize: layoutPreviewSize,
+    wantsWidePreview: wantsWidePreview,
+    wideStageHeight: wideStageHeight,
+    fieldText: fieldText,
     fitScale: fitScale,
     describeIvrUser: describeIvrUser
   };

@@ -73,7 +73,11 @@ test('bgAlpha and normalizeCfg clamp values', () => {
   assert.strictEqual(c.font, 'Inter');
   assert.strictEqual(c.animate, true);
   assert.strictEqual(c.badges, false);
+  assert.strictEqual(c.layout, 'vertical');
+  assert.strictEqual(R.normalizeCfg({ layout: 'horizontal' }).layout, 'horizontal');
+  assert.strictEqual(R.normalizeCfg({ layout: 'diagonal' }).layout, 'vertical');
   const d = R.normalizeCfg({});
+  assert.strictEqual(d.layout, 'vertical');
   assert.strictEqual(d.max, 50);
   assert.strictEqual(d.fade, 0);
   assert.strictEqual(d.shadow, 2);
@@ -116,6 +120,26 @@ test('animString combines tco-in (new lines only) and tco-fade', () => {
   assert.strictEqual(R.animString(true, true, t), 'tco-in 180ms ease-out, tco-fade 1000ms linear 9000ms forwards');
   assert.strictEqual(R.animString(false, false, R.fadeTiming(10, 9500)), 'tco-fade 1000ms linear -500ms forwards');
   assert.strictEqual(R.animString(true, true, { expired: true }), 'tco-in 180ms ease-out');
+  // a horizontal row slides new lines in from the side
+  assert.strictEqual(R.animString(true, true, t, 'horizontal'), 'tco-in-x 180ms ease-out, tco-fade 1000ms linear 9000ms forwards');
+  assert.strictEqual(R.animString(true, true, null, 'vertical'), 'tco-in 180ms ease-out');
+  assert.strictEqual(R.animString(true, false, null, 'horizontal'), '');
+  assert.strictEqual(R.animString(false, true, t, 'horizontal'), 'tco-fade 1000ms linear 9000ms forwards');
+});
+
+test('newestFirst: only a vertical, top-aligned chat keeps the newest line first in the DOM', () => {
+  assert.strictEqual(R.newestFirst(R.normalizeCfg({})), false);
+  assert.strictEqual(R.newestFirst(R.normalizeCfg({ align: 'top' })), true);
+  assert.strictEqual(R.newestFirst(R.normalizeCfg({ align: 'top', layout: 'horizontal' })), false, 'a row always ends with the newest line');
+  assert.strictEqual(R.newestFirst(R.normalizeCfg({ align: 'bottom', layout: 'horizontal' })), false);
+  assert.strictEqual(R.newestFirst(null), false);
+  // setConfig reverses the DOM exactly when this flips: vertical/top <-> anything else
+  const flips = (a, b) => R.newestFirst(R.normalizeCfg(a)) !== R.newestFirst(R.normalizeCfg(b));
+  assert.strictEqual(flips({ align: 'top' }, { align: 'top', layout: 'horizontal' }), true);
+  assert.strictEqual(flips({ align: 'top', layout: 'horizontal' }, { align: 'bottom', layout: 'horizontal' }), false, 'align only moves a row');
+  assert.strictEqual(flips({ align: 'bottom' }, { align: 'bottom', layout: 'horizontal' }), false);
+  assert.strictEqual(flips({ align: 'bottom', layout: 'horizontal' }, { align: 'top' }), true);
+  assert.ok(R.LAYOUT_SETTLE_MS > 0);
 });
 
 test('Ring is a capped FIFO that drops the oldest entry', () => {
@@ -194,6 +218,44 @@ test('overflowCount: bottom trims oldest above the top, top trims newest-first l
   assert.strictEqual(R.overflowCount(trects.length, (i) => trects[i], 'top', 0, 100), 2);
   assert.strictEqual(R.overflowCount(trects.length, (i) => trects[i], 'top', 0, 1000), 0);
   assert.strictEqual(R.overflowCount(0, () => { throw new Error('no reads'); }, 'bottom', 0, 100), 0);
+});
+
+test('overflowCountX: a horizontal row trims the oldest lines left of the chat', () => {
+  // view starts at x=0; oldest first, the newest line ends at the right edge
+  const rects = [{ left: -900, right: -500 }, { left: -480, right: 0 }, { left: 20, right: 300 }, { left: 320, right: 800 }];
+  let reads = 0;
+  const at = (i) => { reads++; return rects[i]; };
+  assert.strictEqual(R.overflowCountX(rects.length, at, 0), 2, 'a line ending exactly on the edge is out');
+  assert.strictEqual(reads, 3, 'stops reading at the first visible line');
+  // slack: the row is about to slide in from 100px further right, so only lines out of view even then go
+  assert.strictEqual(R.overflowCountX(rects.length, (i) => rects[i], 0 - 100), 1);
+  assert.strictEqual(R.overflowCountX(rects.length, (i) => rects[i], -1000), 0);
+  assert.strictEqual(R.overflowCountX(1, () => ({ left: -2000, right: 800 }), 0), 0, 'a wide newest line stays');
+  assert.strictEqual(R.overflowCountX(0, () => { throw new Error('no reads'); }, 0), 0);
+});
+
+test('slideLeft: what a running slide still had to go, never piling up past its own offset', () => {
+  const S = R.SLIDE_MS;
+  assert.strictEqual(R.slideLeft(120, 300, 100), 120, 'mid-slide: what the screen shows');
+  assert.strictEqual(R.slideLeft(300, 300, 100), 300, 'a transition that has not started yet keeps its full offset (no hop)');
+  assert.strictEqual(R.slideLeft(900, 300, 100), 300, 'capped at the slide offset');
+  assert.strictEqual(R.slideLeft(300, 300, S), 0, 'over once SLIDE_MS passed, even if never drawn (hidden source)');
+  assert.strictEqual(R.slideLeft(300, 300, S + 1000), 0);
+  assert.strictEqual(R.slideLeft(-5, 300, 100), 0, 'overshoot counts as done');
+  assert.strictEqual(R.slideLeft(100, 0, 100), 0, 'no slide running');
+  assert.strictEqual(R.slideLeft(NaN, 300, 100), 0);
+  assert.strictEqual(R.slideLeft(100, 300, NaN), 0);
+  // a hidden source: flushes come from the fallback timer, so the stalled offset never carries over
+  assert.ok(R.FLUSH_FALLBACK_MS >= S, 'fallback flushes are at least SLIDE_MS apart');
+});
+
+test('slideDelta: the next slide starts where the row is on screen', () => {
+  assert.strictEqual(R.slideDelta(0, 1000, 600), 400, 'the newest old line moved 400px left');
+  assert.strictEqual(R.slideDelta(50, 1000, 600), 450, 'plus what the previous slide had left');
+  assert.strictEqual(R.slideDelta(-20, 1000, 600), 400, 'a negative remainder is ignored');
+  assert.strictEqual(R.slideDelta(0, 600, 600), 0, 'nothing moved');
+  assert.strictEqual(R.slideDelta(0, 600.4, 600), 0, 'under a pixel is no slide');
+  assert.strictEqual(R.slideDelta(0, 600, 700), 0, 'moved right (a removal): no slide');
 });
 
 test('reverseGroups keeps a notice and its message line together', () => {

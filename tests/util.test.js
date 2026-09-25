@@ -642,3 +642,16 @@ describe('SocketClient', () => {
     assert.equal(s.client.state, 'connecting');
   });
 });
+
+test('VERSION matches package.json and every ?v= cache buster', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const pkg = require('../package.json');
+  assert.strictEqual(require('../js/util.js').VERSION, pkg.version);
+  for (const page of ['overlay.html', 'index.html']) {
+    const html = fs.readFileSync(path.join(__dirname, '..', page), 'utf8');
+    const vs = [...html.matchAll(/\?v=([0-9.]+)/g)].map((m) => m[1]);
+    assert.ok(vs.length > 0, page + ' has cache busters');
+    vs.forEach((v) => assert.strictEqual(v, pkg.version, page + ' ?v=' + v));
+  }
+});

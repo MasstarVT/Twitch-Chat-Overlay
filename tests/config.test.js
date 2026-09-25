@@ -7,7 +7,7 @@ describe('spec', () => {
   test('defaults match the plan', () => {
     const d = config.defaults();
     assert.deepEqual(d, {
-      channel: '', size: 'medium', font: 'Inter', shadow: 2, bg: 0, align: 'bottom', animate: true,
+      channel: '', size: 'medium', font: 'Inter', shadow: 2, bg: 0, layout: 'vertical', align: 'bottom', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
       events: true, replies: true, first_msg: false, history: 0, shared: true, gifs: true,
       emotes_7tv: true, emotes_bttv: true, emotes_ffz: true,
@@ -71,6 +71,9 @@ describe('coerce', () => {
   test('enum', () => {
     assert.equal(config.coerce('size', 'LARGE'), 'large');
     assert.equal(config.coerce('align', ' Top '), 'top');
+    assert.equal(config.coerce('layout', ' Horizontal '), 'horizontal');
+    assert.equal(config.coerce('layout', 'vertical'), 'vertical');
+    assert.equal(config.coerce('layout', 'diagonal'), undefined);
     assert.equal(config.coerce('size', 'huge'), undefined);
     assert.equal(config.coerce('size', ''), undefined);
   });
@@ -152,6 +155,19 @@ describe('parse', () => {
     const cfg = config.parse(new URLSearchParams('CHANNEL=forsen&Size=small&size=large'));
     assert.equal(cfg.channel, 'forsen');
     assert.equal(cfg.size, 'large');
+  });
+
+  test('layout: horizontal from the URL, emitted only when not the default', () => {
+    assert.equal(config.parse('?channel=xqc&layout=horizontal').layout, 'horizontal');
+    assert.equal(config.parse('?channel=xqc&layout=sideways').layout, 'vertical');
+    assert.equal(config.parse('', { layout: 'HORIZONTAL' }).layout, 'horizontal');
+    const cfg = config.defaults();
+    cfg.channel = 'xqc';
+    assert.equal(config.toParams(cfg).toString(), 'channel=xqc');
+    cfg.layout = 'horizontal';
+    assert.equal(config.toParams(cfg).toString(), 'channel=xqc&layout=horizontal');
+    assert.deepEqual(config.toObject(cfg), { channel: 'xqc', layout: 'horizontal' });
+    assert.ok(config.LIVE_KEYS.includes('layout'), 'the builder preview switches layout without a reload');
   });
 
   test('decodes an encoded channel URL', () => {

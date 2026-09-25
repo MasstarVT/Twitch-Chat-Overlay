@@ -1,7 +1,8 @@
 /* Twitch Chat Overlay: clean default look (transparent page, white text, drop shadow). Chromium 103 safe. */
 
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .badges .badge .name .colon .message
-   .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored */
+   .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored,
+   #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg */
 
 html,
 body {
@@ -30,7 +31,7 @@ body {
 #chat.size-medium { font-size: 24px; }
 #chat.size-large { font-size: 32px; }
 
-/* Lines sit on the bottom edge (newest last) or the top edge (newest first); overflow is clipped and trimmed.
+/* layout=vertical: lines sit on the bottom edge (newest last) or the top edge (newest first); overflow is clipped and trimmed.
    The .3em vertical padding leaves room for emotes (negative .3em margins) and shadows at the edge. */
 .lines {
   position: absolute;
@@ -188,9 +189,52 @@ body {
   margin: .1em 0;
 }
 
+/* ---------- layout=horizontal: one row, newest on the right, older lines slide off the left edge ----------
+   A line never wraps: past the chat width it is cut off with an ellipsis. align runs the row along the
+   bottom or the top edge of the source. GIFs and gigantified emotes are drawn at emote height so the row
+   keeps one height. The rules below .lines use classes only, so OBS Custom CSS such as
+   `.layout-horizontal .line { max-width: 30em; }` overrides them. */
+#chat.layout-horizontal .lines {
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 0 1em;
+}
+#chat.layout-horizontal.align-top .lines { align-items: flex-start; }
+#chat.layout-horizontal.has-bg .lines { gap: 0 .4em; }
+.layout-horizontal .line {
+  flex: none;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  white-space: nowrap;
+  /* clip, not hidden: emotes may still overflow the line vertically */
+  overflow-x: clip;
+  text-overflow: ellipsis;
+}
+/* A reply header makes a line at most 15em wide; longer ones end in an ellipsis. */
+.layout-horizontal .reply { max-width: 15em; }
+.layout-horizontal .emote-stack.big { --eh: var(--emote-h, 1.75em); }
+/* An emote's box, with its width reserved up front: a GIF has no size until it loads, and growing then
+   would shove the whole row sideways. object-fit: contain letterboxes other shapes. */
+.layout-horizontal .gif {
+  width: calc(var(--emote-h, 1.75em) * 16 / 9);
+  height: var(--emote-h, 1.75em);
+  max-height: var(--emote-h, 1.75em);
+  margin: -.3em .05em;
+}
+
 /* ---------- animations ---------- */
 @keyframes tco-in {
   from { opacity: 0; transform: translateY(.4em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-x {
+  from { opacity: 0; transform: translateX(.6em); }
   to { opacity: 1; transform: none; }
 }
 @keyframes tco-fade {
