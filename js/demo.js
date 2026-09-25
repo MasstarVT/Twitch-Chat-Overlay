@@ -1,0 +1,228 @@
+/* Demo mode: loops synthetic IRC lines through the real parser/renderer, using the channel's real emotes. */
+(function (root, factory) {
+  var api = factory(root);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  (root.TCO = root.TCO || {}).demo = api;
+})(typeof window !== 'undefined' ? window : globalThis, function (root) {
+  'use strict';
+
+  var USERS = [
+    { id: 'demo-1', login: 'streamer', name: 'Streamer', color: '#9146FF', badges: 'broadcaster/1,subscriber/0' },
+    { id: 'demo-2', login: 'paintedpal', name: 'PaintedPal', color: '#1E90FF', badges: 'subscriber/12,premium/1' },
+    { id: 'demo-3', login: 'helpfulmod', name: 'HelpfulMod', color: '#00FF7F', badges: 'moderator/1,subscriber/24' },
+    { id: 'demo-4', login: 'shinyname', name: 'ShinyName', color: '', badges: 'vip/1,subscriber/3,bits/1000' },
+    { id: 'demo-5', login: 'lurker_supreme', name: 'Lurker_Supreme', color: '#FF7F50', badges: 'subscriber/6,glhf-pledge/1' },
+    { id: 'demo-6', login: 'newviewer', name: 'NewViewer', color: '', badges: '' }
+  ];
+  var TWITCH_EMOTES = { Kappa: '25', PogChamp: '305954156', LUL: '425618' };
+
+  function escTag(v) {
+    return String(v).replace(/\\/g, '\\\\').replace(/;/g, '\\:').replace(/ /g, '\\s').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+  }
+
+  function tagString(tags) {
+    var parts = [];
+    for (var k in tags) parts.push(k + '=' + escTag(tags[k] === undefined ? '' : tags[k]));
+    return '@' + parts.join(';');
+  }
+
+  // Emotes tag for known Twitch emote words, with code-point positions.
+  function twitchEmotesTag(text) {
+    var cps = Array.from(text);
+    var byId = {};
+    var pos = 0, word = '';
+    function flush(end) {
+      if (word && TWITCH_EMOTES[word]) {
+        var id = TWITCH_EMOTES[word];
+        (byId[id] = byId[id] || []).push((end - word.length) + '-' + (end - 1));
+      }
+      word = '';
+    }
+    for (pos = 0; pos < cps.length; pos++) {
+      if (cps[pos] === ' ') flush(pos);
+      else word += cps[pos];
+    }
+    flush(cps.length);
+    return Object.keys(byId).map(function (id) { return id + ':' + byId[id].join(','); }).join('/');
+  }
+
+  function firstValue(map, pred) {
+    if (!map) return null;
+    var found = null;
+    map.forEach(function (v) { if (!found && (!pred || pred(v))) found = v; });
+    return found;
+  }
+
+  function createDemo(opts) {
+    var getState = opts.getState;
+    var feed = opts.feed;
+    var counter = 0;
+    var index = 0;
+    var timer = null;
+    var cos = { linear: null, image: null, badge: null };
+
+    function S() { return getState(); }
+    function channel() { return S().cfg.channel || 'demo'; }
+    function roomId() { return S().homeId || '0'; }
+
+    function pick(kind, n) {
+      var st = S();
+      var home = st.rooms.home();
+      var normal = function (e) { return e && !e.zw && !e.hidden; };
+      var out = [];
+      function take(map) {
+        if (!map) return;
+        map.forEach(function (e) { if (out.length < n && normal(e) && out.indexOf(e.name) < 0) out.push(e.name); });
+      }
+      if (kind === '7tv') { take(home && home.stv.emotes); take(st.stvGlobal); }
+      if (kind === 'bttv') { take(home && home.bttv.emotes); take(st.bttvGlobal); }
+      if (kind === 'ffz') { take(home && home.ffz.emotes); take(st.ffzGlobal); }
+      return out;
+    }
+    function zwEmote() {
+      var st = S();
+      var e = st.stvGlobal.get('RainTime') || firstValue(st.stvGlobal, function (x) { return x.zw; });
+      return e ? e.name : null;
+    }
+
+    function privmsg(u, text, extra) {
+      var tags = {
+        'badge-info': '',
+        badges: u.badges,
+        color: u.color,
+        'display-name': u.name,
+        emotes: twitchEmotesTag(text.replace(/^\u0001ACTION /, '').replace(/\u0001$/, '')),
+        'first-msg': '0',
+        id: 'demo-msg-' + (++counter),
+        mod: u.badges.indexOf('moderator') >= 0 ? '1' : '0',
+        'room-id': roomId(),
+        'tmi-sent-ts': String(Date.now()),
+        'user-id': u.id
+      };
+      if (extra) for (var k in extra) tags[k] = extra[k];
+      return tagString(tags) + ' :' + u.login + '!' + u.login + '@' + u.login + '.tmi.twitch.tv PRIVMSG #' + channel() + ' :' + text;
+    }
+
+    function usernotice(u, msgId, systemMsg, text, params) {
+      var tags = {
+        'badge-info': '',
+        badges: u.badges,
+        color: u.color,
+        'display-name': u.name,
+        emotes: text ? twitchEmotesTag(text) : '',
+        id: 'demo-msg-' + (++counter),
+        login: u.login,
+        'msg-id': msgId,
+        'room-id': roomId(),
+        'system-msg': systemMsg,
+        'tmi-sent-ts': String(Date.now()),
+        'user-id': u.id
+      };
+      if (params) for (var k in params) tags['msg-param-' + k] = params[k];
+      return tagString(tags) + ' :tmi.twitch.tv USERNOTICE #' + channel() + (text ? ' :' + text : '');
+    }
+
+    var SCRIPT = [
+      function () { return privmsg(USERS[0], 'Welcome in, chat! Kappa'); },
+      function () {
+        var e = pick('7tv', 2);
+        return privmsg(USERS[1], (e[0] || 'PogChamp') + ' this overlay looks clean ' + (e[1] || 'LUL'));
+      },
+      function () {
+        var zw = zwEmote();
+        return privmsg(USERS[2], 'Kappa' + (zw ? ' ' + zw : '') + ' zero-width emotes stack too');
+      },
+      function () {
+        return usernotice(USERS[4], 'resub', USERS[4].name + ' subscribed at Tier 1. They\'ve subscribed for 6 months!',
+          'still here PogChamp', { 'cumulative-months': '6', 'sub-plan': '1000' });
+      },
+      function () {
+        var b = pick('bttv', 1);
+        return privmsg(USERS[3], '\u0001ACTION does a little dance ' + (b[0] || 'Kappa') + '\u0001');
+      },
+      function () {
+        var f = pick('ffz', 1);
+        return privmsg(USERS[5], '@PaintedPal same, love it ' + (f[0] || 'LUL'), {
+          'reply-parent-display-name': USERS[1].name,
+          'reply-parent-msg-body': 'this overlay looks clean',
+          'reply-parent-msg-id': 'demo-parent',
+          'reply-parent-user-id': USERS[1].id,
+          'reply-parent-user-login': USERS[1].login
+        });
+      },
+      function () { return privmsg(USERS[1], 'Cheer100 take my bits', { bits: '100' }); },
+      function () {
+        var b = pick('bttv', 2), f = pick('ffz', 1);
+        return privmsg(USERS[0], [b[0], f[0], 'LUL'].filter(Boolean).join(' '));
+      },
+      function () {
+        return usernotice({ id: 'demo-7', login: 'raider_friend', name: 'Raider_Friend', color: '#DAA520', badges: '' },
+          'raid', '25 raiders from Raider_Friend have joined!', '', { displayName: 'Raider_Friend', viewerCount: '25' });
+      },
+      function () { return privmsg(USERS[5], 'hi everyone, first time here!', { 'first-msg': '1' }); },
+      function () { return privmsg(USERS[4], 'this message was highlighted with channel points', { 'msg-id': 'highlighted-message' }); },
+      function () {
+        var st = S();
+        var hasPrefix = st.bttvPrefixes && st.bttvPrefixes.has('h!');
+        var b = pick('bttv', 1);
+        return privmsg(USERS[2], hasPrefix && b[0] ? 'mirror mirror h! ' + b[0] : 'mirror mirror ' + (b[0] || 'Kappa'));
+      }
+    ];
+
+    function tick() {
+      try { feed(SCRIPT[index % SCRIPT.length]()); } catch (e) { if (root.console) console.warn('[TCO] demo line failed', e); }
+      index++;
+    }
+
+    function onCatalog() {
+      var paints = S().stv.paints;
+      cos.linear = firstValue(paints, function (p) { return p.bgImage && p.bgImage.indexOf('linear-gradient') >= 0; });
+      cos.image = firstValue(paints, function (p) { return p.bgImage && p.bgImage.indexOf('url(') >= 0; });
+      cos.badge = null;
+      S().stv.badges.forEach(function (b, id) { if (!cos.badge) cos.badge = id; });
+      S().bus.emit('changed', { all: true });
+    }
+
+    function effective(uid) {
+      if (uid === 'demo-2') return { paint: cos.linear ? cos.linear.id : null, badge: cos.badge, sets: [] };
+      if (uid === 'demo-4') return { paint: cos.image ? cos.image.id : null, badge: null, sets: [] };
+      if (uid && uid.indexOf('demo-') === 0) return { paint: null, badge: null, sets: [] };
+      return null;
+    }
+
+    function firstBadge(map) {
+      var list = firstValue(map);
+      return list && list[0] ? list[0] : null;
+    }
+
+    function extraBadges(uid) {
+      var st = S();
+      var out = [];
+      function add(b) { if (b) out.push(b); }
+      if (uid === 'demo-1') add(firstBadge(st.chatterino));
+      if (uid === 'demo-2') {
+        var sup = st.ffzBadges.defs.get('3');
+        if (sup) add({ provider: 'ffz', title: sup.title, urls: sup.urls, bg: sup.color || undefined });
+      }
+      if (uid === 'demo-3') add(firstBadge(st.ffzap));
+      if (uid === 'demo-4') add(firstBadge(st.bttvStaff));
+      if (uid === 'demo-5') add(firstBadge(st.homies));
+      return out;
+    }
+
+    return {
+      start: function () {
+        if (timer) return;
+        tick();
+        timer = setInterval(tick, 1500);
+      },
+      stop: function () { if (timer) clearInterval(timer); timer = null; },
+      onCatalog: onCatalog,
+      effective: effective,
+      extraBadges: extraBadges,
+      _twitchEmotesTag: twitchEmotesTag
+    };
+  }
+
+  return { createDemo: createDemo, USERS: USERS };
+});

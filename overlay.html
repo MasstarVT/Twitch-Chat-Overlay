@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Twitch Chat Overlay</title>
+  <link rel="stylesheet" href="css/overlay.css?v=1.0.0">
+  <script>
+    // Record script errors (e.g. a typo in settings.js) so the overlay can explain them.
+    // On file:// pages Chromium hides the filename ("Script error."), so errors raised before
+    // settings.js finishes loading are attributed to it (it is the only script in between).
+    window.__tcoErrors = [];
+    window.addEventListener('error', function (e) {
+      window.__tcoErrors.push({ file: e.filename || (window.__tcoSettingsDone ? '' : 'settings.js'), msg: e.message || '' });
+    });
+  </script>
+  <!-- Optional: copy settings.example.js to settings.js (used by OBS "Local file" sources). A missing file is fine. -->
+  <script src="settings.js?v=1.0.0" onload="window.__tcoSettingsDone=1" onerror="window.__tcoSettingsDone=1"></script>
+  <script defer src="js/util.js?v=1.0.0"></script>
+  <script defer src="js/config.js?v=1.0.0"></script>
+  <script defer src="js/irc-parse.js?v=1.0.0"></script>
+  <script defer src="js/badge-resolve.js?v=1.0.0"></script>
+  <script defer src="js/paint-css.js?v=1.0.0"></script>
+  <script defer src="js/tokenizer.js?v=1.0.0"></script>
+  <script defer src="js/irc.js?v=1.0.0"></script>
+  <script defer src="js/twitch-badges.js?v=1.0.0"></script>
+  <script defer src="js/seventv.js?v=1.0.0"></script>
+  <script defer src="js/bttv.js?v=1.0.0"></script>
+  <script defer src="js/ffz.js?v=1.0.0"></script>
+  <script defer src="js/extra-badges.js?v=1.0.0"></script>
+  <script defer src="js/rooms.js?v=1.0.0"></script>
+  <script defer src="js/renderer.js?v=1.0.0"></script>
+  <script defer src="js/demo.js?v=1.0.0"></script>
+  <script defer src="js/overlay.js?v=1.0.0"></script>
+</head>
+<body>
+  <div id="chat"></div>
+  <div id="hint" class="tco-hint" hidden></div>
+  <div id="debug" class="tco-debug" hidden></div>
+</body>
+</html>

@@ -1,0 +1,6 @@
+# Personal overlay settings (copy settings.example.js to settings.js)
+settings.js
+
+node_modules/
+.DS_Store
+Thumbs.db
