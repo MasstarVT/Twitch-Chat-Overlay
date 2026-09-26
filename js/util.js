@@ -6,7 +6,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (root) {
   'use strict';
 
-  var VERSION = '1.1.0';
+  var VERSION = '1.1.1';
 
   // ---------- logging ----------
   var debugEnabled = false;
@@ -39,6 +39,11 @@
     if (!m) return false;
     return hostRe ? hostRe.test(m[1].toLowerCase()) : true;
   }
+  // Zalgo: a long run of combining marks stacks glyphs far above and below the line, over other
+  // messages. Keep the first 4 marks of a run (enough for Indic, Thai, Vietnamese and emoji sequences);
+  // format characters between marks (ZWJ, CGJ, ...) don't restart the count and go with the extras.
+  var MARK_RUN_RE = /((?:[\p{Mn}\p{Me}]\p{Cf}*){4})[\p{Mn}\p{Me}\p{Cf}]+/gu;
+  function capMarks(s) { return typeof s === 'string' ? s.replace(MARK_RUN_RE, '$1') : s; }
   function idStr(v) {
     if (v === null || v === undefined) return '';
     return String(v).trim();
@@ -428,6 +433,7 @@
     jitter: jitter,
     absUrl: absUrl,
     isSafeUrl: isSafeUrl,
+    capMarks: capMarks,
     idStr: idStr,
     LRU: LRU,
     Emitter: Emitter,

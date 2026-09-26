@@ -7,6 +7,10 @@
   'use strict';
 
   var CDN_RE = /^https:\/\/static-cdn\.jtvnw\.net\/badges\/v1\/[0-9a-f-]{36}\/[123]$/i;
+  // Every Twitch badge image is on static-cdn.jtvnw.net; any other URL from IVR or GQL is dropped.
+  var HOST_RE = /^https:\/\/static-cdn\.jtvnw\.net\/[^\s"'()<>\\]*$/i;
+
+  function cdnUrl(u) { return typeof u === 'string' && HOST_RE.test(u) ? u : null; }
 
   function addBadge(sets, setId, version, badge) {
     var m = sets.get(setId);
@@ -23,12 +27,14 @@
       if (!s || !s.set_id || !Array.isArray(s.versions)) continue;
       for (var j = 0; j < s.versions.length; j++) {
         var v = s.versions[j];
-        if (!v || v.id === undefined || !v.image_url_1x) continue;
+        var u1 = v && cdnUrl(v.image_url_1x);
+        if (!u1 || v.id === undefined) continue;
+        var u2 = cdnUrl(v.image_url_2x) || u1;
         addBadge(sets, s.set_id, v.id, {
           set: s.set_id,
           version: String(v.id),
           title: v.title || s.set_id,
-          urls: { 1: v.image_url_1x, 2: v.image_url_2x || v.image_url_1x, 4: v.image_url_4x || v.image_url_2x || v.image_url_1x }
+          urls: { 1: u1, 2: u2, 4: cdnUrl(v.image_url_4x) || u2 }
         });
       }
     }
@@ -41,7 +47,7 @@
     if (!Array.isArray(list)) return sets;
     for (var i = 0; i < list.length; i++) {
       var b = list[i];
-      if (!b || !b.setID || b.version === undefined || typeof b.imageURL !== 'string') continue;
+      if (!b || !b.setID || b.version === undefined || !cdnUrl(b.imageURL)) continue;
       var base = b.imageURL.replace(/\/[123]$/, '');
       addBadge(sets, b.setID, b.version, {
         set: b.setID,

@@ -10,10 +10,17 @@
   var ID_RE = /^[0-9A-Za-z]{1,40}$/;
   var HEX_RE = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
   var PAINT_HOST_RE = /^cdn\.7tv\.app$/;
+  // Real paints use a few layers, stops and shadows of a few px. The limits keep a paint (the data comes
+  // from 7TV) from drawing far outside the name over other lines, or stacking costly filters.
+  var MAX_LAYERS = 8, MAX_STOPS = 32, MAX_SHADOWS = 8, MAX_SHADOW_PX = 32;
+
+  function clamp(n, lo, hi) {
+    var x = Number(n);
+    return isFinite(x) ? Math.min(hi, Math.max(lo, x)) : 0;
+  }
 
   function fmt(n) {
-    var x = Number(n);
-    if (!isFinite(x)) return '0';
+    var x = clamp(n, -10000, 10000); // no exponent notation
     return String(Math.round(x * 1000) / 1000);
   }
 
@@ -25,7 +32,7 @@
   function stopsCss(stops, colorFn) {
     var out = [];
     if (!Array.isArray(stops)) return out;
-    for (var i = 0; i < stops.length; i++) {
+    for (var i = 0; i < stops.length && out.length < MAX_STOPS; i++) {
       var s = stops[i];
       if (!s || typeof s !== 'object') continue; // malformed stop: skip it, keep the rest of the paint
       var col = colorFn(s.color);
@@ -58,10 +65,11 @@
   function shadowsCss(shadows, pick) {
     if (!Array.isArray(shadows) || !shadows.length) return null;
     var parts = [];
-    for (var i = 0; i < shadows.length; i++) {
+    for (var i = 0; i < shadows.length && parts.length < MAX_SHADOWS; i++) {
       var s = pick(shadows[i]);
       if (!s || !s.color) continue;
-      parts.push('drop-shadow(' + fmt(s.x) + 'px ' + fmt(s.y) + 'px ' + fmt(s.blur) + 'px ' + s.color + ')');
+      parts.push('drop-shadow(' + fmt(clamp(s.x, -MAX_SHADOW_PX, MAX_SHADOW_PX)) + 'px ' +
+        fmt(clamp(s.y, -MAX_SHADOW_PX, MAX_SHADOW_PX)) + 'px ' + fmt(clamp(s.blur, 0, MAX_SHADOW_PX)) + 'px ' + s.color + ')');
     }
     return parts.length ? parts.join(' ') : null;
   }
@@ -72,7 +80,7 @@
     var data = p.data || {};
     var images = [];
     var bgColor = null;
-    var layers = Array.isArray(data.layers) ? data.layers : [];
+    var layers = Array.isArray(data.layers) ? data.layers.slice(0, MAX_LAYERS) : [];
     for (var i = 0; i < layers.length; i++) {
       var ty = layers[i] && layers[i].ty;
       if (!ty) continue;
@@ -142,6 +150,10 @@
     'background-color:currentColor;-webkit-text-stroke:0;text-shadow:none;background-size:100% 100%;background-repeat:no-repeat}';
 
   return {
+    MAX_LAYERS: MAX_LAYERS,
+    MAX_STOPS: MAX_STOPS,
+    MAX_SHADOWS: MAX_SHADOWS,
+    MAX_SHADOW_PX: MAX_SHADOW_PX,
     fromV4: fromV4,
     fromV3: fromV3,
     ruleFor: ruleFor,

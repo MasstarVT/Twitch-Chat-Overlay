@@ -125,6 +125,19 @@ Everything is fetched directly by your browser or OBS. There is no server of our
 | Twitch CDN, cheer CDN, Giphy | emote, badge, cheer and GIF images |
 | Google Fonts | the chosen font, unless it is a system font |
 
+## Security: chat can't run code
+
+Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come from other people too. None of it can run code on your stream PC or change the overlay beyond the message it's in.
+
+- **Text stays text.** Messages, names, reply headers, emote names and badge titles are only ever inserted as plain text. Nothing is parsed as HTML, so `<script>`, `<img onerror=…>` and similar just show up as typed.
+- **Only https images.** Emote, badge, GIF and paint images must be `https://` URLs. GIFs are limited to Giphy, 7TV paint images to 7TV's CDN, and Twitch badges and the Shared Chat avatar to Twitch's CDN.
+- **Validated styling.** Name and badge colors must be hex colors. 7TV paints are rebuilt from checked numbers and colors, with limited layers and shadows, so a paint can't escape its own rule or draw far outside the name.
+- **Zalgo text** (piles of combining marks) is cut to 4 marks per letter, so it can't spill over other lines. Normal accents and emoji are unaffected.
+- **Content-Security-Policy.** As a second layer, `overlay.html` and the builder only run their own script files: no inline scripts, no `eval`, nothing from other sites. Inline styles stay allowed, because OBS applies a source's Custom CSS that way.
+- **Sandboxed preview.** The builder's live-chat preview runs in a sandboxed frame with no access to the builder page.
+
+`tests/security.test.js` feeds hostile messages, emotes, badges and paints through the real code to keep it this way.
+
 ## Notes and limitations
 
 - **DankChat badges are not supported.** DankChat's badge server doesn't allow browser requests (no CORS header), so a static page can't load them.
@@ -146,7 +159,7 @@ Layout:
 
 - `index.html`, `js/builder.js`, `css/builder.css`: the builder.
 - `overlay.html`, `css/overlay.css`: the overlay page.
-- `js/overlay.js`: startup and wiring.
+- `js/overlay.js`: startup and wiring. `js/errors.js` records script errors (e.g. a broken settings.js) for the startup hint.
 - `js/irc*.js`: Twitch chat.
 - `js/seventv.js`, `js/bttv.js`, `js/ffz.js`, `js/twitch-badges.js`, `js/extra-badges.js`: emote and badge providers.
 - `js/tokenizer.js`: turns messages into emote and text tokens.

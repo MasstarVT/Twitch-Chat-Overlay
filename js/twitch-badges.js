@@ -14,6 +14,7 @@
   var BADGE_FIELDS = '{setID version title imageURL(size:QUADRUPLE)}';
   var ID_RE = /^\d+$/;
   var LOGIN_RE = /^[a-z0-9_]{1,25}$/;
+  var AVATAR_HOST_RE = /(^|\.)jtvnw\.net$/; // Twitch profile images (the Shared Chat avatar badge); same as the builder
 
   function badPayload(what) { return new Error('unexpected ' + what + ' payload'); }
 
@@ -62,7 +63,7 @@
       id: id,
       login: lg,
       displayName: typeof u.displayName === 'string' && u.displayName ? u.displayName : lg,
-      logo: util.isSafeUrl(u.logo) ? u.logo : null,
+      logo: util.isSafeUrl(u.logo, AVATAR_HOST_RE) ? u.logo : null,
       banned: !!u.banned
     };
   }

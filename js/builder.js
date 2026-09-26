@@ -937,6 +937,9 @@
     if (!src) return;
     var f = h('iframe', 'preview-frame');
     f.title = 'Overlay preview';
+    // The preview can show any channel's live chat, so it runs sandboxed: scripts only, in an origin of its
+    // own, with no reach into this page or its storage. (Settings still arrive by postMessage.)
+    f.setAttribute('sandbox', 'allow-scripts');
     f.src = src;
     f.addEventListener('load', function () { if (B.frame === f) postLive(); });
     B.frame = f;

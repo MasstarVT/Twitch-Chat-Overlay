@@ -3,16 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Only this site's own script files run (no inline scripts, no eval). The preview frame is overlay.html. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src https: data:; connect-src https://api.ivr.fi; frame-src 'self' file:; base-uri 'none'; form-action 'none'">
   <title>Twitch Chat Overlay Builder</title>
   <meta name="description" content="Build an OBS chat overlay for Twitch with 7TV, BetterTTV and FrankerFaceZ emotes, every badge source and 7TV name paints.">
   <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
-  <link rel="stylesheet" href="css/builder.css?v=1.1.0">
-  <script defer src="js/util.js?v=1.1.0"></script>
-  <script defer src="js/config.js?v=1.1.0"></script>
-  <script defer src="js/builder.js?v=1.1.0"></script>
+  <link rel="stylesheet" href="css/builder.css?v=1.1.1">
+  <script defer src="js/util.js?v=1.1.1"></script>
+  <script defer src="js/config.js?v=1.1.1"></script>
+  <script defer src="js/builder.js?v=1.1.1"></script>
 </head>
 <body>
   <a class="skip" href="#settings">Skip to settings</a>

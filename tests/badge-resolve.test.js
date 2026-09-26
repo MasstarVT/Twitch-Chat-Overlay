@@ -58,16 +58,33 @@ describe('fromHelixLike / fromGqlFlat', () => {
     assert.ok(br.CDN_RE.test(b.urls[4]));
   });
 
+  const CDN1 = 'https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/1';
+
+  test('badge images must be https on static-cdn.jtvnw.net; anything else is dropped', () => {
+    const m = br.fromHelixLike([{ set_id: 'sub', versions: [
+      { id: '0', image_url_1x: 'http://static-cdn.jtvnw.net/badges/v1/x/1' },
+      { id: '1', image_url_1x: 'https://tracker.example/p.gif' },
+      { id: '2', image_url_1x: 'javascript:alert(1)' },
+      { id: '3', image_url_1x: 'https://static-cdn.jtvnw.net.evil.example/x' },
+      { id: '4', image_url_1x: CDN1, image_url_2x: 'https://evil.example/2', image_url_4x: 'data:image/png,x' }
+    ] }]);
+    assert.deepEqual([...m.get('sub').keys()], ['4']);
+    assert.deepEqual(m.get('sub').get('4').urls, { 1: CDN1, 2: CDN1, 4: CDN1 }, 'bad sizes fall back to the good one');
+    const g = br.fromGqlFlat([{ setID: 'a', version: '1', imageURL: 'https://evil.example/x/3' },
+      { setID: 'b', version: '1', imageURL: 'http://static-cdn.jtvnw.net/badges/v1/x/3' }]);
+    assert.equal(g.size, 0);
+  });
+
   test('numeric version ids become string keys; bad entries are skipped', () => {
     const m = br.fromHelixLike([
-      { set_id: 'bits', versions: [{ id: 100, image_url_1x: 'https://x/1' }, { id: '5' }, null] },
+      { set_id: 'bits', versions: [{ id: 100, image_url_1x: CDN1 }, { id: '5' }, null] },
       null, { versions: [] }, { set_id: 'nov' }
     ]);
     assert.deepEqual([...m.keys()], ['bits']);
     assert.deepEqual([...m.get('bits').keys()], ['100']);
     const b = m.get('bits').get('100');
     assert.equal(b.title, 'bits', 'title falls back to the set id');
-    assert.deepEqual(b.urls, { 1: 'https://x/1', 2: 'https://x/1', 4: 'https://x/1' }, 'missing sizes fall back');
+    assert.deepEqual(b.urls, { 1: CDN1, 2: CDN1, 4: CDN1 }, 'missing sizes fall back');
     assert.equal(br.fromHelixLike(null).size, 0);
     assert.equal(br.fromHelixLike({}).size, 0);
   });

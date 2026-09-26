@@ -264,7 +264,7 @@
   function pickUrl(urls, want) {
     if (!urls || typeof urls !== 'object') return null;
     var u = util.absUrl(util.pickScale(urls, want));
-    return typeof u === 'string' && /^https?:\/\/[^\s]+$/i.test(u) ? u : null;
+    return typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u) ? u : null; // https only: every provider serves it
   }
 
   function num(v, def) {
@@ -302,7 +302,7 @@
     var name = String(reply.name || reply.login || '');
     if (!name) return null;
     var body = String(reply.body || '').replace(/^\u0001ACTION /, '').replace(/\u0001$/, '').replace(/[\r\n]+/g, ' ');
-    return { name: '@' + name, body: body };
+    return { name: '@' + util.capMarks(name), body: util.capMarks(body) };
   }
 
   // With badges off, only the Shared Chat source avatar (provider 'avatar') is kept: it marks the source
@@ -349,7 +349,7 @@
       var space = parts.length > 0 && !!it.sp;
       if (it.type === 'emote') {
         var e = it.emote || {};
-        var ename = String(e.name || '');
+        var ename = util.capMarks(String(e.name || ''));
         var want = it.big ? opts.wantBig : opts.want;
         var url = pickUrl(e.urls, want);
         if (!url) { addText(parts, (space ? ' ' : '') + ename); continue; }
@@ -372,7 +372,7 @@
           ov: ov
         });
       } else if (it.type === 'gif') {
-        var title = String(it.title || '');
+        var title = util.capMarks(String(it.title || ''));
         var gurl = opts.gifs && util.isSafeUrl(it.url) ? it.url : null;
         if (!gurl) { addText(parts, (space ? ' ' : '') + title); continue; }
         if (space) addText(parts, ' ');
@@ -391,6 +391,8 @@
         if (txt) addText(parts, (space ? ' ' : '') + txt);
       }
     }
+    // Only after tokenizing: Twitch emote ranges index the original code points.
+    for (var k = 0; k < parts.length; k++) if (parts[k].t === 'text') parts[k].s = util.capMarks(parts[k].s);
     return parts;
   }
 
@@ -399,12 +401,12 @@
     cfg = cfg || {};
     d = d || {};
     if (d.kind === 'notice') {
-      return { kind: 'notice', cls: lineClasses(msg, cfg, 'notice', false), system: String(msg.systemMsg || '') };
+      return { kind: 'notice', cls: lineClasses(msg, cfg, 'notice', false), system: util.capMarks(String(msg.systemMsg || '')) };
     }
     var px = fontPx(cfg.size);
     var action = !!d.action;
     var nm = d.name || {};
-    var text = typeof nm.text === 'string' && nm.text ? nm.text : String(msg.displayName || msg.login || '');
+    var text = util.capMarks(typeof nm.text === 'string' && nm.text ? nm.text : String(msg.displayName || msg.login || ''));
     var color = typeof nm.color === 'string' && nm.color ? nm.color : util.defaultColor(msg.userId, msg.login);
     var paint = typeof nm.paint === 'string' && PAINT_ID_RE.test(nm.paint) ? nm.paint : null;
     return {
