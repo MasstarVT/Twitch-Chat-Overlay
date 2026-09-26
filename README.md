@@ -31,9 +31,11 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
 
 ## Quick start
 
+The overlay is hosted at **https://chat.masstar.org/**. Open it, enter your channel, and copy the overlay URL into OBS (steps 3–5 below). To host your own copy instead, use Option A or B.
+
 ### Option A: GitHub Pages (recommended)
 
-1. In your GitHub repo, go to **Settings → Pages**, choose **Deploy from a branch**, and pick `main` / `(root)`.
+1. Fork the repo and delete the `CNAME` file from your fork (it points at chat.masstar.org). Then go to **Settings → Pages**, choose **Deploy from a branch**, and pick `main` / `(root)`.
 2. Open `https://<your-user>.github.io/Twitch-Chat-Overlay/`. That page is the builder. To pre-fill it, add options to its URL, for example `?channel=yourname`.
 3. Enter your channel, adjust the look, and press **Copy** next to the overlay URL.
 4. In OBS: **Sources → + → Browser**. Paste the URL, then set **Width** and **Height** to the same size as the builder preview (450 × 700 for the vertical layout, 1920 × 100 for the horizontal one).
