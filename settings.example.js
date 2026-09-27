@@ -8,13 +8,13 @@
   The builder (index.html) can generate this file for you. All options are listed in README.md.
 */
 window.TCO_SETTINGS = {
-  channel: 'your_channel_name'
+  channel: 'YOUR CHANNEL NAME', // your Twitch name, e.g. 'xqc'
   // size: 'medium',      // small | medium | large
   // font: 'Inter',       // any Google Font or system font name
   // shadow: 2,           // 0-3
   // layout: 'vertical',  // vertical | horizontal (one row, like a ticker)
-  // fade: 0,             // seconds before a message fades out (0 = never)
+  // fade: 0,             // seconds a message stays; the last second fades out (0 = never)
   // max: 50,             // maximum lines on screen
   // bots: false,         // show messages from known bots
-  // hide_commands: false // hide messages starting with "!"
+  // hide_commands: false, // hide messages starting with "!"
 };

@@ -62,7 +62,7 @@ input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visibl
   margin: 0 auto;
 }
 .top { grid-area: top; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.preview { grid-area: preview; min-width: 0; }
+.preview { grid-area: preview; min-width: 0; height: min(78vh, 760px); min-height: 420px; }
 .settings { grid-area: settings; display: flex; flex-direction: column; gap: 16px; min-width: 0; outline: none; }
 
 @media (min-width: 1000px) {
@@ -310,8 +310,6 @@ details.paste .input-row { align-items: flex-start; }
 .preview {
   display: flex; flex-direction: column; gap: 12px;
   padding: 12px;
-  height: min(78vh, 760px);
-  min-height: 420px;
 }
 .preview-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
 .swatches { display: flex; gap: 6px; }
@@ -469,5 +467,5 @@ details.paste .input-row { align-items: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation-duration: .01ms !important; }
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

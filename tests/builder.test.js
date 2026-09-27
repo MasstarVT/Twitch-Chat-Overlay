@@ -32,8 +32,9 @@ test('enum option labels cover every SPEC value', () => {
 
 test('reload keys are exactly the non-live keys', () => {
   assert.deepStrictEqual(builder.RELOAD_KEYS.slice().sort(),
-    ['channel', 'debug', 'demo', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'history', 'shared', 'stv_lookup'].sort());
-  config.LIVE_KEYS.forEach((k) => assert.ok(builder.isLiveKey(k)));
+    config.KEYS.filter((k) => config.LIVE_KEYS.indexOf(k) < 0).sort());
+  ['channel', 'debug', 'demo', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'history', 'stv_lookup']
+    .forEach((k) => assert.ok(builder.RELOAD_KEYS.indexOf(k) >= 0, k));
   assert.ok(!builder.isLiveKey('channel'));
 });
 
@@ -51,11 +52,27 @@ test('overlayUrl resolves next to the builder and holds only non-default params'
   assert.deepStrictEqual(config.parse(new URL(url).searchParams), cfg);
 });
 
-test('overlayUrl works from a file:// builder', () => {
+test('overlayUrl from a file:// builder lists every setting, so a settings.js there cannot fill any in', () => {
   const cfg = config.defaults();
   cfg.channel = 'xqc';
-  assert.strictEqual(builder.overlayUrl(cfg, 'file:///E:/Github/Twitch%20Chat%20Overlay/index.html'),
-    'file:///E:/Github/Twitch%20Chat%20Overlay/overlay.html?channel=xqc');
+  cfg.block = ['a_b', 'c'];
+  const url = builder.overlayUrl(cfg, 'file:///E:/Github/Twitch%20Chat%20Overlay/index.html');
+  assert.ok(url.startsWith('file:///E:/Github/Twitch%20Chat%20Overlay/overlay.html?channel=xqc&'), url);
+  const p = new URL(url).searchParams;
+  config.KEYS.forEach((k) => assert.ok(p.has(k), 'missing ' + k));
+  assert.strictEqual(p.get('size'), 'medium');
+  assert.strictEqual(p.get('bots'), '0');
+  assert.strictEqual(p.get('demo'), '0');
+  // A settings.js that changes defaults loses to every key in the URL.
+  const settings = { channel: 'streamer', size: 'large', fade: 30, bots: true, demo: true, block: ['x'] };
+  assert.deepStrictEqual(config.parse(p, settings), cfg);
+  // and the long URL still round-trips through the paste box
+  const r = builder.parsePasted(url);
+  assert.deepStrictEqual(r.cfg, cfg);
+  assert.strictEqual(r.count, config.KEYS.length);
+  // Hosted builders keep the short URL.
+  assert.strictEqual(builder.overlayUrl(cfg, BASE),
+    'https://masstarvt.github.io/Twitch-Chat-Overlay/overlay.html?channel=xqc&block=a_b,c');
 });
 
 test('previewUrl sets every key explicitly and round-trips', () => {
@@ -67,8 +84,8 @@ test('previewUrl sets every key explicitly and round-trips', () => {
   assert.strictEqual(p.get('demo'), '1');
   assert.strictEqual(p.get('badges'), '1');
   assert.strictEqual(p.get('block'), '');
-  assert.ok(!p.has('channel'), 'empty channel is omitted');
-  assert.strictEqual(p.size === undefined ? [...p.keys()].length : p.size, config.KEYS.length - 1);
+  assert.strictEqual(p.get('channel'), '', 'an empty channel is written as channel=');
+  assert.strictEqual(p.size === undefined ? [...p.keys()].length : p.size, config.KEYS.length);
   assert.deepStrictEqual(config.parse(p), cfg);
 });
 
@@ -112,16 +129,13 @@ test('parsePasted reads overlay URLs, bare queries and settings.js', () => {
 
 test('parsePasted reads settings.example.js as shipped and once edited by hand', () => {
   const example = fs.readFileSync(path.join(__dirname, '..', 'settings.example.js'), 'utf8');
-  const r1 = builder.parsePasted(example);
-  assert.ok(r1, 'settings.example.js parses');
-  assert.strictEqual(r1.count, 1);
-  const want = config.defaults();
-  want.channel = 'your_channel_name';
-  assert.deepStrictEqual(r1.cfg, want);
+  // The placeholder is not a valid Twitch name, so an unedited copy gets the overlay's "No channel set" hint.
+  assert.strictEqual(config.normalizeChannel(builder.relaxedJson(example).channel), '');
+  assert.strictEqual(builder.parsePasted(example), null, 'no usable setting in the unedited example');
 
-  // A streamer fills in the channel and uncomments some options.
+  // A streamer fills in the channel and uncomments some options (the example's own commas).
   const edited = example
-    .replace("channel: 'your_channel_name'", "channel: 'xQc',")
+    .replace("'YOUR CHANNEL NAME'", "'xQc'")
     .replace(/^ {2}\/\/ /gm, '  ')
     .replace("size: 'medium'", "size: 'large'")
     .replace('shadow: 2', 'shadow: 0')
@@ -137,6 +151,40 @@ test('parsePasted reads settings.example.js as shipped and once edited by hand',
   assert.strictEqual(r2.cfg.bots, true);
   assert.strictEqual(r2.cfg.hide_commands, false);
   assert.strictEqual(r2.cfg.font, 'Inter');
+});
+
+test('settings.example.js runs with any of its options uncommented', () => {
+  const example = fs.readFileSync(path.join(__dirname, '..', 'settings.example.js'), 'utf8');
+  const lines = example.split(/\r?\n/);
+  const optional = lines.map((l, i) => (/^ {2}\/\/ \w+:/.test(l) ? i : -1)).filter((i) => i >= 0);
+  assert.ok(optional.length >= 8);
+  const run = (on) => {
+    const text = lines.map((l, i) => (on.indexOf(i) >= 0 ? l.replace('// ', '') : l)).join('\n');
+    const sandbox = { window: {} };
+    vm.runInNewContext(text, sandbox);
+    return sandbox.window.TCO_SETTINGS;
+  };
+  assert.deepStrictEqual(Object.keys(run([])), ['channel']);
+  optional.forEach((i) => assert.strictEqual(Object.keys(run([i])).length, 2, lines[i]));
+  assert.strictEqual(Object.keys(run(optional)).length, optional.length + 1);
+});
+
+test('parsePasted counts only the settings it applies, and ignores a paste with none', () => {
+  // A settings.js value that isn't valid is not applied, so it isn't counted, and a paste with
+  // nothing usable leaves the builder (and its channel) alone.
+  assert.strictEqual(builder.parsePasted('{ "fade": "soon", "max": "lots", "nope": 1 }'), null);
+  const r = builder.parsePasted('{ "channel": "xqc", "size": "huge", "max": "lots" }');
+  assert.strictEqual(r.count, 1);
+  assert.strictEqual(r.cfg.size, 'medium');
+  // The count is what config.parse takes from the object, whatever the key's case.
+  const mixed = builder.parsePasted('{ "channel": "xqc", "Size": "large" }');
+  assert.strictEqual(mixed.count, 2);
+  assert.strictEqual(mixed.cfg.size, 'large');
+  // URL keys are case-insensitive (as in the overlay); a bad value doesn't count.
+  assert.strictEqual(builder.parsePasted('?SIZE=large&fade=soon').count, 1);
+  assert.strictEqual(builder.parsePasted('?size=huge&channel=a%20b'), null);
+  // The last value wins, as in config.parse.
+  assert.strictEqual(builder.parsePasted('?size=huge&size=small').count, 1);
 });
 
 test('parsePasted reads a hand-written settings.js: comments, single quotes, unquoted keys, trailing commas', () => {
@@ -211,26 +259,74 @@ test('parsePasted ignores prototype names: __proto__, constructor and toString a
   assert.strictEqual(({}).channel, undefined);
 });
 
-test('the preview frame boots with every badge and paint loader on', () => {
-  assert.deepStrictEqual(builder.LOAD_KEYS.slice().sort(), ['badges', 'paints'].concat(builder.BADGE_SUBS).sort());
-  builder.LOAD_KEYS.forEach((k) => assert.ok(builder.isLiveKey(k), k + ' must be a live key, so the real value can follow by postMessage'));
-  const pc = config.defaults();
-  pc.channel = 'forsen';
-  pc.demo = true;
-  pc.badges = false;
-  pc.badges_ffz = false;
-  pc.paints = false;
-  pc.size = 'large';
-  const boot = builder.frameBootCfg(pc);
-  builder.LOAD_KEYS.forEach((k) => assert.strictEqual(boot[k], true, k));
-  assert.strictEqual(pc.badges, false, 'input not mutated');
-  assert.strictEqual(pc.paints, false, 'input not mutated');
-  assert.strictEqual(boot.size, 'large');
-  assert.strictEqual(boot.channel, 'forsen');
-  assert.notStrictEqual(boot.block, pc.block);
-  const p = new URL(builder.previewUrl(boot, BASE)).searchParams;
-  ['badges', 'badges_ffz', 'paints'].forEach((k) => assert.strictEqual(p.get(k), '1', k));
-  assert.strictEqual(p.get('size'), 'large');
+test('badge and paint switches are live keys, so turning one on needs no preview reload', () => {
+  ['badges', 'paints'].concat(builder.BADGE_SUBS).forEach((k) => assert.ok(builder.isLiveKey(k), k));
+});
+
+// A different valid value for any key.
+function flip(cfg, k) {
+  const c = Object.assign({}, cfg);
+  const s = config.SPEC[k];
+  if (s.type === 'bool') c[k] = !c[k];
+  else if (s.type === 'int') c[k] = c[k] === s.max ? s.min : c[k] + 1;
+  else if (s.type === 'enum') c[k] = s.values.filter((v) => v !== c[k])[0];
+  else if (s.type === 'channel') c[k] = c[k] === 'xqc' ? 'forsen' : 'xqc';
+  else if (s.type === 'font') c[k] = c[k] === 'Roboto' ? 'Inter' : 'Roboto';
+  else c[k] = (c[k] || []).concat('someone');
+  return c;
+}
+
+test('reloadSignature: live keys never reload the preview; reload keys do, except those a demo ignores', () => {
+  const live = Object.assign(config.defaults(), { channel: 'forsen' });
+  const sig = builder.reloadSignature(live);
+  config.LIVE_KEYS.forEach((k) => assert.strictEqual(builder.reloadSignature(flip(live, k)), sig, k));
+  builder.RELOAD_KEYS.forEach((k) => assert.notStrictEqual(builder.reloadSignature(flip(live, k)), sig, k));
+  // In demo mode the keys the demo ignores don't reload it; everything else still does.
+  const demo = Object.assign({}, live, { demo: true });
+  const dsig = builder.reloadSignature(demo);
+  assert.deepStrictEqual(builder.DEMO_INERT.slice().sort(), ['history', 'shared', 'stv_lookup']);
+  builder.RELOAD_KEYS.forEach((k) => {
+    assert.strictEqual(builder.reloadSignature(flip(demo, k)) === dsig, builder.DEMO_INERT.indexOf(k) >= 0, k);
+  });
+});
+
+test('the preview frame is sandboxed to scripts only, except from disk where it could not load', () => {
+  assert.strictEqual(builder.frameSandbox('https:'), 'allow-scripts');
+  assert.strictEqual(builder.frameSandbox('http:'), 'allow-scripts');
+  assert.strictEqual(builder.frameSandbox('file:'), null);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'builder.js'), 'utf8');
+  assert.match(src, /setAttribute\('sandbox', sb\)/);
+  ['js/builder.js', 'index.html'].forEach((f) =>
+    assert.ok(fs.readFileSync(path.join(__dirname, '..', f), 'utf8').indexOf('allow-same-origin') < 0, f));
+});
+
+test('every GROUPS key is a SPEC key, listed once, and together they are every setting but channel', () => {
+  const all = [].concat(...builder.GROUPS.map((g) => g.keys));
+  all.forEach((k) => assert.ok(Object.prototype.hasOwnProperty.call(config.SPEC, k), 'stale GROUPS key ' + k));
+  assert.deepStrictEqual(all.slice().sort(), config.KEYS.filter((k) => k !== 'channel').sort());
+});
+
+test('startCfg: a ?channel= link keeps the remembered settings; a full link starts from defaults', () => {
+  const stored = config.toObject(Object.assign(config.defaults(), { channel: 'old', size: 'large', fade: 30 }));
+  const a = builder.startCfg('?channel=NewOne', stored);
+  assert.strictEqual(a.fromQuery, true);
+  assert.strictEqual(a.cfg.channel, 'newone');
+  assert.strictEqual(a.cfg.size, 'large');
+  assert.strictEqual(a.cfg.fade, 30);
+  const b = builder.startCfg('?channel=x&size=small', stored);
+  assert.deepStrictEqual(b.cfg, Object.assign(config.defaults(), { channel: 'x', size: 'small' }));
+  const c = builder.startCfg('', stored);
+  assert.strictEqual(c.fromStore, true);
+  assert.strictEqual(c.fromQuery, false);
+  assert.strictEqual(c.cfg.fade, 30);
+  assert.strictEqual(builder.startCfg('?utm=1', null).fromStore, false);
+  assert.deepStrictEqual(builder.startCfg('?utm=1', ['x']).cfg, config.defaults());
+});
+
+test('smallAvatar asks Twitch for the 70x70 rendition', () => {
+  assert.strictEqual(builder.smallAvatar('https://static-cdn.jtvnw.net/jtv_user_pictures/abc-profile_image-600x600.png'),
+    'https://static-cdn.jtvnw.net/jtv_user_pictures/abc-profile_image-70x70.png');
+  assert.strictEqual(builder.smallAvatar('https://static-cdn.jtvnw.net/x/y.jpeg'), 'https://static-cdn.jtvnw.net/x/y.jpeg');
 });
 
 test('events help mentions announcements', () => {
@@ -289,6 +385,14 @@ test('describeIvrUser handles the bare-array IVR shape', () => {
   assert.strictEqual(builder.describeIvrUser([]).state, 'notfound');
   assert.strictEqual(builder.describeIvrUser(null).state, 'notfound');
   assert.strictEqual(builder.describeIvrUser([{ id: 5 }]).user.id, '5');
+  // Like the overlay's lookup: a numeric id only (else 'error', not a missing channel), and the entry
+  // whose login matches.
+  ['', ' ', 'abc', {}, null].forEach((id) =>
+    assert.strictEqual(builder.describeIvrUser([{ id, login: 'x' }], 'x').state, 'error', JSON.stringify(id)));
+  assert.strictEqual(builder.describeIvrUser([null]).state, 'error');
+  // An answer only about another login is no answer, as in the overlay.
+  assert.strictEqual(builder.describeIvrUser([{ id: '1', login: 'other' }], 'forsen').state, 'error');
+  assert.strictEqual(builder.describeIvrUser([{ id: '1', login: 'other' }, { id: '2', login: 'Forsen' }], 'forsen').user.id, '2');
 });
 
 test('font suggestions are all valid font values', () => {

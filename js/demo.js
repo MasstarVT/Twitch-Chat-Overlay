@@ -48,6 +48,8 @@
 
   function firstValue(map, pred) {
     if (!map) return null;
+    // Homies has a cheap first(); its forEach would build a Badge for every packed entry (~9,400).
+    if (!pred && typeof map.first === 'function') return map.first();
     var found = null;
     map.forEach(function (v) { if (!found && (!pred || pred(v))) found = v; });
     return found;
@@ -224,5 +226,5 @@
     };
   }
 
-  return { createDemo: createDemo, USERS: USERS };
+  return { createDemo: createDemo, USERS: USERS, _tagString: tagString };
 });

@@ -17,6 +17,9 @@
   var RELOAD_DELAY = 800;
   var STORE_CFG = 'tco-builder-cfg';
   var STORE_UI = 'tco-builder-ui';
+  var STORE_FILE_BASE = 'tco-builder-file:'; // + folder path: the settings.js last loaded from there
+  var STORE_CFG_PATH = 'tco-builder-cfg-path'; // file: only: the folder whose builder saved STORE_CFG
+  var HIDDEN_GRACE = 60000; // a live preview left in a hidden tab disconnects after this (ms)
   var BACKDROPS = ['dark', 'light', 'checker', 'busy'];
   var SIZE_LIMITS = { w: [100, 3840], h: [100, 2160] };
   var UI_DEFAULTS = { w: 450, h: 700, backdrop: 'dark' };
@@ -40,7 +43,7 @@
       // Shown instead while layout is horizontal (see syncLabels).
       horizontal: { label: 'Row sits', help: 'Whether the row runs along the bottom or the top edge of the source. New messages always come in on the right.' } },
     animate: { label: 'Slide in new messages' },
-    fade: { label: 'Fade out after (seconds)', help: '0 keeps messages until newer ones push them out.' },
+    fade: { label: 'Remove after (seconds)', help: 'The last second fades out. 0 keeps messages until newer ones push them out.' },
     max: { label: 'Max messages on screen', help: 'From 1 to 200.' },
     bots: { label: 'Show bot messages',
       help: 'Nightbot, StreamElements, Streamlabs, Moobot, Fossabot and similar bots, plus the bots listed on the channel’s BetterTTV page.' },
@@ -78,9 +81,6 @@
   var BADGE_SUBS = ['badges_twitch', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap',
     'badges_chatterino', 'badges_homies'];
 
-  // Live keys that also decide which data the overlay downloads when it boots.
-  var LOAD_KEYS = ['badges', 'paints'].concat(BADGE_SUBS);
-
   var GROUPS = [
     { id: 'look', title: 'Look', keys: ['layout', 'size', 'font', 'shadow', 'bg', 'align', 'animate'] },
     { id: 'behavior', title: 'Behavior', keys: ['fade', 'max', 'bots', 'hide_commands', 'block', 'events',
@@ -97,6 +97,17 @@
   function isLiveKey(k) { return config.LIVE_KEYS.indexOf(k) >= 0; }
 
   var RELOAD_KEYS = config.KEYS.filter(function (k) { return !isLiveKey(k); });
+
+  // Keys a demo overlay ignores: it loads no history (overlay.js loadHistory), looks up no chatters
+  // on 7TV and has no Shared Chat, so changing one (when it is a reload key) needs no demo reload.
+  var DEMO_INERT = ['history', 'shared', 'stv_lookup'];
+
+  // Live keys reach the frame by postMessage, so only reload keys decide whether to reload.
+  function reloadSignature(pc) {
+    return RELOAD_KEYS.map(function (k) {
+      return pc.demo && DEMO_INERT.indexOf(k) >= 0 ? '-' : serialize(k, pc[k]);
+    }).join('|');
+  }
 
   // GROUPS plus any SPEC key the builder doesn't know yet (appended to Advanced).
   function groupLayout() {
@@ -121,9 +132,12 @@
   // Commas are legal in a query string; keep block lists readable.
   function tidyQuery(q) { return q.replace(/%2C/gi, ','); }
 
-  // The URL to paste into OBS: only non-default params (config.toParams).
+  // The URL to paste into OBS: only non-default params (config.toParams). A file:/// overlay always
+  // loads the settings.js in its folder, which fills in every key the URL leaves out, so there the
+  // URL lists every setting (like the preview) and a settings.js can't change the source.
   function overlayUrl(cfg, baseHref) {
     var u = new URL('overlay.html', baseHref);
+    if (u.protocol === 'file:') return previewUrl(cfg, baseHref);
     var q = tidyQuery(config.toParams(cfg).toString());
     u.search = q ? '?' + q : '';
     u.hash = '';
@@ -131,18 +145,29 @@
   }
 
   // The preview iframe URL: every key explicit, so a settings.js next to overlay.html can't leak in.
+  // An empty channel is written too (channel=), for the overlay to read as "no channel".
   function previewUrl(cfg, baseHref) {
     var u = new URL('overlay.html', baseHref);
     var p = new URLSearchParams();
     for (var i = 0; i < config.KEYS.length; i++) {
       var k = config.KEYS[i], v = cfg[k];
-      if (v === undefined || v === null || (k === 'channel' && !v)) continue;
+      if (k === 'channel') { p.set(k, v ? String(v) : ''); continue; }
+      if (v === undefined || v === null) continue;
       p.set(k, serialize(k, v));
     }
     u.search = '?' + tidyQuery(p.toString());
     u.hash = '';
     return u.href;
   }
+
+  // The preview frame's sandbox. An opaque-origin frame may not load file: resources, so from disk the
+  // preview would stay blank; there it runs unsandboxed (Chrome still gives each file: page an origin
+  // of its own, and OBS runs overlay.html unsandboxed from file: anyway).
+  function frameSandbox(protocol) { return protocol === 'file:' ? null : 'allow-scripts'; }
+
+  // IVR's logo is the 600x600 rendition; the builder shows it at 28 px. Twitch serves the same image
+  // at 70x70 (the builder falls back to the full one if that ever fails).
+  function smallAvatar(url) { return String(url).replace(/-(\d+)x\1(\.\w+)$/, '-70x70$2'); }
 
   function settingsSnippet(cfg) {
     return '// Twitch Chat Overlay settings. Save as settings.js next to overlay.html.\n' +
@@ -151,11 +176,11 @@
   }
 
   // Own SPEC keys only: '__proto__', 'constructor', 'toString'… are not settings.
-  function countKnown(keys) {
-    var n = 0;
-    keys.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(config.SPEC, String(k).toLowerCase())) n++; });
-    return n;
-  }
+  function isKnown(k) { return Object.prototype.hasOwnProperty.call(config.SPEC, String(k).toLowerCase()); }
+
+  // How many settings config.parse will actually take from obj: the ones config.applyObject accepts
+  // (a known key with a valid value), onto an empty object.
+  function countApplied(obj) { return Object.keys(config.applyObject({}, obj)).length; }
 
   var JS_ESCAPES = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0' };
 
@@ -237,7 +262,7 @@
     if (/TCO_SETTINGS/.test(s) || startsWithObject(s)) {
       var obj = readSettingsObject(s);
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-      var n = countKnown(Object.keys(obj));
+      var n = countApplied(obj);
       return n ? { cfg: config.parse('', obj), count: n } : null;
     }
     var q = s.indexOf('?');
@@ -247,10 +272,27 @@
     else return null;
     search = search.split('#')[0];
     var params = new URLSearchParams(search);
-    var keys = [];
-    params.forEach(function (v, k) { keys.push(k); });
-    var count = countKnown(keys);
+    // As config.parse reads a query: keys lowercased, the last value wins.
+    var fromUrl = {};
+    params.forEach(function (v, k) { if (isKnown(k)) fromUrl[String(k).toLowerCase()] = v; });
+    var count = countApplied(fromUrl);
     return count ? { cfg: config.parse(params), count: count } : null;
+  }
+
+  // The builder's first config, from its query string and the remembered config. A link with only
+  // ?channel= (the overlay's hints link here) keeps the remembered look and filters; a link with more
+  // settings is a whole setup, over the defaults.
+  function startCfg(search, stored) {
+    var params = new URLSearchParams(search || '');
+    var known = [];
+    params.forEach(function (v, k) { if (isKnown(k)) known.push(String(k).toLowerCase()); });
+    var base = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
+    if (known.length) {
+      var onlyChannel = known.every(function (k) { return k === 'channel'; });
+      return { cfg: config.parse(params, onlyChannel ? base : null), fromQuery: true, fromStore: false };
+    }
+    if (base) return { cfg: config.parse('', base), fromQuery: false, fromStore: true };
+    return { cfg: config.defaults(), fromQuery: false, fromStore: false };
   }
 
   // The preview size to switch to when the layout changes, or null to keep the current one. Only a
@@ -286,10 +328,15 @@
     return Math.max(0.05, Math.min(1, availW / w, availH / h));
   }
 
-  // IVR /v2/twitch/user bare array -> {state:'found', user} | {state:'notfound'}.
-  function describeIvrUser(r) {
-    if (Array.isArray(r) && r.length && r[0] && r[0].id !== undefined && r[0].id !== null) {
-      var u = r[0];
+  // IVR /v2/twitch/user bare array -> {state:'found', user} | {state:'notfound'} | {state:'error'}.
+  // Like the overlay's own lookup: the entry whose login matches, and only with a numeric id. A reply
+  // that doesn't fit is 'error' (the overlay still tries the name), never a missing channel.
+  function describeIvrUser(r, login) {
+    if (Array.isArray(r) && r.length) {
+      var want = String(login || '').toLowerCase();
+      // Asked for a login: an answer about someone else is no answer (the overlay ignores it too).
+      var u = want ? r.filter(function (x) { return x && String(x.login || '').toLowerCase() === want; })[0] : r[0];
+      if (!u || !/^\d+$/.test(util.idStr(u.id))) return { state: 'error' };
       return { state: 'found', user: {
         id: util.idStr(u.id), login: String(u.login || ''), displayName: String(u.displayName || u.login || ''),
         logo: typeof u.logo === 'string' ? u.logo : null, banned: !!u.banned } };
@@ -312,15 +359,6 @@
     var o = {};
     for (var k in cfg) o[k] = Array.isArray(cfg[k]) ? cfg[k].slice() : cfg[k];
     return o;
-  }
-
-  // The config the preview frame boots with: every LOAD_KEY on, so the overlay downloads all badge
-  // and paint data up front. The real values follow by postMessage on the frame's load event, so
-  // ticking a badge source later shows its badges without a reload.
-  function frameBootCfg(pc) {
-    var boot = copyCfg(pc);
-    LOAD_KEYS.forEach(function (k) { boot[k] = true; });
-    return boot;
   }
 
   // ---------- DOM runtime ----------
@@ -349,7 +387,11 @@
     if (!s) return;
     try { s.setItem(key, JSON.stringify(v)); } catch (e) { /* quota or blocked */ }
   }
-  function saveCfg() { store(STORE_CFG, config.toObject(B.cfg)); }
+  function saveCfg() {
+    store(STORE_CFG, config.toObject(B.cfg));
+    // Every file:// page shares one localStorage, so remember which folder these settings came from.
+    if (root.location.protocol === 'file:') store(STORE_CFG_PATH, root.location.pathname);
+  }
   function saveUi() { store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop }); }
 
   function announce(text) {
@@ -471,10 +513,19 @@
         row.appendChild(nl);
         row.appendChild(num);
         addHelp(row, key, num);
-        num.addEventListener('input', function () { update(key, num.value); });
-        num.addEventListener('change', function () { num.value = String(B.cfg[key]); });
+        // Debounced: typing "50" passes through "5", and max=5 or fade=5 would wipe the preview's lines.
+        var nt = null;
+        num.addEventListener('input', function () {
+          clearTimeout(nt);
+          nt = setTimeout(function () { update(key, num.value); }, 400);
+        });
+        num.addEventListener('change', function () {
+          clearTimeout(nt);
+          update(key, num.value);
+          num.value = String(B.cfg[key]);
+        });
         field.inputs.push(num);
-        field.set = function (v) { num.value = String(v); };
+        field.set = function (v) { clearTimeout(nt); num.value = String(v); };
         break;
       }
       case 'font': {
@@ -701,8 +752,9 @@
     renderChannel();
     util.fetchJson(IVR_USER + encodeURIComponent(login), { timeout: 8000 }).then(function (r) {
       if (seq !== B.chSeq) return;
-      var res = util.isNotFound(r) ? { state: 'notfound' } : describeIvrUser(r);
-      B.chCache.set(login, res);
+      var res = util.isNotFound(r) ? { state: 'notfound' } : describeIvrUser(r, login);
+      // An odd reply isn't kept: the next check (or the Check button) asks again.
+      if (res.state !== 'error') B.chCache.set(login, res);
       applyChannel(login, res);
     }, function (e) {
       if (seq !== B.chSeq) return;
@@ -734,12 +786,16 @@
       var u = B.ch.user;
       if (u.logo && util.isSafeUrl(u.logo, AVATAR_HOST_RE)) {
         var img = h('img', 'avatar');
-        img.src = u.logo;
+        var full = u.logo, small = smallAvatar(full);
+        img.src = small;
         img.alt = '';
         img.width = 28;
         img.height = 28;
         img.decoding = 'async';
-        img.onerror = function () { img.remove(); };
+        img.onerror = function () {
+          if (small !== full) { small = full; img.src = full; } // no 70x70 rendition: the full image, once
+          else img.remove();
+        };
         box.appendChild(img);
       }
       var t = h('span');
@@ -783,9 +839,11 @@
     $('out-open').href = url;
 
     var n = Object.keys(config.toObject(B.cfg)).filter(function (k) { return k !== 'channel'; }).length;
-    $('url-note').textContent = n
-      ? 'The URL holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed; everything else uses the defaults.'
-      : 'Every setting is at its default, so the URL only needs the channel.';
+    $('url-note').textContent = /^file:/i.test(url)
+      ? 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.'
+      : n
+        ? 'The URL holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed; everything else uses the defaults.'
+        : 'Every setting is at its default, so the URL only needs the channel.';
 
     var warn = $('url-warn'), msg = '';
     if (!B.cfg.channel) msg = 'Add a channel first. Without one the overlay only shows a hint.';
@@ -903,6 +961,7 @@
 
   function doReload() {
     B.reloadTimer = null;
+    if (B.paused) return; // a live preview in a hidden tab: rebuilt when the tab shows again
     if (B.ch.state === 'checking') { setHint(B.frame ? '' : 'Checking the channel…'); return; } // the result reschedules
     var pc = previewCfg();
     var st = B.ch.state, hint = '';
@@ -916,14 +975,8 @@
     }
     setHint(hint);
     if (!pc.channel && !pc.demo) setFrame(null, null);
-    // Boot with every badge/paint loader on; the post on load applies the real values. The
-    // signature stays on pc (LOAD_KEYS are live keys, so they aren't part of it anyway).
-    else setFrame(previewUrl(frameBootCfg(pc), root.location.href), reloadSignature(pc));
-  }
-
-  // Live keys reach the frame by postMessage, so only reload keys decide whether to reload.
-  function reloadSignature(pc) {
-    return RELOAD_KEYS.map(function (k) { return serialize(k, pc[k]); }).join('|');
+    // Badge and paint data a source turned on later is loaded by the overlay when the setting arrives.
+    else setFrame(previewUrl(pc, root.location.href), reloadSignature(pc));
   }
 
   function setFrame(src, sig) {
@@ -938,8 +991,10 @@
     var f = h('iframe', 'preview-frame');
     f.title = 'Overlay preview';
     // The preview can show any channel's live chat, so it runs sandboxed: scripts only, in an origin of its
-    // own, with no reach into this page or its storage. (Settings still arrive by postMessage.)
-    f.setAttribute('sandbox', 'allow-scripts');
+    // own, with no reach into this page or its storage. (Settings still arrive by postMessage.) Not from
+    // disk, where a sandboxed frame can't load overlay.html's files (see frameSandbox).
+    var sb = frameSandbox(root.location.protocol);
+    if (sb) f.setAttribute('sandbox', sb);
     f.src = src;
     f.addEventListener('load', function () { if (B.frame === f) postLive(); });
     B.frame = f;
@@ -1055,6 +1110,23 @@
     if (root.ResizeObserver) new root.ResizeObserver(fitSoon).observe($('stage'));
     // Also for height-only window changes: the wide stage's height and pinning follow the window.
     root.addEventListener('resize', fitSoon);
+
+    // A live preview is a second chat client (IRC, 7TV and BTTV sockets, lookups). In a tab left hidden
+    // it disconnects after a while; a quick switch to OBS to paste the URL keeps it.
+    var hideTimer = null;
+    document.addEventListener('visibilitychange', function () {
+      clearTimeout(hideTimer);
+      if (document.hidden) {
+        hideTimer = setTimeout(function () {
+          if (!document.hidden || previewCfg().demo || !B.frame) return;
+          B.paused = true;
+          setFrame(null, null);
+        }, HIDDEN_GRACE);
+      } else if (B.paused) {
+        B.paused = false;
+        scheduleReload(0);
+      }
+    });
   }
 
   // ---------- wiring ----------
@@ -1101,7 +1173,9 @@
   }
 
   // Local-file flow: opened from disk, show the settings.js route first and pick up an existing settings.js.
-  function setupLocalFile(hasQuery) {
+  // A settings.js the builder already loaded once doesn't replace the edits made here since (a snapshot of
+  // it per folder says so); a new or changed settings.js does.
+  function setupLocalFile(hasQuery, fromStore) {
     if (root.location.protocol !== 'file:') return;
     document.body.classList.add('is-file');
     var obs = $('obs'), local = $('obs-local'), urlBlock = $('obs-url');
@@ -1116,26 +1190,36 @@
     s.onload = function () {
       var o = root.TCO_SETTINGS;
       if (!o || typeof o !== 'object') return;
-      replaceCfg(config.parse('', o));
+      var fileCfg = config.parse('', o);
+      var snap = JSON.stringify(config.toObject(fileCfg));
+      var key = STORE_FILE_BASE + root.location.pathname;
       var note = $('file-loaded');
+      if (fromStore && loadStored(key) === snap) {
+        if (note) {
+          note.textContent = 'Kept your changes from last time: the settings.js in this folder hasn’t changed since the builder loaded it.';
+          note.hidden = false;
+        }
+        return;
+      }
+      store(key, snap);
+      replaceCfg(fileCfg);
       if (note) note.hidden = false;
     };
     s.onerror = function () { /* no settings.js yet: fine */ };
     document.head.appendChild(s);
   }
 
-  function initialCfg() {
-    var params = new URLSearchParams(root.location.search || '');
-    var keys = [];
-    params.forEach(function (v, k) { keys.push(k); });
-    if (countKnown(keys)) return { cfg: config.parse(params), fromQuery: true };
-    var o = loadStored(STORE_CFG);
-    if (o && typeof o === 'object' && !Array.isArray(o)) return { cfg: config.parse('', o), fromQuery: false };
-    return { cfg: config.defaults(), fromQuery: false };
-  }
+  function initialCfg() { return startCfg(root.location.search, loadStored(STORE_CFG)); }
 
   function start() {
     if (B || !$('builder')) return;
+    // The Inter stylesheet comes in as media="print" so a slow font host can't hold up the page or
+    // its scripts (the CSP allows no inline onload); it applies once loaded.
+    var font = $('font-css');
+    if (font) {
+      var useFont = function () { font.media = 'all'; };
+      if (font.sheet) useFont(); else font.addEventListener('load', useFont);
+    }
     B = {
       cfg: config.defaults(),
       fields: {},
@@ -1149,6 +1233,7 @@
       reloadTimer: null,
       postTimer: null,
       fitQueued: false,
+      paused: false,
       storage: undefined
     };
     var u = loadStored(STORE_UI);
@@ -1165,6 +1250,8 @@
     renderSizes();
 
     var init = initialCfg();
+    // Read before replaceCfg saves: stored settings from another folder's builder aren't "your changes" here.
+    var ownStore = init.fromStore && loadStored(STORE_CFG_PATH) === root.location.pathname;
     renderChannel();
     replaceCfg(init.cfg);
     // A stored preview size may belong to the other layout (1920×100 saved in a horizontal session,
@@ -1172,7 +1259,7 @@
     var other = B.cfg.layout === 'horizontal' ? 'vertical' : 'horizontal';
     if (layoutPreviewSize(B.ui, other, B.cfg.layout)) followLayout(other, B.cfg.layout);
     scheduleReload(0);
-    setupLocalFile(init.fromQuery);
+    setupLocalFile(init.fromQuery, ownStore);
     fit();
   }
 
@@ -1181,7 +1268,7 @@
     META: META,
     GROUPS: GROUPS,
     BADGE_SUBS: BADGE_SUBS,
-    LOAD_KEYS: LOAD_KEYS,
+    DEMO_INERT: DEMO_INERT,
     LAYOUT_SIZES: LAYOUT_SIZES,
     RELOAD_KEYS: RELOAD_KEYS,
     GOOGLE_FONTS: GOOGLE_FONTS,
@@ -1193,12 +1280,15 @@
     settingsSnippet: settingsSnippet,
     parsePasted: parsePasted,
     relaxedJson: relaxedJson,
-    frameBootCfg: frameBootCfg,
+    reloadSignature: reloadSignature,
+    frameSandbox: frameSandbox,
+    smallAvatar: smallAvatar,
     layoutPreviewSize: layoutPreviewSize,
     wantsWidePreview: wantsWidePreview,
     wideStageHeight: wideStageHeight,
     fieldText: fieldText,
     fitScale: fitScale,
-    describeIvrUser: describeIvrUser
+    describeIvrUser: describeIvrUser,
+    startCfg: startCfg
   };
 });
