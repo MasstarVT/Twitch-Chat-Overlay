@@ -1,7 +1,7 @@
 'use strict';
 // Chat and third-party data must never run code or inject markup/CSS. These tests pin the rules that keep it
 // that way: text only ever becomes text, URLs are https (and pinned where the host is known), CSS values are
-// built from validated pieces, and both pages carry a script-locking Content-Security-Policy.
+// built from validated pieces, and every page carries a script-locking Content-Security-Policy.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -85,8 +85,11 @@ test('every URL property assignment in js/ is a reviewed one', () => {
       /^f\.src = src$/, // the preview iframe: overlay.html on this site
       /^s\.src = 'settings\.js\?t=' \+ Date\.now\(\)$/
     ],
+    'home.js': [
+      /^f\.src = src$/ // the demo frames: overlay.html on this site, from the DEMOS constants
+    ],
     'overlay.js': [
-      /^a\.href = 'index\.html' \+ /, // back to the builder, channel URI-encoded
+      /^a\.href = 'builder\.html' \+ /, // back to the builder, channel URI-encoded
       /^link\.href = 'https:\/\/fonts\.googleapis\.com\/css2\?family=' \+ encodeURIComponent\(/
     ],
     'renderer.js': [
@@ -120,8 +123,39 @@ test('every URL property assignment in js/ is a reviewed one', () => {
   assert.equal(hits('m.action = a.action;'), null);
 });
 
-test('both pages: a Content-Security-Policy that only runs the site\'s own script files, and nothing inline', () => {
-  ['overlay.html', 'index.html'].forEach((page) => {
+// Navigation is a URL sink too: every location.replace(), location.assign() and .open() call in js/ is a reviewed
+// one, keyed the same way. (String replace and Object.assign have other receivers, so they are not matched.)
+test('every navigation call in js/ is a reviewed one', () => {
+  const REVIEWED = {
+    'home.js': [
+      /^loc\.replace\(BUILDER \+ loc\.search \+ loc\.hash\)$/ // an old builder link: builder.html on this site, query and hash passed on
+    ]
+  };
+  const NAV = /([\w$.]*\b(?:location|loc)\.(?:replace|assign)|[\w$.]*\.open)\s*\(([^;]*)\)/g;
+  const exprOf = (m) => (m[1] + '(' + m[2].trim() + ')').replace(/\s+/g, ' ');
+  let seen = 0;
+  fs.readdirSync(path.join(ROOT, 'js')).filter((f) => f.endsWith('.js')).forEach((f) => {
+    read('js/' + f).split('\n').forEach((line, i) => {
+      NAV.lastIndex = 0;
+      let m;
+      while ((m = NAV.exec(line))) {
+        const expr = exprOf(m);
+        seen++;
+        assert.ok((REVIEWED[f] || []).some((re) => re.test(expr)), 'unreviewed navigation js/' + f + ':' + (i + 1) + ' ' + expr);
+      }
+    });
+  });
+  assert.ok(seen >= 1, 'the scan finds the known call');
+  // The scan itself catches the other spellings, and leaves string and object helpers alone.
+  const hits = (line) => { NAV.lastIndex = 0; const m = NAV.exec(line); return m ? exprOf(m) : null; };
+  assert.equal(hits('root.location.assign(u);'), 'root.location.assign(u)');
+  assert.equal(hits("window.open(u, '_blank');"), "window.open(u, '_blank')");
+  assert.equal(hits("s = s.replace(/a/g, 'b');"), null);
+  assert.equal(hits('Object.assign(a, b);'), null);
+});
+
+test('every page: a Content-Security-Policy that only runs the site\'s own script files, and nothing inline', () => {
+  ['overlay.html', 'builder.html', 'index.html'].forEach((page) => {
     const html = read(page);
     const m = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/.exec(html);
     assert.ok(m, page + ' has a CSP');
@@ -140,6 +174,7 @@ test('both pages: a Content-Security-Policy that only runs the site\'s own scrip
   });
   // OBS applies Custom CSS as an inline style, so the overlay (only) must allow inline styles.
   assert.match(read('overlay.html'), /style-src [^;]*'unsafe-inline'/);
+  assert.doesNotMatch(read('builder.html'), /'unsafe-inline'/);
   assert.doesNotMatch(read('index.html'), /'unsafe-inline'/);
 });
 

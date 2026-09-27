@@ -5,7 +5,7 @@
   2. Set your channel and any options below. Settings in the overlay URL still win over this file.
   3. In OBS, open the browser source's properties and press "Refresh cache of current page".
 
-  The builder (index.html) can generate this file for you. All options are listed in README.md.
+  The builder (builder.html) can generate this file for you. All options are listed in README.md.
 */
 window.TCO_SETTINGS = {
   channel: 'YOUR CHANNEL NAME', // your Twitch name, e.g. 'xqc'

@@ -3,156 +3,397 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Only this site's own script files run (no inline scripts, no eval). The preview frame is overlay.html. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src https: data:; connect-src https://api.ivr.fi; frame-src 'self' file:; base-uri 'none'; form-action 'none'">
-  <title>Twitch Chat Overlay Builder</title>
-  <meta name="description" content="Build an OBS chat overlay for Twitch with 7TV, BetterTTV and FrankerFaceZ emotes, every badge source and 7TV name paints.">
+  <!-- Only this site's own script files run (no inline scripts or styles, no eval). The demo frames are overlay.html. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: data:; frame-src 'self' file:; base-uri 'none'; form-action 'none'">
+  <title>Twitch Chat Overlay: Twitch chat for OBS with 7TV, BTTV and FFZ</title>
+  <meta name="description" content="A browser-source chat overlay for OBS with 7TV, BetterTTV and FrankerFaceZ emotes, 7TV name paints and badges from seven sources. No login and no server of your own.">
   <link rel="icon" href="data:,">
+  <!-- Old builder links (this page used to be the builder) are passed on before anything is drawn. -->
+  <script src="js/config.js?v=1.3.0"></script>
+  <script src="js/home.js?v=1.3.0"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- media="print" keeps this font from blocking the page; builder.js switches it on once it loads. -->
-  <link id="font-css" rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
-  <link rel="stylesheet" href="css/builder.css?v=1.2.1">
-  <script defer src="js/util.js?v=1.2.1"></script>
-  <script defer src="js/config.js?v=1.2.1"></script>
-  <script defer src="js/builder.js?v=1.2.1"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&amp;family=Figtree:ital,wght@0,400..800;1,600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+  <link rel="stylesheet" href="css/home.css?v=1.3.0">
 </head>
 <body>
-  <a class="skip" href="#settings">Skip to settings</a>
+  <a class="skip" href="#main">Skip to content</a>
 
-  <div id="builder" class="layout">
-    <header class="top">
-      <div class="brand">
-        <h1>Twitch Chat Overlay</h1>
-        <p class="lede">A clean chat overlay for OBS with 7TV, BetterTTV and FrankerFaceZ emotes, every badge source and 7TV name paints. Pick your channel, tune the look, then copy the URL into an OBS Browser source.</p>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="#top"><span class="mark"></span>Twitch Chat Overlay</a>
+      <nav aria-label="Sections">
+        <a class="sec" href="#emotes">Emotes</a>
+        <a class="sec" href="#events">Chat events</a>
+        <a class="sec" href="#security">Security</a>
+        <a class="sec" href="#setup">Setup</a>
+        <a class="sec" href="https://github.com/MasstarVT/Twitch-Chat-Overlay">GitHub</a>
+        <a class="cta small" href="builder.html">Open the builder</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="top" class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">OBS browser source / no login</p>
+        <h1>Twitch chat for OBS, with 7TV, BTTV and FFZ built in.</h1>
+        <p class="lede">A browser-source overlay that shows your channel's chat with third-party emotes, 7TV name paints and badges from seven sources. No login, no server of your own, no build step.</p>
+        <a class="cta" href="builder.html">Open the builder
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <p class="note">Enter your channel, copy one URL, paste it into OBS.</p>
       </div>
 
-      <section id="channel-card" class="card" aria-labelledby="channel-h">
-        <h2 id="channel-h">Channel</h2>
-        <label for="channel" class="field-label">Twitch channel</label>
-        <div class="input-row">
-          <input id="channel" class="text" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
-                 placeholder="yourname or https://twitch.tv/yourname" aria-describedby="channel-help channel-status">
-          <button id="channel-check" class="btn" type="button">Check</button>
+      <div class="stage checker">
+        <div class="scene" aria-hidden="true">
+          <i class="ridge"></i><i class="ground"></i>
+          <i class="extra moon"></i><i class="extra hp"></i>
+          <i class="extra coin c1"></i><i class="extra coin c2"></i><i class="extra coin c3"></i>
+          <i class="extra ledge"></i><i class="extra hero-block"></i><i class="extra eye e1"></i><i class="extra eye e2"></i>
+          <i class="extra cam"></i>
         </div>
-        <p id="channel-help" class="help">Press Enter or click away to check the name.</p>
-        <div id="channel-status" class="status" role="status" aria-live="polite"></div>
+        <span class="bit p p1"></span><span class="bit p p2"></span><span class="bit p p3"></span><span class="bit p p4"></span>
+        <span class="bit d d1"></span><span class="bit d d2"></span><span class="bit d d3"></span><span class="bit d d4"></span>
+        <span class="bit d d5"></span><span class="bit d d6"></span><span class="bit d d7"></span><span class="bit d d8"></span>
+        <p class="tag">Browser source<span class="wide"> · 450 × 700</span> · live demo</p>
+        <div class="source" id="demo-column">
+          <span class="grip a"></span><span class="grip b"></span><span class="grip c"></span><span class="grip d"></span>
+          <span class="grip e"></span><span class="grip f"></span><span class="grip g"></span><span class="grip h"></span>
+        </div>
+        <p class="where l" aria-hidden="true">transparent source</p>
+        <p class="where r" aria-hidden="true">your scene</p>
+      </div>
+      <div class="hero-foot">
+        <button type="button" class="toggle" id="demo-column-toggle" hidden>Pause column demo</button>
+        <p class="note">The frame runs the real overlay in demo mode: sample messages, with emotes and badges loaded from each provider.</p>
+      </div>
+    </section>
 
-        <details class="paste">
-          <summary>Edit an existing overlay</summary>
-          <label for="paste" class="field-label">Paste an overlay URL (or the contents of a settings.js)</label>
-          <div class="input-row">
-            <!-- A textarea, not an input: an input strips the line breaks from a pasted settings.js,
-                 and then its // comments would swallow the rest of the file. -->
-            <textarea id="paste" class="text paste-text" rows="1" wrap="off" autocomplete="off" autocapitalize="off" spellcheck="false"
-                      placeholder="https://…/overlay.html?channel=…" aria-describedby="paste-status"></textarea>
-            <button id="paste-load" class="btn" type="button">Load</button>
+    <section id="proof" class="section proof">
+      <div class="wrap">
+        <div>
+          <p class="ask"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><b class="u-mod">@HelpfulMod</b> what do I have to sign up for?</p>
+          <h2 class="big">Nothing.</h2>
+        </div>
+        <div class="facts">
+          <div><h3>No login.</h3><p>Chat is read through Twitch's anonymous, read-only chat connection. It reconnects automatically.</p></div>
+          <div><h3>No server of ours.</h3><p>Everything is fetched directly by your browser or OBS.</p></div>
+          <div><h3>No telemetry.</h3><p>The overlay reports nothing back. The services it contacts are summarized further down.</p></div>
+          <div><h3>No build step.</h3><p>Plain HTML and JavaScript. Host it on GitHub Pages or run it from a folder on your PC.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="emotes" class="section">
+      <div class="wrap split">
+        <div>
+          <p class="ask"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><b class="u-viewer">@NewViewer</b> do 7TV emotes work here?</p>
+          <h2>Your channel's emotes, from all four places they live.</h2>
+          <p class="copy">Twitch, 7TV, BTTV and FFZ emotes load for your channel and globally. Zero-width emotes stack on the emote before them, and FFZ and BTTV modifiers flip, widen, rotate and curse an emote. Add a 7TV or BTTV emote mid-stream and it shows up live, without a refresh.</p>
+          <ul class="rows">
+            <li>7TV personal emotes appear only in their owner's messages.</li>
+            <li>Cheermotes and Twitch chat GIFs are shown. GIFs load as Giphy's 200 px animated WebP.</li>
+            <li>Turn a provider off with <code>emotes_7tv=0</code>, <code>emotes_bttv=0</code> or <code>emotes_ffz=0</code>.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="table">
+            <table>
+              <caption class="sr-only">What each emote provider adds</caption>
+              <thead>
+                <tr>
+                  <th scope="col"><span class="sr-only">Feature</span></th>
+                  <th scope="col"><span class="logo tile" aria-hidden="true">T</span>Twitch</th>
+                  <th scope="col"><img class="logo inv" src="img/logos/7tv.svg" alt="" width="44" height="44">7TV</th>
+                  <th scope="col"><span class="logo tile" aria-hidden="true">B</span>BTTV</th>
+                  <th scope="col"><span class="logo tile" aria-hidden="true">F</span>FFZ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Global and channel emotes</th>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">Zero-width emotes that stack</th>
+                  <td><span class="sr-only">no</span></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">Modifiers: flip, wide, cursed</th>
+                  <td><span class="sr-only">no</span></td>
+                  <td><span class="sr-only">no</span></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">Rotate modifiers</th>
+                  <td><span class="sr-only">no</span></td>
+                  <td><span class="sr-only">no</span></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><span class="sr-only">no</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Emote changes show up live</th>
+                  <td><span class="sr-only">no</span></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><span class="sr-only">no</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Personal emotes</th>
+                  <td><span class="sr-only">no</span></td>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td>BTTV Pro</td>
+                  <td><span class="sr-only">no</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Cheermotes and chat GIFs</th>
+                  <td><svg class="yes" viewBox="0 0 20 20" role="img" aria-label="yes"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+                  <td><span class="sr-only">no</span></td>
+                  <td><span class="sr-only">no</span></td>
+                  <td><span class="sr-only">no</span></td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div id="paste-status" class="status" role="status" aria-live="polite"></div>
-        </details>
-      </section>
-    </header>
-
-    <aside id="preview" class="preview card" aria-labelledby="preview-h">
-      <h2 id="preview-h" class="sr-only">Preview</h2>
-      <div class="preview-bar">
-        <div class="seg seg-small" role="radiogroup" aria-label="Preview shows">
-          <label><input type="radio" name="pmode" value="demo" checked><span>Demo</span></label>
-          <label><input type="radio" name="pmode" value="live"><span>Live chat</span></label>
-        </div>
-        <div class="swatches" role="radiogroup" aria-label="Preview background">
-          <label title="Dark"><input type="radio" name="backdrop" value="dark" checked><span class="sw bd-dark"></span><span class="sr-only">Dark</span></label>
-          <label title="Light"><input type="radio" name="backdrop" value="light"><span class="sw bd-light"></span><span class="sr-only">Light</span></label>
-          <label title="Checkerboard"><input type="radio" name="backdrop" value="checker"><span class="sw bd-checker"></span><span class="sr-only">Checkerboard</span></label>
-          <label title="Busy game"><input type="radio" name="backdrop" value="busy"><span class="sw bd-busy"></span><span class="sr-only">Busy game</span></label>
-        </div>
-        <div class="size" role="group" aria-label="Source size in pixels">
-          <label for="pw" class="size-label">W</label>
-          <input id="pw" class="num" type="number" step="1" inputmode="numeric" value="450">
-          <span aria-hidden="true">×</span>
-          <label for="ph" class="size-label">H</label>
-          <input id="ph" class="num" type="number" step="1" inputmode="numeric" value="700">
         </div>
       </div>
+    </section>
 
-      <div id="stage" class="stage bd-dark">
-        <p id="stage-hint" class="stage-hint" role="status" aria-live="polite" hidden></p>
-        <div id="frame-box" class="frame-box"></div>
-        <p id="scale-note" class="scale-note" aria-hidden="true"></p>
-      </div>
-
-      <div class="urlbar">
-        <label for="bar-url" class="sr-only">Overlay URL</label>
-        <input id="bar-url" class="text mono" type="text" readonly>
-        <button id="bar-copy" class="btn primary" type="button">Copy URL</button>
-        <a id="bar-open" class="btn" href="overlay.html" target="_blank" rel="noopener">Open</a>
-      </div>
-      <p id="bar-warn" class="status warn small">Add a channel first. Without one the overlay only shows a hint.</p>
-    </aside>
-
-    <main id="settings" class="settings" tabindex="-1">
-      <div class="settings-head">
-        <h2>Settings</h2>
-        <button id="reset" class="btn ghost" type="button">Reset to defaults</button>
-      </div>
-      <div id="groups"></div>
-
-      <section id="obs" class="card obs" aria-labelledby="obs-h">
-        <h2 id="obs-h">Add to OBS</h2>
-        <div id="file-intro" class="callout" hidden>
-          <p>You opened the builder from a file on this PC, so the Local file setup comes first. The URL setup further down works too.</p>
-          <p id="file-loaded" class="status ok" hidden>Loaded the settings.js from this folder.</p>
+    <section id="paints" class="section">
+      <div class="wrap">
+        <div class="split lead">
+          <div>
+            <p class="ask"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><b class="u-painted">@PaintedPal</b> will my paint show up on stream?</p>
+            <h2>Badges from seven sources. Paints on the names that have them.</h2>
+          </div>
+          <div>
+            <p class="copy">Twitch global and channel badges cover sub tiers and months, bits, mod, VIP, founder, predictions and event badges. On top come badges from 7TV, FFZ, FFZ:AP, BTTV, Chatterino and Chatterino Homies, plus FFZ custom mod and VIP badges.</p>
+            <p class="copy">7TV name paints render as gradient or animated image usernames. The overlay also asks 7TV for each chatter's paint, so viewers on mobile get theirs too.</p>
+          </div>
         </div>
+        <div class="names chat">
+          <div><p class="ln"><span class="paint-a">PaintedPal</span></p><p class="note">a gradient paint</p></div>
+          <div><p class="ln"><span class="paint-b">ShinyName</span></p><p class="note">a repeating gradient paint</p></div>
+        </div>
+        <ul class="grid7">
+          <li><span class="logo tile" aria-hidden="true">T</span><b>Twitch</b><code>badges_twitch</code></li>
+          <li><img class="logo inv" src="img/logos/7tv.svg" alt="" width="44" height="44"><b>7TV</b><code>badges_7tv</code></li>
+          <li><span class="logo tile" aria-hidden="true">F</span><b>FFZ</b><code>badges_ffz</code></li>
+          <li><span class="logo tile" aria-hidden="true">AP</span><b>FFZ:AP</b><code>badges_ffzap</code></li>
+          <li><span class="logo tile" aria-hidden="true">B</span><b>BTTV</b><code>badges_bttv</code></li>
+          <li><img class="logo" src="img/logos/chatterino.svg" alt="" width="44" height="44"><b>Chatterino</b><code>badges_chatterino</code></li>
+          <li><img class="logo" src="img/logos/homies.png" alt="" width="44" height="44"><b>Chatterino Homies</b><code>badges_homies</code></li>
+        </ul>
+        <p class="note">Each source has its own switch. The two names above are drawn by this page as examples of paints.</p>
+      </div>
+    </section>
 
-        <div id="obs-url" class="obs-block">
-          <h3>Browser source with a URL <span class="tag">Recommended</span></h3>
-          <div class="url-out">
-            <code id="out-url" class="code-line"></code>
-            <div class="btns">
-              <button id="out-copy" class="btn primary" type="button">Copy URL</button>
-              <a id="out-open" class="btn" href="overlay.html" target="_blank" rel="noopener">Open</a>
+    <section id="events" class="section">
+      <div class="wrap split">
+        <div>
+          <p class="ask"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><b class="u-lurker">@Lurker_Supreme</b> what if someone subs?</p>
+          <h2>Subs, raids and replies look like what they are.</h2>
+          <p class="copy">Sub, resub, gift, raid and announcement notices get their own line, and a gift bomb collapses into one. Replies carry a header with the message they answer. When a mod times out, bans or deletes, the message leaves the overlay too.</p>
+          <p class="copy">/me messages and channel-point highlights are styled, first-time chatters can be highlighted with <code>first_msg=1</code>, and Shared Chat messages show the source channel's avatar and badges.</p>
+        </div>
+        <dl class="matrix">
+          <div>
+            <dt>resub notice <span class="wide">·</span> events=1</dt>
+            <dd class="checker chat s22"><p class="ln"><span class="sys">Lurker_Supreme subscribed at Tier 1. They've subscribed for 6 months!</span><b class="u-lurker">Lurker_Supreme</b>: still here</p></dd>
+          </div>
+          <div>
+            <dt>raid notice</dt>
+            <dd class="checker chat s22"><p class="ln"><span class="sys">25 raiders from Raider_Friend have joined!</span></p></dd>
+          </div>
+          <div>
+            <dt>reply header <span class="wide">·</span> replies=1</dt>
+            <dd class="checker chat s22"><p class="ln"><span class="re"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>@PaintedPal</b>:</span><span>this overlay looks clean</span></span><b class="u-viewer">NewViewer</b>: @PaintedPal same, love it</p></dd>
+          </div>
+          <div>
+            <dt>/me</dt>
+            <dd class="checker chat s22"><p class="ln me"><b class="paint-b">ShinyName</b> <i class="u-shiny">does a little dance</i></p></dd>
+          </div>
+          <div>
+            <dt>channel-point highlight</dt>
+            <dd class="checker chat s22"><p class="ln hl"><b class="u-lurker">Lurker_Supreme</b>: this message was highlighted with channel points</p></dd>
+          </div>
+          <div>
+            <dt>deleted by a mod</dt>
+            <dd class="checker chat s22"><p class="ln gone"><b class="u-raider">Raider_Friend</b>: deleted message</p><p class="after">removed from the overlay</p></dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <section id="layouts" class="section layouts">
+      <div class="wrap">
+        <div class="split offset">
+          <div>
+            <p class="ask"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><b class="u-streamer">@Streamer</b> I only have room for a bar.</p>
+            <h2>A column beside the game, or a ticker along the edge.</h2>
+            <p class="copy">Vertical stacks messages in a chat column. Horizontal runs them in a single row: new messages come in on the right, older ones slide off to the left, and a message longer than the source is cut off with an ellipsis.</p>
+          </div>
+          <div>
+            <div class="minis">
+              <figure><div class="mini"><i class="col"></i></div><figcaption>layout=vertical<span>450 × 700</span></figcaption></figure>
+              <figure><div class="mini"><i class="row"></i></div><figcaption>layout=horizontal<span>1920 × 100</span></figcaption></figure>
+            </div>
+            <p class="note">Drawn to scale on a 1920 × 1080 canvas. These are the sizes the builder previews.</p>
+          </div>
+        </div>
+        <div class="ticker-head">
+          <p class="tag">Browser source · 1920 × 100 · layout=horizontal · live demo, right-hand end</p>
+          <button type="button" class="toggle" id="demo-row-toggle" hidden>Pause ticker demo</button>
+        </div>
+      </div>
+      <div class="ticker" id="demo-row"></div>
+    </section>
+
+    <section id="look" class="section look">
+      <div class="wrap split">
+        <div>
+          <p class="ask"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><b class="u-mod">@HelpfulMod</b> can you make the text bigger?</p>
+          <h2>White text, soft shadow, transparent background. Change any of it.</h2>
+          <p class="copy">Pick the size, the font (any Google Font or a stock Windows font), the shadow strength, a dark box behind each message, the alignment, the fade-out and the line limit. Every option goes in the overlay URL, and OBS's Custom CSS box can restyle the rest through stable class names.</p>
+          <p class="copy">Known bots such as Nightbot and StreamElements are hidden unless you set <code>bots=1</code>. <code>hide_commands=1</code> hides messages that start with an exclamation mark, and <code>block</code> hides chosen users.</p>
+        </div>
+        <div>
+          <div class="ladder">
+            <p class="tag">One line, four settings · actual size</p>
+            <div class="source checker chat">
+              <div><p class="tag">size=small <span>18 px</span></p><p class="ln s18"><b class="u-viewer">NewViewer</b>: hello!</p></div>
+              <div><p class="tag">size=medium <span>24 px</span></p><p class="ln s24"><b class="u-viewer">NewViewer</b>: hello!</p></div>
+              <div><p class="tag">size=large <span>32 px</span></p><p class="ln s32"><b class="u-viewer">NewViewer</b>: hello!</p></div>
+              <div><p class="tag">bg=60 <span>a dark box</span></p><p><span class="ln s24 boxed"><b class="u-viewer">NewViewer</b>: hello!</span></p></div>
+              <span class="grip a"></span><span class="grip b"></span><span class="grip c"></span><span class="grip d"></span>
+              <span class="grip e"></span><span class="grip f"></span><span class="grip g"></span><span class="grip h"></span>
             </div>
           </div>
-          <p id="url-note" class="help"></p>
-          <p id="url-warn" class="status warn" hidden></p>
-          <p id="file-url-note" class="help" hidden>This is a <code>file:///</code> URL because the builder is running from disk. OBS accepts it in the URL box with Local file unticked, and each source can have its own.</p>
-          <ol class="steps">
-            <li>In OBS, click <b>+</b> under Sources and choose <b>Browser</b>.</li>
-            <li>Leave <b>Local file</b> unticked and paste the URL into <b>URL</b>.</li>
-            <li>Set <b>Width</b> to <b class="obs-w">450</b> and <b>Height</b> to <b class="obs-h">700</b> (the preview size).</li>
-            <li>Untick <b>Shutdown source when not visible</b> and <b>Refresh browser when scene becomes active</b>. Both reconnect and wipe the chat on every scene switch.</li>
-            <li>Leave <b>Custom CSS</b> at its default and click <b>OK</b>.</li>
-          </ol>
-          <p class="help">To change it later, paste the URL into “Edit an existing overlay” above, adjust, then replace the URL in OBS.</p>
+          <dl class="url">
+            <div><dt>overlay.html</dt><dd>the overlay page</dd></div>
+            <div><dt>?<b>channel</b>=<i>yourname</i></dt><dd>your channel</dd></div>
+            <div><dt>&amp;<b>size</b>=<i>large</i></dt><dd>32 px text</dd></div>
+            <div><dt>&amp;<b>fade</b>=<i>30</i></dt><dd>a message stays on screen for 30 seconds</dd></div>
+            <div><dt>&amp;<b>bg</b>=<i>60</i></dt><dd>a dark box behind each message</dd></div>
+          </dl>
         </div>
+      </div>
+    </section>
 
-        <div id="obs-local" class="obs-block">
-          <h3>OBS “Local file” with settings.js</h3>
-          <p class="help">Local file mode can’t take URL parameters, so the settings go in a <code>settings.js</code> file next to <code>overlay.html</code>.</p>
-          <pre class="code-block"><code id="out-settings"></code></pre>
-          <div class="btns">
-            <button id="settings-copy" class="btn" type="button">Copy</button>
-            <button id="settings-dl" class="btn primary" type="button">Download settings.js</button>
+    <section id="security" class="section security">
+      <div class="band checker">
+        <div class="source chat">
+          <p class="tag">shown as typed</p>
+          <p class="ln"><b class="u-viewer">NewViewer</b>: &lt;script&gt;alert(1)&lt;/script&gt;</p>
+          <p class="ln"><b class="u-viewer">NewViewer</b>: &lt;img src=x onerror=alert(1)&gt;</p>
+          <span class="grip a"></span><span class="grip b"></span><span class="grip c"></span><span class="grip d"></span>
+          <span class="grip e"></span><span class="grip f"></span><span class="grip g"></span><span class="grip h"></span>
+        </div>
+      </div>
+      <div class="wrap split">
+        <div>
+          <h2>Chat can't run code on your stream PC.</h2>
+          <p class="copy">Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come from other people too. None of it can run code on your stream PC or change the overlay beyond the message it's in.</p>
+          <p class="note">tests/security.test.js feeds hostile messages, emotes, badges and paints through the real code to keep it this way.</p>
+        </div>
+        <dl class="guards">
+          <div><dt>Text stays text</dt><dd>Messages, names, reply headers, emote names and badge titles are only ever inserted as plain text.</dd></div>
+          <div><dt>Only https images</dt><dd>Emote, badge, GIF and paint images must be https URLs. GIFs are limited to Giphy and 7TV paint images to 7TV's CDN.</dd></div>
+          <div><dt>Validated styling</dt><dd>Name and badge colors must be hex colors. 7TV paints are rebuilt from checked numbers and colors.</dd></div>
+          <div><dt>Zalgo text</dt><dd>Piles of combining marks are cut to 4 marks per letter.</dd></div>
+          <div><dt>Size limits</dt><dd>Message text is cut at 1000 characters, a message draws at most 300 emote images, and one emote stacks at most 4 zero-width layers.</dd></div>
+          <div><dt>Content-Security-Policy</dt><dd>The overlay, the builder and this page only run their own script files: no inline scripts, no eval, nothing from other sites.</dd></div>
+          <div><dt>Sandboxed preview</dt><dd>Served over http(s), the builder's live-chat preview runs in a sandboxed frame with no access to the builder page.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section id="connects" class="section about">
+      <div class="wrap split even">
+        <div>
+          <h2 class="minor">What it connects to</h2>
+          <p class="copy">Twitch chat, the emote and badge providers, their image hosts and Google Fonts for the font you pick. Recent chat on load comes from recent-messages, and <code>history=0</code> turns that off. Everything is fetched directly by your browser or OBS.</p>
+          <a class="plain" href="https://github.com/MasstarVT/Twitch-Chat-Overlay#services-this-overlay-contacts">The README lists every service and what it is used for.</a>
+        </div>
+        <div>
+          <h2 class="minor">What it doesn't do</h2>
+          <div class="rows">
+            <div><span>badges</span><p>DankChat badges are not supported. DankChat's badge server doesn't allow browser requests, so a static page can't load them.</p></div>
+            <div><span>cheermotes</span><p>Channel-specific cheermotes show as plain text, because they can't be loaded without a login. Twitch's global cheermotes show as images.</p></div>
           </div>
-          <ol class="steps">
-            <li id="step-get-files">Get the overlay files: on <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay" target="_blank" rel="noopener">GitHub</a> choose Code → Download ZIP, and unzip it somewhere permanent.</li>
-            <li>Save <code>settings.js</code> in the same folder as <code>overlay.html</code>.</li>
-            <li>In OBS, add a <b>Browser</b> source, tick <b>Local file</b> and pick <code>overlay.html</code>.</li>
-            <li>Set <b>Width</b> to <b class="obs-w">450</b> and <b>Height</b> to <b class="obs-h">700</b>.</li>
-            <li>Untick <b>Shutdown source when not visible</b> and <b>Refresh browser when scene becomes active</b>.</li>
-            <li>Whenever you change settings.js, open the source’s properties and click <b>Refresh cache of current page</b>.</li>
-          </ol>
-          <p class="help">Every Local file source in that folder shares one settings.js. For different setups, use URL mode instead with the <code>file:///…/overlay.html?…</code> URL this builder makes when you open it from that folder: it lists every setting, so the shared settings.js can’t change it.</p>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <footer class="foot">
-        <p>No login needed: chat is read anonymously, and everything runs in the browser source. Settings you change here are remembered in this browser.</p>
-      </footer>
-    </main>
-  </div>
+    <section id="setup" class="section setup">
+      <div class="wrap">
+        <div class="split">
+          <div>
+            <p class="ask"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><b class="u-streamer">@Streamer</b> ok, how do I add it?</p>
+            <h2>From channel name to OBS in four steps.</h2>
+            <p class="copy">Prefer your own copy? Fork the repo, delete the CNAME file and turn on GitHub Pages. Or download the ZIP, save a settings.js next to overlay.html and point an OBS Local file source at overlay.html.</p>
+          </div>
+          <div>
+            <div class="obs" role="img" aria-label="Diagram of the OBS Browser source fields: the overlay URL, width 450, height 700, and two checkboxes left unticked, Shutdown source when not visible and Refresh browser when scene becomes active.">
+              <div class="f"><span class="l">URL</span><span class="v">https://chat.masstar.org/overlay.html?channel=yourname</span></div>
+              <div class="wh">
+                <div class="f"><span class="l">Width</span><span class="v">450</span></div>
+                <div class="f"><span class="l">Height</span><span class="v">700</span></div>
+              </div>
+              <ul class="boxes">
+                <li>Shutdown source when not visible</li>
+                <li>Refresh browser when scene becomes active</li>
+              </ul>
+              <p class="hint">leave both unticked</p>
+            </div>
+            <p class="note">A diagram of the OBS Browser source fields, not a screenshot.</p>
+          </div>
+        </div>
+        <ol class="steps">
+          <li><h3>Open the builder and enter your channel.</h3><p>A name, an @name or a full twitch.tv URL all work.</p></li>
+          <li><h3>Adjust the look, then copy the URL.</h3><p>The preview runs a demo or your live chat. Copy sits next to the overlay URL.</p></li>
+          <li><h3>In OBS, add a Browser source and paste the URL.</h3><p>Sources, +, Browser. Set Width and Height to the preview size: 450 × 700 for vertical, 1920 × 100 for horizontal.</p></li>
+          <li><h3>Untick two checkboxes.</h3><p>Left on, they make the chat reconnect and clear on every scene switch.</p></li>
+        </ol>
+      </div>
+    </section>
 
-  <datalist id="font-list"></datalist>
-  <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
+    <section id="start" class="closing checker">
+      <div class="scene" aria-hidden="true"><i class="ridge"></i><i class="ground"></i></div>
+      <div class="wrap">
+        <div class="source chat">
+          <p class="tag">Browser source</p>
+          <p class="ln"><b class="u-streamer">Streamer</b>: Welcome in, chat!</p>
+          <span class="grip a"></span><span class="grip b"></span><span class="grip c"></span><span class="grip d"></span>
+          <span class="grip e"></span><span class="grip f"></span><span class="grip g"></span><span class="grip h"></span>
+        </div>
+        <h2>Enter your channel, copy one URL, paste it into OBS.</h2>
+        <a class="cta" href="builder.html">Open the builder
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <p class="note">No login. No server of our own. No telemetry.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <a class="brand" href="#top"><span class="mark"></span>Twitch Chat Overlay</a>
+      <nav aria-label="Footer">
+        <a href="builder.html">Builder</a>
+        <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay">GitHub</a>
+        <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay#options">All options</a>
+      </nav>
+      <p class="note">Not affiliated with Twitch, 7TV, BetterTTV, FrankerFaceZ or Chatterino. Their names and logos belong to their owners. <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay/blob/main/img/logos/NOTICE.md">Logo sources and licenses.</a></p>
+    </div>
+  </footer>
 </body>
 </html>

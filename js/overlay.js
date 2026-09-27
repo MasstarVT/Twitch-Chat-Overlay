@@ -41,7 +41,7 @@
     // Inside the builder's preview iframe the builder is already open, so skip the link there.
     if (withLink && root.parent === root) {
       var a = document.createElement('a');
-      a.href = 'index.html' + (S && S.cfg.channel ? '?channel=' + encodeURIComponent(S.cfg.channel) : '');
+      a.href = 'builder.html' + (S && S.cfg.channel ? '?channel=' + encodeURIComponent(S.cfg.channel) : '');
       a.target = '_blank';
       a.rel = 'noopener';
       a.textContent = 'Open the overlay builder';

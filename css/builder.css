@@ -111,6 +111,9 @@ input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visibl
   padding: 18px;
 }
 .brand { padding: 4px 2px 0; }
+.home { display: inline-block; margin-bottom: 6px; color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; }
+.home::before { content: "\2190\00a0"; }
+.home:hover { color: var(--text); }
 .brand h1 { font-size: 26px; font-weight: 800; letter-spacing: -.01em; }
 .brand h1::before {
   content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 10px;

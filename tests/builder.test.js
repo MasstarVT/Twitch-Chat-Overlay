@@ -7,7 +7,7 @@ const path = require('node:path');
 const config = require('../js/config.js');
 const builder = require('../js/builder.js');
 
-const BASE = 'https://masstarvt.github.io/Twitch-Chat-Overlay/index.html?x=1#top';
+const BASE = 'https://masstarvt.github.io/Twitch-Chat-Overlay/builder.html?x=1#top';
 
 test('every config key except channel is in exactly one form group, with a label', () => {
   const seen = {};
@@ -56,7 +56,7 @@ test('overlayUrl from a file:// builder lists every setting, so a settings.js th
   const cfg = config.defaults();
   cfg.channel = 'xqc';
   cfg.block = ['a_b', 'c'];
-  const url = builder.overlayUrl(cfg, 'file:///E:/Github/Twitch%20Chat%20Overlay/index.html');
+  const url = builder.overlayUrl(cfg, 'file:///E:/Github/Twitch%20Chat%20Overlay/builder.html');
   assert.ok(url.startsWith('file:///E:/Github/Twitch%20Chat%20Overlay/overlay.html?channel=xqc&'), url);
   const p = new URL(url).searchParams;
   config.KEYS.forEach((k) => assert.ok(p.has(k), 'missing ' + k));
@@ -296,8 +296,26 @@ test('the preview frame is sandboxed to scripts only, except from disk where it 
   assert.strictEqual(builder.frameSandbox('file:'), null);
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'builder.js'), 'utf8');
   assert.match(src, /setAttribute\('sandbox', sb\)/);
-  ['js/builder.js', 'index.html'].forEach((f) =>
+  ['js/builder.js', 'builder.html', 'js/home.js', 'index.html'].forEach((f) =>
     assert.ok(fs.readFileSync(path.join(__dirname, '..', f), 'utf8').indexOf('allow-same-origin') < 0, f));
+});
+
+test('folderOf: builder memory from disk is keyed by folder, so index.html and builder.html share it', () => {
+  assert.strictEqual(builder.folderOf('/E:/Github/Twitch%20Chat%20Overlay/builder.html'), '/E:/Github/Twitch%20Chat%20Overlay/');
+  assert.strictEqual(builder.folderOf('/E:/Github/Twitch%20Chat%20Overlay/index.html'), builder.folderOf('/E:/Github/Twitch%20Chat%20Overlay/builder.html'));
+  assert.strictEqual(builder.folderOf('/C:/other/builder.html') === builder.folderOf('/C:/else/builder.html'), false);
+  assert.strictEqual(builder.folderOf('/folder/'), '/folder/');
+  assert.strictEqual(builder.folderOf('builder.html'), '');
+  assert.strictEqual(builder.folderOf(null), '');
+});
+
+test('lastSnapshot: the snapshot saved as index.html counts only until the folder has one of its own', () => {
+  assert.strictEqual(builder.lastSnapshot(null, '{"size":"large"}'), '{"size":"large"}', 'first open after the rename');
+  assert.strictEqual(builder.lastSnapshot('{"size":"small"}', '{"size":"large"}'), '{"size":"small"}',
+    'settings.js went back to what index.html last saw: that is a change since the last load');
+  assert.strictEqual(builder.lastSnapshot('{}', '{"size":"large"}'), '{}');
+  assert.strictEqual(builder.lastSnapshot(null, null), null);
+  assert.strictEqual(builder.lastSnapshot(undefined, null), null);
 });
 
 test('every GROUPS key is a SPEC key, listed once, and together they are every setting but channel', () => {

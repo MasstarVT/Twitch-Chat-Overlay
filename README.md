@@ -27,16 +27,16 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
   - Shared Chat messages show the source channel's avatar and badges.
 - **Vertical or horizontal:** a classic chat column, or a single row that runs sideways like a ticker, for a bar along the top or bottom of the stream.
 - **Clean look by default:** white text with a soft drop shadow on a transparent background. You can change the layout, size, font, shadow, background, alignment, fade-out and line limit.
-- **Config builder** (`index.html`) with a live preview, a demo mode, and copy or download buttons.
+- **Config builder** (`builder.html`) with a live preview, a demo mode, and copy or download buttons.
 
 ## Quick start
 
-The overlay is hosted at **https://chat.masstar.org/**. Open it, enter your channel, and copy the overlay URL into OBS (steps 3–5 below). To host your own copy instead, use Option A or B.
+The overlay is hosted at **https://chat.masstar.org/**. Open the builder at **https://chat.masstar.org/builder.html**, enter your channel, and copy the overlay URL into OBS (steps 3–5 below). To host your own copy instead, use Option A or B.
 
 ### Option A: GitHub Pages (recommended)
 
 1. Fork the repo and delete the `CNAME` file from your fork (it points at chat.masstar.org). Then go to **Settings → Pages**, choose **Deploy from a branch**, and pick `main` / `(root)`.
-2. Open `https://<your-user>.github.io/Twitch-Chat-Overlay/`. That page is the builder. To pre-fill it, add options to its URL, for example `?channel=yourname`.
+2. Open `https://<your-user>.github.io/Twitch-Chat-Overlay/builder.html`. That page is the builder. To pre-fill it, add options to its URL, for example `?channel=yourname`.
 3. Enter your channel, adjust the look, and press **Copy** next to the overlay URL.
 4. In OBS: **Sources → + → Browser**. Paste the URL, then set **Width** and **Height** to the same size as the builder preview (450 × 700 for the vertical layout, 1920 × 100 for the horizontal one).
 5. In the same dialog, **uncheck** "Shutdown source when not visible" and "Refresh browser when scene becomes active". Leaving them on makes the chat reconnect and clear on every scene switch.
@@ -44,7 +44,7 @@ The overlay is hosted at **https://chat.masstar.org/**. Open it, enter your chan
 ### Option B: a folder on your PC
 
 1. Download the repo (Code → Download ZIP) and unzip it.
-2. Open `index.html` in your browser, configure the overlay, and press **Download settings.js**. Save the file next to `overlay.html`. You can also copy `settings.example.js` to `settings.js` and edit it by hand.
+2. Open `builder.html` in your browser, configure the overlay, and press **Download settings.js**. Save the file next to `overlay.html`. You can also copy `settings.example.js` to `settings.js` and edit it by hand.
 3. In OBS, add a **Browser** source, tick **Local file**, and pick `overlay.html`.
 4. After you change `settings.js`, open the source's properties and press **Refresh cache of current page**.
 
@@ -131,7 +131,7 @@ Everything is fetched directly by your browser or OBS. There is no server of our
 | Twitch CDN (`static-cdn.jtvnw.net`), cheer CDN (`d3aqoihi2n8ty8.cloudfront.net`), Giphy (`media*.giphy.com`) | Twitch emote, badge, avatar, cheermote and GIF images |
 | Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | the chosen font, unless it is a system font |
 
-Badge and emote lists name their own image URLs, so a provider can move its images to another host. The builder page also loads the Inter font from Google Fonts and uses the IVR API to check the channel name.
+Badge and emote lists name their own image URLs, so a provider can move its images to another host. The builder page also loads the Inter font from Google Fonts and uses the IVR API to check the channel name. The home page loads its own fonts from Google Fonts, and its two live demos are the overlay itself in demo mode, so they contact the same emote and badge services (no chat connection).
 
 ## Security: chat can't run code
 
@@ -142,7 +142,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Validated styling.** Name and badge colors must be hex colors. 7TV paints are rebuilt from checked numbers and colors, with limited layers and shadows (up to 8 layers and 10 shadows, and the whole shadow chain shares a 32 px reach on each axis and for blur), so a paint can't escape its own rule or draw far outside the name.
 - **Zalgo text** (piles of combining marks) is cut to 4 marks per letter, even with invisible characters between them, so it can reach at most about one text row into the message above instead of covering the chat. Normal accents and emoji are unaffected.
 - **Size limits.** Message text is cut at 1000 characters, a message draws at most 300 emote images, and one emote stacks at most 4 zero-width layers. Real Twitch messages (500 characters) never reach these; only crafted history lines can. BTTV's rotate modifiers draw the emote in a square box, so a rotated wide emote stays within its own line.
-- **Content-Security-Policy.** As a second layer, `overlay.html` and the builder only run their own script files: no inline scripts, no `eval`, nothing from other sites. Inline styles stay allowed, because OBS applies a source's Custom CSS that way.
+- **Content-Security-Policy.** As a second layer, `overlay.html`, the builder and the home page only run their own script files: no inline scripts, no `eval`, nothing from other sites. Only `overlay.html` allows inline styles, because OBS applies a source's Custom CSS that way.
 - **Sandboxed preview.** When the builder is served over http(s), its live-chat preview runs in a sandboxed frame (`allow-scripts` only) with no access to the builder page. Opened from disk (`file://`), the preview runs unsandboxed, because a sandboxed frame can't load local files; Chrome still gives each local page its own origin.
 
 `tests/security.test.js` feeds hostile messages, emotes, badges and paints through the real code to keep it this way.
@@ -157,7 +157,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Homies badges:** when a user is in more than one Homies list, their badges show in list order (itzalex badges, badges2, chatterinohomies), whichever list loads first.
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
-- **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `index.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup.
+- **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
 
 ## Development
@@ -166,11 +166,12 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 npm test
 ```
 
-This runs the unit tests with Node's built-in test runner (Node 22+; no dependencies). To preview locally, serve the folder with any static server, for example `python -m http.server 8080`, and open `http://localhost:8080/`.
+This runs the unit tests with Node's built-in test runner (Node 22+; no dependencies). To preview locally, serve the folder with any static server, for example `python -m http.server 8080`, and open `http://localhost:8080/` (the home page) or `http://localhost:8080/builder.html` (the builder).
 
 Layout:
 
-- `index.html`, `js/builder.js`, `css/builder.css`: the builder.
+- `index.html`, `css/home.css`, `js/home.js`, `img/logos/`: the home page. `js/home.js` starts its live demos and passes old builder links on.
+- `builder.html`, `js/builder.js`, `css/builder.css`: the builder.
 - `overlay.html`, `css/overlay.css`: the overlay page.
 - `js/overlay.js`: startup and wiring. `js/errors.js` records script errors (e.g. a broken settings.js) for the startup hint.
 - `js/irc*.js`: Twitch chat.

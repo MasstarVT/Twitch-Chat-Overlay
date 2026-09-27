@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Only this site's own script files run (no inline scripts, no eval). The preview frame is overlay.html. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src https: data:; connect-src https://api.ivr.fi; frame-src 'self' file:; base-uri 'none'; form-action 'none'">
+  <title>Twitch Chat Overlay Builder</title>
+  <meta name="description" content="Build an OBS chat overlay for Twitch with 7TV, BetterTTV and FrankerFaceZ emotes, every badge source and 7TV name paints.">
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- media="print" keeps this font from blocking the page; builder.js switches it on once it loads. -->
+  <link id="font-css" rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+  <link rel="stylesheet" href="css/builder.css?v=1.3.0">
+  <script defer src="js/util.js?v=1.3.0"></script>
+  <script defer src="js/config.js?v=1.3.0"></script>
+  <script defer src="js/builder.js?v=1.3.0"></script>
+</head>
+<body>
+  <a class="skip" href="#settings">Skip to settings</a>
+
+  <div id="builder" class="layout">
+    <header class="top">
+      <div class="brand">
+        <a class="home" href="index.html">Home</a>
+        <h1>Twitch Chat Overlay</h1>
+        <p class="lede">A clean chat overlay for OBS with 7TV, BetterTTV and FrankerFaceZ emotes, every badge source and 7TV name paints. Pick your channel, tune the look, then copy the URL into an OBS Browser source.</p>
+      </div>
+
+      <section id="channel-card" class="card" aria-labelledby="channel-h">
+        <h2 id="channel-h">Channel</h2>
+        <label for="channel" class="field-label">Twitch channel</label>
+        <div class="input-row">
+          <input id="channel" class="text" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 placeholder="yourname or https://twitch.tv/yourname" aria-describedby="channel-help channel-status">
+          <button id="channel-check" class="btn" type="button">Check</button>
+        </div>
+        <p id="channel-help" class="help">Press Enter or click away to check the name.</p>
+        <div id="channel-status" class="status" role="status" aria-live="polite"></div>
+
+        <details class="paste">
+          <summary>Edit an existing overlay</summary>
+          <label for="paste" class="field-label">Paste an overlay URL (or the contents of a settings.js)</label>
+          <div class="input-row">
+            <!-- A textarea, not an input: an input strips the line breaks from a pasted settings.js,
+                 and then its // comments would swallow the rest of the file. -->
+            <textarea id="paste" class="text paste-text" rows="1" wrap="off" autocomplete="off" autocapitalize="off" spellcheck="false"
+                      placeholder="https://…/overlay.html?channel=…" aria-describedby="paste-status"></textarea>
+            <button id="paste-load" class="btn" type="button">Load</button>
+          </div>
+          <div id="paste-status" class="status" role="status" aria-live="polite"></div>
+        </details>
+      </section>
+    </header>
+
+    <aside id="preview" class="preview card" aria-labelledby="preview-h">
+      <h2 id="preview-h" class="sr-only">Preview</h2>
+      <div class="preview-bar">
+        <div class="seg seg-small" role="radiogroup" aria-label="Preview shows">
+          <label><input type="radio" name="pmode" value="demo" checked><span>Demo</span></label>
+          <label><input type="radio" name="pmode" value="live"><span>Live chat</span></label>
+        </div>
+        <div class="swatches" role="radiogroup" aria-label="Preview background">
+          <label title="Dark"><input type="radio" name="backdrop" value="dark" checked><span class="sw bd-dark"></span><span class="sr-only">Dark</span></label>
+          <label title="Light"><input type="radio" name="backdrop" value="light"><span class="sw bd-light"></span><span class="sr-only">Light</span></label>
+          <label title="Checkerboard"><input type="radio" name="backdrop" value="checker"><span class="sw bd-checker"></span><span class="sr-only">Checkerboard</span></label>
+          <label title="Busy game"><input type="radio" name="backdrop" value="busy"><span class="sw bd-busy"></span><span class="sr-only">Busy game</span></label>
+        </div>
+        <div class="size" role="group" aria-label="Source size in pixels">
+          <label for="pw" class="size-label">W</label>
+          <input id="pw" class="num" type="number" step="1" inputmode="numeric" value="450">
+          <span aria-hidden="true">×</span>
+          <label for="ph" class="size-label">H</label>
+          <input id="ph" class="num" type="number" step="1" inputmode="numeric" value="700">
+        </div>
+      </div>
+
+      <div id="stage" class="stage bd-dark">
+        <p id="stage-hint" class="stage-hint" role="status" aria-live="polite" hidden></p>
+        <div id="frame-box" class="frame-box"></div>
+        <p id="scale-note" class="scale-note" aria-hidden="true"></p>
+      </div>
+
+      <div class="urlbar">
+        <label for="bar-url" class="sr-only">Overlay URL</label>
+        <input id="bar-url" class="text mono" type="text" readonly>
+        <button id="bar-copy" class="btn primary" type="button">Copy URL</button>
+        <a id="bar-open" class="btn" href="overlay.html" target="_blank" rel="noopener">Open</a>
+      </div>
+      <p id="bar-warn" class="status warn small">Add a channel first. Without one the overlay only shows a hint.</p>
+    </aside>
+
+    <main id="settings" class="settings" tabindex="-1">
+      <div class="settings-head">
+        <h2>Settings</h2>
+        <button id="reset" class="btn ghost" type="button">Reset to defaults</button>
+      </div>
+      <div id="groups"></div>
+
+      <section id="obs" class="card obs" aria-labelledby="obs-h">
+        <h2 id="obs-h">Add to OBS</h2>
+        <div id="file-intro" class="callout" hidden>
+          <p>You opened the builder from a file on this PC, so the Local file setup comes first. The URL setup further down works too.</p>
+          <p id="file-loaded" class="status ok" hidden>Loaded the settings.js from this folder.</p>
+        </div>
+
+        <div id="obs-url" class="obs-block">
+          <h3>Browser source with a URL <span class="tag">Recommended</span></h3>
+          <div class="url-out">
+            <code id="out-url" class="code-line"></code>
+            <div class="btns">
+              <button id="out-copy" class="btn primary" type="button">Copy URL</button>
+              <a id="out-open" class="btn" href="overlay.html" target="_blank" rel="noopener">Open</a>
+            </div>
+          </div>
+          <p id="url-note" class="help"></p>
+          <p id="url-warn" class="status warn" hidden></p>
+          <p id="file-url-note" class="help" hidden>This is a <code>file:///</code> URL because the builder is running from disk. OBS accepts it in the URL box with Local file unticked, and each source can have its own.</p>
+          <ol class="steps">
+            <li>In OBS, click <b>+</b> under Sources and choose <b>Browser</b>.</li>
+            <li>Leave <b>Local file</b> unticked and paste the URL into <b>URL</b>.</li>
+            <li>Set <b>Width</b> to <b class="obs-w">450</b> and <b>Height</b> to <b class="obs-h">700</b> (the preview size).</li>
+            <li>Untick <b>Shutdown source when not visible</b> and <b>Refresh browser when scene becomes active</b>. Both reconnect and wipe the chat on every scene switch.</li>
+            <li>Leave <b>Custom CSS</b> at its default and click <b>OK</b>.</li>
+          </ol>
+          <p class="help">To change it later, paste the URL into “Edit an existing overlay” above, adjust, then replace the URL in OBS.</p>
+        </div>
+
+        <div id="obs-local" class="obs-block">
+          <h3>OBS “Local file” with settings.js</h3>
+          <p class="help">Local file mode can’t take URL parameters, so the settings go in a <code>settings.js</code> file next to <code>overlay.html</code>.</p>
+          <pre class="code-block"><code id="out-settings"></code></pre>
+          <div class="btns">
+            <button id="settings-copy" class="btn" type="button">Copy</button>
+            <button id="settings-dl" class="btn primary" type="button">Download settings.js</button>
+          </div>
+          <ol class="steps">
+            <li id="step-get-files">Get the overlay files: on <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay" target="_blank" rel="noopener">GitHub</a> choose Code → Download ZIP, and unzip it somewhere permanent.</li>
+            <li>Save <code>settings.js</code> in the same folder as <code>overlay.html</code>.</li>
+            <li>In OBS, add a <b>Browser</b> source, tick <b>Local file</b> and pick <code>overlay.html</code>.</li>
+            <li>Set <b>Width</b> to <b class="obs-w">450</b> and <b>Height</b> to <b class="obs-h">700</b>.</li>
+            <li>Untick <b>Shutdown source when not visible</b> and <b>Refresh browser when scene becomes active</b>.</li>
+            <li>Whenever you change settings.js, open the source’s properties and click <b>Refresh cache of current page</b>.</li>
+          </ol>
+          <p class="help">Every Local file source in that folder shares one settings.js. For different setups, use URL mode instead with the <code>file:///…/overlay.html?…</code> URL this builder makes when you open it from that folder: it lists every setting, so the shared settings.js can’t change it.</p>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <p>No login needed: chat is read anonymously, and everything runs in the browser source. Settings you change here are remembered in this browser.</p>
+      </footer>
+    </main>
+  </div>
+
+  <datalist id="font-list"></datalist>
+  <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
+</body>
+</html>

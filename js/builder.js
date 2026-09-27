@@ -390,7 +390,15 @@
   function saveCfg() {
     store(STORE_CFG, config.toObject(B.cfg));
     // Every file:// page shares one localStorage, so remember which folder these settings came from.
-    if (root.location.protocol === 'file:') store(STORE_CFG_PATH, root.location.pathname);
+    if (root.location.protocol === 'file:') store(STORE_CFG_PATH, folderOf(root.location.pathname));
+  }
+  // A page's folder. Keys are per folder, not per file, so a renamed builder file keeps its memory
+  // (the builder was index.html before it was builder.html, and old keys hold that full path).
+  function folderOf(pathname) { return String(pathname || '').replace(/[^\/]*$/, ''); }
+  // The settings.js snapshot last loaded from a folder. Until one is saved under the folder, the one the
+  // builder saved as index.html counts; after that the old one is never looked at again.
+  function lastSnapshot(folderSnap, legacySnap) {
+    return folderSnap === null || folderSnap === undefined ? legacySnap : folderSnap;
   }
   function saveUi() { store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop }); }
 
@@ -1192,9 +1200,10 @@
       if (!o || typeof o !== 'object') return;
       var fileCfg = config.parse('', o);
       var snap = JSON.stringify(config.toObject(fileCfg));
-      var key = STORE_FILE_BASE + root.location.pathname;
+      var key = STORE_FILE_BASE + folderOf(root.location.pathname);
+      var seen = lastSnapshot(loadStored(key), loadStored(key + 'index.html'));
       var note = $('file-loaded');
-      if (fromStore && loadStored(key) === snap) {
+      if (fromStore && seen === snap) {
         if (note) {
           note.textContent = 'Kept your changes from last time: the settings.js in this folder hasn’t changed since the builder loaded it.';
           note.hidden = false;
@@ -1251,7 +1260,7 @@
 
     var init = initialCfg();
     // Read before replaceCfg saves: stored settings from another folder's builder aren't "your changes" here.
-    var ownStore = init.fromStore && loadStored(STORE_CFG_PATH) === root.location.pathname;
+    var ownStore = init.fromStore && folderOf(loadStored(STORE_CFG_PATH)) === folderOf(root.location.pathname);
     renderChannel();
     replaceCfg(init.cfg);
     // A stored preview size may belong to the other layout (1920×100 saved in a horizontal session,
@@ -1282,6 +1291,8 @@
     relaxedJson: relaxedJson,
     reloadSignature: reloadSignature,
     frameSandbox: frameSandbox,
+    folderOf: folderOf,
+    lastSnapshot: lastSnapshot,
     smallAvatar: smallAvatar,
     layoutPreviewSize: layoutPreviewSize,
     wantsWidePreview: wantsWidePreview,
