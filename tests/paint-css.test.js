@@ -1,6 +1,8 @@
 'use strict';
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const util = require('../js/util.js');
 const pc = require('../js/paint-css.js');
 
@@ -23,13 +25,18 @@ test('intToRgba(-1857617921) is #9146FF opaque', () => {
   assert.equal(util.intToRgba(-1857617921), 'rgba(145,70,255,1)');
 });
 
-test('BASE_RULE pairs -webkit-background-clip with background-clip and uses no shorthand', () => {
-  const r = pc.BASE_RULE;
-  assert.ok(r.includes('-webkit-background-clip:text'));
-  assert.ok(/[;{]background-clip:text/.test(r));
-  assert.ok(r.includes('-webkit-text-fill-color:transparent'));
-  assert.ok(r.includes('background-color:currentColor'));
-  assert.ok(r.includes('background-size:100% 100%'));
+// The base painted-name style lives in css/overlay.css (the injected .painted.p-<id> rules only add
+// background-image/-color and filter). Chromium 103 (OBS 28-30) only honours the -webkit- clip.
+test('overlay.css .painted pairs -webkit-background-clip with background-clip and uses no shorthand', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'overlay.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const m = /(^|\})\s*\.painted\s*\{([^}]*)\}/.exec(css);
+  assert.ok(m, 'overlay.css has a .painted block');
+  const r = '{' + m[2].split(';').map((d) => d.trim().replace(/\s*:\s*/, ':').replace(/\s+/g, ' ')).filter(Boolean).join(';') + '}';
+  assert.ok(r.includes('-webkit-background-clip:text'), r);
+  assert.ok(/[;{]background-clip:text/.test(r), r);
+  assert.ok(r.includes('-webkit-text-fill-color:transparent'), r);
+  assert.ok(r.includes('background-color:currentColor'), r);
+  assert.ok(r.includes('background-size:100% 100%'), r);
   assertLonghandsOnly(r);
 });
 
@@ -112,6 +119,66 @@ describe('fromV4', () => {
     const rule = pc.ruleFor(p);
     assert.equal(rule, '.painted.p-' + ID + '{background-color:#9146FFFF}');
     assertLonghandsOnly(rule);
+  });
+
+  test('layers stack like 7TV (layer 0 at the bottom) and layer opacity is folded into colors', () => {
+    const grad = { __typename: 'PaintLayerTypeLinearGradient', angle: 90, stops: [{ at: 0, color: hex('#FF0000FF') }, { at: 1, color: hex('#0000FF') }] };
+    const img = { __typename: 'PaintLayerTypeImage', images: [{ url: IMG + '1x.webp', mime: 'image/webp', scale: 1, frameCount: 1 }] };
+    const p = pc.fromV4(v4([
+      { opacity: 1, ty: grad },
+      { opacity: 0.6, ty: img },
+      { opacity: 0.5, ty: { __typename: 'PaintLayerTypeSingleColor', color: hex('#FFFFFFFF') } },
+      { opacity: 0, ty: { __typename: 'PaintLayerTypeSingleColor', color: hex('#000000FF') } }
+    ]));
+    assert.equal(p.bgImage, 'linear-gradient(#FFFFFF80, #FFFFFF80), url("' + IMG + '1x.webp"), linear-gradient(90deg, #FF0000FF 0%, #0000FF 100%)');
+    assert.equal(p.bgColor, null);
+    const faded = pc.fromV4(v4([{ opacity: 0.5, ty: grad }]));
+    assert.equal(faded.bgImage, 'linear-gradient(90deg, #FF000080 0%, #0000FF80 100%)');
+    // A single-color bottom layer stays the background color; a missing opacity means opaque.
+    const bottom = pc.fromV4(v4([{ ty: { __typename: 'PaintLayerTypeSingleColor', color: hex('#9146FF') } }, { opacity: 1, ty: grad }]));
+    assert.equal(bottom.bgColor, '#9146FF');
+    assert.equal(bottom.bgImage, 'linear-gradient(90deg, #FF0000FF 0%, #0000FF 100%)');
+  });
+
+  test('chained shadows share one reach budget (drop-shadows add up), up to MAX_SHADOWS of them', () => {
+    const big = Array.from({ length: 12 }, () => ({ color: hex('#FF00FFFF'), offsetX: 20, offsetY: -20, blur: 20 }));
+    const p = pc.fromV4(v4([], big));
+    const parts = p.filter.match(/drop-shadow\([^)]*\)/g);
+    assert.equal(parts.length, 2, 'shadows trimmed to nothing are not emitted: ' + p.filter);
+    let sx = 0, sy = 0, sb = 0;
+    parts.forEach((d) => {
+      const n = d.match(/-?[\d.]+(?=px)/g).map(Number);
+      sx += Math.abs(n[0]); sy += Math.abs(n[1]); sb += n[2];
+    });
+    assert.ok(sx <= pc.MAX_SHADOW_PX && sy <= pc.MAX_SHADOW_PX && sb <= pc.MAX_SHADOW_PX, p.filter);
+    assert.equal(parts[0], 'drop-shadow(20px -20px 20px #FF00FFFF)');
+    assert.equal(parts[1], 'drop-shadow(12px -12px 12px #FF00FFFF)');
+  });
+
+  test('a trimmed shadow keeps its direction (offset scaled as a whole, not per axis)', () => {
+    // WTFIsGoingOn: the second copy has 2px of the y budget left; it must still point down-right, not right.
+    const p = pc.fromV4(v4([], [
+      { color: hex('#FF0000FF'), offsetX: 4, offsetY: 30, blur: 0 },
+      { color: hex('#FF0000FF'), offsetX: 8, offsetY: 32, blur: 0 }
+    ]));
+    assert.equal(p.filter, 'drop-shadow(4px 30px 0px #FF0000FF) drop-shadow(0.5px 2px 0px #FF0000FF)');
+    // Huge offsets: scaled down along their own line; blur is clamped on its own.
+    const h = pc.fromV4(v4([], [{ color: hex('#FF0000FF'), offsetX: 5000, offsetY: -250, blur: 999 }]));
+    assert.equal(h.filter, 'drop-shadow(32px -1.6px 32px #FF0000FF)');
+    // Once every budget is used up nothing more is emitted; a real 0/0/0 shadow is kept as given.
+    const z = pc.fromV4(v4([], [{ color: hex('#000000FF'), offsetX: 0, offsetY: 0, blur: 0 }]));
+    assert.equal(z.filter, 'drop-shadow(0px 0px 0px #000000FF)');
+  });
+
+  test('a real 10-shadow paint keeps its last two (colored) shadows', () => {
+    // "Hot Pursuit yx": 8 sub-pixel outlines, then a blue and a red glow.
+    const outlines = Array.from({ length: 8 }, (_, i) => ({ color: hex(i % 2 ? '#1E1E1EFF' : '#A0A0A0FF'), offsetX: i % 2 ? 0 : -0.2, offsetY: i % 2 ? -0.1 : 0, blur: 0 }));
+    const p = pc.fromV4(v4([], outlines.concat([
+      { color: hex('#194BEBFF'), offsetX: 1.6, offsetY: 1, blur: 1.6 },
+      { color: hex('#E61414FF'), offsetX: -1.6, offsetY: -0.8, blur: 1.6 }
+    ])));
+    assert.equal((p.filter.match(/drop-shadow/g) || []).length, 10);
+    assert.ok(p.filter.endsWith('drop-shadow(1.6px 1px 1.6px #194BEBFF) drop-shadow(-1.6px -0.8px 1.6px #E61414FF)'), p.filter);
   });
 
   test('shadow-only paint (zero layers) keeps its filter chain', () => {

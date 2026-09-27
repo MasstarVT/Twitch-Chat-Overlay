@@ -24,6 +24,7 @@
   var Q_GLOBAL_V4 = '{emoteSets{global{emotes{' + EMOTE_ITEMS + '}}}}';
   var Q_CHANNEL_V4 = 'query($id:String!){users{userByConnection(platform:TWITCH, platformId:$id){id style{activeEmoteSetId ' +
     'activeEmoteSet{id emotes{' + EMOTE_ITEMS + '}}}}}}';
+  var Q_SET_V4 = 'query($id:Id!){emoteSets{emoteSet(id:$id){id emotes{' + EMOTE_ITEMS + '}}}}';
   var Q_CATALOG_V4 = '{paints{paints{id name data{layers{id opacity ty{__typename ' +
     '...on PaintLayerTypeSingleColor{color{hex}} ' +
     '...on PaintLayerTypeLinearGradient{angle repeating stops{at color{hex}}} ' +
@@ -183,10 +184,22 @@
     });
   }
 
-  // null = the channel has no 7TV account / no active set (not an error).
+  // null = the channel has no 7TV account (not an error). An account with no active set gives an empty
+  // map and setId null, so the owner is still registered and a set turned on mid-stream is picked up.
+  function noSet(ownerId) {
+    var oid = util.idStr(ownerId);
+    return validId(oid) ? { emotes: new Map(), setId: null, ownerId: oid } : null;
+  }
+
   function channelV3(id) {
     return util.fetchJson(V3 + '/users/twitch/' + id, { timeout: 20000 }).then(function (r) {
-      if (!r || util.isNotFound(r) || !r.emote_set || !r.user) return null;
+      if (!r || util.isNotFound(r) || !r.user) return null;
+      if (!r.emote_set) {
+        // An active set id with no set object is a glitch on 7TV's side, not "no set": fail so the
+        // loader retries and falls back to v4, instead of wiping the emotes already shown.
+        if (validId(util.idStr(r.emote_set_id))) throw new Error('7tv channel: active set ' + util.idStr(r.emote_set_id) + ' did not resolve');
+        return noSet(r.user.id);
+      }
       return {
         emotes: mapFrom(r.emote_set.emotes, normalizeActiveEmoteV3),
         setId: util.idStr(r.emote_set_id || r.emote_set.id) || null,
@@ -199,7 +212,8 @@
     return gql(V4_GQL, Q_CHANNEL_V4, { id: id }, 20000).then(function (d) {
       var u = d.users && d.users.userByConnection;
       var set = u && u.style && u.style.activeEmoteSet;
-      if (!set) return null;
+      // Same glitch as v3 (id set, set missing): null keeps the emotes already shown.
+      if (!set) return u && !validId(util.idStr(u.style && u.style.activeEmoteSetId)) ? noSet(u.id) : null;
       return {
         emotes: mapFrom(set.emotes && set.emotes.items, normalizeEmoteV4),
         setId: util.idStr(u.style.activeEmoteSetId || set.id) || null,
@@ -221,12 +235,26 @@
     });
   }
 
+  function setV4(id) {
+    return gql(V4_GQL, Q_SET_V4, { id: id }, 20000).then(function (d) {
+      var s = d.emoteSets && d.emoteSets.emoteSet;
+      var items = s && s.emotes && s.emotes.items;
+      // No set: fail (and retry) rather than wipe the emotes the overlay already shows.
+      if (!Array.isArray(items)) throw new Error('7tv set: bad v4 response');
+      return mapFrom(items, normalizeEmoteV4);
+    });
+  }
+
+  // v3 REST, then v4 GQL when v3 fails (network error / 5xx / timeout).
   function loadSet(setId) {
     var id = util.idStr(setId);
     if (!validId(id)) return Promise.reject(new Error('7tv: invalid emote set id'));
     return util.fetchJson(V3 + '/emote-sets/' + id, { timeout: 20000 }).then(function (r) {
       if (!r || util.isNotFound(r)) return new Map();
       return mapFrom(r.emotes, normalizeActiveEmoteV3);
+    }, function (err) {
+      util.warn('7tv set v3 failed, trying v4 GQL:', err && err.message);
+      return setV4(id);
     });
   }
 
@@ -238,8 +266,9 @@
   function catalogV4() {
     return gql(V4_GQL, Q_CATALOG_V4, null, 20000).then(function (d) {
       var paints = new Map(), badges = new Map();
-      var pl = (d.paints && d.paints.paints) || [];
-      var bl = (d.badges && d.badges.badges) || [];
+      // Array.isArray: a hostile {length: 1e12} must not spin the loop.
+      var pl = d.paints && Array.isArray(d.paints.paints) ? d.paints.paints : [];
+      var bl = d.badges && Array.isArray(d.badges.badges) ? d.badges.badges : [];
       for (var i = 0; i < pl.length; i++) {
         var p = tryNorm(paintCss.fromV4, pl[i]);
         if (p) paints.set(p.id, p);
@@ -257,7 +286,7 @@
     return gql(V3_GQL, Q_CATALOG_V3, null, 30000).then(function (d) {
       var c = d.cosmetics || {};
       var paints = new Map(), badges = new Map();
-      var pl = c.paints || [], bl = c.badges || [];
+      var pl = Array.isArray(c.paints) ? c.paints : [], bl = Array.isArray(c.badges) ? c.badges : [];
       for (var i = 0; i < pl.length; i++) {
         var p = tryNorm(paintCss.fromV3, pl[i]);
         if (p) paints.set(p.id, p);
@@ -288,6 +317,9 @@
   }
 
   function isEmoteChange(c) { return c && (c.key === 'emotes' || c.key === undefined); }
+
+  // Well above 7TV's own set capacity: pushes past it are ignored so a hostile stream cannot grow a set.
+  var MAX_SET_EMOTES = 5000;
 
   // ChangeMap {id, pushed:[{value}], pulled:[{old_value}], updated:[{old_value, value}]}; pulled data may be null.
   function applySetChanges(map, body) {
@@ -323,7 +355,7 @@
       c = pushed[i];
       if (!isEmoteChange(c)) continue;
       var e = normalizeActiveEmoteV3(c.value);
-      if (!e) continue;
+      if (!e || (map.size >= MAX_SET_EMOTES && !map.has(e.name))) continue;
       map.set(e.name, e);
       changed = true;
     }
@@ -331,15 +363,23 @@
   }
 
   // ---------- state: catalog, channel/personal sets, entitlements ----------
-  // opts: { bus (util.Emitter), onSetSwitch(roomId, newSetId, ownerId) }
+  // Long-run caps (a stream can run for hours); exported for tests.
+  var CAPS = { personalSets: 2000, userCos: 20000, gqlStyle: 20000, extraCosmetics: 2000, refetch: 2000 };
+  var REFETCH_RETRY = 300000; // a personal set that failed to load is tried again after 5 min
+  var SET_GRACE = 10000;
+
+  // opts: { bus (util.Emitter), onSetSwitch(roomId, newSetId | null, ownerId),
+  //         loadSet(setId)? (refetches an evicted personal set), wantPersonal()? (false: ignore personal sets) }
   function createState(opts) {
     opts = opts || {};
     var bus = opts.bus || null;
     var paints = new Map();
     var badges = new Map();
-    var personalSets = new util.LRU(2000);   // setId -> Map<name, Emote>
-    var userCos = new util.LRU(20000);        // twitch userId -> {paint, badge, sets:Set}
-    var gqlStyle = new util.LRU(20000);       // twitch userId -> {paint, badge} | null
+    var personalSets = new util.LRU(CAPS.personalSets);   // setId -> Map<name, Emote>
+    var userCos = new util.LRU(CAPS.userCos);             // twitch userId -> {paint, badge, sets:Set}
+    var gqlStyle = new util.LRU(CAPS.gqlStyle);           // twitch userId -> {paint, badge} | null
+    var refetch = new util.LRU(CAPS.refetch);             // personal setId -> time a refetch may start again
+    var extraPaints = 0, extraBadges = 0;                 // entries added by cosmetic.create
     var setRooms = new Map();                 // channel setId -> Map<roomId, emotesMap>
     var roomSet = new Map();                  // roomId -> channel setId
     var ownerRoom = new Map();                // channel owner's 7TV id -> roomId
@@ -355,15 +395,17 @@
     }
 
     // Route emote_set.update for setId into emotesMap (the RoomContext's own Map).
+    // A null setId (the channel has no active set) drops the room's old routing.
     function registerChannelSet(roomId, setId, emotesMap, ownerId) {
       var rid = util.idStr(roomId), sid = util.idStr(setId);
       if (ownerId !== undefined && ownerId !== null) registerOwner(rid, ownerId);
-      if (!rid || !validId(sid) || !(emotesMap instanceof Map)) return false;
+      if (!rid || !(emotesMap instanceof Map)) return false;
       unroute(rid);
-      roomSet.set(rid, sid);
       // A registered set supersedes any switch still in flight for this room's owner, so a stale
       // "last announced" entry can never suppress a later switch.
       ownerRoom.forEach(function (r, oid) { if (r === rid) switched.delete(oid); });
+      if (!validId(sid)) return false;
+      roomSet.set(rid, sid);
       var rooms = setRooms.get(sid);
       if (!rooms) { rooms = new Map(); setRooms.set(sid, rooms); }
       rooms.set(rid, emotesMap);
@@ -394,10 +436,12 @@
       emit({ all: true });
     }
 
+    function wantPersonal() { return !opts.wantPersonal || !!opts.wantPersonal(); }
+
     function onSetCreate(body) {
       var obj = body.object || {};
       var id = util.idStr(obj.id || body.id);
-      if (!validId(id) || !((obj.flags | 0) & PERSONAL_FLAGS)) return;
+      if (!validId(id) || !((obj.flags | 0) & PERSONAL_FLAGS) || !wantPersonal()) return;
       // Emotes follow in emote_set.update pushed[]; a re-sent create carries the full list again.
       personalSets.set(id, new Map());
     }
@@ -422,16 +466,17 @@
       var id = util.idStr(obj.id || data.id || body.id);
       if (!validId(id)) return;
       var kind = String(obj.kind || '').toUpperCase();
+      // The maps are never pruned (lines refer to them by id), so only so many unknown ids are taken.
       if (kind === 'PAINT') {
-        if (paints.has(id)) return;
+        if (paints.has(id) || extraPaints >= CAPS.extraCosmetics) return;
         var src = data;
         if (data.id !== id) { src = {}; for (var k in data) src[k] = data[k]; src.id = id; }
         var p = paintCss.fromV3(src);
-        if (p) { paints.set(id, p); emit({ all: true }); }
+        if (p) { paints.set(id, p); extraPaints++; emit({ all: true }); }
       } else if (kind === 'BADGE') {
-        if (badges.has(id)) return;
+        if (badges.has(id) || extraBadges >= CAPS.extraCosmetics) return;
         var b = normalizeBadgeV3(data);
-        if (b) { badges.set(id, b); emit({ all: true }); }
+        if (b) { badges.set(id, b); extraBadges++; emit({ all: true }); }
       }
     }
 
@@ -468,7 +513,7 @@
         if (create) { if (entry.badge !== ref) changed = true; entry.badge = ref; }
         else if (entry.badge === ref) { entry.badge = null; changed = true; }
       } else if (create) {
-        if (!entry.sets.has(ref)) changed = true;
+        if (!entry.sets.has(ref)) { changed = true; entry.setAt = util.now(); }
         entry.sets.add(ref);
       } else if (entry.sets.delete(ref)) {
         changed = true;
@@ -482,7 +527,7 @@
       var ownerId = util.idStr(body.id);
       var rid = ownerRoom.get(ownerId);
       if (!rid) return;
-      var byId = '', bySet = '';
+      var byId = '', bySet = '', cleared = false;
       var upd = Array.isArray(body.updated) ? body.updated : [];
       for (var i = 0; i < upd.length; i++) {
         var u = upd[i];
@@ -490,15 +535,24 @@
         for (var j = 0; j < u.value.length; j++) {
           var v = u.value[j];
           if (!v) continue;
-          if (v.key === 'emote_set_id' && v.value !== v.old_value && !byId) byId = util.idStr(v.value);
-          else if (v.key === 'emote_set' && v.value && typeof v.value === 'object' && !bySet) bySet = util.idStr(v.value.id);
+          if (v.key === 'emote_set_id' && v.value !== v.old_value && !byId) {
+            byId = util.idStr(v.value);
+            if (!validId(byId) && validId(util.idStr(v.old_value))) cleared = true; // set turned off
+          } else if (v.key === 'emote_set' && v.value && typeof v.value === 'object' && !bySet) bySet = util.idStr(v.value.id);
         }
       }
-      var next = byId || bySet;
+      var next = validId(byId) ? byId : bySet;
       // Dedupe against the last announced set while a switch is pending (so A->B->A still reaches
       // onSetSwitch), else against the registered one.
       var cur = switched.has(ownerId) ? switched.get(ownerId) : roomSet.get(rid);
-      if (!validId(next) || cur === next) return;
+      if (!validId(next)) {
+        // The owner turned their set off: announce null once (the overlay confirms it with a reload).
+        if (!cleared || !cur) return;
+        switched.set(ownerId, '');
+        if (opts.onSetSwitch) opts.onSetSwitch(rid, null, ownerId);
+        return;
+      }
+      if (cur === next) return;
       switched.set(ownerId, next);
       if (opts.onSetSwitch) opts.onSetSwitch(rid, next, ownerId);
     }
@@ -532,16 +586,28 @@
       if (!c) return out;
       c.sets.forEach(function (sid) {
         var m = personalSets.get(sid);
-        if (m && m.size) out.push(m);
+        if (m) { if (m.size) out.push(m); } else if (!(util.now() - c.setAt < SET_GRACE)) refetchSet(sid);
       });
       return out;
     }
 
-    // Twitch user ids whose entitlements include setId (for re-rendering after a personal set changes).
-    function usersForSet(setId) {
-      var out = [];
-      userCos.map.forEach(function (c, uid) { if (c.sets.has(setId)) out.push(uid); });
-      return out;
+    // 7TV sends a personal set's emote_set.create once per socket session, so a set evicted from
+    // personalSets (or skipped while personal emotes were off) is fetched again, once, when needed.
+    // A just-granted set gets SET_GRACE for its own emote_set.create to arrive first.
+    function refetchSet(sid) {
+      if (!opts.loadSet || !wantPersonal()) return;
+      var at = refetch.peek(sid);
+      if (at !== undefined && util.now() < at) return;
+      refetch.set(sid, Infinity); // in flight
+      Promise.resolve().then(function () { return opts.loadSet(sid); }).then(function (m) {
+        refetch.delete(sid);
+        if (!(m instanceof Map) || personalSets.has(sid)) return; // a fresh emote_set.create won
+        personalSets.set(sid, m);
+        if (m.size) emit({ setId: sid });
+      }).catch(function (err) {
+        refetch.set(sid, util.now() + REFETCH_RETRY);
+        util.log('7tv personal set refetch failed:', err && err.message);
+      });
     }
 
     function setGqlStyle(userId, v) {
@@ -569,7 +635,6 @@
       handleDispatch: handleDispatch,
       effective: effective,
       userEmoteMaps: userEmoteMaps,
-      usersForSet: usersForSet,
       setGqlStyle: setGqlStyle,
       hasUser: hasUser
     };
@@ -617,6 +682,17 @@
       return add(type, { object_id: oid });
     }
 
+    // Undoes addObject (e.g. the old set after a channel set switch), so switches don't pile up subscriptions.
+    function removeObject(type, objectId) {
+      var oid = util.idStr(objectId);
+      var key = JSON.stringify([type, { object_id: oid }]);
+      var s = subs.get(key);
+      if (!s) return false;
+      subs.delete(key);
+      if (live && live.isOpen()) live.send(JSON.stringify({ op: 36, d: { type: s.type, condition: s.condition } }));
+      return true;
+    }
+
     function armWatchdog(ctl) {
       if (dog !== null) ctl.clearTimer(dog);
       dog = ctl.setTimeout(function () {
@@ -628,7 +704,10 @@
 
     function onHello(d, ctl) {
       stats.hellos++;
-      heartbeat = d.heartbeat_interval > 0 ? Number(d.heartbeat_interval) : DEFAULT_HEARTBEAT;
+      // Out-of-range values (seconds instead of ms, or past the 32-bit timer range) would make the
+      // watchdog fire at once and reconnect in a loop.
+      var hb = Number(d.heartbeat_interval);
+      heartbeat = hb >= 1000 && hb <= 600000 ? hb : DEFAULT_HEARTBEAT;
       armWatchdog(ctl);
       live = ctl;
       subs.forEach(function (s) { ctl.send(frame(s)); });
@@ -703,7 +782,7 @@
       kick: function () { if (client) client.kick(); },
       addChannel: addChannel,
       addObject: addObject,
-      isOpen: function () { return !!(live && live.isOpen()); },
+      removeObject: removeObject,
       stats: function () {
         return {
           state: client ? client.state : 'idle', subs: subs.size, hellos: stats.hellos, acks: stats.acks,
@@ -720,9 +799,13 @@
 
   // ---------- GQL style lookup for chatters without entitlement data ----------
   var LOOKUP_BATCH = 50;       // complexity 5/alias, cap 400
-  var LOOKUP_GAP = 1500;
-  var LOOKUP_DEBOUNCE = 300;
+  var LOOKUP_GAP = 5000;       // lets batches fill in a busy chat (at most 12 requests a minute)
+  var LOOKUP_DEBOUNCE = 300;   // a lone new chatter is still looked up at once
   var LOOKUP_QUEUE_CAP = 500;
+  var LOOKUP_TRIES = 3;        // a batch that keeps failing is dropped, so it cannot block the queue
+  var LOOKUP_FAIL_TTL = 5 * 60000; // an id whose own lookup failed is not asked again for 5 minutes
+  var LOOKUP_FAIL_CAP = 2000;
+  var ALIAS_RE = /^u(\d+)$/;
 
   // opts: { state, isRelevant(userId)?, onResult(userId)?, post(body)? (tests) }
   function createLookup(opts) {
@@ -732,14 +815,25 @@
     var queue = [];
     var pending = new Set();   // queued or in flight
     var timer = null, inFlight = false, lastAt = -Infinity, failDelay = 0, stopped = false;
+    var retry = null;          // a failed batch, sent again on its own before the queue
     var counts = { requests: 0, errors: 0, found: 0 };
+    // Ids whose alias came back as a partial error -> when. Not asked again for LOOKUP_FAIL_TTL, so a
+    // user 7TV always fails on does not take a batch slot (and a request) on every message.
+    var failedAt = new util.LRU(LOOKUP_FAIL_CAP);
 
-    function known(id) { return state.userCos.has(id) || state.gqlStyle.has(id); }
+    function known(id) {
+      if (state.userCos.has(id) || state.gqlStyle.has(id)) return true;
+      var t = failedAt.peek(id);
+      if (t === undefined) return false;
+      if (util.now() - t < LOOKUP_FAIL_TTL) return true;
+      failedAt.delete(id);
+      return false;
+    }
 
     function trim() { while (queue.length > LOOKUP_QUEUE_CAP) pending.delete(queue.shift()); }
 
     function schedule(ms) {
-      if (stopped || timer !== null || inFlight || !queue.length) return;
+      if (stopped || timer !== null || inFlight || !(queue.length || retry)) return;
       var delay = Math.max(ms, lastAt + LOOKUP_GAP - util.now(), 0);
       timer = setTimeout(run, delay);
     }
@@ -757,13 +851,15 @@
     function run() {
       timer = null;
       if (stopped || inFlight) return;
-      var batch = [];
-      while (queue.length && batch.length < LOOKUP_BATCH) {
+      var batch = retry || [];
+      retry = null;
+      while (!batch.tries && queue.length && batch.length < LOOKUP_BATCH) {
         var id = queue.shift();
         if (known(id) || (opts.isRelevant && !opts.isRelevant(id))) { pending.delete(id); continue; }
         batch.push(id);
       }
       if (!batch.length) return;
+      var tries = batch.tries || 0;
       var parts = batch.map(function (uid, i) {
         return 'u' + i + ':userByConnection(platform:TWITCH, platformId:"' + uid + '"){style{activePaintId activeBadgeId}}';
       });
@@ -773,15 +869,26 @@
       Promise.resolve().then(function () {
         return post({ query: 'query{users{' + parts.join(' ') + '}}' });
       }).then(function (r) {
-        var users = r && !util.isNotFound(r) && !(r.errors && r.errors.length) && r.data && r.data.users;
+        var users = r && !util.isNotFound(r) && r.data && r.data.users;
         if (!users || typeof users !== 'object') throw new Error('7tv lookup: bad response');
+        // A partial error names its alias in path ['users', 'u<i>']: keep the aliases that resolved and
+        // cache nothing for the failed ones (asked again after LOOKUP_FAIL_TTL). An error that names no alias
+        // fails the whole batch.
+        var failed = {};
+        var errs = Array.isArray(r.errors) ? r.errors : [];
+        for (var e = 0; e < errs.length; e++) {
+          var m = errs[e] && Array.isArray(errs[e].path) ? ALIAS_RE.exec(String(errs[e].path[1])) : null;
+          if (!m) throw new Error('7tv lookup: ' + ((errs[e] && errs[e].message) || 'error'));
+          failed[m[1]] = true;
+        }
         inFlight = false;
         failDelay = 0;
         if (stopped) return;
         for (var i = 0; i < batch.length; i++) {
           var uid = batch[i];
           pending.delete(uid);
-          if (!Object.prototype.hasOwnProperty.call(users, 'u' + i)) continue; // missing alias: cache nothing
+          if (failed[i]) { failedAt.set(uid, util.now()); continue; }
+          if (!Object.prototype.hasOwnProperty.call(users, 'u' + i)) continue; // cache nothing
           var st = users['u' + i] && users['u' + i].style;
           var v = st ? { paint: util.idStr(st.activePaintId) || null, badge: util.idStr(st.activeBadgeId) || null } : null;
           state.setGqlStyle(uid, v);
@@ -798,9 +905,16 @@
         counts.errors++;
         if (stopped) return;
         failDelay = failDelay ? Math.min(60000, failDelay * 2) : 2000;
-        util.log('7tv lookup failed, retrying in', failDelay, 'ms:', err && err.message);
-        queue = batch.concat(queue); // ids stay in `pending`
-        trim();
+        if (tries + 1 >= LOOKUP_TRIES) {
+          // Give up on these ids (uncached, so a later message asks again) and let the rest through.
+          util.log('7tv lookup failed', LOOKUP_TRIES, 'times, dropping', batch.length, 'ids:', err && err.message);
+          batch.forEach(function (uid) { pending.delete(uid); });
+        } else {
+          util.log('7tv lookup failed, retrying in', failDelay, 'ms:', err && err.message);
+          // The same ids go back to the head as a batch of their own (ids stay in `pending`).
+          retry = batch.slice();
+          retry.tries = tries + 1;
+        }
         schedule(failDelay);
       });
     }
@@ -809,7 +923,7 @@
       want: want,
       stop: function () { stopped = true; if (timer !== null) { clearTimeout(timer); timer = null; } },
       stats: function () {
-        return { queued: queue.length, inFlight: inFlight, requests: counts.requests, errors: counts.errors, found: counts.found };
+        return { queued: queue.length + (retry ? retry.length : 0), inFlight: inFlight, requests: counts.requests, errors: counts.errors, found: counts.found };
       }
     };
   }
@@ -830,6 +944,7 @@
     createEventClient: createEventClient,
     createLookup: createLookup,
     CHANNEL_TYPES: CHANNEL_TYPES,
+    CAPS: CAPS,
     // individual sources, for live checks
     _sources: {
       globalV3: globalV3, globalV4: globalV4, channelV3: channelV3, channelV4: channelV4,

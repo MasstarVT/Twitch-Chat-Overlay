@@ -243,7 +243,6 @@ describe('state routing', () => {
     assert.equal(maps.length, 1);
     assert.deepEqual(Array.from(maps[0].keys()), ['nnysBop', 'nnysZw']);
     assert.equal(maps[0].get('nnysZw').zw, true);
-    assert.deepEqual(s.state.usersForSet(PERSONAL_SET), ['827089046']);
     assert.deepEqual(s.state.effective('827089046').sets, [PERSONAL_SET]);
     s.state.handleDispatch('entitlement.delete', entitlement('EMOTE_SET', PERSONAL_SET, '827089046'));
     assert.deepEqual(s.state.userEmoteMaps('827089046'), []);
@@ -340,7 +339,6 @@ describe('state routing', () => {
     s.state.handleDispatch('user.update', body);
     assert.deepEqual(calls, [['71092938', NEW_SET, OWNER]]);
     s.state.handleDispatch('user.update', Object.assign({}, body, { id: '01GJTZ1F90000AXQX83F1Y5590' })); // unknown owner
-    s.state.handleDispatch('user.update', { id: OWNER, updated: [{ key: 'connections', value: [{ key: 'emote_set_id', old_value: NEW_SET, value: null }] }] });
     assert.equal(calls.length, 1);
     // after the overlay registers the new set, its updates route to the room and the old set's do not
     const fresh = new Map();
@@ -388,6 +386,129 @@ describe('state routing', () => {
     s.state.forgetRoom('71092938');
     switchTo(s.state, CHANNEL_SET);
     assert.equal(calls.length, 3);
+  });
+
+  test('turning the set off announces null once; a later set is announced again', () => {
+    const calls = [];
+    const s = setup({ onSetSwitch: function (roomId, setId, ownerId) { calls.push([roomId, setId, ownerId]); } });
+    const off = { id: OWNER, updated: [{ key: 'connections', value: [
+      { key: 'emote_set', old_value: { id: CHANNEL_SET }, value: null },
+      { key: 'emote_set_id', old_value: CHANNEL_SET, value: null }
+    ] }] };
+    s.state.handleDispatch('user.update', off);
+    s.state.handleDispatch('user.update', off);
+    s.state.handleDispatch('user.update', { id: OWNER, updated: [{ key: 'connections', value: [{ key: 'emote_set_id', old_value: CHANNEL_SET, value: NIL }] }] });
+    assert.deepEqual(calls, [['71092938', null, OWNER]]);
+    // the overlay's reload finds no active set: routing is dropped, and the owner is kept
+    assert.equal(s.state.registerChannelSet('71092938', null, s.channel, OWNER), false);
+    assert.equal(s.state.channelSetOf('71092938'), null);
+    s.state.handleDispatch('emote_set.update', { id: CHANNEL_SET, pushed: [{ key: 'emotes', value: v3Emote('Q', 'Old', 0, 0) }] });
+    assert.equal(s.channel.has('Old'), false);
+    // no set registered and none announced: another "off" is not news
+    s.state.handleDispatch('user.update', off);
+    assert.equal(calls.length, 1);
+    switchTo(s.state, NEW_SET);
+    assert.deepEqual(calls[1], ['71092938', NEW_SET, OWNER]);
+  });
+
+  test('a channel with no active set still registers its owner, so turning a set on is picked up', () => {
+    const calls = [];
+    const state = stv.createState({ onSetSwitch: function (roomId, setId) { calls.push([roomId, setId]); } });
+    // what the overlay does with loadChannel's { emotes: empty, setId: null, ownerId }
+    assert.equal(state.registerChannelSet('42', null, new Map(), OWNER), false);
+    switchTo(state, NEW_SET);
+    assert.deepEqual(calls, [['42', NEW_SET]]);
+  });
+
+  test('cosmetic.create adds at most CAPS.extraCosmetics unknown paints and badges', () => {
+    const s = setup();
+    const cap = stv.CAPS.extraCosmetics;
+    assert.ok(cap > 0 && cap <= 5000);
+    const idOf = (n) => '01H' + String(n).padStart(23, '0');
+    for (let i = 0; i < cap + 50; i++) {
+      s.state.handleDispatch('cosmetic.create', { object: { id: idOf(i), kind: 'PAINT', data: { id: idOf(i), name: 'p', function: 'LINEAR_GRADIENT', color: -1, stops: [], shadows: [] } } });
+    }
+    assert.equal(s.state.paints.size, cap);
+    assert.equal(s.events.length, cap);
+    // the catalog still merges in full
+    const cat = new Map([[PAINT_A, { id: PAINT_A, bgColor: 'red' }]]);
+    s.state.mergeCatalog({ paints: cat, badges: new Map() });
+    assert.equal(s.state.paints.has(PAINT_A), true);
+  });
+
+  test('emote_set.update cannot grow a set past 5000 emotes', () => {
+    const map = new Map();
+    const pushed = [];
+    for (let i = 0; i < 5100; i++) pushed.push({ key: 'emotes', value: v3Emote('E' + i, 'n' + i, 0, 0) });
+    stv.applySetChanges(map, { pushed: pushed });
+    assert.equal(map.size, 5000);
+    // an existing name can still be replaced at the cap
+    assert.equal(stv.applySetChanges(map, { pushed: [{ key: 'emotes', value: v3Emote('X', 'n1', 0, 0) }] }), true);
+    assert.equal(map.get('n1').id, 'X');
+  });
+
+  test('wantPersonal() false: personal sets are not stored', () => {
+    let want = false;
+    const state = stv.createState({ wantPersonal: function () { return want; } });
+    state.handleDispatch('emote_set.create', { id: PERSONAL_SET, object: { id: PERSONAL_SET, flags: 4 } });
+    assert.equal(state.personalSets.has(PERSONAL_SET), false);
+    want = true;
+    state.handleDispatch('emote_set.create', { id: PERSONAL_SET, object: { id: PERSONAL_SET, flags: 4 } });
+    assert.equal(state.personalSets.has(PERSONAL_SET), true);
+  });
+
+  test('an evicted personal set is refetched once through opts.loadSet', async (t) => {
+    t.mock.timers.enable({ apis: ['Date'] });
+    t.mock.method(console, 'log', function () {});
+    const rec = recorder();
+    const loads = [];
+    let answer = null;
+    const state = stv.createState({ bus: rec.bus, loadSet: function (sid) { loads.push(sid); return answer; } });
+    const flush = () => new Promise((r) => setImmediate(r));
+    state.handleDispatch('entitlement.create', entitlement('EMOTE_SET', PERSONAL_SET, '77'));
+    // a just-granted set waits for its own emote_set.create
+    assert.deepEqual(state.userEmoteMaps('77'), []);
+    assert.equal(loads.length, 0);
+    t.mock.timers.tick(10000);
+    answer = Promise.reject(new Error('down'));
+    answer.catch(() => {});
+    state.userEmoteMaps('77');
+    state.userEmoteMaps('77');
+    await flush();
+    assert.equal(loads.length, 1, 'one fetch in flight');
+    state.userEmoteMaps('77');
+    await flush();
+    assert.equal(loads.length, 1, 'a failure waits before the next try');
+    t.mock.timers.tick(300000);
+    const m = new Map([['pEmote', stv.normalizeActiveEmoteV3(v3Emote('P1', 'pEmote', 0, 0))]]);
+    answer = Promise.resolve(m);
+    state.userEmoteMaps('77');
+    await flush();
+    assert.equal(loads.length, 2);
+    assert.deepEqual(rec.events.slice(-1), [{ setId: PERSONAL_SET }]);
+    assert.deepEqual(Array.from(state.userEmoteMaps('77')[0].keys()), ['pEmote']);
+    assert.equal(loads.length, 2);
+    // without opts.loadSet nothing is fetched
+    const plain = stv.createState({});
+    plain.handleDispatch('entitlement.create', entitlement('EMOTE_SET', PERSONAL_SET, '77'));
+    t.mock.timers.tick(20000);
+    assert.deepEqual(plain.userEmoteMaps('77'), []);
+  });
+
+  test('long-run caps: personalSets, userCos and gqlStyle stay bounded', () => {
+    const state = stv.createState({});
+    assert.ok(stv.CAPS.personalSets <= 2000 && stv.CAPS.userCos <= 20000 && stv.CAPS.gqlStyle <= 20000);
+    const ulid = (n) => '01J' + String(n).padStart(23, '0');
+    for (let i = 0; i < 2050; i++) state.handleDispatch('emote_set.create', { id: ulid(i), object: { id: ulid(i), flags: 4 } });
+    assert.equal(state.personalSets.size, 2000);
+    assert.equal(state.personalSets.has(ulid(0)), false);
+    assert.equal(state.personalSets.has(ulid(2049)), true);
+    for (let i = 0; i < 20050; i++) state.handleDispatch('entitlement.create', entitlement('PAINT', PAINT_A, String(100000 + i)));
+    assert.equal(state.userCos.size, 20000);
+    assert.equal(state.effective('100000').paint, null);
+    assert.equal(state.effective('120049').paint, PAINT_A);
+    for (let i = 0; i < 20050; i++) state.setGqlStyle(String(500000 + i), null);
+    assert.equal(state.gqlStyle.size, 20000);
   });
 
   test('unknown dispatch types and junk bodies are ignored', () => {
@@ -483,6 +604,22 @@ describe('event client', () => {
     s.ev.stop();
   });
 
+  test('removeObject unsubscribes (op 36) and drops the topic from later resubscribes', (t) => {
+    const s = setup(t);
+    s.ev.start();
+    const ws1 = s.FakeWS.instances[0];
+    ws1.onopen();
+    hello(ws1);
+    s.ev.addObject('emote_set.update', CHANNEL_SET);
+    assert.equal(s.ev.removeObject('emote_set.update', CHANNEL_SET), true);
+    assert.deepEqual(sentFrames(ws1).pop(), { op: 36, d: { type: 'emote_set.update', condition: { object_id: CHANNEL_SET } } });
+    assert.equal(s.ev.removeObject('emote_set.update', CHANNEL_SET), false, 'unknown topic: nothing sent');
+    const n = ws1.sent.length;
+    hello(ws1);
+    assert.equal(ws1.sent.length, n, 'not resubscribed');
+    s.ev.stop();
+  });
+
   test('op7 4005 reconnects after 60-80 s; 4012 quickly; 4002 after 5 min', (t) => {
     const s = setup(t);
     s.ev.addChannel('1');
@@ -556,6 +693,31 @@ describe('event client', () => {
     s.ev.stop();
   });
 
+  test('an out-of-range heartbeat_interval falls back to 45 s instead of a reconnect loop', (t) => {
+    [45, 0.5, 1e10, 'x', -1].forEach(function (hb) {
+      const s = setup(t);
+      s.ev.start();
+      const ws = s.FakeWS.instances[0];
+      ws.onopen();
+      serverSays(ws, { op: 1, d: { heartbeat_interval: hb } });
+      t.mock.timers.tick(134999);
+      assert.equal(ws.closed, false, String(hb));
+      t.mock.timers.tick(1);
+      assert.equal(ws.closed, true, String(hb));
+      s.ev.stop();
+      t.mock.timers.reset();
+    });
+  });
+
+  test('subscriptions are capped at 400', (t) => {
+    const s = setup(t);
+    const ulid = (n) => '01K' + String(n).padStart(23, '0');
+    for (let i = 0; i < 600; i++) s.ev.addObject('emote_set.update', ulid(i));
+    assert.equal(s.ev.stats().subs, 400);
+    assert.equal(s.ev.addChannel('5'), true);
+    assert.equal(s.ev.stats().subs, 400);
+  });
+
   test('dispatches reach state.handleDispatch; a plain close uses backoff', (t) => {
     const s = setup(t);
     s.ev.start();
@@ -605,7 +767,7 @@ describe('lookup', () => {
     req.resolve({ data: { users: users } });
   }
 
-  test('batches of <= 50 aliases, one request in flight, >= 1.5 s apart', async (t) => {
+  test('batches of <= 50 aliases, one request in flight, >= 5 s apart', async (t) => {
     const s = setup(t);
     for (let i = 1; i <= 120; i++) s.lookup.want(String(1000 + i));
     assert.equal(s.lookup.want('1001'), false); // already queued
@@ -628,10 +790,10 @@ describe('lookup', () => {
     assert.equal(s.requests.length, 2);
     reply(s.requests[1], function () { return null; });
     await flush();
-    t.mock.timers.tick(1000);
+    t.mock.timers.tick(4999);
     await flush();
     assert.equal(s.requests.length, 2, 'min gap from the previous request start');
-    t.mock.timers.tick(500);
+    t.mock.timers.tick(1);
     await flush();
     assert.equal(s.requests.length, 3);
     assert.equal(s.requests[2].ids.length, 20);
@@ -649,20 +811,21 @@ describe('lookup', () => {
     await flush();
     assert.equal(s.state.gqlStyle.has('11'), false);
     assert.equal(s.lookup.want('11'), false, 'still pending');
-    t.mock.timers.tick(1999);
+    t.mock.timers.tick(4999); // backoff 2 s, but never closer than the 5 s gap
     await flush();
     assert.equal(s.requests.length, 1);
     t.mock.timers.tick(1);
     await flush();
     assert.equal(s.requests.length, 2);
     assert.deepEqual(s.requests[1].ids, ['11', '12']);
+    // an error that names no alias fails the whole batch
     s.requests[1].resolve({ errors: [{ message: 'Query is too complex.' }], data: { users: { u0: null, u1: null } } });
     await flush();
     assert.equal(s.state.gqlStyle.has('11'), false);
     assert.equal(s.state.gqlStyle.has('12'), false);
-    t.mock.timers.tick(3999);
+    t.mock.timers.tick(4999);
     await flush();
-    assert.equal(s.requests.length, 2, 'backoff doubled to 4 s');
+    assert.equal(s.requests.length, 2);
     t.mock.timers.tick(1);
     await flush();
     assert.equal(s.requests.length, 3);
@@ -673,6 +836,64 @@ describe('lookup', () => {
     assert.deepEqual(s.state.gqlStyle.get('12'), { paint: PAINT_A, badge: null });
     assert.deepEqual(s.results, ['12']);
     assert.equal(s.lookup.want('12'), false, 'cached');
+    s.lookup.stop();
+  });
+
+  test('a partial errors[] keeps the aliases that resolved; the failed one is not asked again for 5 min', async (t) => {
+    const s = setup(t);
+    ['41', '42', '43'].forEach((id) => s.lookup.want(id));
+    t.mock.timers.tick(300);
+    await flush();
+    s.requests[0].resolve({ errors: [{ message: 'internal', path: ['users', 'u1'] }],
+      data: { users: { u0: { style: { activePaintId: PAINT_A, activeBadgeId: null } }, u1: null, u2: null } } });
+    await flush();
+    assert.deepEqual(s.state.gqlStyle.get('41'), { paint: PAINT_A, badge: null });
+    assert.equal(s.state.gqlStyle.has('42'), false);
+    assert.equal(s.state.gqlStyle.get('43'), null);
+    assert.equal(s.lookup.stats().queued, 0);
+    assert.equal(s.lookup.want('42'), false, 'a user 7TV fails on does not cost a request per message');
+    t.mock.timers.tick(5 * 60000 - 1);
+    assert.equal(s.lookup.want('42'), false);
+    t.mock.timers.tick(1);
+    assert.equal(s.lookup.want('42'), true, 'asked again once the negative entry expires');
+    s.lookup.stop();
+  });
+
+  test('a batch that keeps failing is retried on its own, then dropped so later ids go through', async (t) => {
+    t.mock.method(console, 'log', function () {});
+    const s = setup(t);
+    s.lookup.want('31');
+    t.mock.timers.tick(300);
+    await flush();
+    s.requests[0].reject(new Error('boom'));
+    await flush();
+    s.lookup.want('32');
+    t.mock.timers.tick(5000);
+    await flush();
+    assert.deepEqual(s.requests[1].ids, ['31'], 'the retry is not merged with new ids');
+    s.requests[1].reject(new Error('boom'));
+    await flush();
+    t.mock.timers.tick(5000);
+    await flush();
+    assert.deepEqual(s.requests[2].ids, ['31']);
+    s.requests[2].reject(new Error('boom'));
+    await flush();
+    assert.equal(s.lookup.want('31'), true, 'dropped ids are asked again on a later message');
+    t.mock.timers.tick(8000); // backoff 2 -> 4 -> 8 s
+    await flush();
+    assert.equal(s.requests.length, 4);
+    assert.deepEqual(s.requests[3].ids, ['32', '31']);
+    s.lookup.stop();
+  });
+
+  test('the lookup queue is capped at 500 ids', async (t) => {
+    const s = setup(t);
+    s.lookup.want('1');
+    t.mock.timers.tick(300);
+    await flush();
+    assert.equal(s.requests.length, 1); // never answered: everything else queues
+    for (let i = 0; i < 5000; i++) s.lookup.want(String(10000 + i));
+    assert.equal(s.lookup.stats().queued, 500);
     s.lookup.stop();
   });
 
@@ -741,5 +962,65 @@ describe('catalog', () => {
     } });
     const cat = await stv._sources.catalogV3();
     assert.deepEqual(Array.from(cat.paints.keys()), [PAINT_A]);
+  });
+});
+
+describe('loaders', () => {
+  // route(url, init) -> { status, body } ; fetch is mocked, nothing leaves the test.
+  function mockFetch(t, route) {
+    const calls = [];
+    t.mock.method(globalThis, 'fetch', async function (url, init) {
+      calls.push({ url: url, body: init && init.body ? JSON.parse(init.body) : null });
+      const r = route(url, init);
+      return { status: r.status, ok: r.status >= 200 && r.status < 300, text: async function () { return JSON.stringify(r.body); } };
+    });
+    return calls;
+  }
+  const v4Item = (id, alias) => ({ alias: alias, flags: { zeroWidth: false }, emote: { id: id, flags: { defaultZeroWidth: false },
+    images: [{ url: 'https://cdn.7tv.app/emote/' + id + '/1x.webp', mime: 'image/webp', scale: 1, width: 32, height: 32, frameCount: 1 }] } });
+
+  test('a 7TV user with no active set gives an empty set with the owner id (v3 and v4); no user gives null', async (t) => {
+    let v3 = { status: 200, body: { id: '1', emote_set: null, user: { id: OWNER } } };
+    mockFetch(t, function () { return v3; });
+    assert.deepEqual(await stv._sources.channelV3('1'), { emotes: new Map(), setId: null, ownerId: OWNER });
+    v3 = { status: 200, body: { id: '1', emote_set: null, user: { id: NIL } } };
+    assert.equal(await stv._sources.channelV3('1'), null);
+    v3 = { status: 404, body: {} };
+    assert.equal(await stv._sources.channelV3('1'), null);
+    v3 = { status: 200, body: { data: { users: { userByConnection: { id: OWNER, style: { activeEmoteSetId: null, activeEmoteSet: null } } } } } };
+    assert.deepEqual(await stv._sources.channelV4('1'), { emotes: new Map(), setId: null, ownerId: OWNER });
+    v3 = { status: 200, body: { data: { users: { userByConnection: null } } } };
+    assert.equal(await stv._sources.channelV4('1'), null);
+  });
+
+  test('an active set id whose set did not resolve is not "no set" (the shown emotes are kept)', async (t) => {
+    let r = { status: 200, body: { id: '1', emote_set_id: NEW_SET, emote_set: null, user: { id: OWNER } } };
+    mockFetch(t, function () { return r; });
+    // v3 fails, so loadChannel retries and falls back to v4
+    await assert.rejects(stv._sources.channelV3('1'), /did not resolve/);
+    r = { status: 200, body: { data: { users: { userByConnection: { id: OWNER, style: { activeEmoteSetId: NEW_SET, activeEmoteSet: null } } } } } };
+    assert.equal(await stv._sources.channelV4('1'), null, 'null: the overlay keeps what it shows');
+  });
+
+  test('loadSet falls back to v4 GQL when v3 fails, and fails (not empties) when v4 has no set', async (t) => {
+    t.mock.method(console, 'warn', function () {});
+    let v4 = { status: 200, body: { data: { emoteSets: { emoteSet: { id: NEW_SET, emotes: { items: [v4Item('E1', 'Hi')] } } } } } };
+    const calls = mockFetch(t, function (url) { return url.indexOf('/v4/gql') >= 0 ? v4 : { status: 503, body: {} }; });
+    const m = await stv.loadSet(NEW_SET);
+    assert.deepEqual(Array.from(m.keys()), ['Hi']);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, 'https://7tv.io/v3/emote-sets/' + NEW_SET);
+    assert.deepEqual(calls[1].body.variables, { id: NEW_SET });
+    assert.match(calls[1].body.query, /emoteSet\(id:\$id\)/);
+    v4 = { status: 200, body: { data: { emoteSets: { emoteSet: null } } } };
+    await assert.rejects(stv.loadSet(NEW_SET));
+  });
+
+  test('catalog lists that are not arrays are treated as empty (no loop to a fake length)', async (t) => {
+    let body = { data: { paints: { paints: { length: 4294967295 } }, badges: { badges: { length: 1e12 } } } };
+    mockFetch(t, function () { return { status: 200, body: body }; });
+    await assert.rejects(stv._sources.catalogV4(), /empty v4 response/);
+    body = { data: { cosmetics: { paints: { length: 4294967295 }, badges: { length: 1e12 } } } };
+    await assert.rejects(stv._sources.catalogV3(), /empty v3 response/);
   });
 });

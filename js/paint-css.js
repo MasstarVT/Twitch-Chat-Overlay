@@ -10,14 +10,18 @@
   var ID_RE = /^[0-9A-Za-z]{1,40}$/;
   var HEX_RE = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
   var PAINT_HOST_RE = /^cdn\.7tv\.app$/;
-  // Real paints use a few layers, stops and shadows of a few px. The limits keep a paint (the data comes
-  // from 7TV) from drawing far outside the name over other lines, or stacking costly filters.
-  var MAX_LAYERS = 8, MAX_STOPS = 32, MAX_SHADOWS = 8, MAX_SHADOW_PX = 32;
+  // Real paints use a few layers, stops and shadows of a few px (the most shadows in the live catalog is
+  // 10). The limits keep a paint (the data comes from 7TV) from drawing far outside the name over other
+  // lines, or stacking costly filters. Chained drop-shadows add up (each one shadows the result of the
+  // previous one), so MAX_SHADOW_PX is a budget for the whole chain on each axis and for the blur.
+  var MAX_LAYERS = 8, MAX_STOPS = 32, MAX_SHADOWS = 10, MAX_SHADOW_PX = 32;
 
   function clamp(n, lo, hi) {
     var x = Number(n);
     return isFinite(x) ? Math.min(hi, Math.max(lo, x)) : 0;
   }
+
+  function round3(x) { return Math.round(x * 1000) / 1000 || 0; } // || 0: no -0
 
   function fmt(n) {
     var x = clamp(n, -10000, 10000); // no exponent notation
@@ -27,6 +31,14 @@
   function hexColor(c) {
     var h = c && c.hex;
     return typeof h === 'string' && HEX_RE.test(h) ? h : null;
+  }
+
+  // #RRGGBB[AA] with its alpha multiplied by a (0 < a < 1): a v4 layer's opacity folded into its colors.
+  function withAlpha(h, a) {
+    if (!h || !(a < 1)) return h;
+    var al = h.length === 9 ? parseInt(h.slice(7), 16) : 255;
+    var x = Math.round(al * a).toString(16);
+    return h.slice(0, 7) + (x.length < 2 ? '0' + x : x);
   }
 
   function stopsCss(stops, colorFn) {
@@ -65,37 +77,59 @@
   function shadowsCss(shadows, pick) {
     if (!Array.isArray(shadows) || !shadows.length) return null;
     var parts = [];
-    for (var i = 0; i < shadows.length && parts.length < MAX_SHADOWS; i++) {
+    var bx = MAX_SHADOW_PX, by = MAX_SHADOW_PX, bb = MAX_SHADOW_PX; // what is left of the chain's budget
+    for (var i = 0; i < shadows.length && parts.length < MAX_SHADOWS && (bx > 0 || by > 0 || bb > 0); i++) {
       var s = pick(shadows[i]);
       if (!s || !s.color) continue;
-      parts.push('drop-shadow(' + fmt(clamp(s.x, -MAX_SHADOW_PX, MAX_SHADOW_PX)) + 'px ' +
-        fmt(clamp(s.y, -MAX_SHADOW_PX, MAX_SHADOW_PX)) + 'px ' + fmt(clamp(s.blur, 0, MAX_SHADOW_PX)) + 'px ' + s.color + ')');
+      var x = clamp(s.x, -10000, 10000), y = clamp(s.y, -10000, 10000), b = clamp(s.blur, 0, 10000);
+      // Scale the offset as a whole so a trimmed shadow keeps its direction and only reaches less far;
+      // the blur has no direction and is clamped on its own.
+      var f = 1, ax = Math.abs(x), ay = Math.abs(y);
+      if (ax > bx) f = bx / ax;
+      if (ay > by) f = Math.min(f, by / ay);
+      x = round3(x * f); y = round3(y * f); b = round3(Math.min(b, bb));
+      // Trimmed down to nothing (its axis budget is used up): it would draw nothing, skip the filter pass.
+      if (x === 0 && y === 0 && b === 0 && (ax || ay || s.blur > 0)) continue;
+      bx = Math.max(0, round3(bx - Math.abs(x))); by = Math.max(0, round3(by - Math.abs(y))); bb = Math.max(0, round3(bb - b));
+      parts.push('drop-shadow(' + fmt(x) + 'px ' + fmt(y) + 'px ' + fmt(b) + 'px ' + s.color + ')');
     }
     return parts.length ? parts.join(' ') : null;
   }
 
   // v4: {id, name, data:{layers:[{opacity, ty:{__typename, ...}}], shadows:[{color:{hex}, offsetX, offsetY, blur}]}}
+  // 7TV draws layer 0 at the bottom; CSS draws the first background-image on top, so walk the layers
+  // top-down. A layer's opacity is folded into its colors (CSS cannot fade one background image).
   function fromV4(p) {
     if (!p || !ID_RE.test(p.id || '')) return null;
     var data = p.data || {};
     var images = [];
     var bgColor = null;
     var layers = Array.isArray(data.layers) ? data.layers.slice(0, MAX_LAYERS) : [];
-    for (var i = 0; i < layers.length; i++) {
+    for (var i = layers.length - 1; i >= 0; i--) {
       var ty = layers[i] && layers[i].ty;
       if (!ty) continue;
+      var op = layers[i].opacity;
+      var a = op === undefined || op === null ? 1 : Number(op);
+      if (!isFinite(a)) a = 1;
+      if (a <= 0) continue; // invisible layer
+      var colorFn = a < 1 ? function (c) { return withAlpha(hexColor(c), a); } : hexColor;
       switch (ty.__typename) {
-        case 'PaintLayerTypeSingleColor':
-          bgColor = bgColor || hexColor(ty.color);
+        case 'PaintLayerTypeSingleColor': {
+          var c = colorFn(ty.color);
+          if (!c) break;
+          // The bottom layer is the background color; a color over other layers must keep its place.
+          if (i === 0) bgColor = c;
+          else images.push('linear-gradient(' + c + ', ' + c + ')');
           break;
+        }
         case 'PaintLayerTypeLinearGradient': {
-          var g = gradient('linear', ty.repeating, fmt(ty.angle) + 'deg', stopsCss(ty.stops || [], hexColor));
+          var g = gradient('linear', ty.repeating, fmt(ty.angle) + 'deg', stopsCss(ty.stops || [], colorFn));
           if (g) images.push(g);
           break;
         }
         case 'PaintLayerTypeRadialGradient': {
           var shape = String(ty.shape || 'ellipse').toLowerCase() === 'circle' ? 'circle' : 'ellipse';
-          var r = gradient('radial', ty.repeating, shape, stopsCss(ty.stops || [], hexColor));
+          var r = gradient('radial', ty.repeating, shape, stopsCss(ty.stops || [], colorFn));
           if (r) images.push(r);
           break;
         }
@@ -145,10 +179,6 @@
     return '.painted.' + className(paint.id) + '{' + decl.join(';') + '}';
   }
 
-  // Base painted-name style (also present in overlay.css; exported for tests/documentation).
-  var BASE_RULE = '.painted{-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;' +
-    'background-color:currentColor;-webkit-text-stroke:0;text-shadow:none;background-size:100% 100%;background-repeat:no-repeat}';
-
   return {
     MAX_LAYERS: MAX_LAYERS,
     MAX_STOPS: MAX_STOPS,
@@ -158,7 +188,6 @@
     fromV3: fromV3,
     ruleFor: ruleFor,
     className: className,
-    BASE_RULE: BASE_RULE,
     ID_RE: ID_RE
   };
 });
