@@ -1,6 +1,6 @@
-# Logos on the home page
+# Provider logos
 
-The home page shows three provider logos. Each file is an unmodified copy from the project's own
+The home page and the builder show three provider logos. Each file is an unmodified copy from the project's own
 repository or website. The licenses below cover copying the files. They do not grant trademark rights:
 the names and logos remain the marks of their owners, and they are used here only to say which services
 the overlay works with. This project is not affiliated with any of them.
@@ -14,8 +14,8 @@ published terms either ask for written consent before their logos are used, or g
 | `chatterino.svg` | Chatterino | https://chatterino.com/logo.svg (same file as `resources/icon.svg` in https://github.com/Chatterino/chatterino2) | MIT |
 | `homies.png` | Chatterino Homies | https://github.com/itzAlex/chatterino7/blob/upstream-latest/resources/icon.png | MIT |
 
-`7tv.svg` is drawn in `currentColor`, which is black inside an `<img>`. The page inverts it with CSS to
-show it in white; the file itself is unchanged.
+`7tv.svg` is drawn in `currentColor`, which is black when the file is loaded as an image. Both pages invert
+it with CSS to show it in white; the file itself is unchanged.
 
 ## 7TV: Apache License 2.0 with the Commons Clause
 

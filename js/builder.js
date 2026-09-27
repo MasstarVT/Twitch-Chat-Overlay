@@ -15,6 +15,7 @@
   var IVR_USER = 'https://api.ivr.fi/v2/twitch/user?login=';
   var AVATAR_HOST_RE = /(^|\.)jtvnw\.net$/;
   var RELOAD_DELAY = 800;
+  var FLASH_MS = 1600;
   var STORE_CFG = 'tco-builder-cfg';
   var STORE_UI = 'tco-builder-ui';
   var STORE_FILE_BASE = 'tco-builder-file:'; // + folder path: the settings.js last loaded from there
@@ -22,29 +23,35 @@
   var HIDDEN_GRACE = 60000; // a live preview left in a hidden tab disconnects after this (ms)
   var BACKDROPS = ['dark', 'light', 'checker', 'busy'];
   var SIZE_LIMITS = { w: [100, 3840], h: [100, 2160] };
-  var UI_DEFAULTS = { w: 450, h: 700, backdrop: 'dark' };
+  var RAIL_FADE = 24; // px: the rail's faded edge where it scrolls (css/builder.css .rail.more-below)
+  var OBS_SECTION = 'obs'; // the one section that isn't a group of settings (its markup is in builder.html)
+  var UI_DEFAULTS = { w: 450, h: 700, backdrop: 'dark', section: 'look' };
   // Suggested OBS source size per layout: a column, or a full-width bar on a 1080p canvas.
   var LAYOUT_SIZES = { vertical: { w: 450, h: 700 }, horizontal: { w: 1920, h: 100 } };
+  // The window that gets the app layout (css/builder.css uses the same query). Any other is one scrolling column.
+  var APP_LAYOUT = '(min-width: 1100px) and (min-height: 600px)';
 
   // Font suggestions live in config.js, which the overlay shares (config.canonicalFont uses them).
   var GOOGLE_FONTS = config.GOOGLE_FONTS;
   var SYSTEM_FONT_NAMES = config.SYSTEM_FONT_NAMES;
 
   // Human labels and help text per config key. Widgets default from SPEC types.
+  // logo: a provider logo drawn by css/builder.css (.logo-<name>); tile: an initial where a logo isn't allowed.
   var META = {
     size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' } },
     font: { label: 'Font', help: 'Any Google Fonts family, or a font installed on the streaming PC (Arial, Segoe UI…).' },
-    shadow: { label: 'Text shadow', widget: 'range', names: ['None', 'Light', 'Medium', 'Strong'] },
-    bg: { label: 'Line background', widget: 'range', unit: '%',
+    shadow: { label: 'Text shadow', widget: 'seg', names: ['None', 'Light', 'Medium', 'Strong'] },
+    bg: { label: 'Line background', widget: 'range', unit: '%', zero: 'Off',
       help: 'A dark rounded box behind each message. Helps on bright or busy scenes.' },
     layout: { label: 'Layout', options: { vertical: 'Vertical', horizontal: 'Horizontal' },
-      help: 'Vertical stacks messages in a column. Horizontal puts them side by side in one row, like a ticker: new messages come in on the right and older ones slide off to the left.' },
+      help: 'Vertical stacks messages in a column. Horizontal runs them in one row, like a ticker.' },
     align: { label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' },
       // Shown instead while layout is horizontal (see syncLabels).
       horizontal: { label: 'Row sits', help: 'Whether the row runs along the bottom or the top edge of the source. New messages always come in on the right.' } },
     animate: { label: 'Slide in new messages' },
-    fade: { label: 'Remove after (seconds)', help: 'The last second fades out. 0 keeps messages until newer ones push them out.' },
-    max: { label: 'Max messages on screen', help: 'From 1 to 200.' },
+    fade: { label: 'Remove messages after', widget: 'stepper', step: 5, unit: 's', zero: 'Never',
+      help: 'Seconds. The last second fades out. Never keeps messages until newer ones push them out.' },
+    max: { label: 'Max messages on screen', widget: 'stepper', step: 5, help: 'From 1 to 200.' },
     bots: { label: 'Show bot messages',
       help: 'Nightbot, StreamElements, Streamlabs, Moobot, Fossabot and similar bots, plus the bots listed on the channel’s BetterTTV page.' },
     hide_commands: { label: 'Hide !commands', help: 'Hides messages that start with “!”.' },
@@ -53,22 +60,22 @@
       help: 'Sub, resub, gift sub, raid and bits badge notices, plus /announce messages. When off, all of these are hidden; a resubscriber’s own chat message still shows.' },
     replies: { label: 'Show what replies are answering', help: 'Adds a small “↪ @user: message” line above a reply.' },
     first_msg: { label: 'Mark first-time chatters', help: 'A purple bar beside someone’s first message in the channel.' },
-    history: { label: 'Recent messages on load',
-      help: 'Shows up to this many recent messages (from recent-messages.robotty.de) when the overlay starts. 0 = off.' },
+    history: { label: 'Recent messages on load', widget: 'stepper', step: 5, zero: 'Off',
+      help: 'Shows up to this many recent messages (from recent-messages.robotty.de) when the overlay starts.' },
     shared: { label: 'Include Shared Chat',
       help: 'During a Shared Chat session, also show the other channels’ messages, marked with their avatar.' },
     gifs: { label: 'Show GIFs posted in chat' },
-    emotes_7tv: { label: '7TV', help: 'Channel and global emotes, updated live when the channel changes them.' },
-    emotes_bttv: { label: 'BetterTTV' },
-    emotes_ffz: { label: 'FrankerFaceZ' },
+    emotes_7tv: { label: '7TV', logo: '7tv', help: 'Channel and global emotes, updated live when the channel changes them.' },
+    emotes_bttv: { label: 'BetterTTV', tile: 'B' },
+    emotes_ffz: { label: 'FrankerFaceZ', tile: 'F' },
     badges: { label: 'Show badges', help: 'Master switch for every badge source below.' },
-    badges_twitch: { label: 'Twitch (sub, mod, VIP, bits…)' },
-    badges_7tv: { label: '7TV' },
-    badges_bttv: { label: 'BetterTTV (Pro and staff)' },
-    badges_ffz: { label: 'FrankerFaceZ (incl. custom mod/VIP)' },
-    badges_ffzap: { label: 'FFZ:AP supporters' },
-    badges_chatterino: { label: 'Chatterino' },
-    badges_homies: { label: 'Chatterino Homies' },
+    badges_twitch: { label: 'Twitch', tile: 'T' },
+    badges_7tv: { label: '7TV', logo: '7tv' },
+    badges_bttv: { label: 'BetterTTV', tile: 'B' },
+    badges_ffz: { label: 'FrankerFaceZ', tile: 'F' },
+    badges_ffzap: { label: 'FFZ:AP', tile: 'AP' },
+    badges_chatterino: { label: 'Chatterino', logo: 'chatterino' },
+    badges_homies: { label: 'Chatterino Homies', logo: 'homies' },
     paints: { label: '7TV name paints', help: 'Gradient and image name colors from 7TV.' },
     stv_lookup: { label: 'Look up 7TV cosmetics for every chatter',
       help: '7TV only announces paints and badges for people running a 7TV extension. This asks 7TV about everyone else, in small rate-limited batches. The answer isn’t checked against subscriptions, so it can show paints for lapsed 7TV subs.' },
@@ -80,16 +87,27 @@
 
   var BADGE_SUBS = ['badges_twitch', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap',
     'badges_chatterino', 'badges_homies'];
+  // What the short source names leave out.
+  var BADGE_SUBS_HELP = 'Twitch covers sub, mod, VIP and bits badges. BetterTTV covers Pro and staff. ' +
+    'FrankerFaceZ includes custom mod and VIP badges. FFZ:AP covers its supporters.';
 
+  // One section of the settings panel each; the rail lists them in this order, then "Add to OBS".
   var GROUPS = [
-    { id: 'look', title: 'Look', keys: ['layout', 'size', 'font', 'shadow', 'bg', 'align', 'animate'] },
-    { id: 'behavior', title: 'Behavior', keys: ['fade', 'max', 'bots', 'hide_commands', 'block', 'events',
-      'replies', 'first_msg', 'history', 'shared', 'gifs'] },
-    { id: 'emotes', title: 'Emotes', keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz'],
-      note: 'Twitch emotes are always shown.' },
-    { id: 'badges', title: 'Badges & paints', keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable']),
-      note: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).' },
-    { id: 'advanced', title: 'Advanced', keys: ['debug', 'demo'], closed: true }
+    { id: 'look', title: 'Look', note: 'Text, layout and how new messages come in.',
+      keys: ['layout', 'size', 'font', 'shadow', 'bg', 'align', 'animate'] },
+    { id: 'messages', title: 'Messages', note: 'How many messages show, and for how long.',
+      keys: ['fade', 'max', 'history'] },
+    { id: 'events', title: 'Chat events', note: 'Subs, raids, replies and first messages.',
+      keys: ['events', 'replies', 'first_msg', 'shared'] },
+    { id: 'filters', title: 'Filters', note: 'Who and what stays out of the overlay.',
+      keys: ['bots', 'hide_commands', 'block'] },
+    { id: 'emotes', title: 'Emotes', note: 'Twitch emotes are always shown.',
+      keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs'] },
+    { id: 'badges', title: 'Badges & paints', note: 'Each badge source has its own switch.',
+      foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
+      keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable']) },
+    { id: 'advanced', title: 'Advanced', note: 'For positioning the source and finding problems.',
+      keys: ['debug', 'demo'] }
   ];
 
   // ---------- pure helpers (unit tested) ----------
@@ -115,7 +133,7 @@
     var out = GROUPS.map(function (g) {
       g.keys.forEach(function (k) { seen[k] = true; });
       return { id: g.id, title: g.title, keys: g.keys.filter(function (k) { return !!config.SPEC[k]; }),
-        note: g.note, closed: !!g.closed };
+        note: g.note, foot: g.foot };
     });
     var extra = config.KEYS.filter(function (k) { return k !== 'channel' && !seen[k]; });
     if (extra.length) out[out.length - 1].keys = out[out.length - 1].keys.concat(extra);
@@ -311,15 +329,24 @@
   }
 
   // The full-width preview row (.wide-preview) is for a horizontal chat in a landscape source; a portrait
-  // source keeps the tall side column, where it stays readable.
-  function wantsWidePreview(layout, w, h) { return layout === 'horizontal' && w > h; }
+  // source keeps the tall side column, where it stays readable. In the app layout (app) the row takes its
+  // height from the settings below it, so there only a bar-shaped source (4:1 or wider) gets it.
+  function wantsWidePreview(layout, w, h, app) { return layout === 'horizontal' && (app ? w >= 4 * h : w > h); }
 
   // Height (px, border-box) of the wide preview's stage: the source's shape at the available width plus
-  // the stage's own padding and border, between 150px and 45% of the window.
-  function wideStageHeight(availW, chrome, w, h, winH) {
+  // the stage's own chrome (padding, border, the tag line and any hint). Never under 150px (180px, the
+  // design's row, in a window 960px high or taller) and never over 45% of the window. room (app layout):
+  // the height the window can spare once the settings have theirs, which wins over the 150px; the
+  // suggested 1920x100 bar always fits.
+  function wideStageHeight(availW, chrome, w, h, winH, room) {
     var want = Math.ceil(availW * h / w) + chrome;
     var max = Math.max(150, Math.round(winH * 0.45));
-    return Math.max(150, Math.min(max, want || 150));
+    if (typeof room === 'number') {
+      max = Math.min(max, Math.max(room,
+        Math.ceil(availW * LAYOUT_SIZES.horizontal.h / LAYOUT_SIZES.horizontal.w) + chrome));
+    }
+    var min = Math.min(max, Math.max(150, Math.min(180, Math.round(winH * 0.1875))));
+    return Math.max(min, Math.min(max, want || min));
   }
 
   // Scale factor (<= 1) that fits a w×h source into the available box.
@@ -342,6 +369,104 @@
         logo: typeof u.logo === 'string' ? u.logo : null, banned: !!u.banned } };
     }
     return { state: 'notfound' };
+  }
+
+  // The settings that differ from their defaults (the ones the overlay URL has to carry), as {key: true}.
+  function changedKeys(cfg) {
+    var o = config.toObject(cfg), out = {};
+    Object.keys(o).forEach(function (k) { if (k !== 'channel') out[k] = true; });
+    return out;
+  }
+
+  // A field's tag: the setting's name in the URL, with its value once it is off the default.
+  function tagText(key, cfg, changed) {
+    return (changed || changedKeys(cfg))[key] === true ? key + '=' + serialize(key, cfg[key]) : key;
+  }
+
+  // Changed settings per section, for the counts in the rail.
+  function groupCounts(cfg) {
+    var changed = changedKeys(cfg), out = {};
+    groupLayout().forEach(function (g) {
+      out[g.id] = g.keys.filter(function (k) { return changed[k] === true; }).length;
+    });
+    return out;
+  }
+
+  // An overlay URL in pieces, for drawing its parameters in color: the text of base and every
+  // sep + key + (eq ? '=' : '') + value, joined, is the URL again.
+  function urlParts(url) {
+    var s = String(url === undefined || url === null ? '' : url);
+    var hash = s.indexOf('#');
+    if (hash >= 0) s = s.slice(0, hash);
+    var q = s.indexOf('?');
+    if (q < 0) return { base: s, params: [] };
+    var params = [];
+    s.slice(q + 1).split('&').forEach(function (pair) {
+      if (!pair) return;
+      var eq = pair.indexOf('=');
+      params.push({ sep: params.length ? '&' : '?', key: eq < 0 ? pair : pair.slice(0, eq), eq: eq >= 0,
+        value: eq < 0 ? '' : pair.slice(eq + 1) });
+    });
+    return { base: s.slice(0, q), params: params };
+  }
+
+  // The line beside the overlay URL: what is wrong with it, or what it holds.
+  function urlNote(cfg, ch, url) {
+    if (!cfg.channel) return { text: 'Add a channel first. Without one the overlay only shows a hint.', cls: 'warn' };
+    if (ch && ch.state === 'notfound' && ch.login === cfg.channel) {
+      return { text: 'Twitch has no channel called “' + cfg.channel + '”. Check the spelling.', cls: 'warn' };
+    }
+    if (/^file:/i.test(String(url))) {
+      return { text: 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.', cls: '' };
+    }
+    var n = Object.keys(changedKeys(cfg)).length;
+    return { text: n
+      ? 'Holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed. The rest use the defaults.'
+      : 'Every setting is at its default, so the URL only needs the channel.', cls: '' };
+  }
+
+  // A number setting as the form shows it: a name (shadow), a word for zero (fade: Never), or with its unit.
+  function valueText(key, v) {
+    var m = META[key] || {}, s = config.SPEC[key];
+    if (m.names && s) return m.names[v - s.min] || String(v);
+    if (v === 0 && m.zero) return m.zero;
+    return String(v) + (m.unit === '%' ? '%' : m.unit ? ' ' + m.unit : '');
+  }
+
+  // What someone typed into a stepper -> the setting's value (clamped), or undefined. Takes the shown
+  // form too: '30 s', 'Never'. Anything else that isn't a whole number is no value.
+  function parseStep(key, text) {
+    var s = String(text === undefined || text === null ? '' : text).trim(), m = META[key] || {};
+    if (m.zero && s.toLowerCase() === m.zero.toLowerCase()) return config.coerce(key, 0);
+    // A whole number, with nothing after it but the field's own unit: '1,000', '2.5' and '1e2' are not 1, 2 and 1.
+    var d = /^(\d+)\s*(\S*)$/.exec(s);
+    if (!d || (d[2] && d[2].toLowerCase() !== String(m.unit || '').toLowerCase())) return undefined;
+    return config.coerce(key, d[1]);
+  }
+
+  // The next multiple of step above or below v, within min..max (1 -> 5 -> 10 … and back down to 1).
+  function stepValue(v, dir, step, min, max) {
+    var n = dir > 0 ? (Math.floor(v / step) + 1) * step : (Math.ceil(v / step) - 1) * step;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  // The choices of a segmented field: an enum's values, or every step of a small number (shadow 0..3).
+  function segValues(key) {
+    var s = config.SPEC[key], m = META[key] || {};
+    if (s.type === 'enum') {
+      return s.values.map(function (v) { return { value: v, label: (m.options && m.options[v]) || v }; });
+    }
+    var out = [];
+    for (var i = s.min; i <= s.max; i++) out.push({ value: String(i), label: valueText(key, i) });
+    return out;
+  }
+
+  function sectionIds() { return groupLayout().map(function (g) { return g.id; }).concat(OBS_SECTION); }
+
+  // builder.html#obs, #badges, #group-badges: the section a link opens. '' for any other hash.
+  function sectionFromHash(hash, ids) {
+    var s = String(hash || '').replace(/^#/, '').replace(/^group-/, '').toLowerCase();
+    return s && (ids || sectionIds()).indexOf(s) >= 0 ? s : '';
   }
 
   function clampInt(v, min, max, def) {
@@ -400,13 +525,14 @@
   function lastSnapshot(folderSnap, legacySnap) {
     return folderSnap === null || folderSnap === undefined ? legacySnap : folderSnap;
   }
-  function saveUi() { store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop }); }
+  function saveUi() { store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop, section: B.ui.section }); }
 
   function announce(text) {
     var r = $('sr-status');
     if (!r) return;
     r.textContent = '';
-    setTimeout(function () { r.textContent = text; }, 30);
+    clearTimeout(B.sayTimer); // two in a row (a stepper clicked fast): only the later one is read
+    B.sayTimer = setTimeout(function () { r.textContent = text; }, 30);
   }
 
   // ---------- form fields ----------
@@ -428,9 +554,18 @@
     if (m.widget) return m.widget;
     if (s.type === 'bool') return 'check';
     if (s.type === 'enum') return 'seg';
-    if (s.type === 'int') return 'number';
+    if (s.type === 'int') return 'stepper';
     if (s.type === 'font') return 'font';
     return 'text'; // list
+  }
+
+  // The provider mark beside a field: the images are css/builder.css backgrounds, so no URL is set here.
+  function logoFor(key) {
+    var m = META[key] || {};
+    if (!m.logo && !m.tile) return null;
+    var e = m.logo ? h('span', 'logo logo-' + m.logo) : h('span', 'logo tile', m.tile);
+    e.setAttribute('aria-hidden', 'true');
+    return e;
   }
 
   function buildField(key) {
@@ -438,153 +573,206 @@
     var row = h('div', 'field field-' + widgetFor(key));
     row.setAttribute('data-key', key);
     var id = 'f-' + key;
-    var field = { key: key, row: row, set: function () {}, inputs: [] };
+    var head = h('div', 'field-head');
+    var name = h('div', 'field-name');
+    var tag = h('code', 'tag', key);
+    var field = { key: key, row: row, tag: tag, set: function () {}, inputs: [] };
+    var logo = logoFor(key);
+    if (logo) head.appendChild(logo);
+    head.appendChild(name);
+    row.appendChild(head);
+    // A <label> for a single input; a plain name (the group's aria-labelledby) for a set of them.
+    var addLabel = function (single) {
+      var l = h(single ? 'label' : 'span', 'field-label', labelFor(key));
+      l.id = 'l-' + key;
+      if (single) l.htmlFor = id;
+      name.appendChild(l);
+      name.appendChild(tag);
+      field.labelEl = l;
+    };
+    var control = function (el) {
+      el.classList.add('field-control');
+      head.appendChild(el);
+      return el;
+    };
 
     switch (widgetFor(key)) {
       case 'check': {
-        var lab = h('label', 'check');
-        var cb = h('input');
+        addLabel(true);
+        var cb = h('input', 'switch');
         cb.type = 'checkbox';
         cb.id = id;
-        lab.appendChild(cb);
-        lab.appendChild(h('span', 'check-text', labelFor(key)));
-        row.appendChild(lab);
-        addHelp(row, key, cb);
+        cb.setAttribute('role', 'switch');
+        control(cb);
+        field.helpEl = addHelp(row, key, cb);
         cb.addEventListener('change', function () { update(key, cb.checked); });
         field.inputs.push(cb);
         field.set = function (v) { cb.checked = !!v; };
         break;
       }
       case 'seg': {
-        var fs = h('fieldset', 'seg-field');
-        field.labelEl = h('legend', 'field-label', labelFor(key));
-        fs.appendChild(field.labelEl);
-        var seg = h('div', 'seg');
+        addLabel(false);
+        var seg = control(h('div', 'seg'));
+        seg.setAttribute('role', 'radiogroup');
+        seg.setAttribute('aria-labelledby', 'l-' + key);
         var radios = [];
-        spec.values.forEach(function (val) {
+        segValues(key).forEach(function (o) {
           var l = h('label');
           var r = h('input');
           r.type = 'radio';
           r.name = id;
-          r.value = val;
-          r.addEventListener('change', function () { if (r.checked) update(key, val); });
+          r.value = o.value;
+          r.addEventListener('change', function () { if (r.checked) update(key, o.value); });
           l.appendChild(r);
-          l.appendChild(h('span', null, (m.options && m.options[val]) || val));
+          l.appendChild(h('span', null, o.label));
           seg.appendChild(l);
           radios.push(r);
         });
-        fs.appendChild(seg);
-        row.appendChild(fs);
-        field.helpEl = addHelp(row, key, fs);
+        field.helpEl = addHelp(row, key, seg);
         field.inputs = radios;
-        field.set = function (v) { radios.forEach(function (r) { r.checked = r.value === v; }); };
+        field.set = function (v) { radios.forEach(function (r) { r.checked = r.value === String(v); }); };
         break;
       }
       case 'range': {
-        var top = h('div', 'range-head');
-        var rl = h('label', 'field-label', labelFor(key));
-        rl.htmlFor = id;
-        var out = h('output', 'range-value');
-        out.htmlFor = id;
-        top.appendChild(rl);
-        top.appendChild(out);
+        addLabel(true);
+        var wrap = control(h('div', 'range'));
         var rg = h('input');
         rg.type = 'range';
         rg.id = id;
         rg.min = String(spec.min);
         rg.max = String(spec.max);
         rg.step = '1';
-        row.appendChild(top);
-        row.appendChild(rg);
-        addHelp(row, key, rg);
-        var fmt = function (v) {
-          if (m.names) return m.names[v] || String(v);
-          if (m.unit === '%') return v === 0 ? 'Off' : v + '%';
-          return String(v);
+        var out = h('output', 'range-value');
+        out.htmlFor = id;
+        // An <output> is a live region by default, and the slider already says its own value.
+        out.setAttribute('aria-live', 'off');
+        wrap.appendChild(rg);
+        wrap.appendChild(out);
+        field.helpEl = addHelp(row, key, rg);
+        var showRange = function (v) {
+          out.textContent = valueText(key, v);
+          rg.setAttribute('aria-valuetext', valueText(key, v));
         };
-        var show = function (v) { out.textContent = fmt(v); rg.setAttribute('aria-valuetext', fmt(v)); };
-        rg.addEventListener('input', function () { show(Number(rg.value)); update(key, Number(rg.value)); });
+        rg.addEventListener('input', function () { showRange(Number(rg.value)); update(key, Number(rg.value)); });
         field.inputs.push(rg);
-        field.set = function (v) { rg.value = String(v); show(v); };
+        field.set = function (v) { rg.value = String(v); showRange(v); };
         break;
       }
-      case 'number': {
-        var nl = h('label', 'field-label', labelFor(key));
-        nl.htmlFor = id;
-        var num = h('input', 'num');
-        num.type = 'number';
-        num.id = id;
-        num.min = String(spec.min);
-        num.max = String(spec.max);
-        num.step = '1';
-        num.inputMode = 'numeric';
-        row.appendChild(nl);
-        row.appendChild(num);
-        addHelp(row, key, num);
+      case 'stepper': {
+        addLabel(true);
+        var step = m.step || 1;
+        var st = control(h('div', 'stepper'));
+        st.setAttribute('role', 'group');
+        st.setAttribute('aria-labelledby', 'l-' + key);
+        var less = h('button', 'step less');
+        less.type = 'button';
+        less.setAttribute('aria-label', m.unit ? 'Less' : 'Fewer'); // seconds, or a count
+        var more = h('button', 'step more');
+        more.type = 'button';
+        more.setAttribute('aria-label', 'More');
+        // A text box, so it can read '30 s' or 'Never' while it isn't being typed in.
+        var sv = h('input', 'step-value');
+        sv.type = 'text';
+        sv.id = id;
+        sv.inputMode = 'numeric';
+        sv.autocomplete = 'off';
+        sv.setAttribute('role', 'spinbutton');
+        sv.setAttribute('aria-valuemin', String(spec.min));
+        sv.setAttribute('aria-valuemax', String(spec.max));
+        st.appendChild(less);
+        st.appendChild(sv);
+        st.appendChild(more);
+        field.helpEl = addHelp(row, key, sv);
+        var typing = false, stt = null;
+        var showStep = function (v) {
+          sv.value = typing ? String(v) : valueText(key, v);
+          sv.setAttribute('aria-valuenow', String(v));
+          sv.setAttribute('aria-valuetext', valueText(key, v));
+        };
+        var commit = function () {
+          clearTimeout(stt);
+          var n = parseStep(key, sv.value);
+          if (n === undefined) return;
+          update(key, n);
+          // The box keeps what was typed until blur or Enter; what assistive tech reads follows the setting.
+          sv.setAttribute('aria-valuenow', String(B.cfg[key]));
+          sv.setAttribute('aria-valuetext', valueText(key, B.cfg[key]));
+        };
+        // say: the Fewer / More buttons keep the focus, so the new value is spoken through the status region.
+        var jump = function (n, say) {
+          clearTimeout(stt);
+          update(key, n);
+          showStep(B.cfg[key]);
+          if (say) announce(valueText(key, B.cfg[key]));
+        };
+        sv.addEventListener('focus', function () { typing = true; showStep(B.cfg[key]); sv.select(); });
         // Debounced: typing "50" passes through "5", and max=5 or fade=5 would wipe the preview's lines.
-        var nt = null;
-        num.addEventListener('input', function () {
-          clearTimeout(nt);
-          nt = setTimeout(function () { update(key, num.value); }, 400);
+        sv.addEventListener('input', function () { clearTimeout(stt); stt = setTimeout(commit, 400); });
+        sv.addEventListener('blur', function () { commit(); typing = false; showStep(B.cfg[key]); });
+        sv.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); showStep(B.cfg[key]); sv.select(); return; }
+          // Step from what is in the box: a number typed less than 400 ms ago is not in B.cfg yet.
+          var n, cur = parseStep(key, sv.value);
+          if (cur === undefined) cur = B.cfg[key];
+          if (e.key === 'ArrowUp') n = cur + 1;
+          else if (e.key === 'ArrowDown') n = cur - 1;
+          else if (e.key === 'PageUp') n = stepValue(cur, 1, step, spec.min, spec.max);
+          else if (e.key === 'PageDown') n = stepValue(cur, -1, step, spec.min, spec.max);
+          else return;
+          e.preventDefault();
+          jump(n);
         });
-        num.addEventListener('change', function () {
-          clearTimeout(nt);
-          update(key, num.value);
-          num.value = String(B.cfg[key]);
-        });
-        field.inputs.push(num);
-        field.set = function (v) { clearTimeout(nt); num.value = String(v); };
+        less.addEventListener('click', function () { jump(stepValue(B.cfg[key], -1, step, spec.min, spec.max), true); });
+        more.addEventListener('click', function () { jump(stepValue(B.cfg[key], 1, step, spec.min, spec.max), true); });
+        field.inputs.push(less, sv, more);
+        field.set = function (v) { clearTimeout(stt); showStep(v); };
         break;
       }
       case 'font': {
-        var fl = h('label', 'field-label', labelFor(key));
-        fl.htmlFor = id;
-        var fi = h('input', 'text');
+        addLabel(true);
+        var fi = control(h('input', 'text'));
         fi.type = 'text';
         fi.id = id;
         fi.setAttribute('list', 'font-list');
         fi.autocomplete = 'off';
         fi.spellcheck = false;
         fi.placeholder = String(spec.def);
-        row.appendChild(fl);
-        row.appendChild(fi);
         var fh = addHelp(row, key, fi);
+        field.helpEl = fh;
         var bad = h('p', 'status err', 'Use letters, numbers, spaces and dashes only.');
         bad.id = 'e-' + key;
         bad.hidden = true;
         row.appendChild(bad);
         var timer = null;
-        var commit = function (final) {
+        var commitFont = function (final) {
           clearTimeout(timer);
           var raw = fi.value.trim();
           if (!raw && final) raw = String(spec.def);
           if (!raw) return;
           // Google Fonts only loads the exact spelling: 'roboto' -> 'Roboto', 'press start 2p' -> 'Press Start 2P'.
           var ok = update(key, config.canonicalFont(raw));
+          if (!ok && bad.hidden) announce(bad.textContent);
           bad.hidden = ok;
           fi.setAttribute('aria-invalid', ok ? 'false' : 'true');
           fi.setAttribute('aria-describedby', (fh ? fh.id + ' ' : '') + (ok ? '' : bad.id));
           if (ok && final) fi.value = B.cfg[key];
         };
         // Debounced so the preview doesn't request a Google Font for every keystroke.
-        fi.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { commit(false); }, 600); });
-        fi.addEventListener('change', function () { commit(true); });
+        fi.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { commitFont(false); }, 600); });
+        fi.addEventListener('change', function () { commitFont(true); });
         field.inputs.push(fi);
         field.set = function (v) { fi.value = v; bad.hidden = true; fi.setAttribute('aria-invalid', 'false'); };
         break;
       }
       default: { // list
-        var ll = h('label', 'field-label', labelFor(key));
-        ll.htmlFor = id;
-        var li = h('input', 'text');
+        addLabel(true);
+        var li = control(h('input', 'text'));
         li.type = 'text';
         li.id = id;
         li.autocomplete = 'off';
         li.spellcheck = false;
         if (m.placeholder) li.placeholder = m.placeholder;
-        row.appendChild(ll);
-        row.appendChild(li);
-        addHelp(row, key, li);
+        field.helpEl = addHelp(row, key, li);
         var lt = null;
         li.addEventListener('input', function () {
           clearTimeout(lt);
@@ -602,17 +790,38 @@
     return field;
   }
 
+  // One tab in the rail and one section in the panel per group. "Add to OBS" is in builder.html already.
   function buildGroups() {
-    var host = $('groups');
+    var host = $('groups'), tabs = $('tabs'), rule = $('tab-rule');
     clear(host);
     groupLayout().forEach(function (g) {
-      var det = h('details', 'group card');
-      det.id = 'group-' + g.id;
-      if (!g.closed) det.open = true;
-      var sum = h('summary');
-      sum.appendChild(h('h2', null, g.title));
-      det.appendChild(sum);
-      var body = h('div', 'group-body');
+      var old = $('tab-' + g.id);
+      if (old) old.parentNode.removeChild(old);
+      var tab = h('button', 'tab');
+      tab.type = 'button';
+      tab.id = 'tab-' + g.id;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-controls', 'group-' + g.id);
+      tab.setAttribute('aria-selected', 'false');
+      tab.setAttribute('data-section', g.id);
+      tab.tabIndex = -1;
+      tab.appendChild(h('span', 'mark'));
+      tab.appendChild(h('span', 'name', g.title));
+      var count = h('span', 'count');
+      count.id = 'count-' + g.id;
+      tab.appendChild(count);
+      tabs.insertBefore(tab, rule);
+
+      var sec = h('section', 'section');
+      sec.id = 'group-' + g.id;
+      sec.setAttribute('role', 'tabpanel');
+      sec.setAttribute('aria-labelledby', tab.id);
+      sec.hidden = true;
+      var head = h('div', 'section-head');
+      head.appendChild(h('h2', null, g.title));
+      if (g.note) head.appendChild(h('p', 'section-note', g.note));
+      sec.appendChild(head);
+      var body = h('div', 'fields');
       var subs = null;
       g.keys.forEach(function (key) {
         var f = buildField(key);
@@ -630,9 +839,10 @@
           body.appendChild(f.row);
         }
       });
-      if (g.note) body.appendChild(h('p', 'note', g.note));
-      det.appendChild(body);
-      host.appendChild(det);
+      if (subs) subs.appendChild(h('p', 'help', BADGE_SUBS_HELP));
+      sec.appendChild(body);
+      if (g.foot) sec.appendChild(h('p', 'help section-foot', g.foot));
+      host.appendChild(sec);
     });
 
     var dl = $('font-list');
@@ -641,6 +851,123 @@
       GOOGLE_FONTS.forEach(function (f) { var o = h('option'); o.value = f; o.label = 'Google Fonts'; dl.appendChild(o); });
       SYSTEM_FONT_NAMES.forEach(function (f) { var o = h('option'); o.value = f; o.label = 'Installed font'; dl.appendChild(o); });
     }
+  }
+
+  // ---------- sections ----------
+  function panelOf(id) { return $('group-' + id); }
+
+  function isAppLayout() { return !!(root.matchMedia && root.matchMedia(APP_LAYOUT).matches); }
+
+  function selectSection(id, focusTab) {
+    var ids = sectionIds();
+    if (ids.indexOf(id) < 0) id = ids[0];
+    B.ui.section = id;
+    ids.forEach(function (s) {
+      var on = s === id, t = $('tab-' + s), p = panelOf(s);
+      if (t) {
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+      }
+      if (p) p.hidden = !on;
+    });
+    var body = $('panel-body');
+    if (body) body.scrollTop = 0;
+    var tab = $('tab-' + id);
+    if (!tab) return;
+    if (focusTab) tab.focus();
+    showTab();
+  }
+
+  // Keep the chosen tab in view. In one column the tabs can be a row that scrolls sideways; in the app
+  // layout the rail scrolls when the window leaves it too little height. The page itself stays put.
+  function showTab() {
+    var tab = $('tab-' + B.ui.section), list = $('tabs');
+    if (!tab || !list) return;
+    if (list.scrollWidth > list.clientWidth) {
+      var left = tab.offsetLeft - list.offsetLeft, right = left + tab.offsetWidth;
+      if (left < list.scrollLeft) list.scrollLeft = Math.max(0, left - 16);
+      else if (right > list.scrollLeft + list.clientWidth) list.scrollLeft = right - list.clientWidth + 16;
+    }
+    var rail = list.parentNode;
+    if (rail && rail.scrollHeight > rail.clientHeight) {
+      var r = rail.getBoundingClientRect(), t = tab.getBoundingClientRect();
+      if (t.top < r.top + RAIL_FADE) rail.scrollTop -= r.top + RAIL_FADE - t.top;
+      else if (t.bottom > r.bottom - RAIL_FADE) rail.scrollTop += t.bottom - r.bottom + RAIL_FADE;
+    }
+    railEdges();
+  }
+
+  // A rail too long for its window fades out at the edge it runs on past (css/builder.css .more-above,
+  // .more-below): it has no scrollbar, and a cut row of tabs alone does not say there are more.
+  function railEdges() {
+    var rail = $('tabs').parentNode, more = rail.scrollHeight - rail.clientHeight;
+    var above = more > 1 && rail.scrollTop > 1, below = more > 1 && rail.scrollTop < more - 1;
+    if (above) rail.classList.add('more-above'); else rail.classList.remove('more-above');
+    if (below) rail.classList.add('more-below'); else rail.classList.remove('more-below');
+  }
+
+  // builder.html#obs and the like. In one column the settings are below the preview, so the page goes to
+  // them; the app layout shows both. False when the hash names no section.
+  function openHashSection() {
+    var s = sectionFromHash(root.location.hash);
+    if (!s) return false;
+    selectSection(s, false);
+    var main = $('settings');
+    if (!isAppLayout() && main && main.scrollIntoView) main.scrollIntoView();
+    return true;
+  }
+
+  // The tab the user picks replaces the one a link asked for: a section hash left in the address bar
+  // would open its section again on reload. replaceState fires no hashchange and adds no history entry.
+  function dropSectionHash() {
+    if (!sectionFromHash(root.location.hash)) return;
+    try {
+      root.history.replaceState(root.history.state, '', String(root.location.href).split('#')[0]);
+    } catch (e) { /* not allowed here: the hash stays */ }
+  }
+
+  function wireSections() {
+    var list = $('tabs');
+    var tabOf = function (node) {
+      while (node && node !== list) {
+        if (node.getAttribute && node.getAttribute('role') === 'tab') return node;
+        node = node.parentNode;
+      }
+      return null;
+    };
+    list.addEventListener('click', function (e) {
+      var t = tabOf(e.target);
+      if (!t) return;
+      selectSection(t.getAttribute('data-section'), false);
+      dropSectionHash();
+      saveUi();
+    });
+    // Arrow keys move along the tabs and open each one, in either direction the rail may run.
+    list.addEventListener('keydown', function (e) {
+      var t = tabOf(e.target);
+      if (!t) return;
+      var ids = sectionIds(), i = ids.indexOf(t.getAttribute('data-section')), n = -1;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') n = (i + 1) % ids.length;
+      else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') n = (i + ids.length - 1) % ids.length;
+      else if (e.key === 'Home') n = 0;
+      else if (e.key === 'End') n = ids.length - 1;
+      if (n < 0) return;
+      e.preventDefault();
+      selectSection(ids[n], true);
+      dropSectionHash();
+      saveUi();
+    });
+    root.addEventListener('hashchange', function () { if (openHashSection()) saveUi(); });
+    list.parentNode.addEventListener('scroll', railEdges);
+
+    var mq =root.matchMedia ? root.matchMedia(APP_LAYOUT) : null;
+    var orient = function () {
+      list.setAttribute('aria-orientation', mq && mq.matches ? 'vertical' : 'horizontal');
+      fitSoon();
+    };
+    if (mq && mq.addEventListener) mq.addEventListener('change', orient);
+    else if (mq && mq.addListener) mq.addListener(orient);
+    orient();
   }
 
   function syncDisabled() {
@@ -653,7 +980,7 @@
     });
   }
 
-  // Fields whose wording depends on the layout (META `horizontal`; segmented fields only).
+  // Fields whose wording depends on the layout (META `horizontal`).
   function syncLabels() {
     for (var k in B.fields) {
       var f = B.fields[k];
@@ -665,6 +992,21 @@
         f.helpEl.hidden = !t.help;
       }
     }
+  }
+
+  // Every field's URL tag, and the count of changed settings on each tab.
+  function syncTags() {
+    var changed = changedKeys(B.cfg), counts = groupCounts(B.cfg);
+    for (var k in B.fields) {
+      var f = B.fields[k];
+      f.tag.textContent = tagText(k, B.cfg, changed);
+      if (changed[k] === true) f.tag.classList.add('changed'); else f.tag.classList.remove('changed');
+    }
+    groupLayout().forEach(function (g) {
+      var n = counts[g.id] || 0, c = $('count-' + g.id), t = $('tab-' + g.id);
+      if (c) c.textContent = n ? String(n) : '';
+      if (t) t.setAttribute('aria-label', g.title + (n ? ', ' + n + ' changed' : ''));
+    });
   }
 
   function syncForm() {
@@ -705,6 +1047,7 @@
   }
 
   function onChanged(key) {
+    B.fileNote = '';
     if (key === 'badges') syncDisabled();
     renderOutputs();
     saveCfg();
@@ -717,12 +1060,15 @@
     var prev = B.cfg, reload = false;
     if (typeof next.font === 'string' && next.font) next.font = config.canonicalFont(next.font);
     B.cfg = next;
+    B.fileNote = '';
     RELOAD_KEYS.forEach(function (k) { if (!sameValue(prev[k], next[k])) reload = true; });
     syncForm();
     if (prev.layout !== next.layout) followLayout(prev.layout, next.layout);
     $('channel').value = next.channel || '';
     if (next.channel !== B.ch.login || B.ch.state === 'bad') checkChannel(next.channel);
+    else renderChannelStatus(); // the field was rewritten: nothing typed is pending any more
     renderOutputs();
+    showTab(); // the counts just put on the tabs change their widths
     saveCfg();
     postLive();
     if (reload) scheduleReload(RELOAD_DELAY);
@@ -777,14 +1123,62 @@
     scheduleReload(150);
   }
 
+  // The channel's picture, or its initial in a circle when there is none to show.
+  function avatarFor(u, login) {
+    var name = String(u.displayName || login || '');
+    var initial = function () {
+      var s = h('span', 'avatar', name.charAt(0).toUpperCase());
+      s.setAttribute('aria-hidden', 'true');
+      return s;
+    };
+    if (!u.logo || !util.isSafeUrl(u.logo, AVATAR_HOST_RE)) return initial();
+    var img = h('img', 'avatar');
+    var full = u.logo, small = smallAvatar(full);
+    img.src = small;
+    img.alt = '';
+    img.width = 28;
+    img.height = 28;
+    img.decoding = 'async';
+    img.onerror = function () {
+      if (small !== full) { small = full; img.src = full; return; } // no 70x70 rendition: the full image, once
+      if (img.parentNode) img.parentNode.replaceChild(initial(), img);
+    };
+    return img;
+  }
+
+  // What the field holds that hasn't been looked up: 'typed', 'cleared', or '' when it is the checked name.
+  function channelDraft() {
+    var raw = $('channel').value.trim();
+    if ((raw && config.normalizeChannel(raw) || raw) === B.ch.login) return '';
+    return raw ? 'typed' : 'cleared';
+  }
+
   function renderChannel() {
+    renderChannelStatus();
+    renderOutputs();
+  }
+
+  // The line beside the channel field. While a name is being typed it says how to look it up, not what
+  // the last lookup found. (The overlay URL keeps the checked channel until the new one is committed.)
+  function renderChannelStatus() {
     var box = $('channel-status');
+    var draft = B.chDraft = channelDraft();
+    var st = draft === 'typed' ? 'typed' : draft === 'cleared' ? 'empty' : B.ch.state, login = B.ch.login;
+    var input = $('channel');
+    input.setAttribute('aria-invalid', st === 'bad' || st === 'notfound' ? 'true' : 'false');
+    if (st === 'empty' || st === 'typed') input.classList.add('need'); else input.classList.remove('need');
+    // A live region: the same line written again (Reset, a paste, Enter on a cleared field) is read out again.
+    var found = st === 'found' ? B.ch.user : null;
+    var key = st + '|' + (st === 'empty' || st === 'typed' ? '' : login) +
+      (found ? '|' + found.displayName + '|' + !!found.banned + '|' + found.logo : '');
+    if (key === B.chStatusKey) return;
+    B.chStatusKey = key;
     clear(box);
-    var st = B.ch.state, login = B.ch.login;
     var cls = { empty: '', bad: 'err', checking: 'busy', found: 'ok', notfound: 'err', error: 'warn' }[st] || '';
     box.className = 'status' + (cls ? ' ' + cls : '');
-    $('channel').setAttribute('aria-invalid', st === 'bad' || st === 'notfound' ? 'true' : 'false');
-    if (st === 'empty') {
+    if (st === 'typed') {
+      box.textContent = 'Press Enter or Check to look up the name.';
+    } else if (st === 'empty') {
       box.textContent = 'Enter your channel to preview its emotes and badges.';
     } else if (st === 'bad') {
       box.textContent = 'That isn’t a valid Twitch name. Use letters, numbers and _ only.';
@@ -792,23 +1186,10 @@
       box.textContent = 'Checking “' + login + '”…';
     } else if (st === 'found') {
       var u = B.ch.user;
-      if (u.logo && util.isSafeUrl(u.logo, AVATAR_HOST_RE)) {
-        var img = h('img', 'avatar');
-        var full = u.logo, small = smallAvatar(full);
-        img.src = small;
-        img.alt = '';
-        img.width = 28;
-        img.height = 28;
-        img.decoding = 'async';
-        img.onerror = function () {
-          if (small !== full) { small = full; img.src = full; } // no 70x70 rendition: the full image, once
-          else img.remove();
-        };
-        box.appendChild(img);
-      }
+      box.appendChild(avatarFor(u, login));
       var t = h('span');
       t.appendChild(h('strong', null, u.displayName || login));
-      t.appendChild(document.createTextNode(' found (id ' + u.id + ')'));
+      t.appendChild(document.createTextNode(' found'));
       if (u.banned) {
         box.className = 'status warn';
         t.appendChild(document.createTextNode(', but the channel is suspended, so its chat may stay empty.'));
@@ -819,7 +1200,6 @@
     } else {
       box.textContent = 'Couldn’t check “' + login + '” right now. The overlay will still try this name.';
     }
-    renderOutputs();
   }
 
   // ---------- paste existing URL ----------
@@ -839,28 +1219,45 @@
   }
 
   // ---------- outputs ----------
+  function renderNote() {
+    var n = $('bar-note');
+    var note = urlNote(B.cfg, B.ch, B.url);
+    if (B.copied) note = { text: 'Copied. Paste it into an OBS Browser source.', cls: 'ok' };
+    // What a settings.js on disk did at load, until the first change (a warning still comes first).
+    else if (B.fileNote && note.cls !== 'warn') note = { text: B.fileNote, cls: 'ok' };
+    n.textContent = note.text;
+    n.className = 'status' + (note.cls ? ' ' + note.cls : '');
+  }
+
   function renderOutputs() {
     var url = overlayUrl(B.cfg, root.location.href);
-    $('bar-url').value = url;
-    $('bar-open').href = url;
-    $('out-url').textContent = url;
-    $('out-open').href = url;
-
-    var n = Object.keys(config.toObject(B.cfg)).filter(function (k) { return k !== 'channel'; }).length;
-    $('url-note').textContent = /^file:/i.test(url)
-      ? 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.'
-      : n
-        ? 'The URL holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed; everything else uses the defaults.'
-        : 'Every setting is at its default, so the URL only needs the channel.';
-
-    var warn = $('url-warn'), msg = '';
-    if (!B.cfg.channel) msg = 'Add a channel first. Without one the overlay only shows a hint.';
-    else if (B.ch.state === 'notfound' && B.ch.login === B.cfg.channel) msg = 'Twitch has no channel called “' + B.cfg.channel + '”. Check the spelling.';
-    warn.textContent = msg;
-    warn.hidden = !msg;
-    $('bar-warn').hidden = !!B.cfg.channel;
-
-    $('out-settings').textContent = settingsSnippet(B.cfg);
+    var changed = url !== B.url;
+    // The URL that was copied is no longer the one shown.
+    if (changed && B.copied) { B.copied = false; clearTimeout(B.copiedTimer); }
+    B.url = url;
+    // Written only when it changes: writing it again would drop a selection made on it, and a lookup
+    // that ends renders all of this again.
+    if (changed) {
+      // The URL with its parameters in color: names as the tags beside each setting, values in yellow.
+      // One flex item holds every piece: flex items are blocks, and a selection copies a line break between blocks.
+      var bar = $('bar-url'), parts = urlParts(url);
+      clear(bar);
+      var line = h('span', 'url-line');
+      bar.appendChild(line);
+      line.appendChild(h('span', 'u', parts.base));
+      parts.params.forEach(function (p) {
+        line.appendChild(h('span', 'q', p.sep));
+        line.appendChild(h('span', 'k', p.key));
+        if (p.eq) line.appendChild(h('span', 'q', '='));
+        line.appendChild(h('span', 'v', p.value));
+      });
+      $('bar-open').href = url;
+      $('out-url').textContent = url;
+    }
+    var snippet = settingsSnippet(B.cfg), out = $('out-settings');
+    if (out.textContent !== snippet) out.textContent = snippet;
+    renderNote();
+    syncTags();
   }
 
   function renderSizes() {
@@ -869,16 +1266,20 @@
     for (var j = 0; j < hs.length; j++) hs[j].textContent = String(B.ui.h);
   }
 
+  // A button's words: its .lbl when it also holds an icon, else the button itself.
+  function labelOf(btn) { return (btn.querySelector && btn.querySelector('.lbl')) || btn; }
+
   function flash(btn, text) {
     if (!btn) return;
-    if (!btn.getAttribute('data-label')) btn.setAttribute('data-label', btn.textContent);
-    btn.textContent = text;
+    var lbl = labelOf(btn);
+    if (!btn.getAttribute('data-label')) btn.setAttribute('data-label', lbl.textContent);
+    lbl.textContent = text;
     btn.classList.add('flash');
     clearTimeout(btn._tcoTimer);
     btn._tcoTimer = setTimeout(function () {
-      btn.textContent = btn.getAttribute('data-label');
+      lbl.textContent = btn.getAttribute('data-label');
       btn.classList.remove('flash');
-    }, 1600);
+    }, FLASH_MS);
     announce(text);
   }
 
@@ -912,10 +1313,11 @@
   }
 
   // navigator.clipboard needs a secure context (not OBS docks / LAN http); fall back to execCommand.
-  function copyText(text, btn, fallbackNode) {
+  function copyText(text, btn, fallbackNode, then) {
     var done = function (ok) {
       flash(btn, ok ? 'Copied!' : 'Press Ctrl+C');
       if (!ok && fallbackNode) selectNode(fallbackNode);
+      if (then) then(ok);
     };
     var nav = root.navigator;
     if (nav && nav.clipboard && nav.clipboard.writeText && root.isSecureContext) {
@@ -923,6 +1325,15 @@
     } else {
       done(execCopy(text));
     }
+  }
+
+  // The URL was copied: the note beside it says what to do next, until the button resets or the URL changes.
+  function noteCopied(ok) {
+    if (!ok) return;
+    B.copied = true;
+    renderNote();
+    clearTimeout(B.copiedTimer);
+    B.copiedTimer = setTimeout(function () { B.copied = false; renderNote(); }, FLASH_MS);
   }
 
   function download(name, text) {
@@ -956,10 +1367,15 @@
     return c;
   }
 
+  // The hint sits under the frame and takes its height from the stage, so the frame is fitted again.
   function setHint(text) {
     var el = $('stage-hint');
-    el.textContent = text || '';
-    el.hidden = !text;
+    var next = text || '';
+    // The hint is a live region: writing the same text again would have it read out again.
+    if ((el.hidden ? '' : el.textContent) === next) return;
+    el.textContent = next;
+    el.hidden = !next;
+    fit();
   }
 
   function scheduleReload(delay) {
@@ -981,6 +1397,8 @@
     } else if (B.mode === 'live' && B.cfg.demo) {
       hint = 'Demo messages are switched on under Advanced, so the overlay shows fake chat.';
     }
+    var modeEl = $('tag-mode'), mode = pc.demo ? 'demo' : 'live chat';
+    if (modeEl.textContent !== mode) { modeEl.textContent = mode; fitSoon(); } // fit() picks how much of the tag line fits
     setHint(hint);
     if (!pc.channel && !pc.demo) setFrame(null, null);
     // Badge and paint data a source turned on later is loaded by the overlay when the setting arrives.
@@ -1024,17 +1442,59 @@
     B.postTimer = setTimeout(postNow, 30);
   }
 
-  function fit() {
-    var stage = $('stage'), box = $('frame-box');
-    var wide = wantsWidePreview(B.cfg.layout, B.ui.w, B.ui.h);
+  function px(v) { return parseFloat(v) || 0; }
+
+  // Tab order follows the DOM, so the DOM follows the layout. The settings come before the preview only
+  // where they sit to its left (the app layout without .wide-preview); Home and GitHub follow the brand only
+  // where they share its row (one column). The preview is never the node moved: moving an iframe reloads it.
+  function placeForLayout(wide) {
+    var app = $('builder'), main = $('settings'), prev = $('preview');
+    var top = app.querySelector('.top'), site = app.querySelector('.site'), ch = $('channel-card');
+    var inApp = isAppLayout(), first = inApp && !wide;
+    if ((main.nextElementSibling === prev) !== first) {
+      var a = document.activeElement, keep = a && main.contains(a) ? a : null;
+      var body = $('panel-body'), tabs = $('tabs'), st = body.scrollTop, sl = tabs.scrollLeft;
+      app.insertBefore(main, first ? prev : app.querySelector('.bar'));
+      body.scrollTop = st;
+      tabs.scrollLeft = sl;
+      if (keep) keep.focus({ preventScroll: true });
+    }
+    if ((site.nextElementSibling === ch) === inApp) {
+      var b = document.activeElement, keepSite = b && site.contains(b) ? b : null;
+      top.insertBefore(site, inApp ? null : ch);
+      if (keepSite) keepSite.focus({ preventScroll: true });
+    }
+  }
+
+  // Height (px) the settings need to show the whole rail: its tabs down to the last one, and the foot under it.
+  // From the tabs, not the rail, which is as tall as it is given.
+  function panelNeed() {
+    var list = $('tabs'), rail = list.parentNode;
+    return Math.ceil(list.getBoundingClientRect().bottom - rail.getBoundingClientRect().top + rail.scrollTop +
+      px(root.getComputedStyle(rail).paddingBottom)) + document.querySelector('.panel-foot').offsetHeight;
+  }
+
+  // Size the source frame to the stage. The stage also holds the tag line above the frame and, at times,
+  // a hint below it; the frame gets the height that is left.
+  function fit(again) {
+    var stage = $('stage'), box = $('frame-box'), tag = $('frame-tag'), hint = $('stage-hint');
+    var app = isAppLayout();
+    var wide = wantsWidePreview(B.cfg.layout, B.ui.w, B.ui.h, app);
     $('builder').classList.toggle('wide-preview', wide);
+    placeForLayout(wide);
     var cs = root.getComputedStyle(stage);
-    var padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-    var aw = stage.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
-    stage.style.height = wide ? wideStageHeight(aw, padV + (parseFloat(cs.borderTopWidth) || 0) +
-      (parseFloat(cs.borderBottomWidth) || 0), B.ui.w, B.ui.h, root.innerHeight) + 'px' : '';
-    var ah = stage.clientHeight - padV;
-    pinPreview(wide);
+    var padV = px(cs.paddingTop) + px(cs.paddingBottom);
+    var aw = stage.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight);
+    var tagH = tag.offsetHeight;
+    var extra = tagH + px(root.getComputedStyle(tag.parentNode).rowGap);
+    if (!hint.hidden) extra += hint.offsetHeight + px(cs.rowGap);
+    // In the app layout the window is shared out: top bar, the preview's own bar, this stage, the settings
+    // (every tab of the rail, and Reset below it) and the URL bar.
+    var room = wide && app ? root.innerHeight - document.querySelector('.top').offsetHeight -
+      document.querySelector('.bar').offsetHeight - ($('preview').offsetHeight - stage.offsetHeight) - panelNeed() : null;
+    stage.style.height = wide ? wideStageHeight(aw, padV + extra + px(cs.borderTopWidth) +
+      px(cs.borderBottomWidth), B.ui.w, B.ui.h, root.innerHeight, room) + 'px' : '';
+    var ah = stage.clientHeight - padV - extra;
     var s = fitScale(B.ui.w, B.ui.h, aw, ah);
     box.style.width = Math.floor(B.ui.w * s) + 'px';
     box.style.height = Math.floor(B.ui.h * s) + 'px';
@@ -1043,24 +1503,37 @@
       B.frame.style.height = B.ui.h + 'px';
       B.frame.style.transform = s < 1 ? 'scale(' + s + ')' : 'none';
     }
-    $('scale-note').textContent = B.ui.w + ' × ' + B.ui.h + (s < 1 ? ' · shown at ' + Math.round(s * 100) + '%' : ' · 100%');
+    var note = $('scale-note'), pct = Math.round(s * 100) + '%', text = $('tag-text'), src = $('tag-src');
+    var fw = Math.floor(B.ui.w * s), gap = px(root.getComputedStyle(tag).columnGap);
+    src.hidden = false;
+    note.textContent = B.ui.w + ' × ' + B.ui.h + (s < 1 ? ' · shown at ' + pct : ' · 100%');
+    // A frame too narrow for that line (a phone) gets the short note, and one too narrow even for that
+    // drops the words "Browser source", so the tag is no wider than the frame.
+    if (text.offsetWidth + gap + note.offsetWidth > fw) note.textContent = s < 1 ? 'at ' + pct : '100%';
+    if (text.offsetWidth + gap + note.offsetWidth > fw) src.hidden = true;
+    // In a narrow stage the tag wraps, and the new note can change that: measure once more.
+    if (again !== true && tag.offsetHeight !== tagH) { fit(true); return; }
+    // The moon is decoration, and the tag line's light text is lost on it.
+    var moon = stage.querySelector('.moon').getBoundingClientRect();
+    var onMoon = Array.prototype.some.call(tag.children, function (el) {
+      var r = el.getBoundingClientRect();
+      return r.right > moon.left && r.left < moon.right && r.bottom > moon.top && r.top < moon.bottom;
+    });
+    if (onMoon) stage.classList.add('tag-on-moon'); else stage.classList.remove('tag-on-moon');
+    // The rail's height follows the stage (app layout). The one-column row only when its width changes
+    // (a new layout, a turned phone): a phone's address bar resizes the window at every scroll, and that
+    // would undo a swipe through the row.
+    var rowW = $('tabs').clientWidth;
+    if (app || rowW !== B.tabsW) showTab();
+    B.tabsW = rowW;
   }
 
   function fitSoon() {
-    if (B.fitQueued) return;
+    if (!B || B.fitQueued) return;
     B.fitQueued = true;
     var run = function () { B.fitQueued = false; fit(); };
     if (root.requestAnimationFrame) root.requestAnimationFrame(run);
     else setTimeout(run, 16);
-  }
-
-  // The wide preview stays pinned above the scrolling settings only while it leaves most of the window
-  // free. Scroll padding then keeps #settings (the skip link) and focused fields from landing under it.
-  function pinPreview(wide) {
-    var pv = $('preview');
-    var pin = wide && root.innerWidth >= 1000 && pv.offsetHeight <= root.innerHeight * 0.4;
-    $('builder').classList.toggle('pin-preview', pin);
-    document.documentElement.style.scrollPaddingTop = pin ? (pv.offsetHeight + 16) + 'px' : '';
   }
 
   function setBackdrop(v) {
@@ -1086,6 +1559,7 @@
       r.addEventListener('change', function () {
         if (!r.checked) return;
         setBackdrop(r.value);
+        fit(); // each backdrop has its own moon, or none
         saveUi();
       });
     });
@@ -1115,9 +1589,32 @@
     });
 
     // A frame later: fit() may resize the stage it observes, which inside the callback is a loop warning.
-    if (root.ResizeObserver) new root.ResizeObserver(fitSoon).observe($('stage'));
-    // Also for height-only window changes: the wide stage's height and pinning follow the window.
+    // The hint too: it takes height from the frame, and it wraps differently once the web font arrives.
+    if (root.ResizeObserver) {
+      var ro = new root.ResizeObserver(fitSoon);
+      ro.observe($('stage'));
+      ro.observe($('stage-hint'));
+      ro.observe($('tabs')); // a count that wraps a tab's name changes what the settings need (panelNeed)
+    }
+    // Also for height-only window changes: the wide stage's height follows the window.
     root.addEventListener('resize', fitSoon);
+    // The tag line is picked by measuring its text, which is wider in the web font than in the fallback.
+    if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', fitSoon);
+
+    // A window change can hide the focused site link (Home at 1100-1299px, GitHub under 480px), and the
+    // focus would fall to the page. It goes to the nearest link before it that is shown (the brand is Home).
+    var site = $('builder').querySelector('.site'), brand = $('builder').querySelector('.brand');
+    if (site && brand) site.addEventListener('focusout', function (e) {
+      var t = e.target;
+      if (e.relatedTarget) return;
+      setTimeout(function () {
+        if (document.activeElement !== document.body || t.getClientRects().length) return;
+        var links = [brand].concat(Array.prototype.slice.call(site.children));
+        for (var i = links.indexOf(t) - 1; i >= 0; i--) {
+          if (links[i].getClientRects().length) { links[i].focus({ preventScroll: true }); return; }
+        }
+      }, 0);
+    });
 
     // A live preview is a second chat client (IRC, 7TV and BTTV sockets, lookups). In a tab left hidden
     // it disconnects after a while; a quick switch to OBS to paste the URL keeps it.
@@ -1144,6 +1641,8 @@
       if (e.key === 'Enter') { e.preventDefault(); commitChannel(false); }
     });
     ch.addEventListener('change', function () { commitChannel(false); });
+    // Only when the pending state flips, so the live status isn't read out again at every keystroke.
+    ch.addEventListener('input', function () { if (channelDraft() !== B.chDraft) renderChannelStatus(); });
     $('channel-check').addEventListener('click', function () {
       var login = config.normalizeChannel(ch.value);
       // The blur before this click may already have started the same lookup.
@@ -1151,8 +1650,44 @@
       B.chCache.delete(login);
       commitChannel(true);
     });
+  }
 
-    var paste = $('paste');
+  // "Edit an existing overlay": a <details>. In the app layout it opens over the page, so there Escape, a
+  // click elsewhere or focus moving on closes it; in one column it is part of the page and covers nothing,
+  // so only its summary, or Escape inside it, closes it.
+  function wirePaste() {
+    var box = $('paste-box'), paste = $('paste');
+    box.addEventListener('toggle', function () { if (box.open) paste.focus(); });
+    // Only a press that starts outside closes it: a text selection dragged past its edge sends the
+    // click to an element the press and release share, which is outside the box.
+    var downIn = false;
+    document.addEventListener('pointerdown', function (e) { downIn = box.contains(e.target); }, true);
+    document.addEventListener('click', function (e) {
+      var fromIn = downIn;
+      downIn = false;
+      if (box.open && isAppLayout() && !fromIn && !box.contains(e.target)) box.open = false;
+    });
+    // A click in the preview goes to the frame's own document and never reaches this one;
+    // this window loses focus to the frame instead.
+    root.addEventListener('blur', function () {
+      setTimeout(function () {
+        var a = document.activeElement;
+        if (box.open && isAppLayout() && a && a.tagName === 'IFRAME') box.open = false;
+      }, 0);
+    });
+    // It must never hide the control that has focus. relatedTarget is null when the whole window loses
+    // focus: a trip to OBS and back keeps it as it was.
+    box.addEventListener('focusout', function (e) {
+      if (box.open && isAppLayout() && e.relatedTarget && !box.contains(e.relatedTarget)) box.open = false;
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || !box.open) return;
+      var a = document.activeElement, inside = !!a && box.contains(a);
+      if (!inside && !isAppLayout()) return;
+      box.open = false;
+      var s = box.querySelector('summary');
+      if (s && (inside || !a || a === document.body)) s.focus();
+    });
     // A textarea (keeps a pasted settings.js's line breaks): Enter loads, Shift+Enter adds a line.
     paste.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); loadPasted(); }
@@ -1161,9 +1696,18 @@
     $('paste-load').addEventListener('click', loadPasted);
   }
 
+  // Add to OBS shows one route at a time: a Browser source with the URL, or Local file with settings.js.
+  function setRoute(v) {
+    B.route = v === 'local' ? 'local' : 'url';
+    $('obs-url').hidden = B.route !== 'url';
+    $('obs-local').hidden = B.route !== 'local';
+    var rs = document.querySelectorAll('input[name="route"]');
+    Array.prototype.forEach.call(rs, function (r) { r.checked = r.value === B.route; });
+  }
+
   function wireOutputs() {
-    $('bar-copy').addEventListener('click', function () { copyText($('bar-url').value, $('bar-copy'), $('bar-url')); });
-    $('out-copy').addEventListener('click', function () { copyText($('out-url').textContent, $('out-copy'), $('out-url')); });
+    $('bar-copy').addEventListener('click', function () { copyText(B.url, $('bar-copy'), $('bar-url'), noteCopied); });
+    $('out-copy').addEventListener('click', function () { copyText(B.url, $('out-copy'), $('out-url'), noteCopied); });
     $('settings-copy').addEventListener('click', function () {
       copyText($('out-settings').textContent, $('settings-copy'), $('out-settings'));
     });
@@ -1171,7 +1715,22 @@
       var ok = download('settings.js', $('out-settings').textContent);
       flash($('settings-dl'), ok ? 'Downloaded' : 'Download failed: copy it instead');
     });
-    $('bar-url').addEventListener('focus', function () { this.select(); });
+    // Reached with the keyboard, the URL is selected whole, ready for Ctrl+C.
+    $('bar-url').addEventListener('focus', function () {
+      var el = this, byKey = true;
+      try { byKey = el.matches(':focus-visible'); } catch (e) { /* an old browser: select anyway */ }
+      if (byKey) selectNode(el);
+    });
+    // Clicked, it is selected whole as well, as a read-only field would be. A drag or a double click
+    // keeps its own selection.
+    $('bar-url').addEventListener('click', function () {
+      if (String(root.getSelection()) === '') selectNode(this);
+    });
+    var rs = document.querySelectorAll('input[name="route"]');
+    Array.prototype.forEach.call(rs, function (r) {
+      r.addEventListener('change', function () { if (r.checked) setRoute(r.value); });
+    });
+    setRoute(B.route);
     $('reset').addEventListener('click', function () {
       var d = config.defaults();
       d.channel = B.cfg.channel;
@@ -1186,8 +1745,7 @@
   function setupLocalFile(hasQuery, fromStore) {
     if (root.location.protocol !== 'file:') return;
     document.body.classList.add('is-file');
-    var obs = $('obs'), local = $('obs-local'), urlBlock = $('obs-url');
-    if (obs && local && urlBlock) urlBlock.parentNode.insertBefore(local, urlBlock);
+    setRoute('local');
     $('file-intro').hidden = false;
     $('file-url-note').hidden = false;
     var get = $('step-get-files');
@@ -1202,17 +1760,22 @@
       var snap = JSON.stringify(config.toObject(fileCfg));
       var key = STORE_FILE_BASE + folderOf(root.location.pathname);
       var seen = lastSnapshot(loadStored(key), loadStored(key + 'index.html'));
+      // Said where it can be seen whatever section is open (beside the URL, until the first change), and
+      // to screen readers; Add to OBS keeps its copy.
       var note = $('file-loaded');
+      var say = function (text) {
+        if (note) { note.textContent = text; note.hidden = false; }
+        B.fileNote = text;
+        renderNote();
+        announce(text);
+      };
       if (fromStore && seen === snap) {
-        if (note) {
-          note.textContent = 'Kept your changes from last time: the settings.js in this folder hasn’t changed since the builder loaded it.';
-          note.hidden = false;
-        }
+        say('Kept your changes from last time: the settings.js in this folder hasn’t changed since the builder loaded it.');
         return;
       }
       store(key, snap);
       replaceCfg(fileCfg);
-      if (note) note.hidden = false;
+      say('Loaded the settings.js from this folder.'); // after replaceCfg, which clears the note
     };
     s.onerror = function () { /* no settings.js yet: fine */ };
     document.head.appendChild(s);
@@ -1222,11 +1785,11 @@
 
   function start() {
     if (B || !$('builder')) return;
-    // The Inter stylesheet comes in as media="print" so a slow font host can't hold up the page or
+    // The font stylesheet comes in as media="print" so a slow font host can't hold up the page or
     // its scripts (the CSP allows no inline onload); it applies once loaded.
     var font = $('font-css');
     if (font) {
-      var useFont = function () { font.media = 'all'; };
+      var useFont = function () { font.media = 'all'; fitSoon(); };
       if (font.sheet) useFont(); else font.addEventListener('load', useFont);
     }
     B = {
@@ -1234,14 +1797,23 @@
       fields: {},
       ch: { state: 'empty', login: '', user: null },
       chSeq: 0,
+      chDraft: '',
+      chStatusKey: '',
       chCache: new Map(),
       mode: 'demo',
-      ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop },
+      route: 'url',
+      url: '',
+      copied: false,
+      copiedTimer: null,
+      fileNote: '',
+      ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop, section: UI_DEFAULTS.section },
       frame: null,
       frameSig: null,
       reloadTimer: null,
       postTimer: null,
       fitQueued: false,
+      tabsW: null,
+      sayTimer: null,
       paused: false,
       storage: undefined
     };
@@ -1250,13 +1822,18 @@
       B.ui.w = clampInt(u.w, SIZE_LIMITS.w[0], SIZE_LIMITS.w[1], UI_DEFAULTS.w);
       B.ui.h = clampInt(u.h, SIZE_LIMITS.h[0], SIZE_LIMITS.h[1], UI_DEFAULTS.h);
       if (BACKDROPS.indexOf(u.backdrop) >= 0) B.ui.backdrop = u.backdrop;
+      if (typeof u.section === 'string' && sectionIds().indexOf(u.section) >= 0) B.ui.section = u.section;
     }
 
     buildGroups();
+    wireSections();
     wireChannel();
+    wirePaste();
     wireOutputs();
     wirePreview();
     renderSizes();
+    // A link can open a section (builder.html#obs); otherwise the one that was open last time.
+    if (!openHashSection()) selectSection(B.ui.section, false);
 
     var init = initialCfg();
     // Read before replaceCfg saves: stored settings from another folder's builder aren't "your changes" here.
@@ -1282,6 +1859,7 @@
     RELOAD_KEYS: RELOAD_KEYS,
     GOOGLE_FONTS: GOOGLE_FONTS,
     SYSTEM_FONT_NAMES: SYSTEM_FONT_NAMES,
+    APP_LAYOUT: APP_LAYOUT,
     isLiveKey: isLiveKey,
     groupLayout: groupLayout,
     overlayUrl: overlayUrl,
@@ -1300,6 +1878,18 @@
     fieldText: fieldText,
     fitScale: fitScale,
     describeIvrUser: describeIvrUser,
-    startCfg: startCfg
+    startCfg: startCfg,
+    changedKeys: changedKeys,
+    tagText: tagText,
+    groupCounts: groupCounts,
+    urlParts: urlParts,
+    urlNote: urlNote,
+    valueText: valueText,
+    parseStep: parseStep,
+    stepValue: stepValue,
+    segValues: segValues,
+    sectionIds: sectionIds,
+    sectionFromHash: sectionFromHash,
+    widgetFor: widgetFor
   };
 });

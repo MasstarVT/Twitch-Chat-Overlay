@@ -130,6 +130,26 @@ class Element extends Node {
   get clientHeight() { return this.getBoundingClientRect().height; }
   get offsetWidth() { return this.getBoundingClientRect().width; }
   get offsetHeight() { return this.getBoundingClientRect().height; }
+  contains(node) {
+    for (let n = node; n; n = n.parentNode) if (n === this) return true;
+    return false;
+  }
+  // The first descendant that matches '.class' or a tag name (the two forms the pages use on an element).
+  querySelector(sel) {
+    const cls = /^\.([\w-]+)$/.exec(sel), tag = /^[a-z][\w-]*$/i.test(sel) ? sel.toUpperCase() : null;
+    if (!cls && !tag) throw new Error('querySelector: not modelled: ' + sel);
+    let hit = null;
+    const walk = (n) => {
+      for (const k of n.childNodes) {
+        if (hit) return;
+        if (k.nodeType !== 1) continue;
+        if (cls ? k.classList.contains(cls[1]) : k.tagName === tag) { hit = k; return; }
+        walk(k);
+      }
+    };
+    walk(this);
+    return hit;
+  }
   // All descendants (elements) matching a class, in document order.
   byClass(c) {
     const out = [];

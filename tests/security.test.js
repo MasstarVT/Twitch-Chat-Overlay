@@ -80,7 +80,7 @@ test('every URL property assignment in js/ is a reviewed one', () => {
   const REVIEWED = {
     'builder.js': [
       /^img\.src = (?:small|full)$/, // the channel avatar preview: IVR logo, isSafeUrl(jtvnw.net) checked
-      /^\$\('(?:bar|out)-open'\)\.href = url$/, // the generated overlay URL on this site
+      /^\$\('bar-open'\)\.href = url$/, // the generated overlay URL on this site
       /^a\.href = href$/, // builder links on this site
       /^f\.src = src$/, // the preview iframe: overlay.html on this site
       /^s\.src = 'settings\.js\?t=' \+ Date\.now\(\)$/

@@ -37,14 +37,14 @@ The overlay is hosted at **https://chat.masstar.org/**. Open the builder at **ht
 
 1. Fork the repo and delete the `CNAME` file from your fork (it points at chat.masstar.org). Then go to **Settings → Pages**, choose **Deploy from a branch**, and pick `main` / `(root)`.
 2. Open `https://<your-user>.github.io/Twitch-Chat-Overlay/builder.html`. That page is the builder. To pre-fill it, add options to its URL, for example `?channel=yourname`.
-3. Enter your channel, adjust the look, and press **Copy** next to the overlay URL.
+3. Enter your channel at the top, adjust the settings, and press **Copy URL** in the bar along the bottom. The builder's **Add to OBS** section walks through the next two steps.
 4. In OBS: **Sources → + → Browser**. Paste the URL, then set **Width** and **Height** to the same size as the builder preview (450 × 700 for the vertical layout, 1920 × 100 for the horizontal one).
 5. In the same dialog, **uncheck** "Shutdown source when not visible" and "Refresh browser when scene becomes active". Leaving them on makes the chat reconnect and clear on every scene switch.
 
 ### Option B: a folder on your PC
 
 1. Download the repo (Code → Download ZIP) and unzip it.
-2. Open `builder.html` in your browser, configure the overlay, and press **Download settings.js**. Save the file next to `overlay.html`. You can also copy `settings.example.js` to `settings.js` and edit it by hand.
+2. Open `builder.html` in your browser and configure the overlay. Under **Add to OBS**, the **Local file with settings.js** route has the **Download settings.js** button. Save the file next to `overlay.html`. You can also copy `settings.example.js` to `settings.js` and edit it by hand.
 3. In OBS, add a **Browser** source, tick **Local file**, and pick `overlay.html`.
 4. After you change `settings.js`, open the source's properties and press **Refresh cache of current page**.
 
@@ -131,7 +131,7 @@ Everything is fetched directly by your browser or OBS. There is no server of our
 | Twitch CDN (`static-cdn.jtvnw.net`), cheer CDN (`d3aqoihi2n8ty8.cloudfront.net`), Giphy (`media*.giphy.com`) | Twitch emote, badge, avatar, cheermote and GIF images |
 | Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | the chosen font, unless it is a system font |
 
-Badge and emote lists name their own image URLs, so a provider can move its images to another host. The builder page also loads the Inter font from Google Fonts and uses the IVR API to check the channel name. The home page loads its own fonts from Google Fonts, and its two live demos are the overlay itself in demo mode, so they contact the same emote and badge services (no chat connection).
+Badge and emote lists name their own image URLs, so a provider can move its images to another host. The builder and the home page load their own fonts (Figtree, Bricolage Grotesque and JetBrains Mono) from Google Fonts. The builder also uses the IVR API to check the channel name. The home page's two live demos are the overlay itself in demo mode, so they contact the same emote and badge services (no chat connection).
 
 ## Security: chat can't run code
 
@@ -157,6 +157,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Homies badges:** when a user is in more than one Homies list, their badges show in list order (itzalex badges, badges2, chatterinohomies), whichever list loads first.
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
+- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`.
 - **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
 
@@ -170,8 +171,9 @@ This runs the unit tests with Node's built-in test runner (Node 22+; no dependen
 
 Layout:
 
-- `index.html`, `css/home.css`, `js/home.js`, `img/logos/`: the home page. `js/home.js` starts its live demos and passes old builder links on.
+- `index.html`, `css/home.css`, `js/home.js`: the home page. `js/home.js` starts its live demos and passes old builder links on.
 - `builder.html`, `js/builder.js`, `css/builder.css`: the builder.
+- `img/logos/`: the provider logos shown on the home page and in the builder, with their sources and licenses.
 - `overlay.html`, `css/overlay.css`: the overlay page.
 - `js/overlay.js`: startup and wiring. `js/errors.js` records script errors (e.g. a broken settings.js) for the startup hint.
 - `js/irc*.js`: Twitch chat.

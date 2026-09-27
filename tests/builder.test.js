@@ -19,7 +19,252 @@ test('every config key except channel is in exactly one form group, with a label
   config.KEYS.filter((k) => k !== 'channel').forEach((k) => assert.ok(seen[k], 'missing field for ' + k));
   assert.ok(!seen.channel);
   assert.deepStrictEqual(builder.groupLayout().map((g) => g.title),
-    ['Look', 'Behavior', 'Emotes', 'Badges & paints', 'Advanced']);
+    ['Look', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Advanced']);
+});
+
+test('sections: one per group plus Add to OBS, each with an id a link can open', () => {
+  const ids = builder.sectionIds();
+  assert.deepStrictEqual(ids, ['look', 'messages', 'events', 'filters', 'emotes', 'badges', 'advanced', 'obs']);
+  assert.strictEqual(new Set(ids).size, ids.length);
+  builder.groupLayout().forEach((g) => assert.ok(g.note, g.id + ' says what it holds'));
+  assert.strictEqual(builder.sectionFromHash('#obs'), 'obs');
+  assert.strictEqual(builder.sectionFromHash('#Badges'), 'badges');
+  assert.strictEqual(builder.sectionFromHash('#group-filters'), 'filters');
+  // The skip link, an old home-page anchor and prototype names open nothing.
+  ['', '#', '#settings', '#setup', '#constructor', '#__proto__', null, undefined]
+    .forEach((h) => assert.strictEqual(builder.sectionFromHash(h), '', String(h)));
+  // builder.html holds the tab and the panel of the one section that isn't generated.
+  const html = fs.readFileSync(path.join(__dirname, '..', 'builder.html'), 'utf8');
+  assert.match(html, /id="tab-obs"[^>]*aria-controls="group-obs"/);
+  assert.match(html, /<section id="group-obs"[^>]*role="tabpanel"[^>]*aria-labelledby="tab-obs"/);
+  // No element carries a bare section name as its id, so #obs opens the section without the browser
+  // scrolling the panel to an anchor of that name.
+  ids.forEach((id) => assert.ok(html.indexOf('id="' + id + '"') < 0, id));
+});
+
+test('a link opens its section when the page loads and when the hash changes', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'builder.js'), 'utf8');
+  // openHashSection reads the page's hash and opens the section it names.
+  assert.match(src, /var s = sectionFromHash\(root\.location\.hash\);\s*if \(!s\) return false;\s*selectSection\(s, false\);/);
+  // start() asks the hash first, then falls back to the section that was open last time.
+  assert.match(src, /if \(!openHashSection\(\)\) selectSection\(B\.ui\.section, false\);/);
+  assert.match(src, /addEventListener\('hashchange', function \(\) \{ if \(openHashSection\(\)\) saveUi\(\); \}\)/);
+});
+
+test('the app layout query is the same in builder.js and builder.css', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'builder.css'), 'utf8');
+  assert.ok(css.indexOf('@media ' + builder.APP_LAYOUT + ' {') >= 0, builder.APP_LAYOUT);
+  // The queries that refine the app layout (a short window, a narrower top bar) repeat its thresholds.
+  const parts = builder.APP_LAYOUT.split(' and ');
+  const within = css.match(/@media [^{]*min-height[^{]*\{/g) || [];
+  assert.ok(within.length > 1, 'the scan finds the refinements');
+  within.forEach((q) => parts.forEach((p) => assert.ok(q.indexOf(p) >= 0, q + ' lacks ' + p)));
+});
+
+test('every id, class and element builder.js looks up exists in builder.html or is one it creates', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'builder.html'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'builder.js'), 'utf8');
+  const made = /^(?:tab|count|group)-$/; // $('tab-' + id) and the like: built by buildGroups
+  const ids = new Set();
+  for (const m of src.matchAll(/\$\('([^']+)'/g)) ids.add(m[1]);
+  assert.ok(ids.size > 25, 'the scan finds the lookups');
+  ids.forEach((id) => {
+    if (made.test(id)) return;
+    assert.ok(html.indexOf('id="' + id + '"') >= 0, 'builder.html has no #' + id);
+  });
+  ['pmode', 'backdrop', 'route'].forEach((n) => assert.ok(html.indexOf('name="' + n + '"') >= 0, n));
+  // What it finds by class or by element: the sizes in Add to OBS, a button's words, the popover's summary.
+  const classes = new Set();
+  for (const m of src.matchAll(/querySelector(?:All)?\('\.([\w-]+)'\)/g)) classes.add(m[1]);
+  assert.ok(classes.size >= 3, 'the scan finds the class lookups');
+  classes.forEach((c) =>
+    assert.match(html, new RegExp('class="(?:[^"]* )?' + c + '(?: [^"]*)?"'), 'builder.html has no .' + c));
+  // flash() writes a button's words into its .lbl; without one the text replaces the icon too.
+  assert.match(html, /<button id="bar-copy"[^>]*>\s*<svg[\s\S]*?<\/svg>\s*<span class="lbl">/);
+  assert.match(html, /<details id="paste-box"[^>]*>\s*<summary\b/);
+  // No id twice.
+  const seen = {};
+  for (const m of html.matchAll(/\sid="([^"]+)"/g)) {
+    assert.ok(!seen[m[1]], 'duplicate id ' + m[1]);
+    seen[m[1]] = true;
+  }
+});
+
+test('widgets: switches, segmented choices, steppers, one slider', () => {
+  const kinds = {};
+  config.KEYS.filter((k) => k !== 'channel').forEach((k) => { kinds[k] = builder.widgetFor(k); });
+  Object.keys(config.SPEC).forEach((k) => {
+    if (config.SPEC[k].type === 'bool') assert.strictEqual(kinds[k], 'check', k);
+    if (config.SPEC[k].type === 'enum') assert.strictEqual(kinds[k], 'seg', k);
+  });
+  assert.strictEqual(kinds.shadow, 'seg');
+  assert.strictEqual(kinds.bg, 'range');
+  ['fade', 'max', 'history'].forEach((k) => assert.strictEqual(kinds[k], 'stepper', k));
+  assert.strictEqual(kinds.font, 'font');
+  assert.strictEqual(kinds.block, 'text');
+  assert.deepStrictEqual(builder.segValues('shadow'), [
+    { value: '0', label: 'None' }, { value: '1', label: 'Light' }, { value: '2', label: 'Medium' }, { value: '3', label: 'Strong' }]);
+  assert.deepStrictEqual(builder.segValues('size').map((o) => o.value), config.SPEC.size.values);
+  assert.deepStrictEqual(builder.segValues('layout').map((o) => o.label), ['Vertical', 'Horizontal']);
+  // Every choice is a value the setting takes.
+  ['shadow', 'size', 'layout', 'align'].forEach((k) =>
+    builder.segValues(k).forEach((o) => assert.strictEqual(String(config.coerce(k, o.value)), o.value, k)));
+});
+
+test('valueText and parseStep: what a stepper shows is what it reads back', () => {
+  assert.strictEqual(builder.valueText('fade', 0), 'Never');
+  assert.strictEqual(builder.valueText('fade', 30), '30 s');
+  assert.strictEqual(builder.valueText('history', 0), 'Off');
+  assert.strictEqual(builder.valueText('history', 5), '5');
+  assert.strictEqual(builder.valueText('max', 50), '50');
+  assert.strictEqual(builder.valueText('bg', 0), 'Off');
+  assert.strictEqual(builder.valueText('bg', 60), '60%');
+  assert.strictEqual(builder.valueText('shadow', 3), 'Strong');
+  ['fade', 'max', 'history'].forEach((k) => {
+    const s = config.SPEC[k];
+    [s.min, s.min + 1, 7, s.def, s.max].forEach((v) =>
+      assert.strictEqual(builder.parseStep(k, builder.valueText(k, v)), v, k + ' ' + v));
+  });
+  assert.strictEqual(builder.parseStep('fade', ' 45 '), 45);
+  assert.strictEqual(builder.parseStep('fade', '45s'), 45);
+  assert.strictEqual(builder.parseStep('fade', 'never'), 0);
+  // Out of range is clamped, like the overlay does; words and signs are not numbers.
+  assert.strictEqual(builder.parseStep('max', '0'), 1);
+  assert.strictEqual(builder.parseStep('max', '9999'), 200);
+  assert.strictEqual(builder.parseStep('history', '101'), 100);
+  ['', ' ', 'soon', '-5', '+5', 'Off', '.5', '1,000', '1 000', '2.5', '5.', '1e2', '12abc', '50 s', null, undefined].forEach((t) =>
+    assert.strictEqual(builder.parseStep('max', t), undefined, JSON.stringify(t)));
+  // Only the field's own unit may follow the number.
+  assert.strictEqual(builder.parseStep('fade', '45 S'), 45);
+  assert.strictEqual(builder.parseStep('fade', '007'), 7);
+  ['1,000', '10 minutes', '10 sec', '30 s s'].forEach((t) =>
+    assert.strictEqual(builder.parseStep('fade', t), undefined, JSON.stringify(t)));
+});
+
+test('stepValue moves to the next multiple of the step and stays in range', () => {
+  const up = (v, step, min, max) => builder.stepValue(v, 1, step, min, max);
+  const down = (v, step, min, max) => builder.stepValue(v, -1, step, min, max);
+  assert.strictEqual(up(0, 5, 0, 3600), 5);
+  assert.strictEqual(up(30, 5, 0, 3600), 35);
+  assert.strictEqual(up(32, 5, 0, 3600), 35);
+  assert.strictEqual(up(3598, 5, 0, 3600), 3600);
+  assert.strictEqual(up(3600, 5, 0, 3600), 3600);
+  assert.strictEqual(down(32, 5, 0, 3600), 30);
+  assert.strictEqual(down(30, 5, 0, 3600), 25);
+  assert.strictEqual(down(3, 5, 0, 3600), 0);
+  assert.strictEqual(down(0, 5, 0, 3600), 0);
+  // max starts at 1: 1 -> 5 -> 10, and back down to 1
+  assert.strictEqual(up(1, 5, 1, 200), 5);
+  assert.strictEqual(up(5, 5, 1, 200), 10);
+  assert.strictEqual(down(5, 5, 1, 200), 1);
+  assert.strictEqual(down(1, 5, 1, 200), 1);
+  assert.strictEqual(up(200, 5, 1, 200), 200);
+  assert.strictEqual(up(7, 1, 0, 100), 8);
+  assert.strictEqual(down(7, 1, 0, 100), 6);
+  // Every press lands on a value the setting takes.
+  ['fade', 'max', 'history'].forEach((k) => {
+    const s = config.SPEC[k], step = builder.META[k].step;
+    assert.ok(step >= 1, k);
+    for (let v = s.min, n = 0; n < 1000 && v < s.max; n++) {
+      const next = up(v, step, s.min, s.max);
+      assert.ok(next > v && next <= s.max, k + ' up from ' + v);
+      assert.strictEqual(config.coerce(k, next), next);
+      v = next;
+    }
+  });
+});
+
+test('changedKeys, tagText and groupCounts follow the overlay URL', () => {
+  const cfg = Object.assign(config.defaults(), { channel: 'forsen' });
+  assert.deepStrictEqual(builder.changedKeys(cfg), {}, 'the channel is not a changed setting');
+  config.KEYS.filter((k) => k !== 'channel').forEach((k) => assert.strictEqual(builder.tagText(k, cfg), k));
+  Object.keys(builder.groupCounts(cfg)).forEach((g) => assert.strictEqual(builder.groupCounts(cfg)[g], 0, g));
+
+  Object.assign(cfg, { bg: 60, fade: 30, bots: true, animate: false, block: ['a_b', 'c'], font: 'Open Sans', badges_7tv: false });
+  assert.deepStrictEqual(Object.keys(builder.changedKeys(cfg)).sort(),
+    ['animate', 'badges_7tv', 'bg', 'block', 'bots', 'fade', 'font']);
+  assert.strictEqual(builder.tagText('bg', cfg), 'bg=60');
+  assert.strictEqual(builder.tagText('bots', cfg), 'bots=1');
+  assert.strictEqual(builder.tagText('animate', cfg), 'animate=0');
+  assert.strictEqual(builder.tagText('block', cfg), 'block=a_b,c');
+  assert.strictEqual(builder.tagText('font', cfg), 'font=Open Sans');
+  assert.strictEqual(builder.tagText('size', cfg), 'size');
+  assert.deepStrictEqual(builder.groupCounts(cfg),
+    { look: 3, messages: 1, events: 0, filters: 2, emotes: 0, badges: 1, advanced: 0 });
+  // The changed settings are exactly the URL's parameters after the channel.
+  const inUrl = builder.urlParts(builder.overlayUrl(cfg, BASE)).params.map((p) => p.key);
+  assert.deepStrictEqual(inUrl.slice(1).sort(), Object.keys(builder.changedKeys(cfg)).sort());
+  assert.strictEqual(inUrl[0], 'channel');
+  // Prototype names are never settings.
+  assert.strictEqual(builder.tagText('constructor', cfg, builder.changedKeys(cfg)), 'constructor');
+});
+
+test('urlParts: the pieces put back together are the URL', () => {
+  const join = (p) => p.base + p.params.map((x) => x.sep + x.key + (x.eq ? '=' : '') + x.value).join('');
+  const cfg = Object.assign(config.defaults(), { channel: 'forsen', size: 'large', font: 'Open Sans', block: ['a', 'b'] });
+  [
+    builder.overlayUrl(config.defaults(), BASE),
+    builder.overlayUrl(cfg, BASE),
+    builder.previewUrl(config.defaults(), BASE),
+    builder.overlayUrl(cfg, 'file:///E:/Github/Twitch%20Chat%20Overlay/builder.html'),
+    'https://example.com/overlay.html?flag&a=b=c&empty='
+  ].forEach((u) => assert.strictEqual(join(builder.urlParts(u)), u));
+  const p = builder.urlParts(builder.overlayUrl(cfg, BASE));
+  assert.strictEqual(p.base, 'https://masstarvt.github.io/Twitch-Chat-Overlay/overlay.html');
+  assert.deepStrictEqual(p.params.map((x) => x.sep), ['?', '&', '&', '&']);
+  assert.deepStrictEqual(p.params.map((x) => x.key), ['channel', 'size', 'font', 'block']);
+  assert.deepStrictEqual(p.params.map((x) => x.value), ['forsen', 'large', 'Open+Sans', 'a,b']);
+  assert.deepStrictEqual(builder.urlParts('https://example.com/overlay.html'), { base: 'https://example.com/overlay.html', params: [] });
+  assert.deepStrictEqual(builder.urlParts('https://example.com/o.html?a=1#frag').params.map((x) => x.value), ['1']);
+  assert.deepStrictEqual(builder.urlParts('https://example.com/o.html?a=b=c').params[0], { sep: '?', key: 'a', eq: true, value: 'b=c' });
+  [null, undefined, ''].forEach((u) => assert.deepStrictEqual(builder.urlParts(u), { base: '', params: [] }));
+});
+
+test('urlNote: a warning when the URL will not work, else what it holds', () => {
+  const found = { state: 'found', login: 'forsen' };
+  const cfg = config.defaults();
+  assert.deepStrictEqual(builder.urlNote(cfg, { state: 'empty', login: '' }, 'https://x/overlay.html').cls, 'warn');
+  assert.match(builder.urlNote(cfg, { state: 'empty', login: '' }, '').text, /Add a channel first/);
+  cfg.channel = 'forsen';
+  const plain = builder.urlNote(cfg, found, builder.overlayUrl(cfg, BASE));
+  assert.strictEqual(plain.cls, '');
+  assert.match(plain.text, /Every setting is at its default/);
+  cfg.bg = 60;
+  assert.match(builder.urlNote(cfg, found, builder.overlayUrl(cfg, BASE)).text, /the 1 setting you changed/);
+  cfg.fade = 30;
+  assert.match(builder.urlNote(cfg, found, builder.overlayUrl(cfg, BASE)).text, /the 2 settings you changed/);
+  // A name Twitch doesn't have, while it is still the one in the URL.
+  const missing = builder.urlNote(cfg, { state: 'notfound', login: 'forsen' }, builder.overlayUrl(cfg, BASE));
+  assert.strictEqual(missing.cls, 'warn');
+  assert.match(missing.text, /no channel called “forsen”/);
+  assert.strictEqual(builder.urlNote(cfg, { state: 'notfound', login: 'other' }, builder.overlayUrl(cfg, BASE)).cls, '');
+  // From disk the URL lists every setting.
+  const file = builder.urlNote(cfg, found, builder.overlayUrl(cfg, 'file:///C:/overlay/builder.html'));
+  assert.match(file.text, /lists every setting/);
+  assert.strictEqual(builder.urlNote(cfg, null, 'https://x/overlay.html').cls, '');
+});
+
+test('builder.css draws the provider logos the fields name, from img/logos', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'builder.css'), 'utf8');
+  const logos = new Set();
+  Object.keys(builder.META).forEach((k) => {
+    const m = builder.META[k];
+    assert.ok(!(m.logo && m.tile), k + ' has a logo or an initial, not both');
+    if (m.logo) logos.add(m.logo);
+    if (m.tile) assert.match(m.tile, /^[A-Z0-9]{1,2}$/, k);
+  });
+  assert.deepStrictEqual([...logos].sort(), ['7tv', 'chatterino', 'homies']);
+  logos.forEach((name) => {
+    const m = new RegExp('\\.logo-' + name + '\\s*\\{[^}]*url\\(\\.\\./(img/logos/[\\w.-]+)\\)').exec(css);
+    assert.ok(m, 'no .logo-' + name + ' rule');
+    assert.ok(fs.existsSync(path.join(__dirname, '..', m[1])), m[1]);
+  });
+  // Every emote and badge provider has a mark; the page may load images from this site.
+  ['emotes_7tv', 'emotes_bttv', 'emotes_ffz'].concat(builder.BADGE_SUBS).forEach((k) =>
+    assert.ok(builder.META[k].logo || builder.META[k].tile, k));
+  const html = fs.readFileSync(path.join(__dirname, '..', 'builder.html'), 'utf8');
+  // and the channel's picture from Twitch's CDN, nothing else.
+  assert.match(html, /img-src 'self' file: https:\/\/\*\.jtvnw\.net data:;/);
 });
 
 test('enum option labels cover every SPEC value', () => {
@@ -380,12 +625,27 @@ test('the wide preview row is for a horizontal chat in a landscape source', () =
   assert.strictEqual(builder.wantsWidePreview('horizontal', 1920, 100), true);
   assert.strictEqual(builder.wantsWidePreview('horizontal', 450, 800), false, 'a portrait source keeps the side column');
   assert.strictEqual(builder.wantsWidePreview('vertical', 1920, 100), false);
-  // stage height follows the source's shape, within 150px .. 45% of the window
-  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 100, 950), 150);
+  // In the app layout the row takes its height from the settings, so only a bar (4:1 or wider) gets it.
+  assert.strictEqual(builder.wantsWidePreview('horizontal', 1920, 100, true), true);
+  assert.strictEqual(builder.wantsWidePreview('horizontal', 1920, 480, true), true);
+  assert.strictEqual(builder.wantsWidePreview('horizontal', 1920, 1080, true), false);
+  assert.strictEqual(builder.wantsWidePreview('horizontal', 1920, 1080, false), true, 'one column scrolls');
+  assert.strictEqual(builder.wantsWidePreview('vertical', 1920, 100, true), false);
+  // stage height follows the source's shape, within 150..180px (by window height) .. 45% of the window
+  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 100, 950), 178);
+  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 100, 960), 180);
+  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 100, 768), 150);
   assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 300, 950), 265);
   assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 1080, 950), 428);
   assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 1080, 200), 150, 'never under 150px');
-  assert.strictEqual(builder.wideStageHeight(0, 30, 1920, 100, 950), 150);
+  assert.strictEqual(builder.wideStageHeight(0, 30, 1920, 100, 950), 178);
+  // room: what the window can spare once the settings below have their height
+  assert.strictEqual(builder.wideStageHeight(1318, 64, 1920, 480, 768, 230), 230);
+  assert.strictEqual(builder.wideStageHeight(1318, 112, 1920, 100, 650, 112), 181, 'the suggested bar is never shrunk');
+  assert.strictEqual(builder.wideStageHeight(1318, 64, 1920, 480, 768, -50), 133, 'short of room: what the suggested bar needs');
+  assert.strictEqual(builder.wideStageHeight(1052, 64, 1920, 100, 700, 138), 138, 'room wins over the 150px floor');
+  assert.strictEqual(builder.wideStageHeight(1500, 30, 1920, 300, 950, 2000), 265, 'room to spare changes nothing');
+  assert.strictEqual(builder.wideStageHeight(1232, 112, 1920, 100, 720, 158), 177, 'the bar keeps its size, its hint too');
 });
 
 test('fitScale scales down only', () => {
