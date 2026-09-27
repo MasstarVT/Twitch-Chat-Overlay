@@ -24,7 +24,7 @@
     events: { type: 'bool', def: true },
     replies: { type: 'bool', def: true },
     first_msg: { type: 'bool', def: false },
-    history: { type: 'int', min: 0, max: 100, def: 0 },
+    history: { type: 'int', min: 0, max: 100, def: 5 },
     shared: { type: 'bool', def: true },
     gifs: { type: 'bool', def: true },
     emotes_7tv: { type: 'bool', def: true },

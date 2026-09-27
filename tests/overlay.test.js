@@ -302,6 +302,44 @@ test('history: only chat/moderation lines replay, moderated and duplicate lines 
 });
 const h0 = {};
 
+test('history: on by default with 5 lines; history=0 (URL or settings.js) and demo=1 make no request', async (t) => {
+  let h = await boot(t);
+  assert.deepStrictEqual(h.called('history'), [['history', 'home', 5, { timeout: 4000 }]]);
+
+  h = await boot(t, { search: '?channel=home&history=0' });
+  assert.strictEqual(h.called('history').length, 0, 'history=0 never asks recent-messages');
+  assert.strictEqual(h.S().historyPending, false);
+  join(h);
+  h.feed(priv('viewer', 'live line'));
+  assert.deepStrictEqual(texts(h), ['live line'], 'live chat is not held back');
+
+  h = await boot(t, { search: '?channel=home&demo=1' });
+  assert.strictEqual(h.called('history').length, 0, 'the demo loads no history');
+  assert.strictEqual(h.irc, null, 'the demo does not connect to chat');
+
+  // last: boot() leaves TCO_SETTINGS in place until the test ends
+  h = await boot(t, { settings: { history: 0 } });
+  assert.strictEqual(h.called('history').length, 0, 'settings.js can turn it off');
+});
+
+test('history (default): a slow or failing recent-messages service holds live chat back for 4 s at most', async (t) => {
+  let h = await boot(t, { stubs(T) { T.irc.loadHistory = () => new Promise(() => {}); } });
+  join(h);
+  h.feed(priv('viewer', 'live one'));
+  assert.deepStrictEqual(texts(h), [], 'live chat waits for history');
+  t.mock.timers.tick(3999);
+  assert.deepStrictEqual(texts(h), []);
+  t.mock.timers.tick(1);
+  assert.deepStrictEqual(texts(h), ['live one']);
+  h.feed(priv('viewer', 'live two'));
+  assert.deepStrictEqual(texts(h), ['live one', 'live two']);
+
+  h = await boot(t, { stubs(T) { T.irc.loadHistory = () => Promise.reject(new Error('503')); } });
+  join(h);
+  h.feed(priv('viewer', 'live'));
+  assert.deepStrictEqual(texts(h), ['live'], 'a failed request does not hold chat back');
+});
+
 test('history cannot make the overlay load more than a few Shared Chat rooms', async (t) => {
   const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
   const h = await boot(t, {

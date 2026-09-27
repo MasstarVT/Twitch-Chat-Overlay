@@ -78,7 +78,7 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `events` | `1` | bool | Show sub, resub, gift, raid and bits-badge notices, and announcements. A resub's own chat message is shown either way. |
 | `replies` | `1` | bool | Show a "↪ @user: message" header on replies. The header is left out when the quoted message was deleted by a mod, or its author was timed out or banned. |
 | `first_msg` | `0` | bool | Highlight first-time chatters. |
-| `history` | `0` | `0`–`100` | Load up to this many recent lines on start (from recent-messages.robotty.de). Timeouts, deletions, sub and raid notices, deleted messages and hidden bots count toward the limit, so fewer chat messages may appear. |
+| `history` | `5` | `0`–`100` | Load up to this many recent lines on start (from recent-messages.robotty.de). `0` turns it off. Timeouts, deletions, sub and raid notices, deleted messages and hidden bots count toward the limit, so fewer chat messages may appear. |
 | `shared` | `1` | bool | Show messages from other channels during a Shared Chat session. |
 | `gifs` | `1` | bool | Show Twitch chat GIFs. They load as Giphy's 200 px animated WebP instead of the full-size original. |
 | `emotes_7tv`, `emotes_bttv`, `emotes_ffz` | `1` | bool | Turn each emote provider on or off. |
@@ -127,7 +127,7 @@ Everything is fetched directly by your browser or OBS. There is no server of our
 | FFZ:AP (`api.ffzap.com`) | FFZ:AP supporter badges and their images |
 | Chatterino (`api.chatterino.com`; images on `fourtf.com`) | Chatterino badges |
 | Chatterino Homies (`itzalex.github.io`, `chatterinohomies.com`, `cdn.chatterinohomies.com`) | Homies badges |
-| recent-messages (`recent-messages.robotty.de`) | recent chat history, only when `history` > 0 |
+| recent-messages (`recent-messages.robotty.de`) | recent chat history, unless `history=0` |
 | Twitch CDN (`static-cdn.jtvnw.net`), cheer CDN (`d3aqoihi2n8ty8.cloudfront.net`), Giphy (`media*.giphy.com`) | Twitch emote, badge, avatar, cheermote and GIF images |
 | Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | the chosen font, unless it is a system font |
 

@@ -9,7 +9,7 @@ describe('spec', () => {
     assert.deepEqual(d, {
       channel: '', size: 'medium', font: 'Inter', shadow: 2, bg: 0, layout: 'vertical', align: 'bottom', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
-      events: true, replies: true, first_msg: false, history: 0, shared: true, gifs: true,
+      events: true, replies: true, first_msg: false, history: 5, shared: true, gifs: true,
       emotes_7tv: true, emotes_bttv: true, emotes_ffz: true,
       badges: true, badges_twitch: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
       badges_ffzap: true, badges_chatterino: true, badges_homies: true,
@@ -285,6 +285,20 @@ describe('toParams / toObject', () => {
     assert.notEqual(o.block, cfg.block);
     assert.deepEqual(config.parse('', o), cfg);
     assert.deepEqual(config.toObject(config.defaults()), {});
+  });
+
+  test('history is on by default: 5 is left out, 0 (off) is written and read back', () => {
+    assert.equal(config.parse('?channel=xqc').history, 5);
+    assert.equal(config.parse('?channel=xqc&history=0').history, 0);
+    assert.equal(config.parse('?history=abc', { history: 0 }).history, 0, 'an invalid URL value keeps the settings.js 0');
+    const cfg = Object.assign(config.defaults(), { channel: 'xqc' });
+    assert.equal(config.toParams(cfg).toString(), 'channel=xqc');
+    assert.deepEqual(config.toObject(cfg), { channel: 'xqc' });
+    cfg.history = 0;
+    assert.equal(config.toParams(cfg).toString(), 'channel=xqc&history=0');
+    assert.deepEqual(config.toObject(cfg), { channel: 'xqc', history: 0 });
+    assert.deepEqual(config.parse(config.toParams(cfg)), cfg);
+    assert.deepEqual(config.parse('', config.toObject(cfg)), cfg);
   });
 });
 
