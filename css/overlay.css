@@ -67,6 +67,13 @@ body {
 
 .name { font-weight: 800; }
 .message { overflow-wrap: anywhere; }
+/* Right-to-left text: a name is its own bidi run (an Arabic name can't swap places with the start of the
+   message), and a chat message takes its direction from its own first letter. Notices stay LTR: their
+   text starts with the display name. */
+.name,
+.reply-name { unicode-bidi: isolate; }
+.line:not(.notice) .message,
+.reply-body { unicode-bidi: plaintext; }
 
 /* /me: italic in the name color (color set inline) */
 .line.action .message { font-style: italic; }
@@ -83,6 +90,12 @@ body {
   border-radius: .3em;
   padding-left: .3em;
   padding-right: .3em;
+}
+/* With bg set, the tint goes over the dark box instead of replacing it. :where keeps this at the
+   specificity of .line.highlight, so Custom CSS written as `.line.highlight { ... }` still wins. */
+:where(.has-bg) .line.highlight {
+  background-color: rgba(0, 0, 0, var(--bg-alpha, 0));
+  background-image: linear-gradient(rgba(145, 70, 255, .35), rgba(145, 70, 255, .35));
 }
 
 /* /announce: a colored bar on the left (longhands only, so the bg/highlight color stays) */
@@ -116,24 +129,19 @@ body {
 
 /* ---------- badges ---------- */
 .badges:empty { display: none; }
+/* A square slot as tall as the badge (1em unless Custom CSS sets another height): a wide third-party
+   badge image is letterboxed, square ones are unchanged */
 .badge {
   height: 1em;
   width: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
   vertical-align: middle;
   margin-right: .25em;
 }
 .badge.avatar { border-radius: 50%; }
-.badge-wrap {
-  display: inline-flex;
-  vertical-align: middle;
-  margin-right: .25em;
-  border-radius: .15em;
-  overflow: hidden;
-}
-.badge-wrap > .badge {
-  display: block;
-  margin-right: 0;
-}
+/* FFZ / FFZ:AP colored badges: a transparent mask over its own background color (set inline) */
+.badge.colored { border-radius: .15em; }
 
 /* ---------- 7TV paints (base; per-paint rules are injected as .painted.p-<id>) ---------- */
 .painted {
@@ -165,6 +173,12 @@ body {
 }
 /* FlipX/FlipY/rotate compose through CSS vars (no individual scale/rotate properties in Chromium 103) */
 .emote-stack.fx { transform: rotate(var(--rot, 0deg)) scale(var(--sx, 1), var(--sy, 1)); }
+/* Turned a quarter (r!/l!): a square box, so a wide emote can't reach over the lines above and below */
+.emote-stack.rot > .emote {
+  width: var(--eh);
+  height: var(--eh);
+  object-fit: contain;
+}
 .emote-stack.cursed { filter: grayscale(1) brightness(0.7) contrast(2.5); }
 .emote-stack.zs { margin-left: -.05em; }
 
@@ -178,11 +192,14 @@ body {
 }
 .cheer-amount { font-weight: 800; }
 
-/* ---------- Giphy GIFs: fixed height (no reflow on load), capped at 3x emote height and the line width ---------- */
+/* ---------- Giphy GIFs: fixed height, capped at 3x emote height and the line width ----------
+   Until the file arrives the box is 16:9 (most chat GIFs), so the text after it doesn't jump on load;
+   then the GIF's own shape takes over. */
 .gif {
   height: calc(var(--emote-h, 1.75em) * 3);
   max-height: calc(var(--emote-h, 1.75em) * 3);
   width: auto;
+  aspect-ratio: auto 16 / 9;
   max-width: 100%;
   object-fit: contain;
   vertical-align: middle;

@@ -24,16 +24,22 @@
   var LAYOUT_SETTLE_MS = 300; // after a live layout switch no trimming, until the builder has resized the preview too
   var FADE_OUT_MS = 1000;     // tco-fade length; the line is gone exactly `fade` seconds after it arrived
   var FLUSH_FALLBACK_MS = 250;
+  var FLUSH_GAP_MS = 100;     // busy chat: at most one flush (layout + paint) per this many ms
   var SWEEP_MS = 1000;        // fade safety sweep, in case animationend never fires
   var DELETED_TTL_MS = 600000;
   var DELETED_CAP = 5000;
+  var CLEARED_TTL_MS = 3600000; // timed-out / banned users: replies quoting their earlier messages lose the header
+  var CLEARED_CAP = 1000;
+  var MAX_IMAGES = 200;       // emote images per message (base + overlays); the rest render as their names
   var PAINT_ID_RE = /^[0-9A-Za-z]{1,40}$/;
   var HEX_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
   var ANN_COLORS = ['PRIMARY', 'BLUE', 'GREEN', 'ORANGE', 'PURPLE'];
+  // Kept equal to config.GENERIC_FONT_NAMES (tests/renderer-dom.test.js checks).
   var GENERIC_FONTS = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif',
     'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong'];
   var RERENDER_KEYS = ['size', 'badges', 'badges_twitch', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap',
-    'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs', 'first_msg', 'shared'];
+    'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs', 'first_msg', 'shared',
+    'layout']; // layout: a row draws gigantified emotes at emote height, so it picks smaller files
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
 
   // ---------- pure helpers (exported as _internal for tests) ----------
@@ -77,9 +83,15 @@
 
   function fontPx(size) { return FONT_PX[size] || FONT_PX.medium; }
   function ceilSafe(x) { return Math.ceil(x - 1e-9); }
-  // Images are requested at 2x their rendered size (OBS renders at DPR 1 and sources are often scaled up).
-  function wantEmote(px, big) { return ceilSafe(px * EMOTE_EM * (big ? 3 : 1) * 2 / EMOTE_BASE_PX); }
-  function wantBadge(px) { return ceilSafe(px * 2 / BADGE_BASE_PX); }
+  // Images are requested at the drawn size times the device pixel ratio. OBS draws at DPR 1, and scaling a
+  // source in OBS scales the finished page, so bigger files would only cost download, decode and memory.
+  // baseH: the provider's 1x height (7TV scales in 32 px steps, Twitch/BTTV/FFZ in 28 px ones).
+  function wantEmote(px, big, dpr, baseH) {
+    return ceilSafe(px * EMOTE_EM * (big ? 3 : 1) * (dpr > 0 ? dpr : 1) / (baseH > 0 ? baseH : EMOTE_BASE_PX));
+  }
+  function wantBadge(px, dpr) { return ceilSafe(px * (dpr > 0 ? dpr : 1) / BADGE_BASE_PX); }
+  // A provider's 1x emote height, kept to the known 28-32 px so odd metadata can't pick a tiny file.
+  function baseHeight(h) { return h >= 32 ? 32 : EMOTE_BASE_PX; }
 
   function shadowCss(level) { return SHADOWS[clampInt(level, 0, 3, DEFAULT_SHADOW)]; }
   function bgAlpha(bg) { return clampInt(bg, 0, 100, 0) / 100; }
@@ -174,32 +186,37 @@
     for (var i = Math.max(0, a.length - cap); i < a.length; i++) this.push(a[i]);
   };
 
-  // Deleted message ids with a TTL and a size cap. Insertion order == expiry order.
+  // Deleted message ids (or cleared user ids) with a TTL and a size cap, each with an optional value.
+  // Insertion order == expiry order.
   function DeletedIds(ttlMs, cap) {
     this.ttl = ttlMs;
     this.cap = cap;
-    this.map = new Map();
+    this.map = new Map(); // id -> [expiry, value]
   }
   DeletedIds.prototype.prune = function (now) {
     while (this.map.size) {
       var first = this.map.entries().next().value;
-      if (first[1] > now) break;
+      if (first[1][0] > now) break;
       this.map.delete(first[0]);
     }
   };
-  DeletedIds.prototype.add = function (id, now) {
+  DeletedIds.prototype.add = function (id, now, value) {
     if (!id) return;
     this.map.delete(id);
-    this.map.set(id, now + this.ttl);
+    this.map.set(id, [now + this.ttl, value]);
     this.prune(now);
     while (this.map.size > this.cap) this.map.delete(this.map.keys().next().value);
   };
   DeletedIds.prototype.has = function (id, now) {
     if (!id) return false;
-    var exp = this.map.get(id);
-    if (exp === undefined) return false;
-    if (exp <= now) { this.map.delete(id); return false; }
+    var e = this.map.get(id);
+    if (e === undefined) return false;
+    if (e[0] <= now) { this.map.delete(id); return false; }
     return true;
+  };
+  // The value stored with a live id, else undefined.
+  DeletedIds.prototype.get = function (id, now) {
+    return this.has(id, now) ? this.map.get(id)[1] : undefined;
   };
   Object.defineProperty(DeletedIds.prototype, 'size', { get: function () { return this.map.size; } });
 
@@ -242,9 +259,11 @@
   }
 
   // Where the next slide starts (px right of home): what was left, plus how far the newest old line moved
-  // left when the new lines went in. Under a pixel is no slide.
-  function slideDelta(left, xBefore, xAfter) {
+  // left when the new lines went in. Under a pixel is no slide. At most maxDx (the chat width): a start
+  // further right than one view shows nothing, and in a burst the carried-over part would pile up.
+  function slideDelta(left, xBefore, xAfter, maxDx) {
     var dx = (left > 0 ? left : 0) + (xBefore - xAfter);
+    if (maxDx > 0 && dx > maxDx) dx = maxDx;
     return dx >= 1 ? dx : 0;
   }
 
@@ -325,7 +344,7 @@
         url: url,
         title: String(b.title || ''),
         avatar: b.provider === 'avatar',
-        bg: typeof b.bg === 'string' && b.bg ? b.bg : null
+        bg: typeof b.bg === 'string' && HEX_COLOR_RE.test(b.bg) ? b.bg : null // hex only (every provider's shape)
       });
     }
     return out;
@@ -339,10 +358,13 @@
   }
 
   // Tokenizer items -> render parts (plain data; urls resolved, spaces folded into text parts).
-  // opts: { want, wantBig, gifs }
+  // opts: { px: font px, dpr, flatBig: big emotes drawn at emote height (horizontal row), gifs }
   function partsFor(items, opts) {
     var parts = [];
     if (!Array.isArray(items)) return parts;
+    var px = opts.px, dpr = opts.dpr;
+    var big3 = !opts.flatBig;
+    var imgs = 0; // emote images so far; a history line can be far longer than Twitch's 500 chars
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       if (!it) continue;
@@ -350,20 +372,25 @@
       if (it.type === 'emote') {
         var e = it.emote || {};
         var ename = util.capMarks(String(e.name || ''));
-        var want = it.big ? opts.wantBig : opts.want;
-        var url = pickUrl(e.urls, want);
+        var big = !!it.big && big3;
+        var url = imgs < MAX_IMAGES ? pickUrl(e.urls, wantEmote(px, big, dpr, baseHeight(dim(e.h)))) : null;
         if (!url) { addText(parts, (space ? ' ' : '') + ename); continue; }
+        imgs++;
         var fx = it.fx || {};
         var sx = num(fx.sx, 1), sy = num(fx.sy, 1), rot = num(fx.rot, 0);
         var zs = !!fx.zs;
         if (space && !zs) addText(parts, ' ');
         var w = dim(e.w) || EMOTE_BASE_PX, h = dim(e.h) || EMOTE_BASE_PX;
         var ov = [];
+        var seen = [url]; // the same image stacked twice in one spot looks the same as once
         var overlays = Array.isArray(it.overlays) ? it.overlays : [];
-        for (var j = 0; j < overlays.length; j++) {
+        for (var j = 0; j < overlays.length && imgs < MAX_IMAGES; j++) {
           var o = overlays[j];
-          var ou = o && pickUrl(o.urls, want);
-          if (ou) ov.push({ name: String(o.name || ''), url: ou, w: dim(o.w) || EMOTE_BASE_PX, h: dim(o.h) || EMOTE_BASE_PX });
+          var ou = o && pickUrl(o.urls, wantEmote(px, big, dpr, baseHeight(dim(o.h))));
+          if (!ou || seen.indexOf(ou) >= 0) continue;
+          seen.push(ou);
+          imgs++;
+          ov.push({ name: String(o.name || ''), url: ou, w: dim(o.w) || EMOTE_BASE_PX, h: dim(o.h) || EMOTE_BASE_PX });
         }
         parts.push({
           t: 'emote', name: ename, url: url, w: w, h: h,
@@ -376,7 +403,11 @@
         var gurl = opts.gifs && util.isSafeUrl(it.url) ? it.url : null;
         if (!gurl) { addText(parts, (space ? ' ' : '') + title); continue; }
         if (space) addText(parts, ' ');
-        parts.push({ t: 'gif', url: gurl, title: title });
+        // orig: the tag's own URL, tried once when Giphy has no 200 px rendition for this GIF.
+        var gorig = it.orig && it.orig !== gurl && util.isSafeUrl(it.orig) ? it.orig : null;
+        var gp = { t: 'gif', url: gurl, title: title };
+        if (gorig) gp.orig = gorig;
+        parts.push(gp);
       } else if (it.type === 'cheer') {
         if (space) addText(parts, ' ');
         parts.push({
@@ -384,7 +415,7 @@
           prefix: String(it.prefix || ''),
           amount: String(it.amount === undefined ? '' : it.amount),
           color: HEX_COLOR_RE.test(it.color || '') ? it.color : null,
-          url: pickUrl(it.urls, opts.want)
+          url: pickUrl(it.urls, wantEmote(px, false, dpr))
         });
       } else {
         var txt = it.text === undefined || it.text === null ? '' : String(it.text);
@@ -396,7 +427,8 @@
     return parts;
   }
 
-  // Everything a line shows, as plain data. d: {kind, items, action, badges, name:{text, color, paint}}
+  // Everything a line shows, as plain data.
+  // d: {kind, items, action, badges, name:{text, color, paint}, dpr, noReply: the replied-to message was moderated}
   function modelFor(msg, cfg, d) {
     cfg = cfg || {};
     d = d || {};
@@ -409,15 +441,16 @@
     var text = util.capMarks(typeof nm.text === 'string' && nm.text ? nm.text : String(msg.displayName || msg.login || ''));
     var color = typeof nm.color === 'string' && nm.color ? nm.color : util.defaultColor(msg.userId, msg.login);
     var paint = typeof nm.paint === 'string' && PAINT_ID_RE.test(nm.paint) ? nm.paint : null;
+    var dpr = d.dpr > 0 ? d.dpr : 1;
     return {
       kind: 'chat',
       cls: lineClasses(msg, cfg, 'chat', action),
-      reply: cfg.replies === false ? null : replyModel(msg.reply),
-      badges: badgeModels(visibleBadges(d.badges, cfg), wantBadge(px)),
+      reply: cfg.replies === false || d.noReply ? null : replyModel(msg.reply),
+      badges: badgeModels(visibleBadges(d.badges, cfg), wantBadge(px, dpr)),
       name: { text: text, color: color, paint: paint },
       colon: action ? ' ' : ': ',
       msgColor: action ? color : null,
-      parts: partsFor(d.items, { want: wantEmote(px, false), wantBig: wantEmote(px, true), gifs: cfg.gifs !== false })
+      parts: partsFor(d.items, { px: px, dpr: dpr, flatBig: cfg.layout === 'horizontal', gifs: cfg.gifs !== false })
     };
   }
 
@@ -458,18 +491,25 @@
 
     var queue = new Ring(50);
     var deleted = new DeletedIds(DELETED_TTL_MS, DELETED_CAP);
+    // Moderation of reply parents. cleared: user id -> mseq of the latest timeout/ban. spoke: message id ->
+    // mseq, noted only for messages from a cleared user, so a reply to what they said afterwards keeps its header.
+    var cleared = new DeletedIds(CLEARED_TTL_MS, CLEARED_CAP);
+    var spoke = new DeletedIds(CLEARED_TTL_MS, DELETED_CAP);
+    var mseq = 0;
     var byId = new Map();        // msg id / source id -> line
     var byUser = new Map();      // user id -> Set<line>
-    var recs = new WeakMap();    // line -> {msg, src, kind, gid, born, sig, ids, userId}
+    var recs = new WeakMap();    // line -> {msg, src, kind, gid, born, sig, ids, userId, fadeLater}
     var paintState = new Map();  // paint id -> true (rule inserted) | false (rule rejected)
     var styleEl = null;
     var held = false, destroyed = false;
-    var scheduled = false, rafId = null, flushTimer = null;
-    var trimTimer = null, sweepTimer = null, slideTimer = null;
+    var scheduled = false, rafId = null, flushTimer = null, gapTimer = null, lastFlushAt = 0;
+    var trimTimer = null, sweepTimer = null;
     var slideAt = 0, slideDx = 0;
     var settleUntil = 0, settleTimer = null;
     var seq = 0, flushes = 0;
     var ro = null;
+    // Images are fetched for this pixel ratio: 1 in OBS, 2 in the builder preview on a HiDPI screen.
+    var dpr = Math.min(3, Math.max(1, Number(win.devicePixelRatio) || 1));
 
     var linesEl = null;
     for (var c = rootEl.firstElementChild; c; c = c.nextElementSibling) {
@@ -557,24 +597,24 @@
       img.src = url;
       return img;
     }
-    function dropBadge(img) {
-      var p = img.parentNode;
-      if (p && p.classList && p.classList.contains('badge-wrap')) detach(p);
-      else detach(img);
-    }
+    // A colored (FFZ / FFZ:AP) badge is a transparent mask: the color is the img's own background, so
+    // there is no wrapper, and Custom CSS on .badge (display, margin, size) treats every badge alike.
     function badgeNode(b) {
-      var img = makeImg(b.avatar ? 'badge avatar' : 'badge', b.url, BADGE_BASE_PX, BADGE_BASE_PX, b.title, dropBadge);
+      var cls = b.avatar ? 'badge avatar' : 'badge';
+      var img = makeImg(b.bg ? cls + ' colored' : cls, b.url, BADGE_BASE_PX, BADGE_BASE_PX, b.title, detach);
       if (!b.bg) return img;
-      var wrap = el('span', 'badge-wrap');
-      wrap.style.backgroundColor = b.bg;
-      wrap.appendChild(img);
-      return wrap;
+      img.style.backgroundColor = b.bg;
+      return img;
     }
     function emoteNode(p) {
+      // Turned sideways (r!/l!), a wide emote would reach over the lines above and below: it is drawn in a
+      // square box instead (.rot), which a quarter turn leaves in place. w! is moot once it stands upright.
+      var rot = !!p.fx && p.fx.rot % 180 !== 0;
+      var grow = p.grow && !rot;
       var cls = 'emote-stack';
       if (p.big) cls += ' big';
       if (p.fx) cls += ' fx';
-      if (p.grow) cls += ' grow';
+      if (rot) cls += ' rot';
       if (p.cursed) cls += ' cursed';
       if (p.zs) cls += ' zs';
       var stack = el('span', cls);
@@ -583,10 +623,12 @@
         stack.style.setProperty('--sy', String(p.fx.sy));
         stack.style.setProperty('--rot', p.fx.rot + 'deg');
       }
-      var base = makeImg('emote', p.url, p.grow ? p.w * 2 : p.w, p.h, p.name, function () {
+      // w! doubles the width; the ratio is capped so a hostile 9999x1 emote can't span the screen.
+      var r = grow && p.h > 0 ? Math.min(2 * p.w / p.h, 16) : 0;
+      var base = makeImg('emote', p.url, r ? r * p.h : grow ? p.w * 2 : p.w, p.h, p.name, function () {
         replaceWithText(stack, p.name);
       });
-      if (p.grow) base.style.width = 'calc(var(--eh) * ' + Math.round(2 * p.w / p.h * 1000) / 1000 + ')';
+      if (r) base.style.width = 'calc(var(--eh) * ' + Math.round(r * 1000) / 1000 + ')';
       stack.appendChild(base);
       for (var i = 0; i < p.ov.length; i++) {
         var o = p.ov[i];
@@ -612,7 +654,11 @@
       if (p.t === 'emote') return emoteNode(p);
       if (p.t === 'cheer') return cheerNode(p);
       if (p.t === 'gif') {
-        return makeImg('gif', p.url, 0, 0, p.title, function (img) { replaceWithText(img, p.title); });
+        return makeImg('gif', p.url, 0, 0, p.title, function (img) {
+          if (!p.orig) return replaceWithText(img, p.title);
+          img.onerror = function () { img.onerror = null; replaceWithText(img, p.title); };
+          img.src = p.orig;
+        });
       }
       return doc.createTextNode(p.s || '');
     }
@@ -620,7 +666,6 @@
     // Replace a line's content with the model. The line element (and its fade animation) is kept.
     function renderInto(line, model) {
       line.className = model.cls;
-      line.setAttribute('data-kind', model.kind);
       line.textContent = '';
       if (model.kind === 'notice') {
         line.appendChild(span('message', model.system));
@@ -660,8 +705,27 @@
         items: tk.items,
         action: !!(msg.action || tk.action),
         badges: Array.isArray(badges) ? badges : [],
-        name: { text: nm.text, color: nm.color, paint: paint }
+        name: { text: nm.text, color: nm.color, paint: paint },
+        dpr: dpr,
+        noReply: replyGone(msg.reply, Date.now())
       });
+    }
+
+    // The message a reply quotes was deleted, or its author was timed out or banned after sending it:
+    // the "↪ @user: text" header would put the moderated text back on stream.
+    function replyGone(r, now) {
+      if (!r || typeof r !== 'object') return false;
+      var pid = util.idStr(r.id);
+      if (pid && deleted.has(pid, now)) return true;
+      var uid = util.idStr(r.userId);
+      var at = uid ? cleared.get(uid, now) : undefined;
+      if (at === undefined) return false;
+      var said = pid ? spoke.get(pid, now) : undefined;
+      return !(said > at); // unknown or older than the latest clear: moderated
+    }
+    // Rebuild the lines whose reply header quotes what match(reply) picks (after a moderation event).
+    function rerenderReplies(match) {
+      rerender(function (m) { return !!m.reply && typeof m.reply === 'object' && match(m.reply); });
     }
 
     // ----- lines and indexes -----
@@ -713,7 +777,11 @@
       var out = [];
       if (msg.kind === 'notice') {
         if (msg.systemMsg) out.push(makeLine(msg, 'notice', msg, gid, born));
-        if (msg.text && /\S/.test(msg.text)) out.push(makeLine(userPart(msg), 'chat', msg, gid, born));
+        if (msg.text && /\S/.test(msg.text)) {
+          // The user's own text follows the chat rules (hide_commands), not the notice's.
+          var part = userPart(msg);
+          if (showable(part)) out.push(makeLine(part, 'chat', msg, gid, born));
+        }
       } else {
         out.push(makeLine(msg, 'chat', msg, gid, born));
       }
@@ -734,7 +802,13 @@
         var g = groups[top ? groups.length - 1 - gi : gi];
         for (var li = 0; li < g.length; li++) {
           var line = g[li];
-          var anim = animString(true, cfg.animate, fadeTiming(cfg.fade, now - recs.get(line).born), cfg.layout);
+          var rec = recs.get(line);
+          var t = fadeTiming(cfg.fade, now - rec.born);
+          // tco-in and tco-fade both animate opacity, and two such animations on one element both run on the
+          // main thread. So while the fade-out is further off than the entrance, only tco-in goes on now and
+          // onAnimEnd adds the fade when it ends (same timing: the fade is anchored to the arrival).
+          rec.fadeLater = !!(cfg.animate && t && !t.expired && t.delay >= IN_MS);
+          var anim = animString(true, cfg.animate, rec.fadeLater ? null : t, cfg.layout);
           if (anim) line.style.animation = anim;
           frag.appendChild(line);
         }
@@ -743,11 +817,29 @@
       else linesEl.appendChild(frag);
     }
 
+    function gidOf(line) {
+      var rec = line && recs.get(line);
+      return rec ? rec.gid : null;
+    }
+    // max counts messages: a notice and the user's own line under it leave together.
     function capLines() {
-      var extra = linesEl.childElementCount - cfg.max;
-      if (extra <= 0) return false;
+      if (linesEl.childElementCount <= cfg.max) return false;
+      var groups = 0, prev = null;
+      for (var l = linesEl.firstElementChild; l; l = l.nextElementSibling) {
+        var g = gidOf(l);
+        if (g === null || g !== prev) groups++;
+        prev = g;
+      }
+      if (groups <= cfg.max) return false;
       var top = newestFirst(cfg);
-      for (; extra > 0; extra--) removeLine(top ? linesEl.lastElementChild : linesEl.firstElementChild);
+      for (; groups > cfg.max; groups--) {
+        var edge = top ? linesEl.lastElementChild : linesEl.firstElementChild;
+        var gid = gidOf(edge);
+        do {
+          removeLine(edge);
+          edge = top ? linesEl.lastElementChild : linesEl.firstElementChild;
+        } while (edge && gid !== null && gidOf(edge) === gid);
+      }
       return true;
     }
 
@@ -812,7 +904,6 @@
     // A new line at the right end pushes the whole row left. Measure the newest old line before and
     // after the new lines go in, start the row that much further right, and let it glide back.
     function clearSlide() {
-      if (slideTimer) { clearTimeout(slideTimer); slideTimer = null; }
       slideDx = 0;
       linesEl.style.transition = '';
       linesEl.style.transform = '';
@@ -830,8 +921,9 @@
       return { el: el, x: x, left: running ? slideLeft(visual - x, slideDx, now - slideAt) : 0 };
     }
     // After: how far right the row must start so the lines already on screen don't jump.
+    // Capped at the chat width (clientWidth is free here: the read before it already laid out).
     function slideOffset(s) {
-      return s.el.parentNode === linesEl ? slideDelta(s.left, s.x, s.el.getBoundingClientRect().right) : 0;
+      return s.el.parentNode === linesEl ? slideDelta(s.left, s.x, s.el.getBoundingClientRect().right, rootEl.clientWidth) : 0;
     }
     function startSlide(dx, now) {
       if (!(dx > 0)) { clearSlide(); return; }
@@ -841,12 +933,8 @@
       void linesEl.offsetWidth; // style flush: the transition starts from the shifted position
       linesEl.style.transition = 'transform ' + SLIDE_MS + 'ms ease-out';
       linesEl.style.transform = '';
-      if (slideTimer) clearTimeout(slideTimer);
-      // Lines still peeking in at the left edge when the slide started are out of view once it ends.
-      slideTimer = setTimeout(function () {
-        slideTimer = null;
-        trimOverflow();
-      }, SLIDE_MS + 50);
+      // Lines still peeking in at the left edge when the slide started are out of view once it ends. They
+      // are clipped and removing them moves nothing, so the next flush's trim takes them (no extra frame).
     }
 
     // Re-time every line's fade from its arrival time (after align/fade changes or a reorder).
@@ -858,6 +946,7 @@
       for (var j = 0; j < list.length; j++) {
         var rec = recs.get(list[j]);
         var t = rec ? fadeTiming(cfg.fade, now - rec.born) : null;
+        if (rec) rec.fadeLater = false;
         if (t && t.expired) removeLine(list[j]);
         else list[j].style.animation = animString(false, false, t);
       }
@@ -880,16 +969,19 @@
       var list = children();
       for (var i = 0; i < list.length; i++) {
         var rec = recs.get(list[i]);
-        if (rec && !showable(rec.src)) removeLine(list[i]);
+        // Each line by its own message: a resub's text line is a chat message (see buildGroup).
+        if (rec && !showable(rec.msg)) removeLine(list[i]);
       }
       queue.filter(function (en) { return showable(en.msg); });
     }
 
+    // Runs only while fade > 0 and there are lines, so an empty or idle chat never wakes the page.
     function ensureSweepTimer() {
-      var want = !destroyed && cfg && cfg.fade > 0;
+      var want = !destroyed && cfg && cfg.fade > 0 && !!linesEl.firstElementChild;
       if (want && !sweepTimer) {
         sweepTimer = setInterval(function () {
           if (sweepExpired(Date.now())) scheduleTrim();
+          ensureSweepTimer();
         }, SWEEP_MS);
       } else if (!want && sweepTimer) {
         clearInterval(sweepTimer);
@@ -908,23 +1000,42 @@
         clearTimeout(flushTimer);
         flushTimer = null;
       }
+      if (gapTimer !== null) {
+        clearTimeout(gapTimer);
+        gapTimer = null;
+      }
     }
     function schedule() {
       if (held || destroyed || scheduled) return;
       scheduled = true;
-      if (typeof win.requestAnimationFrame === 'function') rafId = win.requestAnimationFrame(flush);
       flushTimer = setTimeout(flush, FLUSH_FALLBACK_MS);
+      if (typeof win.requestAnimationFrame !== 'function') return;
+      // Busy chat: wait out FLUSH_GAP_MS since the last flush, then take the next frame. Nobody reads
+      // line-by-line updates at that rate, and each flush costs a layout and a repaint.
+      var wait = lastFlushAt + FLUSH_GAP_MS - Date.now();
+      if (wait > 0 && wait <= FLUSH_GAP_MS) {
+        gapTimer = setTimeout(function () {
+          gapTimer = null;
+          rafId = win.requestAnimationFrame(flush);
+        }, wait);
+      } else {
+        rafId = win.requestAnimationFrame(flush);
+      }
     }
 
     function flush() {
       clearSchedule();
       if (held || destroyed) return;
+      // Hidden: nothing is painted, so build nothing. The queue keeps the newest cfg.max messages, and
+      // onVisibility flushes them once the page shows again.
+      if (doc.visibilityState === 'hidden') return;
       var now = Date.now();
+      lastFlushAt = now;
       var changed = false;
       var entries = queue.drain();
       var slide = entries.length ? slideStart(now) : null;
       if (entries.length) {
-        // Newest first so at most cfg.max lines get built, then back to arrival order.
+        // Newest first so at most cfg.max messages get built, then back to arrival order.
         var groups = [];
         var count = 0;
         for (var i = entries.length - 1; i >= 0 && count < cfg.max; i--) {
@@ -938,7 +1049,7 @@
           }
           if (g.length) {
             groups.push(g);
-            count += g.length;
+            count++;
           }
         }
         if (groups.length) {
@@ -956,14 +1067,26 @@
       } else if (slide) {
         startSlide(slide.left, now); // nothing went in after all: finish the interrupted slide
       }
+      ensureSweepTimer();
       flushes++;
     }
 
     // ----- events -----
     function onAnimEnd(e) {
-      if (e.animationName !== 'tco-fade') return;
       var t = e.target;
-      if (t && t.parentNode === linesEl && recs.has(t)) removeLine(t);
+      if (!t || t.parentNode !== linesEl) return;
+      var rec = recs.get(t);
+      if (!rec) return;
+      var name = e.animationName;
+      if (name === 'tco-fade') {
+        removeLine(t);
+      } else if ((name === 'tco-in' || name === 'tco-in-x') && rec.fadeLater) {
+        // The entrance is over: now the fade-out alone, timed from the arrival (see insertGroups).
+        rec.fadeLater = false;
+        var ft = fadeTiming(cfg.fade, Date.now() - rec.born);
+        if (ft && ft.expired) removeLine(t);
+        else t.style.animation = animString(false, false, ft);
+      }
     }
     // While hidden nothing renders, so CSS animations of lines inserted meanwhile never started.
     // On show: flush, then re-time every line from its arrival (no mass fade-in, correct fades).
@@ -996,13 +1119,12 @@
       cl.toggle('layout-vertical', c.layout !== 'horizontal');
       cl.toggle('align-top', c.align === 'top');
       cl.toggle('align-bottom', c.align !== 'top');
-      cl.toggle('animate', !!c.animate);
       cl.toggle('has-bg', c.bg > 0);
       var st = rootEl.style;
       st.setProperty('--font', fontVar(c.font));
       st.setProperty('--shadow', shadowCss(c.shadow));
       st.setProperty('--bg-alpha', String(bgAlpha(c.bg)));
-      st.setProperty('--emote-h', EMOTE_EM + 'em');
+      // --emote-h is left to the stylesheet (1.75em = EMOTE_EM), so OBS Custom CSS can change it.
     }
 
     function setConfig(next) {
@@ -1044,6 +1166,9 @@
       }
       var sid = util.idStr(msg.sourceId);
       if (sid && deleted.has(sid, now)) return false;
+      // Back after a timeout: replies to what this user says from now on keep their header.
+      var uid = util.idStr(msg.userId);
+      if (id && uid && cleared.has(uid, now)) spoke.add(id, now, ++mseq);
       if (!showable(msg)) return false;
       // Live lines age from arrival (immune to clock skew); history ages from tmi-sent-ts.
       var ts = Number(msg.ts);
@@ -1056,11 +1181,13 @@
     function clearUser(userId) {
       var uid = util.idStr(userId);
       if (!uid || destroyed) return;
+      cleared.add(uid, Date.now(), ++mseq);
       queue.filter(function (en) { return util.idStr(en.msg.userId) !== uid; });
       var set = byUser.get(uid);
-      if (!set) return;
-      var list = Array.from(set);
+      var list = set ? Array.from(set) : [];
       for (var i = 0; i < list.length; i++) removeLine(list[i]);
+      // Other people's replies quoting this user lose the header (see replyGone).
+      rerenderReplies(function (r) { return util.idStr(r.userId) === uid; });
     }
 
     function clearMessage(msgId) {
@@ -1070,6 +1197,7 @@
       queue.filter(function (en) { return util.idStr(en.msg.id) !== id && util.idStr(en.msg.sourceId) !== id; });
       removeLine(byId.get(id));
       removeLine(byId.get(id + ':m'));
+      rerenderReplies(function (r) { return util.idStr(r.id) === id; });
     }
 
     function clearAll() {
@@ -1125,21 +1253,11 @@
       return queue.some(function (en) { return util.idStr(en.msg.userId) === uid; });
     }
 
-    // User ids with a line on screen or waiting in the queue.
-    function userIds() {
-      var set = new Set(byUser.keys());
-      queue.forEach(function (en) {
-        var u = util.idStr(en.msg.userId);
-        if (u) set.add(u);
-      });
-      return Array.from(set);
-    }
-
+    // overlay.js reads lines/queued (debug line); the rest is for tests.
     function stats() {
       return {
         lines: linesEl.childElementCount,
         queued: queue.size,
-        pending: queue.size,
         users: byUser.size,
         ids: byId.size,
         deleted: deleted.size,
@@ -1155,7 +1273,6 @@
       clearSchedule();
       if (trimTimer) { clearTimeout(trimTimer); trimTimer = null; }
       if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
-      if (slideTimer) { clearTimeout(slideTimer); slideTimer = null; }
       if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
       if (ro) { ro.disconnect(); ro = null; }
       linesEl.removeEventListener('animationend', onAnimEnd);
@@ -1181,15 +1298,22 @@
       setConfig: setConfig,
       hold: hold,
       flush: function () { flush(); },
+      // Drops lines that the filters now reject (e.g. a bot list that landed after they were shown).
+      refilter: function () { if (!destroyed) sweepFilters(); },
       hasUser: hasUser,
-      userIds: userIds,
       stats: stats,
       destroy: destroy
     };
   }
 
+  // A CSS generic family (system-ui, serif, ...): nothing to fetch from Google Fonts for it.
+  function isGenericFont(name) {
+    return GENERIC_FONTS.indexOf(String(name === undefined || name === null ? '' : name).trim().toLowerCase()) >= 0;
+  }
+
   return {
     createRenderer: createRenderer,
+    isGenericFont: isGenericFont,
     _internal: {
       FONT_PX: FONT_PX,
       EMOTE_EM: EMOTE_EM,
@@ -1199,16 +1323,22 @@
       LAYOUT_SETTLE_MS: LAYOUT_SETTLE_MS,
       FADE_OUT_MS: FADE_OUT_MS,
       FLUSH_FALLBACK_MS: FLUSH_FALLBACK_MS,
+      FLUSH_GAP_MS: FLUSH_GAP_MS,
+      SWEEP_MS: SWEEP_MS,
       DELETED_TTL_MS: DELETED_TTL_MS,
       DELETED_CAP: DELETED_CAP,
+      CLEARED_TTL_MS: CLEARED_TTL_MS,
+      MAX_IMAGES: MAX_IMAGES,
       RERENDER_KEYS: RERENDER_KEYS,
       FILTER_KEYS: FILTER_KEYS,
+      GENERIC_FONTS: GENERIC_FONTS,
       clampInt: clampInt,
       normalizeCfg: normalizeCfg,
       changedAny: changedAny,
       fontPx: fontPx,
       wantEmote: wantEmote,
       wantBadge: wantBadge,
+      baseHeight: baseHeight,
       shadowCss: shadowCss,
       bgAlpha: bgAlpha,
       fontVar: fontVar,

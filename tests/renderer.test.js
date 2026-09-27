@@ -28,15 +28,28 @@ test('shadow levels 0-3 match the plan; invalid falls back to 2', () => {
   assert.strictEqual(R.shadowCss(undefined), R.shadowCss(2));
 });
 
-test('font sizes and want-scale: emotes ceil(fontPx*1.75*2/28), badges ceil(fontPx*2/18)', () => {
+test('font sizes and want-scale: emotes ceil(fontPx*1.75*dpr/base), badges ceil(fontPx*dpr/18)', () => {
   assert.deepStrictEqual([R.fontPx('small'), R.fontPx('medium'), R.fontPx('large'), R.fontPx('bogus')], [18, 24, 32, 24]);
-  assert.strictEqual(R.wantEmote(18), 3); // 31.5px -> 63/28 = 2.25
-  assert.strictEqual(R.wantEmote(24), 3); // 42px -> 84/28 = 3 exactly (no float bump to 4)
-  assert.strictEqual(R.wantEmote(32), 4); // 56px -> 112/28 = 4
-  assert.strictEqual(R.wantEmote(24, true), 9); // gigantified: 3x
-  assert.strictEqual(R.wantBadge(18), 2);
-  assert.strictEqual(R.wantBadge(24), 3);
-  assert.strictEqual(R.wantBadge(32), 4);
+  // OBS draws at DPR 1: the file only has to cover the drawn size
+  assert.strictEqual(R.wantEmote(18), 2); // 31.5px -> 31.5/28 = 1.125
+  assert.strictEqual(R.wantEmote(24), 2); // 42px -> 1.5
+  assert.strictEqual(R.wantEmote(32), 2); // 56px -> 2 exactly (no float bump to 3)
+  assert.strictEqual(R.wantEmote(24, true), 5); // gigantified: 3x -> 126/28 = 4.5
+  assert.strictEqual(R.wantBadge(18), 1);
+  assert.strictEqual(R.wantBadge(24), 2);
+  assert.strictEqual(R.wantBadge(32), 2);
+  // a HiDPI builder preview (dpr 2) still gets sharp files
+  assert.strictEqual(R.wantEmote(18, false, 2), 3); // 63/28 = 2.25
+  assert.strictEqual(R.wantEmote(24, false, 2), 3); // 84/28 = 3 exactly
+  assert.strictEqual(R.wantEmote(32, false, 2), 4);
+  assert.strictEqual(R.wantEmote(24, true, 2), 9);
+  assert.strictEqual(R.wantBadge(24, 2), 3);
+  assert.strictEqual(R.wantBadge(32, 2), 4);
+  // 7TV scales in 32px steps: size=small at dpr 2 needs 63px, which its 2x (64px) file covers
+  assert.strictEqual(R.wantEmote(18, false, 2, R.baseHeight(32)), 2);
+  assert.strictEqual(R.wantEmote(24, false, 2, R.baseHeight(32)), 3); // 84/32 = 2.6
+  assert.deepStrictEqual([R.baseHeight(0), R.baseHeight(28), R.baseHeight(30), R.baseHeight(32), R.baseHeight(900)], [28, 28, 28, 32, 32],
+    'odd provider heights never pick a smaller file than a 28px base would');
 });
 
 test('pickUrl uses util.pickScale, fixes protocol-relative urls and rejects non-http', () => {
@@ -139,7 +152,7 @@ test('newestFirst: only a vertical, top-aligned chat keeps the newest line first
   assert.strictEqual(flips({ align: 'top', layout: 'horizontal' }, { align: 'bottom', layout: 'horizontal' }), false, 'align only moves a row');
   assert.strictEqual(flips({ align: 'bottom' }, { align: 'bottom', layout: 'horizontal' }), false);
   assert.strictEqual(flips({ align: 'bottom', layout: 'horizontal' }, { align: 'top' }), true);
-  assert.ok(R.LAYOUT_SETTLE_MS > 0);
+  assert.ok(R.LAYOUT_SETTLE_MS > 0, 'LAYOUT_SETTLE_MS > 0 (the live reversal itself is tested in renderer-dom.test.js)');
 });
 
 test('Ring is a capped FIFO that drops the oldest entry', () => {
@@ -193,6 +206,12 @@ test('DeletedIds expire after the TTL and are capped', () => {
   assert.strictEqual(d.has('c', 1150), true);
   d.add('', 0);
   assert.strictEqual(d.has('', 0), false);
+  // an optional value rides along and expires with the id
+  const v = new R.DeletedIds(1000, 10);
+  v.add('u', 0, 7);
+  assert.strictEqual(v.get('u', 999), 7);
+  assert.strictEqual(v.get('u', 1000), undefined);
+  assert.strictEqual(v.get('nope', 0), undefined);
   // re-adding refreshes the expiry and the order
   const e = new R.DeletedIds(1000, 10);
   e.add('x', 0);
@@ -245,8 +264,9 @@ test('slideLeft: what a running slide still had to go, never piling up past its 
   assert.strictEqual(R.slideLeft(100, 0, 100), 0, 'no slide running');
   assert.strictEqual(R.slideLeft(NaN, 300, 100), 0);
   assert.strictEqual(R.slideLeft(100, 300, NaN), 0);
-  // a hidden source: flushes come from the fallback timer, so the stalled offset never carries over
-  assert.ok(R.FLUSH_FALLBACK_MS >= S, 'fallback flushes are at least SLIDE_MS apart');
+  // a hidden source: flushes come from the fallback timer, so the stalled offset never carries over.
+  // (Only the constants are compared here; renderer-dom.test.js drives the real flush.)
+  assert.ok(R.FLUSH_FALLBACK_MS >= S, 'FLUSH_FALLBACK_MS >= SLIDE_MS');
 });
 
 test('slideDelta: the next slide starts where the row is on screen', () => {
@@ -256,6 +276,10 @@ test('slideDelta: the next slide starts where the row is on screen', () => {
   assert.strictEqual(R.slideDelta(0, 600, 600), 0, 'nothing moved');
   assert.strictEqual(R.slideDelta(0, 600.4, 600), 0, 'under a pixel is no slide');
   assert.strictEqual(R.slideDelta(0, 600, 700), 0, 'moved right (a removal): no slide');
+  // capped at the chat width, so a burst can't park the row far off to the right
+  assert.strictEqual(R.slideDelta(5000, 1000, 600, 1280), 1280);
+  assert.strictEqual(R.slideDelta(50, 1000, 600, 1280), 450, 'under the cap: unchanged');
+  assert.strictEqual(R.slideDelta(50, 1000, 600, 0), 450, 'no width known: no cap');
 });
 
 test('reverseGroups keeps a notice and its message line together', () => {
@@ -307,7 +331,7 @@ test('badge models: url by want, bg wrap color, avatar flag, unusable badges dro
 });
 
 test('partsFor: text, spacing, emotes with overlays and effects, cheers, gifs', () => {
-  const opts = { want: 3, wantBig: 9, gifs: true };
+  const opts = { px: 24, dpr: 2, gifs: true };
   const items = [
     { type: 'text', text: 'hello there', sp: false },
     { type: 'emote', emote: emote('7tv', 'Base', { w: 56, h: 28 }), sp: true, big: false,
@@ -343,7 +367,7 @@ test('partsFor: text, spacing, emotes with overlays and effects, cheers, gifs', 
   const p2 = R.partsFor([
     { type: 'gif', url: 'https://media2.giphy.com/x.gif', title: '[GIF]', sp: true },
     { type: 'emote', emote: emote('twitch', 'Kappa'), sp: true, big: true, overlays: [] }
-  ], { want: 3, wantBig: 9, gifs: false });
+  ], { px: 24, dpr: 2, gifs: false });
   assert.deepStrictEqual(p2[0], { t: 'text', s: '[GIF] ' });
   assert.strictEqual(p2[1].big, true);
   assert.strictEqual(p2[1].url, 'https://cdn.example/Kappa/4');
@@ -366,7 +390,7 @@ test('partsFor works on real tokenizer output (zero-width stacking, FFZ hidden m
   ]);
   const msg = ircParse.toChatMessage(ircParse.parseLine('@id=1;user-id=5 :u!u@u PRIVMSG #c :hi Base RainTime ffzX v! Pog'));
   const tk = tokenizer.tokenize(msg, { lookup: (w) => maps.get(w) || null, bttvPrefixes: new Set(['v!']) });
-  const parts = R.partsFor(tk.items, { want: 3, wantBig: 9, gifs: true });
+  const parts = R.partsFor(tk.items, { px: 24, dpr: 2, gifs: true });
   assert.strictEqual(parts.length, 4);
   assert.deepStrictEqual(parts[0], { t: 'text', s: 'hi ' });
   assert.strictEqual(parts[1].name, 'Base');
@@ -387,7 +411,7 @@ test('modelFor: chat line with badges, paint, reply and /me', () => {
     badges: [{ provider: 'twitch', title: 'VIP', urls: { 1: 'https://v/1', 2: 'https://v/2', 4: 'https://v/4' } }],
     name: { text: 'Bob', color: '#FF0000', paint: '01ABCDEF' }
   };
-  const m = R.modelFor(msg, R.normalizeCfg({ size: 'large' }), d);
+  const m = R.modelFor(msg, R.normalizeCfg({ size: 'large' }), Object.assign({ dpr: 2 }, d));
   assert.strictEqual(m.kind, 'chat');
   assert.strictEqual(m.cls, 'line action');
   assert.deepStrictEqual(m.reply, { name: '@Alice', body: 'hi' });
@@ -407,6 +431,10 @@ test('modelFor: chat line with badges, paint, reply and /me', () => {
   assert.deepStrictEqual(R.modelFor(msg, R.normalizeCfg({ badges: false }), shared).badges,
     [{ url: 'https://logo', title: 'Other channel', avatar: true, bg: null }]);
   assert.strictEqual(R.modelFor(msg, R.normalizeCfg({}), shared).badges.length, 2);
+  // OBS (dpr 1) at size=large: 32px badges come from the 2x (36px) file
+  assert.strictEqual(R.modelFor(msg, R.normalizeCfg({ size: 'large' }), d).badges[0].url, 'https://v/2');
+  // a moderated reply parent: no header
+  assert.strictEqual(R.modelFor(msg, R.normalizeCfg({}), Object.assign({ noReply: true }, d)).reply, null);
   assert.deepStrictEqual(R.visibleBadges(undefined, { badges: false }), []);
   assert.strictEqual(off.colon, ': ');
   assert.strictEqual(off.msgColor, null);
@@ -457,4 +485,45 @@ test('config keys that trigger a re-render or a filter sweep', () => {
     assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0, k);
   }
   for (const k of ['bots', 'hide_commands', 'block']) assert.ok(R.FILTER_KEYS.indexOf(k) >= 0, k);
+});
+
+test('every live config key is handled by the renderer', () => {
+  // setConfig handles these itself: applyRoot, reordering, fade re-timing, capping
+  const ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max'];
+  const LIVE_KEYS = require('../js/config.js').LIVE_KEYS;
+  assert.ok(Array.isArray(LIVE_KEYS) && LIVE_KEYS.length > 0);
+  for (const k of LIVE_KEYS) {
+    assert.ok(ROOT_KEYS.indexOf(k) >= 0 || R.RERENDER_KEYS.indexOf(k) >= 0 || R.FILTER_KEYS.indexOf(k) >= 0,
+      k + ' is live but the renderer ignores it');
+  }
+  // and a renderer key that config never sends live is dead weight
+  for (const k of R.RERENDER_KEYS.concat(R.FILTER_KEYS)) assert.ok(LIVE_KEYS.indexOf(k) >= 0, k + ' is not a live key');
+});
+
+test('isGenericFont: CSS generic families need no Google Fonts request', () => {
+  assert.strictEqual(renderer.isGenericFont('system-ui'), true);
+  assert.strictEqual(renderer.isGenericFont(' Serif '), true);
+  assert.strictEqual(renderer.isGenericFont('Inter'), false);
+  assert.strictEqual(renderer.isGenericFont(null), false);
+});
+
+test('partsFor caps images per message and drops duplicate overlays', () => {
+  const b = emote('7tv', 'B');
+  const dup = [emote('7tv', 'Z', { zw: true }), emote('7tv', 'Z', { zw: true }), emote('7tv', 'B')];
+  const p = R.partsFor([{ type: 'emote', emote: b, sp: false, overlays: dup }], { px: 24, dpr: 1, gifs: true });
+  assert.deepStrictEqual(p[0].ov.map((o) => o.name), ['Z'], 'the same image stacked twice (or on itself) is drawn once');
+  const items = [];
+  for (let i = 0; i < R.MAX_IMAGES + 5; i++) items.push({ type: 'emote', emote: b, sp: i > 0, overlays: [] });
+  const parts = R.partsFor(items, { px: 24, dpr: 1, gifs: true });
+  assert.strictEqual(parts.filter((x) => x.t === 'emote').length, R.MAX_IMAGES);
+  assert.deepStrictEqual(parts[parts.length - 1], { t: 'text', s: ' B B B B B' }, 'past the cap emotes show as their names');
+});
+
+test('partsFor: 7TV sizes by its own 1x height; a row draws big emotes at emote height', () => {
+  const stv = { provider: '7tv', name: 'S', w: 32, h: 32, urls: { 1: 'https://s/1', 2: 'https://s/2', 3: 'https://s/3', 4: 'https://s/4' } };
+  assert.strictEqual(R.partsFor([{ type: 'emote', emote: stv, overlays: [] }], { px: 18, dpr: 2 })[0].url, 'https://s/2', 'small at dpr 2: 64px covers 63px');
+  assert.strictEqual(R.partsFor([{ type: 'emote', emote: stv, overlays: [] }], { px: 24, dpr: 1 })[0].url, 'https://s/2', 'OBS medium: 64px covers 42px');
+  const big = [{ type: 'emote', emote: emote('twitch', 'K'), big: true, overlays: [] }];
+  assert.strictEqual(R.partsFor(big, { px: 24, dpr: 1 })[0].url, 'https://cdn.example/K/4', 'vertical: 3x emote height (126px)');
+  assert.strictEqual(R.partsFor(big, { px: 24, dpr: 1, flatBig: true })[0].url, 'https://cdn.example/K/2', 'row: emote height (42px)');
 });
