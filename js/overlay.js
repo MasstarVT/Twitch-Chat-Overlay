@@ -14,6 +14,14 @@
     'soundalerts', 'sery_bot', 'kofistreambot', 'botrixoficial', 'blerp', 'pokemoncommunitygame'];
   var NOTICE_TYPES = { sub: 1, resub: 1, subgift: 1, submysterygift: 1, giftpaidupgrade: 1,
     anongiftpaidupgrade: 1, raid: 1, bitsbadgetier: 1 };
+  // How long live chat waits for the history backfill; the request is aborted at the same moment.
+  var HISTORY_WAIT_MS = 4000;
+  // History is third-party data: at most this many distinct Shared Chat rooms may be loaded because of it
+  // (a real session has at most 6 channels).
+  var MAX_HISTORY_ROOMS = 8;
+  // A Shared Chat room part that failed is retried on the room's next message after this delay (doubling).
+  var PART_RETRY_MS = 30000;
+  var PART_RETRY_MAX_MS = 300000;
 
   var T; // root.TCO, resolved at boot
   var S = null;
@@ -65,11 +73,18 @@
     // Google Fonts family names are case-sensitive in the request URL.
     if (name && T.config.canonicalFont) name = T.config.canonicalFont(name);
     if (!name || T.config.isSystemFont(name) || loadedFonts[name]) return;
+    // Generic families (system-ui, serif, ...) are never Google Fonts: a request for one is a wasted 400.
+    if (T.renderer.isGenericFont && T.renderer.isGenericFont(name)) return;
     loadedFonts[name] = true;
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name).replace(/%20/g, '+') +
       ':wght@400;600;700;800&display=swap';
+    // A failed request (offline start) is forgotten, so the next reconnect can ask again.
+    link.onerror = function () {
+      if (link.parentNode) link.parentNode.removeChild(link);
+      delete loadedFonts[name];
+    };
     document.head.appendChild(link);
   }
 
@@ -216,10 +231,11 @@
     }
     var usedReplacer = false;
 
-    if (cfg.badges_twitch) {
-      var tagBadges = m.mirrored ? m.sourceBadges : m.badges;
+    // The channel's FFZ custom mod/VIP badges belong to the FFZ switch: they show even with Twitch badges off.
+    var ffzRoom = cfg.badges_ffz && room ? room.ffz : null;
+    if (cfg.badges_twitch || ffzReplacer || (ffzRoom && (ffzRoom.modUrls || ffzRoom.vipUrls))) {
+      var tagBadges = (m.mirrored ? m.sourceBadges : m.badges) || [];
       var channelSets = room ? room.twitchBadges : null;
-      var ffzRoom = cfg.badges_ffz && room ? room.ffz : null;
       for (var i = 0; i < tagBadges.length; i++) {
         var b = tagBadges[i];
         if (b.set === 'moderator') {
@@ -230,6 +246,7 @@
           out.push({ provider: 'ffz', title: 'VIP', urls: ffzRoom.vipUrls });
           continue;
         }
+        if (!cfg.badges_twitch) continue;
         var r = T.badgeResolve.resolve(b.set, b.version, channelSets, S.twitchGlobal);
         if (r) out.push({ provider: 'twitch', title: r.title, urls: r.urls });
       }
@@ -276,6 +293,16 @@
     return p ? T.paintCss.ruleFor(p) : null;
   }
 
+  // "!cmd", also when sent as a reply ("@Parent !cmd", shown without the "@Parent" prefix).
+  function isCommand(m) {
+    var text = m.text || '';
+    if (m.reply && text.charAt(0) === '@') {
+      var items = T.tokenizer.stripReplyPrefix([{ type: 'text', text: text, sp: false }], m.reply);
+      text = items.length && items[0].type === 'text' ? items[0].text : '';
+    }
+    return /^\s*!/.test(text);
+  }
+
   function shouldShow(m) {
     var cfg = S.cfg;
     var login = m.login || '';
@@ -284,8 +311,13 @@
       if (DEFAULT_BOTS.indexOf(login) >= 0) return false;
       var home = S.rooms.home();
       if (home && home.bttv.bots.has(login)) return false;
+      // A Shared Chat partner's own BTTV bot list covers its mirrored lines.
+      if (m.mirrored) {
+        var src = S.rooms.get(m.sourceRoomId);
+        if (src && src.bttv.bots.has(login)) return false;
+      }
     }
-    if (cfg.hide_commands && m.kind === 'chat' && /^\s*!/.test(m.text || '')) return false;
+    if (cfg.hide_commands && m.kind === 'chat' && isCommand(m)) return false;
     if (!cfg.events && (m.kind === 'notice' || m.announcement)) return false;
     if (m.mirrored && !cfg.shared) return false;
     return true;
@@ -297,26 +329,24 @@
     source.forEach(function (v, k) { target.set(k, v); });
   }
 
-  // Loader parts for a room: [{name, fn, apply}]
-  function roomParts(ctx, isHome) {
+  // Loader parts for a room: [{name, fn, apply}]. fresh: bypass HTTP caches (reconnect refetches).
+  function roomParts(ctx, isHome, fresh) {
     var cfg = S.cfg;
     var parts = [];
     if (!isHome) {
       parts.push({ name: 'user', fn: function () { return T.twitchBadges.lookupUserById(ctx.id); }, apply: function (u) {
         if (u) { ctx.login = u.login || ctx.login; ctx.displayName = u.displayName || ctx.displayName; ctx.logo = u.logo || null; }
-        ctx.loaded.user = true;
       } });
     }
     if (cfg.badges && cfg.badges_twitch) {
       parts.push({ name: 'twitch-channel-badges', fn: function () { return T.twitchBadges.loadChannel(ctx.id); }, apply: function (m) {
         ctx.twitchBadges = m || new Map();
-        ctx.loaded.badges = true;
       } });
     }
     if (cfg.emotes_7tv) {
       parts.push({ name: '7tv-channel', fn: function () { return T.seventv.loadChannel(ctx.id); }, apply: function (r) {
-        ctx.loaded.stv = true;
         if (!r) return;
+        var oldSetId = ctx.stv.setId;
         fillMap(ctx.stv.emotes, r.emotes);
         ctx.stv.setId = r.setId || null;
         ctx.stv.ownerId = r.ownerId || null;
@@ -325,22 +355,24 @@
           if (S.stvEvents) {
             if (ctx.stv.setId) S.stvEvents.addObject('emote_set.update', ctx.stv.setId);
             if (ctx.stv.ownerId) S.stvEvents.addObject('user.update', ctx.stv.ownerId);
+            // A reload that found a different (or no) set drops the old one's subscription.
+            if (S.stvEvents.removeObject && oldSetId && oldSetId !== ctx.stv.setId) S.stvEvents.removeObject('emote_set.update', oldSetId);
           }
         }
       } });
     }
-    // The home channel's BTTV data is also its bot list (used by bots=0), so load it even with BTTV emotes off.
-    if (cfg.emotes_bttv || isHome) {
-      parts.push({ name: 'bttv-channel', fn: function () { return T.bttv.loadChannel(ctx.id); }, apply: function (r) {
-        ctx.loaded.bttv = true;
+    // The home channel's BTTV data is also its bot list, so bots=0 loads it even with BTTV emotes off.
+    if (cfg.emotes_bttv || (isHome && !cfg.bots)) {
+      parts.push({ name: 'bttv-channel', fn: function () { return T.bttv.loadChannel(ctx.id, fresh ? { fresh: true } : undefined); }, apply: function (r) {
         if (!r) return;
         ctx.bttv.bots = r.bots || new Set();
         if (S.cfg.emotes_bttv) fillMap(ctx.bttv.emotes, r.emotes);
+        // Bot lines that arrived before the list did are dropped now (one pass over the lines on screen).
+        if (!S.cfg.bots && ctx.bttv.bots.size && S.renderer && S.renderer.refilter) S.renderer.refilter();
       } });
     }
     if (cfg.emotes_ffz || (cfg.badges && cfg.badges_ffz)) {
       parts.push({ name: 'ffz-room', fn: function () { return T.ffz.loadRoom(ctx.id); }, apply: function (r) {
-        ctx.loaded.ffz = true;
         if (!r) return;
         fillMap(ctx.ffz.emotes, r.emotes);
         ctx.ffz.modUrls = r.modUrls || null;
@@ -351,25 +383,71 @@
     return parts;
   }
 
-  function loadSourceRoom(ctx) {
-    var parts = roomParts(ctx, false);
+  // Runs parts in parallel; each one applies (and rerenders the room) as soon as it lands.
+  // Resolves with the names of the parts that failed.
+  function runParts(ctx, parts) {
     return Promise.all(parts.map(function (p) {
-      return Promise.resolve().then(p.fn).then(function (res) { p.apply(res); return true; }, function (e) {
+      return Promise.resolve().then(p.fn).then(function (res) {
+        // A throwing apply counts as that part failing (retried later), not as a rejected Promise.all.
+        try { p.apply(res); } catch (e) { T.util.warn('shared-chat room', ctx.id, p.name, 'apply failed:', e && e.message); return false; }
+        changed({ roomId: ctx.id });
+        return true;
+      }, function (e) {
         T.util.warn('shared-chat room', ctx.id, p.name, 'failed:', e && e.message);
         return false;
       });
     })).then(function (ok) {
-      if (ok.indexOf(true) < 0) throw new Error('room ' + ctx.id + ' failed to load');
-      changed({ roomId: ctx.id });
+      var failed = [];
+      for (var i = 0; i < ok.length; i++) if (!ok[i]) failed.push(parts[i].name);
+      return failed;
+    });
+  }
+
+  // Failed parts are retried lazily, on one of the room's later messages (no timers).
+  function noteFailedParts(ctx, failed, delay) {
+    ctx.retry = failed.length ? { names: failed, at: T.util.now() + delay, delay: delay, busy: false } : null;
+  }
+
+  function loadSourceRoom(ctx) {
+    var parts = roomParts(ctx, false);
+    return runParts(ctx, parts).then(function (failed) {
+      if (failed.length >= parts.length) throw new Error('room ' + ctx.id + ' failed to load');
+      noteFailedParts(ctx, failed, PART_RETRY_MS);
       return ctx;
     });
   }
 
+  function retryParts(ctx) {
+    var r = ctx.retry;
+    r.busy = true;
+    var parts = roomParts(ctx, false).filter(function (p) { return r.names.indexOf(p.name) >= 0; });
+    runParts(ctx, parts).then(function (failed) {
+      if (ctx.retry === r) noteFailedParts(ctx, failed, Math.min(r.delay * 2, PART_RETRY_MAX_MS));
+    }, function () { r.busy = false; });
+  }
+
   function ensureSourceRoom(id) {
-    if (!id || id === S.homeId) return;
+    id = T.util.idStr(id);
+    if (!id || id === S.homeId || !/^\d+$/.test(id)) return;
     S.rooms.touch(id);
-    if (S.rooms.get(id)) return;
+    var ctx = S.rooms.get(id);
+    if (ctx) {
+      var r = ctx.retry;
+      if (r && !r.busy && T.util.now() >= r.at) retryParts(ctx);
+      return;
+    }
     S.rooms.ensure(id);
+  }
+
+  // Mirrored line accepted by the renderer: load (or keep alive) its source room.
+  function noteSourceRoom(m) {
+    var id = T.util.idStr(m.sourceRoomId);
+    if (!/^\d+$/.test(id) || id === S.homeId) return; // junk or home ids must not use up the history cap
+    if (m.historical && !S.rooms.get(id) && !S.histRooms.has(id)) {
+      if (S.histRooms.size >= MAX_HISTORY_ROOMS) return; // the line still shows, without the room's extras
+      S.histRooms.add(id);
+    }
+    ensureSourceRoom(id);
   }
 
   function onRoomId(id, user) {
@@ -383,6 +461,7 @@
       return;
     }
     S.homeId = id;
+    S.homeAt = T.util.now();
     var ctx = S.rooms.setHome(id, S.cfg.channel);
     if (user) { ctx.logo = user.logo || null; ctx.displayName = user.displayName || ''; }
     hideHint();
@@ -395,16 +474,34 @@
     if (!S.cfg.demo) startLive(id);
   }
 
-  // Refetch channel emote data that live sockets may have missed while disconnected.
+  // Refetch channel emote data that live sockets may have missed while disconnected. Each part is a tracked
+  // load ('reload:<part>'), so a failure is logged, shown with debug=1 and retried with the usual backoff.
+  // A reload already in flight is shared by later triggers.
   function reloadHome(names) {
     var ctx = S.rooms.home();
     if (!ctx) return;
-    roomParts(ctx, true).forEach(function (p) {
+    roomParts(ctx, true, true).forEach(function (p) {
       if (names.indexOf(p.name) < 0) return;
-      Promise.resolve().then(p.fn).then(function (res) { p.apply(res); changed({ roomId: ctx.id }); }, function () {});
+      var key = 'reload:' + p.name;
+      var prev = S.loads.get(key);
+      if (prev) {
+        if (prev.status === 'pending') return;
+        prev.cancel();
+        S.loads.delete(key);
+      }
+      var gen = ctx.stv.switchGen || 0;
+      track(key, p.fn, function (res) {
+        // A 7TV set switch that landed meanwhile is newer than this refetch.
+        if (p.name === '7tv-channel' && (ctx.stv.switchGen || 0) !== gen) return;
+        p.apply(res);
+        changed({ roomId: ctx.id });
+      });
     });
   }
-  function reloadHomeVolatile() { reloadHome(['7tv-channel', 'bttv-channel', 'ffz-room']); }
+  function reloadHomeVolatile() {
+    // The 7TV EventAPI refetches its set itself after a reconnect (onReady), and missed nothing if it stayed up.
+    reloadHome(S.stvEvents ? ['bttv-channel', 'ffz-room'] : ['7tv-channel', 'bttv-channel', 'ffz-room']);
+  }
 
   // ---------- live sockets ----------
   function startLive(roomId) {
@@ -427,28 +524,31 @@
         roomId: roomId,
         onEmoteAdd: function (e) {
           var h = S.rooms.home();
-          if (!h || !e) return;
+          if (!h || !e || !S.cfg.emotes_bttv) return;
           T.bttv.upsertEmote(h.bttv.emotes, e);
           changed({ roomId: roomId });
         },
         onEmoteUpdate: function (e) {
           var h = S.rooms.home();
-          if (!h || !e) return;
+          if (!h || !e || !S.cfg.emotes_bttv) return;
           T.bttv.upsertEmote(h.bttv.emotes, e); // an update can rename the code
           changed({ roomId: roomId });
         },
         onEmoteRemove: function (emoteId) {
           var h = S.rooms.home();
-          if (!h) return;
+          if (!h || !S.cfg.emotes_bttv) return;
           T.bttv.removeEmoteById(h.bttv.emotes, emoteId);
           changed({ roomId: roomId });
         },
         onUser: function (userId, data) {
           userId = T.util.idStr(userId);
           if (!userId || !data) return;
-          S.bttvUsers.set(userId, { badge: data.badge || null, emotes: data.emotes || new Map() });
+          S.bttvUsers.set(userId, { badge: data.badge || null, emotes: S.cfg.emotes_bttv && data.emotes || null });
           changed({ userId: userId });
-        }
+        },
+        // The socket only carries changes made while it is open: after a reconnect, refetch the channel.
+        // (Called by bttv.createLive when it supports it; an older bttv.js just ignores the option.)
+        onReopen: function () { if (S.cfg.emotes_bttv) reloadHome(['bttv-channel']); }
       });
       S.bttvLive.start();
     }
@@ -457,16 +557,36 @@
   function onSetSwitch(roomId, newSetId) {
     // Only the home channel's set is subscribed, so fall back to it when the id isn't a known room.
     var ctx = (roomId && S.rooms.get(roomId)) || S.rooms.home();
-    if (!ctx || !T.seventv.isUlid(newSetId)) return;
+    if (!ctx) return;
+    if (newSetId === null) {
+      // The owner turned their set off. user.update doesn't say which connection changed, so confirm
+      // over REST: the channel reload clears the set (and its routing) when there really is none now.
+      var pend = S.loads.get('7tv-set-switch');
+      if (pend) { pend.cancel(); S.loads.delete('7tv-set-switch'); }
+      ctx.stv.wantSet = null;
+      ctx.stv.switchGen = (ctx.stv.switchGen || 0) + 1;
+      // A reload still in flight was started for an older generation and would stand down: restart it.
+      var rl = S.loads.get('reload:7tv-channel');
+      if (rl) { rl.cancel(); S.loads.delete('reload:7tv-channel'); }
+      if (S.cfg.emotes_7tv) reloadHome(['7tv-channel']);
+      return;
+    }
+    if (!T.seventv.isUlid(newSetId)) return;
     ctx.stv.wantSet = newSetId;
+    ctx.stv.switchGen = (ctx.stv.switchGen || 0) + 1; // makes an older reloadHome('7tv-channel') stand down
     var prev = S.loads.get('7tv-set-switch');
     if (prev) { prev.cancel(); S.loads.delete('7tv-set-switch'); }
     track('7tv-set-switch', function () { return T.seventv.loadSet(newSetId); }, function (m) {
       if (ctx.stv.wantSet !== newSetId) return; // superseded by a later switch
+      var oldSetId = ctx.stv.setId;
       fillMap(ctx.stv.emotes, m || new Map());
       ctx.stv.setId = newSetId;
       S.stv.registerChannelSet(ctx.id, newSetId, ctx.stv.emotes, ctx.stv.ownerId);
-      if (S.stvEvents) S.stvEvents.addObject('emote_set.update', newSetId);
+      if (S.stvEvents) {
+        S.stvEvents.addObject('emote_set.update', newSetId);
+        // Drop the old set's subscription (when seventv.js offers it), so switches don't pile them up.
+        if (S.stvEvents.removeObject && oldSetId && oldSetId !== newSetId) S.stvEvents.removeObject('emote_set.update', oldSetId);
+      }
       changed({ roomId: ctx.id });
     });
   }
@@ -483,12 +603,13 @@
       S.liveBuffer.push(m);
       return;
     }
-    if (m.mirrored) {
-      if (!S.cfg.shared) return;
-      ensureSourceRoom(m.sourceRoomId);
-    }
+    if (m.mirrored && !S.cfg.shared) return;
+    // A reply to a blocked user would quote them in its header: show the reply without it.
+    if (m.reply && m.reply.login && S.cfg.block.indexOf(m.reply.login) >= 0) m.reply = null;
+    // Only lines the renderer accepted (not filtered out) load rooms and queue 7TV lookups.
+    if (!S.renderer.push(m)) return;
+    if (m.mirrored) noteSourceRoom(m);
     noteUser(m);
-    S.renderer.push(m);
   }
 
   function handlePrivmsg(p) {
@@ -502,7 +623,15 @@
     var n = T.ircParse.toNoticeMessage(p);
     if (n.historical) return;
     if (!n.roomId && S.homeId) n.roomId = S.homeId;
-    if (n.mirrored && n.type !== 'announcement') return;
+    if (n.mirrored && n.type !== 'announcement') {
+      // A partner channel's sub/raid notice is not shown, but the message its viewer typed with it is.
+      // (The home channel's own copy of a Shared Chat notice has source-room-id == room-id: skip it.)
+      if (n.text && n.sourceRoomId && n.sourceRoomId !== n.roomId) {
+        n.kind = 'chat';
+        deliver(n);
+      }
+      return;
+    }
     if (n.type === 'announcement') {
       n.kind = 'chat';
       n.announcement = n.announceColor || 'PRIMARY';
@@ -510,6 +639,12 @@
     }
     if (n.type === 'submysterygift' && n.communityGiftId) S.giftIds.set(n.communityGiftId, true);
     if (n.type === 'subgift' && n.communityGiftId && S.giftIds.has(n.communityGiftId)) return;
+    // Twitch's system-msg for this one is a placeholder ("bits badge tier notification").
+    if (n.type === 'bitsbadgetier') {
+      var th = parseInt(n.params && n.params.threshold, 10);
+      var amount = th >= 1000000 && th % 1000000 === 0 ? th / 1000000 + 'M' : th >= 1000 && th % 1000 === 0 ? th / 1000 + 'K' : String(th);
+      if (th > 0) n.systemMsg = (n.displayName || n.login || 'Someone') + ' just earned a new ' + amount + ' Bits badge!';
+    }
     if (S.cfg.events && NOTICE_TYPES[n.type]) return deliver(n);
     // Not shown as a notice: still show the user's own attached message as chat.
     if (n.text) {
@@ -552,11 +687,16 @@
     if (status === 'joined') {
       if (detail && detail.tags && detail.tags['room-id']) onRoomId(detail.tags['room-id']);
       if (S.closedAt && T.util.now() - S.closedAt > 30000) {
-        reloadHomeVolatile();
+        // Only home data loaded before the outage can be stale (not data first loaded during the rejoin).
+        if (S.homeAt && S.homeAt <= S.closedAt) reloadHomeVolatile();
         S.loads.forEach(function (ctl) { if (ctl.status === 'failed') ctl.retryNow(); });
+        // The network is back: cut short the (much longer) 7TV/BTTV socket backoffs. kick() is a no-op
+        // for a socket that is connected.
+        if (S.stvEvents) S.stvEvents.kick();
+        if (S.bttvLive) S.bttvLive.kick();
+        applyFont(S.cfg.font);
       }
       S.closedAt = 0;
-      S.joined = true;
       hideHint();
     } else if (status === 'closed') {
       if (!S.closedAt) S.closedAt = T.util.now();
@@ -576,7 +716,8 @@
         // History comes from a third-party service: only replay chat and moderation lines.
         if (!p || (p.command !== 'PRIVMSG' && p.command !== 'CLEARCHAT' && p.command !== 'CLEARMSG')) return;
         p.tags = p.tags || {};
-        if (p.tags['rm-deleted'] !== undefined) return; // already moderated
+        // Already moderated: not shown, but recorded as deleted so replies quoting it get no header.
+        if (p.tags['rm-deleted'] !== undefined) { if (p.tags.id) S.renderer.clearMessage(p.tags.id); return; }
         p.tags.historical = '1';
         // Skip lines that also arrived live while history was loading (the live copy is buffered).
         if (p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.markSeen(p.tags.id)) return;
@@ -589,8 +730,9 @@
         else deliver(m);
       });
     }
-    setTimeout(function () { finish([]); }, 4000);
-    T.irc.loadHistory(cfg.channel, cfg.history).then(finish, function (e) {
+    setTimeout(function () { finish([]); }, HISTORY_WAIT_MS);
+    // The request is aborted when the wait ends, so late history is not downloaded and parsed for nothing.
+    T.irc.loadHistory(cfg.channel, cfg.history, { timeout: HISTORY_WAIT_MS }).then(finish, function (e) {
       T.util.warn('history load failed', e && e.message);
       finish([]);
     });
@@ -631,15 +773,20 @@
     }
     if (cfg.channel) {
       track('channel-user', function () { return T.twitchBadges.lookupUser(cfg.channel); }, function (u) {
+        // An answer for some other login (a third-party lookup) is not this channel: let IRC's ROOMSTATE decide.
+        if (u && u.login && u.login !== cfg.channel) {
+          T.util.warn('channel lookup returned', u.login, 'for', cfg.channel);
+          u = null;
+        }
         if (!u) {
-          S.userMissing = true;
           setTimeout(function () {
             if (!S.homeId) showHint('Channel "' + cfg.channel + '" was not found. Check the name in your overlay URL or settings.js.', true);
           }, 10000);
           return;
         }
         if (u.banned) {
-          showHint('Channel "' + cfg.channel + '" is suspended, so its chat is unavailable.', true, true);
+          // Third-party data: not sticky, so a successful IRC join (Twitch's own answer) clears it.
+          if (!S.homeId) showHint('Channel "' + cfg.channel + '" is suspended, so its chat is unavailable.', true);
           return;
         }
         onRoomId(u.id, u);
@@ -673,7 +820,16 @@
   function startTier3() {
     var cfg = S.cfg;
     if (cfg.badges && cfg.badges_homies) {
-      track('homies-badges', T.extraBadges.loadHomies, function (m) { S.homies = m; changed({ all: true }); });
+      // One loader per list, all filling one index: a list that fails retries on its own.
+      var homies = T.extraBadges.createHomies();
+      for (var i = 0; i < T.extraBadges.HOMIES_COUNT; i++) {
+        (function (i) {
+          track('homies-badges-' + i, function () { return T.extraBadges.loadHomiesSource(i, homies); }, function () {
+            S.homies = homies;
+            changed({ all: true });
+          });
+        })(i);
+      }
     }
   }
 
@@ -713,7 +869,8 @@
     // Data for badge providers / paints that were off at boot was never loaded: load it now.
     var turnedOn = ['badges', 'paints'].concat(keys.filter(function (k) { return k.indexOf('badges_') === 0; }))
       .some(function (k) { return next[k] && !prev[k]; });
-    if (turnedOn) ensureLoaders();
+    // bots=0 needs the home channel's BTTV bot list, which bots=1 does not load.
+    if (turnedOn || (prev.bots && !next.bots)) ensureLoaders();
   }
 
   function ensureLoaders() {
@@ -745,7 +902,7 @@
       holding: true,
       homeId: null,
       homeRegistered: false,
-      joined: false,
+      homeAt: 0,
       ircStatus: 'idle',
       closedAt: 0,
       twitchGlobal: new Map(),
@@ -761,12 +918,18 @@
       bttvUsers: new T.util.LRU(5000),
       recentUsers: new T.util.LRU(500),
       giftIds: new T.util.LRU(200),
+      histRooms: new Set(),
       historyPending: false,
       liveBuffer: [],
       demo: null
     };
     S.bus.on('changed', onChanged);
-    S.stv = T.seventv.createState({ bus: S.bus, onSetSwitch: onSetSwitch });
+    S.stv = T.seventv.createState({
+      bus: S.bus,
+      onSetSwitch: onSetSwitch,
+      loadSet: T.seventv.loadSet, // refetches a personal set that was evicted or skipped
+      wantPersonal: function () { return !!S.cfg.emotes_7tv; } // read live: personal sets only while 7TV emotes are on
+    });
     S.rooms = T.rooms.createRooms({ load: loadSourceRoom });
 
     S.renderer = T.renderer.createRenderer({
@@ -779,8 +942,9 @@
 
     var sErr = settingsError();
     if (sErr) showHint('settings.js has an error: ' + sErr, true, true);
-    else if (!cfg.channel && !cfg.demo) {
-      showHint('No channel set. Add ?channel=yourname to the overlay URL, or use the builder.', true);
+    // Without a channel there is nothing to show: load nothing (also when settings.js is broken).
+    if (!cfg.channel && !cfg.demo) {
+      if (!sErr) showHint('No channel set. Add ?channel=yourname to the overlay URL, or use the builder.', true);
       return;
     }
 
@@ -823,14 +987,18 @@
 
     if (S.demo) S.demo.start();
 
-    root.addEventListener('online', function () {
+    if (root.addEventListener) root.addEventListener('online', function () {
       if (S.irc) S.irc.kick();
       if (S.stvEvents) S.stvEvents.kick();
       if (S.bttvLive) S.bttvLive.kick();
       S.loads.forEach(function (ctl) { if (ctl.status === 'failed') ctl.retryNow(); });
+      applyFont(S.cfg.font); // a font stylesheet that failed offline
     });
     // (The renderer itself flushes on visibilitychange / obsSourceVisibleChanged.)
     setInterval(function () {
+      // Rooms with lines still on screen stay loaded, so a later rerender keeps their emotes and avatar.
+      // (One walk over the lines every 5 minutes; the predicate never asks for a rebuild.)
+      S.renderer.rerender(function (m) { if (m.mirrored) S.rooms.touch(m.sourceRoomId); return false; });
       var evicted = S.rooms.sweep() || [];
       evicted.forEach(function (id) { if (S.stv.forgetRoom) S.stv.forgetRoom(id); });
     }, 300000);

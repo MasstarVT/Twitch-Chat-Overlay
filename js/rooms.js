@@ -18,7 +18,7 @@
       stv: { emotes: new Map(), setId: null, ownerId: null },
       bttv: { emotes: new Map(), bots: new Set() },
       ffz: { emotes: new Map(), modUrls: null, vipUrls: null, userBadges: new Map() },
-      loaded: { user: false, badges: false, stv: false, bttv: false, ffz: false },
+      retry: null, // Shared Chat rooms: parts that failed, retried on a later message (set by the overlay)
       lastSeen: util.now()
     };
   }

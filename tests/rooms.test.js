@@ -24,7 +24,7 @@ test('newContext returns an empty RoomContext', function () {
   assert.ok(c.ffz.userBadges instanceof Map);
   assert.strictEqual(c.ffz.modUrls, null);
   assert.strictEqual(c.ffz.vipUrls, null);
-  assert.deepStrictEqual(c.loaded, { user: false, badges: false, stv: false, bttv: false, ffz: false });
+  assert.strictEqual(c.retry, null);
   assert.strictEqual(typeof c.lastSeen, 'number');
 });
 
@@ -57,19 +57,19 @@ test('ensure() dedupes concurrent calls (load called once)', async function () {
   const r = rooms.createRooms({
     load: function (ctx) {
       loads++;
-      return new Promise(function (res) { release = function () { ctx.loaded.user = true; res(); }; });
+      return new Promise(function (res) { release = function () { ctx.logo = 'https://x/a.png'; res(); }; });
     }
   });
   const a = r.ensure('1');
   const b = r.ensure('1');
   const c = r.ensure(1);
   assert.strictEqual(loads, 1);
-  assert.strictEqual(r.get('1').loaded.user, false);
+  assert.strictEqual(r.get('1').logo, null);
   release();
   const res = await Promise.all([a, b, c]);
   assert.strictEqual(res[0], res[1]);
   assert.strictEqual(res[0], res[2]);
-  assert.strictEqual(res[0].loaded.user, true);
+  assert.strictEqual(res[0].logo, 'https://x/a.png');
   assert.strictEqual(await r.ensure('1'), res[0]);
   assert.strictEqual(loads, 1);
   assert.strictEqual(await r.ensure(''), null);
