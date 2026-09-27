@@ -13,7 +13,8 @@
   var HIDDEN = 1;
 
   function badPayload(what) { return new Error('unexpected ' + what + ' payload'); }
-  function dim(v) { var n = Number(v); return n > 0 ? n : 28; }
+  // A size under 1 px (0.001, 1e-20) is a broken payload, not a real emote: use the default.
+  function dim(v) { var n = Number(v); return n >= 1 && n < 10000 ? n : 28; }
 
   // {'1':url,'2'?:url,'4'?:url} -> {1,2,4} with absolute https urls, or null when none are usable.
   function scaleUrls(map) {
@@ -66,8 +67,17 @@
   }
 
   // {badgeId:[twitch ids (numbers)]} -> Map<userId String, badgeId String[]>. keep(badgeId) filters.
+  // Users with the same badges share one frozen list (the global list is ~40k users, nearly all ['3']);
+  // readers copy before changing one.
   function invertIds(obj, keep) {
     var map = new Map();
+    var shared = new Map();
+    function intern(list) {
+      var key = list.join(',');
+      var s = shared.get(key);
+      if (!s) { s = Object.freeze(list); shared.set(key, s); }
+      return s;
+    }
     if (!obj || typeof obj !== 'object') return map;
     Object.keys(obj).forEach(function (badgeId) {
       var ids = obj[badgeId];
@@ -76,8 +86,8 @@
         var uid = util.idStr(ids[i]);
         if (!uid) continue;
         var list = map.get(uid);
-        if (!list) map.set(uid, [badgeId]);
-        else if (list.indexOf(badgeId) < 0) list.push(badgeId);
+        if (!list) map.set(uid, intern([badgeId]));
+        else if (list.indexOf(badgeId) < 0) map.set(uid, intern(list.concat([badgeId])));
       }
     });
     return map;

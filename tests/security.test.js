@@ -50,13 +50,74 @@ function urlsOf(m) {
 }
 
 test('no code in js/ can turn a string into markup or code', () => {
-  const SINKS = /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write|\beval\s*\(|new\s+Function\b|\bsrcdoc\b|createContextualFragment|DOMParser|setAttribute\(\s*['"]on|setAttribute\(\s*['"](?:href|src|style)['"]|set(?:Timeout|Interval)\(\s*['"`]/;
+  const SINKS = /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write|\beval\s*\(|new\s+Function\b|\bsrcdoc\b|createContextualFragment|DOMParser|setAttribute\(\s*['"]on|(?:setAttribute\(|setAttributeNS\([^,)]*,)\s*['"](?:xlink:)?(?:href|src|srcset|style|poster|action|formaction)['"]|set(?:Timeout|Interval)\(\s*['"`]|\bcssText\b|\.style\s*=(?!=)/;
+  // on* properties may only be given a function (or null, or chained to another on* property): a string is code.
+  const HANDLER = /\.on[a-z]+\s*=(?!=)/g;
+  const HANDLER_OK = /^\s*(?:function\b|null\b|[\w$.]+\.on[a-z]+\s*=(?!=))/;
   const files = fs.readdirSync(path.join(ROOT, 'js')).filter((f) => f.endsWith('.js'));
   assert.ok(files.length > 10);
+  // URL and style attributes set by name are sinks too; other attributes are not.
+  ["setAttribute('srcset', x)", 'setAttribute("href", u)', "setAttribute('style', s)", "setAttributeNS(XL, 'xlink:href', u)",
+    "setAttribute('poster', p)", "setAttribute('action', a)"].forEach((l) => assert.ok(SINKS.test(l), l));
+  ["setAttribute('aria-invalid', 'false')", "setAttribute('list', 'font-list')", "setAttribute('data-key', key)"]
+    .forEach((l) => assert.ok(!SINKS.test(l), l));
   files.forEach((f) => {
     const src = read('js/' + f);
-    src.split('\n').forEach((line, i) => assert.ok(!SINKS.test(line), 'js/' + f + ':' + (i + 1) + ' ' + line.trim()));
+    src.split('\n').forEach((line, i) => {
+      const where = 'js/' + f + ':' + (i + 1) + ' ' + line.trim();
+      assert.ok(!SINKS.test(line), where);
+      HANDLER.lastIndex = 0;
+      let m;
+      while ((m = HANDLER.exec(line))) assert.match(line.slice(m.index + m[0].length), HANDLER_OK, where);
+    });
   });
+});
+
+// Every URL property assignment in js/ (.href, .src, .srcset, .poster, .formAction, or el['src'] and the
+// like) is a reviewed one, keyed on the file and the exact assignment text (not line numbers). A new one must be checked (https only, no chat or provider text
+// reaching it unvalidated) and then added here.
+test('every URL property assignment in js/ is a reviewed one', () => {
+  const REVIEWED = {
+    'builder.js': [
+      /^img\.src = (?:small|full)$/, // the channel avatar preview: IVR logo, isSafeUrl(jtvnw.net) checked
+      /^\$\('(?:bar|out)-open'\)\.href = url$/, // the generated overlay URL on this site
+      /^a\.href = href$/, // builder links on this site
+      /^f\.src = src$/, // the preview iframe: overlay.html on this site
+      /^s\.src = 'settings\.js\?t=' \+ Date\.now\(\)$/
+    ],
+    'overlay.js': [
+      /^a\.href = 'index\.html' \+ /, // back to the builder, channel URI-encoded
+      /^link\.href = 'https:\/\/fonts\.googleapis\.com\/css2\?family=' \+ encodeURIComponent\(/
+    ],
+    'renderer.js': [
+      /^img\.src = url$/, // url comes from pickUrl (https only)
+      /^img\.src = p\.orig$/ // a GIF's original URL: partsFor keeps it only when util.isSafeUrl (https)
+    ]
+  };
+  // .action is left out: plain objects use it (m.action); a form's action attribute goes through setAttribute (SINKS).
+  const ASSIGN = /([^\s;{}]*)(?:\.(href|src|srcset|poster|formAction)|\[\s*['"](href|src|srcset|poster|formAction)['"]\s*\])\s*=(?!=)([^;]*)/g;
+  const exprOf = (m) => (m[1] + '.' + (m[2] || m[3]) + ' = ' + m[4].trim()).replace(/\s+/g, ' ');
+  let seen = 0;
+  fs.readdirSync(path.join(ROOT, 'js')).filter((f) => f.endsWith('.js')).forEach((f) => {
+    read('js/' + f).split('\n').forEach((line, i) => {
+      ASSIGN.lastIndex = 0;
+      let m;
+      while ((m = ASSIGN.exec(line))) {
+        const expr = exprOf(m);
+        seen++;
+        assert.ok((REVIEWED[f] || []).some((re) => re.test(expr)), 'unreviewed URL sink js/' + f + ':' + (i + 1) + ' ' + expr);
+      }
+    });
+  });
+  assert.ok(seen >= 5, 'the scan finds the known sinks');
+  // The scan itself catches the other spellings of a URL sink.
+  const hits = (line) => { ASSIGN.lastIndex = 0; const m = ASSIGN.exec(line); return m ? exprOf(m) : null; };
+  assert.equal(hits("img.srcset = x;"), 'img.srcset = x');
+  assert.equal(hits("el['src'] = u;"), 'el.src = u');
+  assert.equal(hits('v.poster = p;'), 'v.poster = p');
+  assert.equal(hits('b.formAction = a;'), 'b.formAction = a');
+  assert.equal(hits('if (img.src == x) {}'), null);
+  assert.equal(hits('m.action = a.action;'), null);
 });
 
 test('both pages: a Content-Security-Policy that only runs the site\'s own script files, and nothing inline', () => {
@@ -145,8 +206,15 @@ test('provider emotes and badges: names are text, only https URLs are used', () 
   ], 1);
   assert.strictEqual(badges.length, 1);
   assert.strictEqual(badges[0].title, evil, 'a badge title only becomes alt text');
+  // A badge bg only ever reaches the CSSOM backgroundColor setter, which rejects anything but one color,
+  // so 'red;background-image:url(x)' cannot add a declaration.
+  const bgSinks = read('js/renderer.js').split('\n').filter((l) => /\bb\.bg\b/.test(l) && /style|css|setAttribute/i.test(l));
+  assert.ok(bgSinks.length > 0);
+  bgSinks.forEach((l) => assert.match(l.trim(), /^[\w$.]+\.style\.backgroundColor = b\.bg;$/, l.trim()));
   // The Shared Chat avatar (from IVR) must be a Twitch profile image.
   assert.strictEqual(twitchBadges.parseUser([{ id: 1, login: 'a', logo: 'https://evil.example/l.png' }]).logo, null);
+  assert.strictEqual(twitchBadges.parseUser([{ id: 1, login: 'a', logo: 'http://static-cdn.jtvnw.net/a-profile_image-600x600.png' }]).logo, null);
+  assert.strictEqual(twitchBadges.parseUser([{ id: 1, login: 'a', logo: 'https://static-cdn.jtvnw.net.evil.example/a-profile_image-600x600.png' }]).logo, null);
   assert.strictEqual(twitchBadges.parseUser([{ id: 1, login: 'a', logo: 'https://static-cdn.jtvnw.net/jtv_user_pictures/a.png' }]).logo,
     'https://static-cdn.jtvnw.net/jtv_user_pictures/a.png');
 });
@@ -175,8 +243,18 @@ test('7TV paints: hostile values never escape their rule, and stay near the name
     shadows: Array.from({ length: 50 }, () => ({ color: { hex: '#ff0000' }, offsetX: 5000, offsetY: -300, blur: 999 })) } });
   const rule = paintCss.ruleFor(big);
   assert.strictEqual((rule.match(/linear-gradient/g) || []).length, paintCss.MAX_LAYERS);
-  assert.strictEqual((rule.match(/drop-shadow/g) || []).length, paintCss.MAX_SHADOWS);
-  assert.match(rule, /drop-shadow\(32px -32px 32px #ff0000\)/);
+  // the shared budget can end the chain before MAX_SHADOWS (here the first shadow spends it all)
+  const nShadows = (rule.match(/drop-shadow/g) || []).length;
+  assert.ok(nShadows >= 1 && nShadows <= paintCss.MAX_SHADOWS, 'shadows ' + nShadows);
+  // the offset is scaled as a whole (direction kept): x hits the 32px cap, y shrinks by the same factor
+  assert.match(rule, /drop-shadow\(32px -1\.92px 32px #ff0000\)/);
+  // drop-shadows stack (each offsets the previous result): the whole chain shares one budget per axis and for blur
+  const sums = [0, 0, 0];
+  (rule.match(/drop-shadow\((-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px/g) || []).forEach((d) => {
+    const n = d.match(/-?[\d.]+/g).map(Number);
+    for (let k = 0; k < 3; k++) sums[k] += Math.abs(n[k]);
+  });
+  sums.forEach((v) => assert.ok(v <= paintCss.MAX_SHADOW_PX, 'chain total ' + v));
   const v3 = paintCss.ruleFor(paintCss.fromV3({ id: 'b2', function: 'LINEAR_GRADIENT', stops: Array.from({ length: 100 }, (_, i) => ({ at: i / 100, color: 255 })),
     shadows: [{ x_offset: 0, y_offset: -400, radius: 3, color: 255 }] }));
   assert.strictEqual((v3.match(/rgba\(/g) || []).length, paintCss.MAX_STOPS + 1, 'stops capped (+1 for the shadow color)');

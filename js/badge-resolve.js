@@ -6,7 +6,6 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (root) {
   'use strict';
 
-  var CDN_RE = /^https:\/\/static-cdn\.jtvnw\.net\/badges\/v1\/[0-9a-f-]{36}\/[123]$/i;
   // Every Twitch badge image is on static-cdn.jtvnw.net; any other URL from IVR or GQL is dropped.
   var HOST_RE = /^https:\/\/static-cdn\.jtvnw\.net\/[^\s"'()<>\\]*$/i;
 
@@ -98,7 +97,6 @@
   }
 
   return {
-    CDN_RE: CDN_RE,
     fromHelixLike: fromHelixLike,
     fromGqlFlat: fromGqlFlat,
     get: get,

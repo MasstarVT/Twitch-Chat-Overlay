@@ -87,6 +87,10 @@ test('twitchBadges.parseGqlGlobal / parseGqlChannel: flat GQL shapes, null user,
   assert.equal(twitchBadges.parseGqlChannel({ data: { user: { broadcastBadges: [] } } }).size, 0);
   assert.throws(() => twitchBadges.parseGqlChannel({ data: { user: null }, errors: [{ message: 'x' }] }));
   assert.throws(() => twitchBadges.parseGqlChannel({ data: null, errors: [{ message: 'x' }] }));
+  // A field error (user present, broadcastBadges null) is a failed load that retries, not "no badges".
+  assert.throws(() => twitchBadges.parseGqlChannel({ data: { user: { broadcastBadges: null } },
+    errors: [{ message: 'service timeout', path: ['user', 'broadcastBadges'] }] }), /service timeout/);
+  assert.equal(twitchBadges.parseGqlChannel({ data: { user: { broadcastBadges: null } } }).size, 0);
 });
 
 test('twitchBadges.parseUser: bare array -> {id,login,displayName,logo}; [] -> null', () => {
@@ -94,9 +98,17 @@ test('twitchBadges.parseUser: bare array -> {id,login,displayName,logo}; [] -> n
   assert.equal(u.id, '71092938');
   assert.equal(u.login, 'xqc');
   assert.equal(u.displayName, 'xQc');
-  assert.equal(u.logo, IVR_USER_XQC[0].logo);
+  // IVR's 600x600 logo becomes the 70x70 rendition (the avatar badge is 1em).
+  assert.equal(u.logo, 'https://static-cdn.jtvnw.net/jtv_user_pictures/xqc-profile_image-9298dca608632101-70x70.jpeg');
+  const logo = (l) => twitchBadges.parseUser([{ id: 1, login: 'a', logo: l }]).logo;
+  assert.equal(logo('https://static-cdn.jtvnw.net/user-default-pictures-uv/ebe4cd89-b4f4-4cd9-adac-2f30151b4209-profile_image-300x300.png'),
+    'https://static-cdn.jtvnw.net/user-default-pictures-uv/ebe4cd89-b4f4-4cd9-adac-2f30151b4209-profile_image-70x70.png');
+  assert.equal(logo('https://static-cdn.jtvnw.net/jtv_user_pictures/a.png'), 'https://static-cdn.jtvnw.net/jtv_user_pictures/a.png');
+  assert.equal(logo('https://evil.example/x-profile_image-600x600.png'), null);
   assert.equal(u.banned, false);
   assert.equal(twitchBadges.parseUser([], 'xqc'), null);
+  assert.equal(twitchBadges.parseUser([{ id: 5, login: 'someoneelse' }], 'xqc'), null, 'an answer for another login');
+  assert.equal(twitchBadges.parseUser([{ id: 5, login: 'someoneelse' }], null).id, '5', 'by-id lookups keep the first entry');
   assert.equal(twitchBadges.parseUser({ error: 'x' }), null);
   assert.equal(twitchBadges.parseUser([{ id: 123, login: 'a', logo: 'javascript:alert(1)' }]).id, '123');
   assert.equal(twitchBadges.parseUser([{ id: 123, login: 'a', logo: 'javascript:alert(1)' }]).logo, null);
@@ -286,6 +298,31 @@ test('bttv.upsertEmote / removeEmoteById handle renames by id', () => {
   assert.equal(m.size, 0);
 });
 
+test('bttv live emote_update is a patch: a rename without a size keeps the old size', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const { FakeWS, sockets } = fakeSocketFactory();
+  const m = bttv.parseChannel(BTTV_FORSEN).emotes; // forsenWide is 112x28
+  const live = bttv.createLive({ roomId: 22484632, WebSocket: FakeWS, onEmoteUpdate: (e) => bttv.upsertEmote(m, e) });
+  live.start();
+  sockets[0].onopen();
+  const send = (o) => sockets[0].onmessage({ data: JSON.stringify(o) });
+  send({ name: 'emote_update', data: { channel: 'twitch:22484632', emote: { id: '5e4e7a1f08b4447d56a92967', code: 'forsenWider' } } });
+  assert.equal(m.has('forsenWide'), false);
+  assert.deepEqual([m.get('forsenWider').w, m.get('forsenWider').h], [112, 28]);
+  // an update that carries a size uses it; one for an unknown id gets the 28x28 default
+  send({ name: 'emote_update', data: { channel: 'twitch:22484632', emote: { id: '5e4e7a1f08b4447d56a92967', code: 'forsenWider', width: 56, height: 28 } } });
+  assert.equal(m.get('forsenWider').w, 56);
+  send({ name: 'emote_update', data: { channel: 'twitch:22484632', emote: { id: 'eeeeeeeeeeeeeeeeeeeeeeee', code: 'New' } } });
+  assert.deepEqual([m.get('New').w, m.get('New').h], [28, 28]);
+  live.stop();
+});
+
+test('bttv: emote sizes under 1 px are broken payloads and use the default', () => {
+  const b = bttv.normalizeEmote({ id: 'aaaaaaaaaaaaaaaaaaaaaaaa', code: 'X', width: 112, height: 0.001 });
+  assert.deepEqual([b.w, b.h], [112, 28]);
+  assert.equal(bttv.normalizeEmote({ id: 'aaaaaaaaaaaaaaaaaaaaaaaa', code: 'X', width: 1e-20, height: 28 }).w, 28);
+});
+
 test('bttv loaders: plain GETs (no headers) to the cached routes', async (t) => {
   const calls = stubFetch(t, [
     ['https://api.betterttv.net/3/cached/emotes/global', { body: BTTV_GLOBAL }],
@@ -301,7 +338,22 @@ test('bttv loaders: plain GETs (no headers) to the cached routes', async (t) => 
     assert.equal(c.init.headers, undefined);
     assert.equal(c.init.method, 'GET');
   }
-  await assert.rejects(bttv.loadChannel('abc'));
+  // Bad room ids (including path traversal from a Shared Chat tag) reject without any request.
+  const n = calls.length;
+  for (const id of ['abc', '1/../../x', '../../emotes/global?', '', '1 2']) await assert.rejects(bttv.loadChannel(id), /invalid room id/);
+  assert.equal(calls.length, n);
+});
+
+test('bttv.loadChannel: {fresh:true} revalidates (cache no-cache); a normal load uses the browser cache', async (t) => {
+  const util = require('../js/util.js');
+  const seen = [];
+  t.mock.method(util, 'fetchJson', async (url, opts) => { seen.push([url, opts]); return BTTV_FORSEN; });
+  await bttv.loadChannel(22484632);
+  await bttv.loadChannel('22484632', { fresh: true });
+  assert.equal(seen[0][0], 'https://api.betterttv.net/3/cached/users/twitch/22484632');
+  assert.equal(seen[0][1].cache, undefined);
+  assert.equal(seen[1][1].cache, 'no-cache');
+  assert.equal(seen[1][1].headers, undefined, 'still a plain GET (the cached routes reject preflights)');
 });
 
 function fakeSocketFactory() {
@@ -372,10 +424,102 @@ test('bttv.createLive: proactive reconnect every 45 min, rejoins on the new sock
   live.stop();
 });
 
-test('bttv.createLive: invalid room id gives an inert controller', (t) => {
+test('bttv.createLive: onReopen after a dropped socket reopens, not on the first open or the planned refresh', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   t.mock.method(console, 'warn', () => {});
-  const live = bttv.createLive({ roomId: 'abc' });
-  assert.doesNotThrow(() => { live.start(); live.kick(); live.stop(); });
+  const { FakeWS, sockets } = fakeSocketFactory();
+  let reopens = 0;
+  const live = bttv.createLive({ roomId: '22484632', WebSocket: FakeWS, onReopen: () => { reopens++; } });
+  live.start();
+  sockets[0].onopen();
+  assert.equal(reopens, 0, 'first open');
+  sockets[0].onclose({ code: 1006 }); // dropped
+  t.mock.timers.tick(300000);
+  assert.equal(sockets.length, 2);
+  sockets[1].onopen();
+  assert.equal(reopens, 1, 'reopened after a drop: the caller refetches');
+  t.mock.timers.tick(bttv.REFRESH_MS);
+  t.mock.timers.tick(2000); // planned refresh
+  assert.equal(sockets.length, 3);
+  sockets[2].onopen();
+  assert.equal(reopens, 1, 'the planned refresh does not refetch');
+  t.mock.timers.tick(bttv.REFRESH_MS);
+  t.mock.timers.tick(2000); // a planned refresh whose new socket fails before opening
+  assert.equal(sockets.length, 4);
+  sockets[3].onclose({ code: 1006 });
+  t.mock.timers.tick(300000);
+  sockets[4].onopen();
+  assert.equal(reopens, 2, 'a failed refresh is a drop');
+  live.stop();
+});
+
+test('bttv.createLive: a refresh whose socket hits the connect timeout (no onopen/onclose) counts as a drop', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  t.mock.method(console, 'warn', () => {});
+  const { FakeWS, sockets } = fakeSocketFactory();
+  let reopens = 0;
+  const live = bttv.createLive({ roomId: '22484632', WebSocket: FakeWS, onReopen: () => { reopens++; } });
+  live.start();
+  sockets[0].onopen();
+  t.mock.timers.tick(bttv.REFRESH_MS);
+  t.mock.timers.tick(2000); // planned refresh
+  assert.equal(sockets.length, 2);
+  t.mock.timers.tick(20000); // the refresh socket never answers: connect timeout, handlers nulled
+  assert.equal(sockets[1].closed, true);
+  assert.equal(sockets[1].onclose, null, 'onclose never runs on this path');
+  t.mock.timers.tick(300000);
+  assert.equal(sockets.length, 3);
+  sockets[2].onopen();
+  assert.equal(reopens, 1, 'the gap after a timed-out refresh is resynced');
+  // A refresh after that is still planned.
+  t.mock.timers.tick(bttv.REFRESH_MS);
+  t.mock.timers.tick(300000);
+  sockets[3].onopen();
+  assert.equal(reopens, 1, 'the next planned refresh does not refetch');
+  live.stop();
+});
+
+test('bttv.createLive: a refresh whose socket constructor throws counts as a drop', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  t.mock.method(console, 'warn', () => {});
+  const sockets = [];
+  let failNext = false;
+  class FlakyWS {
+    constructor(url) {
+      if (failNext) { failNext = false; throw new Error('boom'); }
+      this.url = url; this.sent = []; this.closed = false; sockets.push(this);
+    }
+    send(s) { this.sent.push(s); }
+    close() { this.closed = true; }
+  }
+  let reopens = 0;
+  const live = bttv.createLive({ roomId: '22484632', WebSocket: FlakyWS, onReopen: () => { reopens++; } });
+  live.start();
+  sockets[0].onopen();
+  failNext = true;
+  t.mock.timers.tick(bttv.REFRESH_MS);
+  t.mock.timers.tick(2000); // planned refresh: constructor throws
+  assert.equal(sockets.length, 1);
+  t.mock.timers.tick(300000);
+  assert.equal(sockets.length, 2);
+  sockets[1].onopen();
+  assert.equal(reopens, 1);
+  live.stop();
+});
+
+test('bttv.createLive: invalid room id gives an inert controller that never opens a socket', (t) => {
+  t.mock.method(console, 'warn', () => {});
+  let made = 0;
+  class CountingWS { constructor() { made++; } send() {} close() {} }
+  for (const roomId of ['abc', '1/../../x', '../../emotes/global?', '']) {
+    const live = bttv.createLive({ roomId, WebSocket: CountingWS });
+    assert.doesNotThrow(() => { live.start(); live.kick(); live.stop(); });
+  }
+  assert.equal(made, 0);
+  const ok = bttv.createLive({ roomId: '1', WebSocket: CountingWS });
+  ok.start();
+  assert.equal(made, 1, 'the counting stub does see a valid room');
+  ok.stop();
 });
 
 // ======================= ffz =======================
@@ -493,6 +637,20 @@ test('ffz.parseBadges: defs keyed by String id, numeric user ids -> String, unkn
   assert.deepEqual(b.users.get('88100526'), ['3']);
   assert.equal(b.users.has('1'), false);
   assert.equal(b.users.has(73227142), false);
+  // Users with the same badges share one frozen list (the live list is ~40k users, nearly all ['3']).
+  const big = ffz.parseBadges({ badges: FFZ_BADGES.badges, users: { 2: [7, 8], 3: [5, 6, 7, 8] } });
+  assert.equal(big.users.get('5'), big.users.get('6'));
+  assert.equal(big.users.get('7'), big.users.get('8'));
+  assert.deepEqual(big.users.get('7'), ['2', '3']);
+  assert.ok(Object.isFrozen(big.users.get('5')));
+  assert.notEqual(big.users.get('5'), big.users.get('7'));
+});
+
+test('ffz: emote sizes under 1 px are broken payloads and use the default', () => {
+  const f = ffz.normalizeEmote(FFZ_EMOTE({ width: 33, height: 1e-20 }));
+  assert.deepEqual([f.w, f.h], [33, 28]);
+  assert.equal(ffz.normalizeEmote(FFZ_EMOTE({ width: 0.001 })).w, 28);
+  assert.equal(ffz.normalizeEmote(FFZ_EMOTE({ width: 1, height: 1 })).w, 1);
 });
 
 test('ffz loaders: urls and 404 handling', async (t) => {
@@ -507,7 +665,9 @@ test('ffz loaders: urls and 404 handling', async (t) => {
   assert.equal((await ffz.loadRoom('1')).emotes.size, 0);
   assert.equal((await ffz.loadBadges()).defs.size, 2);
   assert.equal(calls.length, 4);
-  await assert.rejects(ffz.loadRoom('x'));
+  // Bad room ids (including path traversal from a Shared Chat tag) reject without any request.
+  for (const id of ['x', '1/../../x', '../../set/global/ids?', '', '1 2']) await assert.rejects(ffz.loadRoom(id), /invalid room id/);
+  assert.equal(calls.length, 4);
 });
 
 // ======================= extra-badges =======================
@@ -542,15 +702,19 @@ const HOMIES_3 = { badges: [
   { badgeFileType: 'image/webp', badgeId: '68d98dd23d60203ffbfdce6c', image1: HB + '18.webp', image2: HB + '36.webp', image3: HB + '72.webp', tooltip: 'Empty', userId: '', username: 'nobody' }
 ] };
 
-test('extraBadges.parseChatterino: image1/2/3 -> 1/2/4, string ids, empty ids skipped, shared badge objects', () => {
+test('extraBadges.parseChatterino: image2/3 -> 2/4 (image1 only when alone), string ids, empty ids skipped, shared badge objects', () => {
   const m = extra.parseChatterino(CHATTERINO);
   assert.equal(m.has(''), false);
+  // Badges are always requested at 2x or more, so the 18 px image is not kept next to larger ones.
   assert.deepEqual(m.get('241105451')[0], {
     provider: 'chatterino', title: 'Chatterino Top Donator',
-    urls: { 1: 'https://fourtf.com/chatterino/badges/topd.png', 2: 'https://fourtf.com/chatterino/badges/topd2x.png', 4: 'https://fourtf.com/chatterino/badges/topd3x.png' }
+    urls: { 2: 'https://fourtf.com/chatterino/badges/topd2x.png', 4: 'https://fourtf.com/chatterino/badges/topd3x.png' }
   });
+  assert.equal(m.get('117691339')[0], m.get('11148817')[0], 'one badge object per list entry');
   assert.deepEqual(m.get('11148817').map((b) => b.title), ['Chatterino Developer', 'Chatterino Supporter']);
   assert.throws(() => extra.parseChatterino([]));
+  const only1 = extra.parseChatterino({ badges: [{ tooltip: 'x', image1: 'https://fourtf.com/x.png', users: ['1'] }] });
+  assert.deepEqual(only1.get('1')[0].urls, { 1: 'https://fourtf.com/x.png' });
 });
 
 test('extraBadges.parseFfzap: badge urls /1 /2 /3 and ChatIS background rules', () => {
@@ -579,8 +743,116 @@ test('extraBadges.parseHomies: users[] and userId shapes, badges2 [""] skipped, 
   assert.equal(m.has(''), false);
   assert.deepEqual(m.get('59842770').map((b) => b.title), ['Homies Developer', 'Homies Mod']);
   assert.equal(m.get('95700563')[0].provider, 'homies');
-  assert.deepEqual(m.get('95700563')[0].urls, { 1: HB + '18.webp', 2: HB + '36.webp', 4: HB + '72.webp' });
+  assert.deepEqual(m.get('95700563')[0].urls, { 2: HB + '36.webp', 4: HB + '72.webp' });
   assert.equal(m.size, 5);
+});
+
+test('extraBadges Homies index: per-user CDN badges are packed, read like a Map, same badges as the plain parse', () => {
+  const plain = new Map();
+  const idx = extra.createHomies();
+  for (const list of [HOMIES_1, HOMIES_2, HOMIES_3]) { extra.parseHomies(list, plain); extra.parseHomies(list, idx); }
+  assert.equal(idx.packed.size, 1, 'the single-user chatterinohomies entry is packed');
+  assert.equal(idx.size, plain.size);
+  assert.equal(idx.has('95700563'), true);
+  assert.equal(idx.has(''), false);
+  const all = [];
+  idx.forEach((list, uid) => all.push([uid, list]));
+  assert.deepEqual(new Map(all), plain, 'forEach sees the same badges');
+  assert.equal(idx.packed.size, 1, 'forEach does not unpack');
+  plain.forEach((list, uid) => assert.deepEqual(idx.get(uid), list, uid));
+  assert.equal(idx.get('95700563'), idx.get('95700563'), 'unpacked once, then the same list');
+  assert.equal(idx.packed.size, 0);
+  assert.equal(idx.get('nobody'), undefined);
+
+  // Order and dedupe: a user with a list badge and a packed one, then the same packed badge again.
+  const HB2 = 'https://cdn.chatterinohomies.com/badges/00000000-0000-4000-8000-000000000002/';
+  const packedEntry = (uid, title, base) => ({ image1: base + '18.webp', image2: base + '36.webp', image3: base + '72.webp', tooltip: title, userId: uid });
+  const h = extra.createHomies();
+  extra.parseHomies(HOMIES_1, h);
+  extra.parseHomies({ badges: [packedEntry('59842770', 'Mine', HB2), packedEntry('7', 'Seven', HB2), packedEntry('7', 'Seven', HB2),
+    packedEntry('7', 'Other', HB)] }, h);
+  assert.deepEqual(h.get('59842770').map((b) => b.title), ['Homies Developer', 'Mine']);
+  assert.deepEqual(h.get('7').map((b) => b.title), ['Seven', 'Other']);
+  // Anything that is not exactly cdn/<uuid>/{18,36,72}.webp takes the normal path (and https is still required).
+  const odd = extra.createHomies();
+  extra.parseHomies({ badges: [
+    { image1: HB + '18.webp', image2: HB + '36.webp', image3: HB2 + '72.webp', tooltip: 'mixed', userId: '1' },
+    { image2: 'http://cdn.chatterinohomies.com/badges/00000000-0000-4000-8000-000000000002/36.webp', tooltip: 'http', userId: '2' },
+    { image1: 'https://x.example/a.png', tooltip: 'plain', userId: '3' }] }, odd);
+  assert.equal(odd.packed.size, 0);
+  assert.deepEqual(odd.get('1')[0].urls, { 2: HB + '36.webp', 4: HB2 + '72.webp' });
+  assert.equal(odd.has('2'), false);
+  assert.deepEqual(odd.get('3')[0].urls, { 1: 'https://x.example/a.png' });
+});
+
+test('extraBadges Homies index: a user\'s badges follow list order whatever order the lists arrive in', () => {
+  const HB2 = 'https://cdn.chatterinohomies.com/badges/00000000-0000-4000-8000-000000000002/';
+  const L0 = { badges: [{ tooltip: 'Zero', image2: 'https://itzalex.github.io/z.png', users: ['1', '2'] },
+    { tooltip: 'Dup', image2: 'https://itzalex.github.io/d.png', users: ['1'] }] };
+  const L1 = { badges: [{ tooltip: 'One', image2: 'https://itzalex.github.io/o.png', users: ['1'] },
+    { tooltip: 'Dup', image2: 'https://itzalex.github.io/d.png', users: ['1'] }] };
+  const L2 = { badges: [{ image1: HB2 + '18.webp', image2: HB2 + '36.webp', image3: HB2 + '72.webp', tooltip: 'Two', userId: '1' },
+    { image1: HB + '18.webp', image2: HB + '36.webp', image3: HB + '72.webp', tooltip: 'Two', userId: '2' }] };
+  const lists = [L0, L1, L2];
+  const perms = [[0, 1, 2], [2, 1, 0], [1, 2, 0], [2, 0, 1], [0, 2, 1], [1, 0, 2]];
+  for (const order of perms) {
+    const walked = extra.createHomies();
+    const h = extra.createHomies();
+    for (const i of order) { extra.parseHomies(lists[i], h, i); extra.parseHomies(lists[i], walked, i); }
+    const seen = new Map();
+    walked.forEach((list, uid) => seen.set(uid, list.map((b) => b.title)));
+    assert.deepEqual(seen.get('1'), ['Zero', 'Dup', 'One', 'Two'], 'forEach, order ' + order);
+    assert.deepEqual(h.get('1').map((b) => b.title), ['Zero', 'Dup', 'One', 'Two'], 'order ' + order);
+    assert.deepEqual(h.get('2').map((b) => b.title), ['Zero', 'Two'], 'order ' + order);
+  }
+});
+
+test('extraBadges Homies index: first() gives one list without walking the index', () => {
+  const empty = extra.createHomies();
+  assert.equal(empty.first(), null);
+  const packedOnly = extra.createHomies();
+  extra.parseHomies(HOMIES_3, packedOnly, 2);
+  assert.deepEqual(packedOnly.first().map((b) => b.title), ['usVesper Badge']);
+  assert.deepEqual(packedOnly.first()[0].urls, { 2: HB + '36.webp', 4: HB + '72.webp' });
+  assert.equal(packedOnly.packed.size, 1, 'first() does not unpack into the index');
+  const h = extra.createHomies();
+  extra.parseHomies(HOMIES_1, h, 0);
+  extra.parseHomies(HOMIES_3, h, 2);
+  assert.deepEqual(h.first().map((b) => b.title), ['Homies Developer']);
+});
+
+test('extraBadges.loadHomiesSource: one list per call into a shared index; failures reject for a retry', async (t) => {
+  let fail3 = true;
+  const calls = stubFetch(t, [
+    ['https://itzalex.github.io/badges', { body: HOMIES_1 }],
+    ['https://itzalex.github.io/badges2', { body: HOMIES_2 }],
+    ['https://chatterinohomies.com/api/badges/list', () => (fail3 ? new TypeError('timeout') : { body: HOMIES_3 })]
+  ]);
+  assert.equal(extra.HOMIES_COUNT, 3);
+  const idx = extra.createHomies();
+  assert.equal(await extra.loadHomiesSource(0, idx), idx);
+  await assert.rejects(extra.loadHomiesSource(2, idx), /timeout/);
+  assert.equal(idx.size, 3);
+  fail3 = false;
+  await extra.loadHomiesSource(2, idx);
+  await extra.loadHomiesSource(1, idx);
+  assert.equal(idx.size, 5);
+  assert.equal(calls.length, 4, 'only the failed list is fetched again');
+  assert.deepEqual(idx.get('59842770').map((b) => b.title), ['Homies Developer', 'Homies Mod'], 'list order, not arrival order');
+  assert.ok((await extra.loadHomiesSource(1)).has('96150961'), 'a new index when none is given');
+  await assert.rejects(extra.loadHomiesSource(3), /no Homies list/);
+});
+
+test('extraBadges: the Homies lists get more than the 8 MB default body cap', async (t) => {
+  const util = require('../js/util.js');
+  const orig = util.fetchJson;
+  const seen = [];
+  util.fetchJson = (url, opts) => { seen.push(opts.maxBytes); return Promise.resolve({ badges: [] }); };
+  t.after(() => { util.fetchJson = orig; });
+  await extra.loadHomiesSource(2, extra.createHomies());
+  await extra.loadHomies();
+  assert.strictEqual(seen.length, 4);
+  seen.forEach((b) => assert.ok(b >= 16 * 1024 * 1024));
 });
 
 test('extraBadges.loadHomies: per-list failures tolerated, rejects only when all fail', async (t) => {
@@ -595,6 +867,7 @@ test('extraBadges.loadHomies: per-list failures tolerated, rejects only when all
   assert.equal(m.has('96150961'), false);
   fail3 = false;
   assert.equal((await extra.loadHomies()).size, 4);
+  assert.deepEqual((await extra.loadHomies()).get('95700563')[0].urls, { 2: HB + '36.webp', 4: HB + '72.webp' });
   globalThis.fetch = async () => { throw new TypeError('offline'); };
   await assert.rejects(extra.loadHomies(), /all Homies/);
 });

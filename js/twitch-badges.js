@@ -45,7 +45,17 @@
       if (hasErrors(json)) throw gqlError(json);
       return new Map();
     }
+    // A field error (user present, broadcastBadges null) is a failed load, not "no badges": throw so it retries.
+    if (!Array.isArray(data.user.broadcastBadges) && hasErrors(json)) throw gqlError(json);
     return badgeResolve.fromGqlFlat(data.user.broadcastBadges || []);
+  }
+
+  // IVR's logo is the 600x600 profile image; the avatar badge is drawn at 1em, so ask the CDN for 70x70.
+  // e.g. .../xqc-profile_image-9298dca608632101-600x600.jpeg or .../<uuid>-profile_image-300x300.png
+  var LOGO_SIZE_RE = /(-profile_image-(?:[0-9a-f]+-)?)\d+x\d+(\.(?:png|jpe?g|gif|webp))$/i;
+  function smallLogo(u) {
+    if (!util.isSafeUrl(u, AVATAR_HOST_RE)) return null;
+    return u.replace(LOGO_SIZE_RE, function (all, head, ext) { return head + '70x70' + ext; });
   }
 
   // IVR user lookup (bare array) -> {id, login, displayName, logo, banned} or null.
@@ -55,6 +65,7 @@
     for (var i = 0; i < json.length && login; i++) {
       if (json[i] && String(json[i].login || '').toLowerCase() === login) { u = json[i]; break; }
     }
+    if (!u && login) return null; // an answer for another login is not this user
     u = u || json[0];
     var id = util.idStr(u && u.id);
     if (!ID_RE.test(id)) return null;
@@ -63,7 +74,7 @@
       id: id,
       login: lg,
       displayName: typeof u.displayName === 'string' && u.displayName ? u.displayName : lg,
-      logo: util.isSafeUrl(u.logo, AVATAR_HOST_RE) ? u.logo : null,
+      logo: smallLogo(u.logo),
       banned: !!u.banned
     };
   }

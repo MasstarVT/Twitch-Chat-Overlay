@@ -18,7 +18,8 @@
   var ZW_CODES = new Set(['SoSnowy', 'IceCold', 'SantaHat', 'TopHat', 'ReinDeer', 'CandyCane', 'cvMask', 'cvHazmat']);
 
   function badPayload(what) { return new Error('unexpected ' + what + ' payload'); }
-  function dim(v) { var n = Number(v); return n > 0 ? n : 28; }
+  // A size under 1 px (0.001, 1e-20) is a broken payload, not a real emote: use the default.
+  function dim(v) { var n = Number(v); return n >= 1 && n < 10000 ? n : 28; }
   function safeUrl(u) { var a = util.absUrl(u); return a && util.isSafeUrl(a) ? a : null; }
 
   // BTTV emote -> Emote, or null when the id/code is unusable. 3x is 4x the 1x size.
@@ -118,8 +119,16 @@
     });
     return removed;
   }
+  // A live emote_update may carry only {id, code}; its w/h are then 0 (see createLive) and the size
+  // is taken from the entry it replaces, so a renamed wide emote stays wide.
   function upsertEmote(map, emote) {
     if (!emote) return;
+    if (!emote.w || !emote.h) {
+      var old = null, id = String(emote.id);
+      map.forEach(function (e) { if (!old && e && e.id === id) old = e; });
+      if (!emote.w) emote.w = old ? old.w : 28;
+      if (!emote.h) emote.h = old ? old.h : 28;
+    }
     removeEmoteById(map, emote.id); // an update may rename the code
     map.set(emote.name, emote);
   }
@@ -128,10 +137,14 @@
     return util.fetchJson(API + 'emotes/global', { timeout: 10000 }).then(parseGlobal);
   }
 
-  function loadChannel(roomId) {
+  // opts.fresh revalidates with BTTV instead of taking the browser's cached copy (the route is served with
+  // max-age=300): a reload after an outage must not bring back emotes the live socket has since changed.
+  function loadChannel(roomId, opts) {
     var id = util.idStr(roomId);
     if (!ROOM_RE.test(id)) return Promise.reject(new Error('invalid room id: ' + id));
-    return util.fetchJson(API + 'users/twitch/' + id, { timeout: 10000 }).then(parseChannel);
+    var req = { timeout: 10000 };
+    if (opts && opts.fresh) req.cache = 'no-cache';
+    return util.fetchJson(API + 'users/twitch/' + id, req).then(parseChannel);
   }
 
   function loadStaffBadges() {
@@ -139,7 +152,9 @@
   }
 
   // Live socket for one channel. Callbacks: onEmoteAdd(emote), onEmoteUpdate(emote), onEmoteRemove(emoteId),
-  // onUser(userId, {badge, emotes}). opts.WebSocket may be injected (tests).
+  // onUser(userId, {badge, emotes}), onReopen(). The socket does not replay events, so onReopen fires when it
+  // opens again after a drop (not after the planned 45-minute refresh): the caller refetches the channel then.
+  // opts.WebSocket may be injected (tests).
   function createLive(opts) {
     opts = opts || {};
     var roomId = util.idStr(opts.roomId);
@@ -162,7 +177,12 @@
         case 'emote_update': {
           if (d.channel !== channel) return;
           var em = normalizeEmote(d.emote, false);
-          if (em) call(msg.name === 'emote_create' ? opts.onEmoteAdd : opts.onEmoteUpdate, em);
+          if (!em) return;
+          if (msg.name === 'emote_create') { call(opts.onEmoteAdd, em); return; }
+          // An update is a patch: a missing size is filled in by upsertEmote from the entry it replaces.
+          if (!(Number(d.emote.width) >= 1)) em.w = 0;
+          if (!(Number(d.emote.height) >= 1)) em.h = 0;
+          call(opts.onEmoteUpdate, em);
           return;
         }
         case 'emote_delete': {
@@ -181,6 +201,12 @@
       }
     }
 
+    // opens counts socket opens. plannedGen is the connection generation that started the 45-minute
+    // refresh: scheduleReconnect and _connect each add one to the generation, so only the socket the
+    // refresh itself opens has gen === plannedGen + 2. A refresh whose socket fails by any path (close,
+    // connect timeout, constructor error) goes through another reconnect and counts as a drop.
+    var opens = 0, plannedGen = -10;
+
     // Never send broadcast_me: an overlay must not announce itself as a chatter.
     var client = new util.SocketClient({
       name: 'bttv',
@@ -191,8 +217,13 @@
       onOpen: function (ctl) {
         ctl.send(JSON.stringify({ name: 'join_channel', data: { name: channel } }));
         ctl.setTimeout(function () {
+          plannedGen = ctl.gen;
           ctl.reconnect('refresh', { delay: util.jitter(0, 2000) });
         }, REFRESH_MS);
+        var again = opens++ > 0 && ctl.gen !== plannedGen + 2;
+        if (again) {
+          try { call(opts.onReopen); } catch (e) { util.warn('bttv onReopen threw', e); }
+        }
       },
       onMessage: function (data) { onMessage(data); }
     });

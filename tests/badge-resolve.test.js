@@ -55,7 +55,6 @@ describe('fromHelixLike / fromGqlFlat', () => {
         4: 'https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/3'
       }
     });
-    assert.ok(br.CDN_RE.test(b.urls[4]));
   });
 
   const CDN1 = 'https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/1';
