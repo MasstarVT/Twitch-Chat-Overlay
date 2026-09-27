@@ -57,6 +57,19 @@ describe('small helpers', () => {
     assert.equal(util.isSafeUrl('https://any.example/x'), true, 'no host filter means any https host');
   });
 
+  test('capMarks: invisible default-ignorable characters between marks do not restart the count', () => {
+    const marks = (x) => [...x].filter((c) => /[\p{Mn}\p{Me}]/u.test(c)).length;
+    const group = '\u030d\u0352\u0346\u0351';
+    for (const sep of ['\u{E0000}', '\u2065', '\uFFF0', '\u{E0080}', '\u{E01F0}', '\u200B', '\u200D']) {
+      const out = util.capMarks('a' + (group + sep).repeat(83));
+      assert.ok(marks(out) <= 4, JSON.stringify(sep) + ' kept ' + marks(out) + ' marks');
+      assert.equal(out[0], 'a');
+    }
+    // Normal text is untouched.
+    ['Tiếng Việt', 'क्षत्रिय', 'ภาษาไทย', '👩🏽‍💻', '🏳️‍🌈', 'e\u0301\u0302\u0303\u0304'].forEach((x) => assert.equal(util.capMarks(x), x, x));
+    assert.equal(util.capMarks(5), 5);
+  });
+
   test('Emitter delivers to every handler and survives a throwing one', (t) => {
     t.mock.method(console, 'warn', () => {});
     const e = new util.Emitter();
@@ -166,6 +179,16 @@ describe('colors', () => {
     assert.equal(util.defaultColor('demo-1'), d);
   });
 
+  test('defaultColor always returns a palette color, even for negative or fractional ids', () => {
+    ['-1', '1.5', -7, 2.25, 'Infinity', '-0.5', '1e400'].forEach((id) => {
+      assert.ok(util.TWITCH_PALETTE.includes(util.defaultColor(id, 'someone')), String(id));
+      assert.equal(util.defaultColor(id, 'someone'), util.defaultColor(id, 'someone'));
+    });
+    assert.equal(util.defaultColor('-1', 'someone'), util.defaultColor('', 'someone'), 'a bad id hashes the login');
+    assert.equal(util.defaultColor('0'), util.TWITCH_PALETTE[0]);
+    assert.equal(util.defaultColor('15'), util.TWITCH_PALETTE[0]);
+  });
+
   test('intToRgba decodes 7TV packed RGBA int32', () => {
     assert.equal(util.intToRgba(-1857617921), 'rgba(145,70,255,1)');
     assert.equal(util.intToRgba(-1), 'rgba(255,255,255,1)');
@@ -212,9 +235,102 @@ describe('fetchJson / postJson (fetch mocked)', () => {
     t.mock.method(globalThis, 'fetch', (url, init) => new Promise((resolve, reject) => {
       init.signal.addEventListener('abort', () => reject(new Error('aborted')));
     }));
-    const p = util.fetchJson('https://api.example/slow', { timeout: 20000 });
+    const p = util.fetchJson('https://api.example/slow', { timeout: 10000 });
     t.mock.timers.tick(8000); // headers timeout (8 s default)
     await assert.rejects(p, (e) => e.timeout === true);
+  });
+
+  test('the headers timeout grows with a longer total budget, and an explicit one wins', { timeout: 5000 }, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const hang = (url, init) => new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+    t.mock.method(globalThis, 'fetch', hang);
+    let settled = false;
+    const p = util.fetchJson('https://gql.example/slow', { timeout: 20000 }).catch((e) => { settled = true; throw e; });
+    t.mock.timers.tick(8000);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(settled, false, 'a 20 s call is not cut at 8 s');
+    t.mock.timers.tick(7000); // 3/4 of 20 s
+    await assert.rejects(p, (e) => e.timeout === true);
+    const q = util.fetchJson('https://gql.example/slow', { timeout: 20000, headersTimeout: 3000 });
+    t.mock.timers.tick(3000);
+    await assert.rejects(q, (e) => e.timeout === true);
+  });
+
+  test('a slow body may run past the headers timeout; the total timeout aborts a stalled body', { timeout: 5000 }, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const flush = () => new Promise((r) => setImmediate(r));
+    let ctl;
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      const body = new ReadableStream({ start(c) { ctl = c; } });
+      init.signal.addEventListener('abort', () => { try { ctl.error(new Error('aborted')); } catch (e) { /* closed */ } });
+      return new Response(body, { status: 200 });
+    });
+    // Body finishes after the 8 s headers timeout but inside the 15 s total: resolves.
+    const ok = util.fetchJson('https://api.example/big', { timeout: 15000 });
+    await flush();
+    ctl.enqueue(new TextEncoder().encode('{"a":'));
+    t.mock.timers.tick(12000);
+    await flush();
+    ctl.enqueue(new TextEncoder().encode('1}'));
+    ctl.close();
+    assert.deepEqual(await ok, { a: 1 });
+    // Body that never finishes: rejected as a timeout at the total budget, not before.
+    let settled = false;
+    const stall = util.fetchJson('https://api.example/stall', { timeout: 20000 }).catch((e) => { settled = true; throw e; });
+    await flush();
+    ctl.enqueue(new TextEncoder().encode('{"a":'));
+    t.mock.timers.tick(19999);
+    await flush();
+    assert.equal(settled, false);
+    t.mock.timers.tick(1);
+    await assert.rejects(stall, (e) => e.timeout === true);
+  });
+
+  test('bodies over maxBytes are rejected and the download aborted', async (t) => {
+    let signal;
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      signal = init.signal;
+      let n = 0;
+      const body = new ReadableStream({
+        pull(c) { if (n++ < 100) c.enqueue(new Uint8Array(1024).fill(32)); else c.close(); }
+      });
+      return new Response(body, { status: 200 });
+    });
+    await assert.rejects(util.fetchJson('https://api.example/huge', { maxBytes: 10 * 1024 }), (e) => e.tooLarge === true && !e.timeout);
+    assert.equal(signal.aborted, true);
+    // Under the cap it reads fine; over it, it doesn't.
+    t.mock.restoreAll();
+    t.mock.method(globalThis, 'fetch', async () => new Response('[' + '1,'.repeat(5000) + '1]', { status: 200 }));
+    assert.equal((await util.fetchJson('https://api.example/ok', { maxBytes: 20000 })).length, 5001);
+    await assert.rejects(util.fetchJson('https://api.example/ok', { maxBytes: 5000 }), (e) => e.tooLarge === true);
+  });
+
+  test('a Content-Length over maxBytes is rejected before reading', async (t) => {
+    let read = false;
+    t.mock.method(globalThis, 'fetch', async () => ({
+      status: 200, ok: true,
+      headers: { get: (h) => (h.toLowerCase() === 'content-length' ? String(50 * 1024 * 1024) : null) },
+      text: () => { read = true; return Promise.resolve('{}'); }
+    }));
+    await assert.rejects(util.fetchJson('https://api.example/huge'), (e) => e.tooLarge === true);
+    assert.equal(read, false);
+  });
+
+  test('works with a response that has only text() (no body stream), and caps it too', async (t) => {
+    t.mock.method(globalThis, 'fetch', async () => ({ status: 200, ok: true, text: () => Promise.resolve('{"x":2}') }));
+    assert.deepEqual(await util.fetchJson('https://api.example/plain'), { x: 2 });
+    await assert.rejects(util.fetchJson('https://api.example/plain', { maxBytes: 3 }), (e) => e.tooLarge === true);
+  });
+
+  test('opts.cache is passed to fetch as the cache mode, and omitted otherwise', async (t) => {
+    const seen = [];
+    t.mock.method(globalThis, 'fetch', async (url, init) => { seen.push(init); return new Response('{}', { status: 200 }); });
+    await util.fetchJson('https://api.example/a', { cache: 'no-cache' });
+    await util.fetchJson('https://api.example/b');
+    assert.equal(seen[0].cache, 'no-cache');
+    assert.equal('cache' in seen[1], false);
   });
 
   test('postJson adds Content-Type and merges extra headers', async (t) => {
@@ -251,6 +367,46 @@ describe('loadWithRetry', () => {
     assert.equal(ctl.isDone(), true);
     t.mock.timers.tick(600000); await flush();
     assert.equal(calls, 3);
+  });
+
+  test('a loader that never succeeds is retried after 3, 10, 30, 60 s, then every 5 min', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.mock.method(console, 'warn', () => {});
+    let calls = 0;
+    const ctl = util.loadWithRetry('dead', () => { calls++; return Promise.reject(new Error('down')); });
+    await flush();
+    assert.equal(calls, 1);
+    const steps = [3000, 10000, 30000, 60000, 300000, 300000, 300000];
+    for (let i = 0; i < steps.length; i++) {
+      t.mock.timers.tick(steps[i] - 1); await flush();
+      assert.equal(calls, i + 1, 'not before ' + steps[i] + ' ms');
+      t.mock.timers.tick(1); await flush();
+      assert.equal(calls, i + 2, 'retry ' + (i + 1) + ' after ' + steps[i] + ' ms');
+    }
+    assert.equal(ctl.status, 'failed');
+    ctl.cancel();
+  });
+
+  test('cancel() while a run is in flight suppresses onDone and further retries', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.mock.method(console, 'warn', () => {});
+    let resolve, reject, calls = 0;
+    const done = [];
+    const ctl = util.loadWithRetry('slow', () => { calls++; return new Promise((a, b) => { resolve = a; reject = b; }); }, (r) => done.push(r));
+    await flush();
+    ctl.cancel();
+    resolve('late');
+    await flush();
+    assert.deepEqual(done, []);
+    assert.equal(ctl.isDone(), false);
+    const ctl2 = util.loadWithRetry('slow2', () => { calls++; return new Promise((a, b) => { resolve = a; reject = b; }); }, (r) => done.push(r));
+    await flush();
+    ctl2.cancel();
+    reject(new Error('late failure'));
+    await flush();
+    t.mock.timers.tick(600000); await flush();
+    assert.equal(calls, 2, 'no retry after cancel');
+    assert.deepEqual(done, []);
   });
 
   test('retryNow skips the wait; cancel stops retries', async (t) => {
@@ -379,6 +535,7 @@ describe('SocketClient', () => {
     assert.equal(s.sockets.length, 2);
     s.tick(1);
     assert.equal(s.sockets.length, 3);
+    s.sockets[2].fireOpen();
     s.tick(600000);
     assert.equal(s.sockets.length, 3);
   });
@@ -405,6 +562,7 @@ describe('SocketClient', () => {
     assert.equal(s.sockets.length, 1);
     s.tick(1);
     assert.equal(s.sockets.length, 2);
+    s.sockets[1].fireOpen();
     s.tick(600000);
     assert.equal(s.sockets.length, 2);
   });
@@ -421,6 +579,7 @@ describe('SocketClient', () => {
     assert.equal(s.sockets.length, 1);
     s.tick(1);
     assert.equal(s.sockets.length, 2);
+    s.sockets[1].fireOpen();
     s.tick(600000);
     assert.equal(s.sockets.length, 2);
   });
@@ -625,11 +784,50 @@ describe('SocketClient', () => {
     s.client.kick();
     assert.equal(s.sockets.length, 3);
     assert.equal(s.client.backoff.attempts, 0);
-    s.tick(600000); // the cancelled timer must not fire
+    s.tick(19999); // the cancelled timer must not fire (and the connect timeout is 20 s)
     assert.equal(s.sockets.length, 3);
     s.sockets[2].fireOpen();
+    s.tick(600000);
+    assert.equal(s.sockets.length, 3);
     s.client.kick(); // no-op while open
     assert.equal(s.sockets.length, 3);
+  });
+
+  test('a handshake that never completes is abandoned after connectTimeout', (t) => {
+    const s = setup(t);
+    s.client.start();
+    s.tick(19999);
+    assert.equal(s.sockets.length, 1);
+    assert.equal(s.client.state, 'connecting');
+    s.tick(1);
+    assert.equal(s.client.state, 'waiting');
+    assert.equal(s.sockets[0].closeCalls, 1, 'the stalled socket is closed');
+    assert.equal(s.sockets[0].onopen, null);
+    s.tick(500); // backoff
+    assert.equal(s.sockets.length, 2);
+    // An open clears the timer: a connection that opens stays up.
+    s.sockets[1].fireOpen();
+    assert.equal(s.client.timers.length, 1, 'only the stable-reset timer is left');
+    s.tick(600000);
+    assert.equal(s.sockets.length, 2);
+    assert.equal(s.client.state, 'open');
+  });
+
+  test('connectTimeout is configurable and 0 turns it off', (t) => {
+    const a = setup(t, { connectTimeout: 5000 });
+    a.client.start();
+    a.tick(5000);
+    assert.equal(a.client.state, 'waiting');
+    a.client.stop();
+  });
+
+  test('connectTimeout: 0 never abandons a connecting socket', (t) => {
+    const b = setup(t, { connectTimeout: 0 });
+    b.client.start();
+    b.tick(600000);
+    assert.equal(b.sockets.length, 1);
+    assert.equal(b.client.state, 'connecting');
+    assert.equal(b.client.timers.length, 0);
   });
 
   test('a throwing WebSocket constructor schedules a reconnect', (t) => {

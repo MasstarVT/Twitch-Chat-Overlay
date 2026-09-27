@@ -26,7 +26,7 @@ describe('spec', () => {
   });
 
   test('LIVE_KEYS plus the reload keys partition every key', () => {
-    const reload = ['channel', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'shared', 'demo', 'debug'];
+    const reload = ['channel', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'demo', 'debug'];
     config.LIVE_KEYS.forEach((k) => assert.ok(config.SPEC[k], k + ' is not in SPEC'));
     reload.forEach((k) => assert.ok(!config.LIVE_KEYS.includes(k), k + ' must force a reload'));
     assert.deepEqual([...config.LIVE_KEYS, ...reload].sort(), [...config.KEYS].sort());
@@ -56,6 +56,16 @@ describe('normalizeChannel', () => {
     assert.equal(config.normalizeChannel('https://www.twitch.tv/embed/xqc/chat?parent=example.com'), 'xqc');
     assert.equal(config.normalizeChannel('https://www.twitch.tv/moderator/xqc'), 'xqc');
     assert.equal(config.normalizeChannel('https://twitch.tv/popout'), 'popout', 'a channel literally named popout');
+    assert.equal(config.normalizeChannel('https://www.twitch.tv/subs/xQc'), 'xqc', 'subscribe-page link');
+    assert.equal(config.normalizeChannel('twitch.tv/subs/xqc?ref=x'), 'xqc');
+    assert.equal(config.normalizeChannel('https://twitch.tv/subs'), 'subs', 'a channel literally named subs');
+  });
+
+  test('links that name no channel are rejected, not read as a channel', () => {
+    assert.equal(config.normalizeChannel('https://www.twitch.tv/videos/2345678901'), '');
+    assert.equal(config.normalizeChannel('twitch.tv/directory/category/just-chatting'), '');
+    assert.equal(config.normalizeChannel('https://www.twitch.tv/videos'), 'videos', 'a bare channel link still works');
+    assert.equal(config.normalizeChannel('videos'), 'videos');
   });
 
   test('rejects anything that is not a valid login', () => {
@@ -123,6 +133,18 @@ describe('coerce', () => {
     assert.deepEqual(config.coerce('block', ''), []);
   });
 
+  test('list: large lists dedupe in linear time, first occurrence order kept', () => {
+    const names = [];
+    for (let i = 0; i < 40000; i++) names.push('user' + (i % 20000));
+    const t0 = Date.now();
+    const out = config.coerce('block', names.join(','));
+    assert.equal(out.length, 20000);
+    assert.equal(out[0], 'user0');
+    assert.equal(out[19999], 'user19999');
+    assert.ok(Date.now() - t0 < 500, 'took ' + (Date.now() - t0) + ' ms');
+    assert.deepEqual(config.coerce('block', ['constructor', '__proto__', 'constructor']), ['constructor', '__proto__']);
+  });
+
   test('channel and unknown keys', () => {
     assert.equal(config.coerce('channel', 'https://twitch.tv/XQC'), 'xqc');
     assert.equal(config.coerce('channel', 'bad name'), undefined);
@@ -168,6 +190,7 @@ describe('parse', () => {
     assert.equal(config.toParams(cfg).toString(), 'channel=xqc&layout=horizontal');
     assert.deepEqual(config.toObject(cfg), { channel: 'xqc', layout: 'horizontal' });
     assert.ok(config.LIVE_KEYS.includes('layout'), 'the builder preview switches layout without a reload');
+    assert.ok(config.LIVE_KEYS.includes('shared'), 'the renderer applies Shared Chat in place');
   });
 
   test('decodes an encoded channel URL', () => {
@@ -188,6 +211,13 @@ describe('parse', () => {
     assert.equal(cfg.bots, true);
     assert.deepEqual(cfg.block, ['a']);
     assert.equal(cfg.font, 'Roboto');
+  });
+
+  test('an explicit empty channel= clears the settings.js channel; an invalid one falls back to it', () => {
+    assert.equal(config.parse('?channel=', { channel: 'forsen' }).channel, '');
+    assert.equal(config.parse('?channel=%20', { channel: 'forsen' }).channel, '');
+    assert.equal(config.parse('?channel=bad%20name', { channel: 'forsen' }).channel, 'forsen');
+    assert.equal(config.parse('?size=small', { channel: 'forsen' }).channel, 'forsen');
   });
 
   test('an invalid URL value keeps the settings.js value', () => {
@@ -263,6 +293,15 @@ test('isSystemFont', () => {
   ['Inter', 'Roboto', '', undefined].forEach((f) => assert.equal(config.isSystemFont(f), false, String(f)));
 });
 
+test('isSystemFont: CSS generic keywords and stock Windows fonts are never fetched from Google Fonts', () => {
+  ['serif', 'Sans-Serif', 'monospace', 'cursive', 'fantasy', 'ui-rounded', 'math', 'emoji', 'fangsong']
+    .forEach((f) => assert.equal(config.isSystemFont(f), true, f));
+  ['Calibri', 'cambria', 'Arial Black', 'Lucida Console', 'Palatino Linotype', 'Bahnschrift']
+    .forEach((f) => assert.equal(config.isSystemFont(f), true, f));
+  config.GENERIC_FONT_NAMES.forEach((f) => assert.equal(config.canonicalFont(f.toUpperCase()), f, f));
+  assert.equal(config.isSystemFont('constructor'), false);
+});
+
 describe('prototype names are not settings', () => {
   test('parse ignores __proto__, constructor and other Object.prototype names', () => {
     const cfg = config.parse('?__proto__=x&constructor=y&toString=1&hasOwnProperty=2&valueOf=3&CONSTRUCTOR=4');
@@ -282,9 +321,32 @@ describe('prototype names are not settings', () => {
   test('settings objects with prototype names are ignored', () => {
     const settings = JSON.parse('{"__proto__": {"channel": "evil"}, "constructor": 1, "size": "large"}');
     const cfg = config.parse('', settings);
-    assert.equal(cfg.size, 'large');
-    assert.equal(cfg.channel, '');
+    // Strict deep-equal checks own keys, values and the prototype: nothing but 'size' may leak in.
+    assert.deepEqual(cfg, Object.assign(config.defaults(), { size: 'large' }));
+    assert.equal(Object.getPrototypeOf(cfg), Object.prototype);
+    assert.deepEqual(Object.keys(cfg), config.KEYS);
     assert.equal(({}).channel, undefined);
+  });
+
+  test('settings object keys are case-insensitive, like URL keys', () => {
+    const cfg = config.parse('', { Channel: 'Forsen', SIZE: 'large', Block: ['A'] });
+    assert.equal(cfg.channel, 'forsen');
+    assert.equal(cfg.size, 'large');
+    assert.deepEqual(cfg.block, ['a']);
+    assert.equal(config.parse('', { Size: 'small', size: 'large' }).size, 'large', 'a later spelling wins');
+    assert.deepEqual(Object.keys(config.parse('', { Size: 'small', Nope: 1 })), config.KEYS);
+    assert.equal(config.parse('?size=small', { SIZE: 'large' }).size, 'small', 'URL still wins');
+  });
+
+  test('values that are not strings, numbers or booleans are ignored instead of throwing', () => {
+    const bad = JSON.parse('{"toString": 1}');
+    ['channel', 'size', 'font', 'shadow', 'bots', 'block'].forEach((k) => {
+      assert.equal(config.coerce(k, bad), undefined, k);
+      assert.equal(config.coerce(k, Symbol('x')), undefined, k);
+    });
+    assert.deepEqual(config.coerce('block', ['ok', bad, { a: 1 }, ['x'], 7, 'Ok']), ['ok', '7']);
+    const cfg = config.parse('', { size: bad, font: bad, block: [bad], channel: 'xqc' });
+    assert.deepEqual(cfg, Object.assign(config.defaults(), { channel: 'xqc' }));
   });
 });
 
@@ -311,7 +373,9 @@ describe('fonts', () => {
   test('SYSTEM_FONT_NAMES are the canonical spellings of SYSTEM_FONTS', () => {
     assert.deepEqual(config.SYSTEM_FONT_NAMES.map((f) => f.toLowerCase()), config.SYSTEM_FONTS);
     assert.deepEqual(config.SYSTEM_FONTS, ['arial', 'segoe ui', 'verdana', 'tahoma', 'trebuchet ms', 'georgia',
-      'times new roman', 'courier new', 'consolas', 'comic sans ms', 'impact', 'system-ui']);
+      'times new roman', 'courier new', 'consolas', 'comic sans ms', 'impact', 'system-ui',
+      'arial black', 'bahnschrift', 'calibri', 'cambria', 'candara', 'constantia', 'corbel', 'gabriola',
+      'lucida console', 'lucida sans unicode', 'palatino linotype', 'segoe print', 'segoe script', 'sylfaen']);
     config.SYSTEM_FONT_NAMES.forEach((f) => {
       assert.equal(config.coerce('font', f), f, f);
       assert.equal(config.isSystemFont(f), true, f);
@@ -337,11 +401,32 @@ describe('fonts', () => {
       ['my cool font', 'My Cool Font'],
       ['noto serif display', 'Noto Serif Display'],
       ['x 2', 'X 2'],
-      // Unknown with capitals: kept as typed.
+      // Unknown with capitals: each word's first letter is capitalized, nothing is lowercased.
       ['Noto Sans JP', 'Noto Sans JP'],
       ['Space GROTESK', 'Space Grotesk'], // known, so fixed anyway
-      ['MyFont xYz', 'MyFont xYz'],
+      ['MyFont xYz', 'MyFont XYz'],
       ['ZCOOL KuaiLe', 'ZCOOL KuaiLe'],
+      ['Roboto slab', 'Roboto Slab'],
+      ['Libre baskerville', 'Libre Baskerville'],
+      // Joining words after the first keep the case Google uses.
+      ['Fredericka the Great', 'Fredericka the Great'],
+      ['waiting for the sunrise', 'Waiting for the Sunrise'],
+      ['dawning of a new day', 'Dawning of a New Day'],
+      ['Covered By Your Grace', 'Covered By Your Grace'],
+      // Families that capitalize a joining word keep it capitalized from lowercase input.
+      ['covered by your grace', 'Covered By Your Grace'],
+      ['love ya like a sister', 'Love Ya Like A Sister'],
+      ['loved by the king', 'Loved by the King'],
+      ['the girl next door', 'The Girl Next Door'],
+      // Acronym families are listed, so their capitals are restored.
+      ['noto sans tc', 'Noto Sans TC'],
+      ['pt serif', 'PT Serif'],
+      ['Ibm Plex Mono', 'IBM Plex Mono'],
+      ['eb garamond', 'EB Garamond'],
+      // CSS generic keywords stay lowercase; stock Windows fonts get their spelling.
+      ['Serif', 'serif'],
+      ['MONOSPACE', 'monospace'],
+      ['calibri', 'Calibri'],
       // Prototype names are not known fonts.
       ['constructor', 'Constructor'],
       ['__proto__', '__proto__'],

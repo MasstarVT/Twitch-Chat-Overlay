@@ -51,12 +51,18 @@
   var LIVE_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'bots',
     'hide_commands', 'block', 'events', 'replies', 'first_msg', 'gifs', 'badges', 'badges_twitch',
     'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies',
-    'paints', 'readable'];
+    'paints', 'readable', 'shared'];
 
-  // Fonts every Windows PC has (never requested from Google Fonts), in their canonical spelling.
+  // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
+  // them), in their canonical spelling.
   var SYSTEM_FONT_NAMES = ['Arial', 'Segoe UI', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Georgia',
-    'Times New Roman', 'Courier New', 'Consolas', 'Comic Sans MS', 'Impact', 'system-ui'];
+    'Times New Roman', 'Courier New', 'Consolas', 'Comic Sans MS', 'Impact', 'system-ui',
+    'Arial Black', 'Bahnschrift', 'Calibri', 'Cambria', 'Candara', 'Constantia', 'Corbel', 'Gabriola',
+    'Lucida Console', 'Lucida Sans Unicode', 'Palatino Linotype', 'Segoe Print', 'Segoe Script', 'Sylfaen'];
   var SYSTEM_FONTS = SYSTEM_FONT_NAMES.map(function (f) { return f.toLowerCase(); });
+  // CSS generic family keywords (renderer.fontVar leaves them unquoted). Never a web font.
+  var GENERIC_FONT_NAMES = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif',
+    'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong'];
 
   // Popular Google Fonts families, spelled exactly as fonts.googleapis.com expects (the family
   // name is case-sensitive there: 'roboto' is a 400 error, 'Roboto' loads). The builder offers
@@ -70,25 +76,35 @@
     'Varela Round', 'Mulish', 'Karla', 'Josefin Sans', 'Atkinson Hyperlegible', 'Roboto Mono', 'JetBrains Mono',
     'Space Mono', 'Source Code Pro', 'Share Tech Mono', 'Merriweather', 'Playfair Display', 'Caveat', 'Pacifico',
     'Lobster', 'Dancing Script', 'Patrick Hand', 'Indie Flower', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC',
-    'M PLUS Rounded 1c'];
+    'M PLUS Rounded 1c', 'Noto Sans TC', 'Noto Sans HK', 'Noto Serif JP', 'PT Serif', 'PT Mono', 'PT Sans Narrow',
+    'EB Garamond', 'IBM Plex Mono', 'IBM Plex Serif', 'DM Serif Display', 'DM Mono', 'Amatic SC'];
 
   // Lowercased name -> canonical spelling. No prototype, so 'constructor' etc. never match.
+  // Google families that capitalize a joining word canonicalFont() otherwise leaves lowercase
+  // ('covered by your grace' must become 'Covered By Your Grace'). Spelling fixes only, not
+  // offered as builder suggestions.
+  var FONT_CANON_EXTRA = ['Covered By Your Grace', 'Love Ya Like A Sister', 'Black And White Picture'];
   var FONT_CANON = Object.create(null);
-  GOOGLE_FONTS.concat(SYSTEM_FONT_NAMES).forEach(function (f) { FONT_CANON[f.toLowerCase()] = f; });
+  GOOGLE_FONTS.concat(SYSTEM_FONT_NAMES, GENERIC_FONT_NAMES, FONT_CANON_EXTRA).forEach(function (f) { FONT_CANON[f.toLowerCase()] = f; });
 
   function own(obj, k) { return Object.prototype.hasOwnProperty.call(obj, k); }
 
   function normalizeChannel(v) {
     if (v === null || v === undefined) return '';
     var s = String(v).trim();
-    // Pasted links, with or without the scheme, incl. popout/embed chat URLs.
-    s = s.replace(/^(?:https?:\/\/)?(?:www\.|m\.)?twitch\.tv\/(?:(?:popout|embed|moderator)\/)?/i, '');
-    s = s.replace(/^[@#]+/, ''); // before the split, or '#name' would become ''
-    s = s.split(/[/?#]/)[0].trim().toLowerCase();
+    // Pasted links, with or without the scheme, incl. popout/embed chat and subscribe-page URLs.
+    var t = s.replace(/^(?:https?:\/\/)?(?:www\.|m\.)?twitch\.tv\/(?:(?:popout|embed|moderator|subs)\/)?/i, '');
+    var fromUrl = t !== s;
+    s = t.replace(/^[@#]+/, ''); // before the split, or '#name' would become ''
+    var parts = s.split(/[/?#]/);
+    s = parts[0].trim().toLowerCase();
+    // twitch.tv/videos/<id> and /directory/... name no channel ('videos' is a real, banned account).
+    if (fromUrl && parts.length > 1 && (s === 'videos' || s === 'directory')) return '';
     return /^[a-z0-9_]{1,25}$/.test(s) ? s : '';
   }
 
   function normalizeLogin(v) {
+    if (typeof v !== 'string' && typeof v !== 'number') return '';
     var s = String(v || '').trim().replace(/^[@#]+/, '').toLowerCase();
     return /^[a-z0-9_]{1,25}$/.test(s) ? s : '';
   }
@@ -106,6 +122,11 @@
   function coerce(key, v) {
     var spec = own(SPEC, key) ? SPEC[key] : null;
     if (!spec || v === undefined || v === null) return undefined;
+    // Strings, numbers and booleans only (arrays too for a list): String() on an object or symbol can throw.
+    var tv = typeof v;
+    if (tv !== 'string' && tv !== 'number' && tv !== 'boolean' && !(spec.type === 'list' && Array.isArray(v))) {
+      return undefined;
+    }
     switch (spec.type) {
       case 'channel': {
         var c = normalizeChannel(v);
@@ -129,10 +150,10 @@
       }
       case 'list': {
         var arr = Array.isArray(v) ? v : String(v).split(/[\s,]+/);
-        var out = [];
+        var out = [], seen = Object.create(null); // linear dedupe: block lists can be long
         for (var i = 0; i < arr.length; i++) {
           var l = normalizeLogin(arr[i]);
-          if (l && out.indexOf(l) < 0) out.push(l);
+          if (l && !seen[l]) { seen[l] = 1; out.push(l); }
         }
         return out;
       }
@@ -149,15 +170,16 @@
     return cfg;
   }
 
-  // Apply a plain object of overrides (native types or strings) onto cfg.
+  // Apply a plain object of overrides (native types or strings) onto cfg. Keys are case-insensitive,
+  // like URL keys ('Size' works); own keys only, and a later spelling of the same key wins.
   function applyObject(cfg, obj) {
     if (!obj || typeof obj !== 'object') return cfg;
-    for (var i = 0; i < KEYS.length; i++) {
-      var k = KEYS[i];
-      if (Object.prototype.hasOwnProperty.call(obj, k)) {
-        var v = coerce(k, obj[k]);
-        if (v !== undefined) cfg[k] = v;
-      }
+    var ks = Object.keys(obj);
+    for (var i = 0; i < ks.length; i++) {
+      var k = ks[i].toLowerCase();
+      if (!own(SPEC, k)) continue;
+      var v = coerce(k, obj[ks[i]]);
+      if (v !== undefined) cfg[k] = v;
     }
     return cfg;
   }
@@ -176,6 +198,8 @@
       if (own(SPEC, k)) fromUrl[k] = value; // last value wins; own keys only ('__proto__', 'constructor' aren't settings)
     });
     applyObject(cfg, fromUrl);
+    // An explicit empty channel= clears a settings.js channel (an invalid non-empty one still falls back).
+    if (own(fromUrl, 'channel') && String(fromUrl.channel).trim() === '') cfg.channel = '';
     return cfg;
   }
 
@@ -217,21 +241,29 @@
     return o;
   }
 
+  // Installed Windows fonts and CSS generic keywords: nothing to fetch from Google Fonts.
   function isSystemFont(name) {
-    return SYSTEM_FONTS.indexOf(String(name || '').toLowerCase()) >= 0;
+    var n = String(name || '').toLowerCase();
+    return SYSTEM_FONTS.indexOf(n) >= 0 || GENERIC_FONT_NAMES.indexOf(n) >= 0;
   }
 
   // The spelling to request a font by. Google Fonts family names are case-sensitive, CSS font-family
   // matching isn't. A known Google or system font gets its exact spelling ('press start 2p' ->
-  // 'Press Start 2P'); another all-lowercase name is title-cased ('my font' -> 'My Font'); a name
-  // with capitals is kept as typed.
+  // 'Press Start 2P'). Any other name gets the first letter of each word capitalized ('my font' ->
+  // 'My Font', 'Roboto slab' -> 'Roboto Slab'); nothing is lowercased ('ZCOOL KuaiLe' stays), and
+  // joining words after the first are left as typed ('Fredericka the Great', 'Waiting for the Sunrise').
+  var SMALL_WORD_RE = /^(?:a|and|by|for|of|the)$/;
   function canonicalFont(name) {
     var s = String(name === undefined || name === null ? '' : name).trim().replace(/\s+/g, ' ');
     if (!s) return s;
     var known = FONT_CANON[s.toLowerCase()];
     if (known) return known;
-    if (/[A-Z]/.test(s)) return s;
-    return s.replace(/(^| )([a-z])/g, function (m, sp, c) { return sp + c.toUpperCase(); });
+    var words = s.split(' ');
+    for (var i = 0; i < words.length; i++) {
+      if (i > 0 && SMALL_WORD_RE.test(words[i])) continue;
+      words[i] = words[i].charAt(0).toUpperCase() + words[i].slice(1);
+    }
+    return words.join(' ');
   }
 
   return {
@@ -240,6 +272,7 @@
     LIVE_KEYS: LIVE_KEYS,
     SYSTEM_FONTS: SYSTEM_FONTS,
     SYSTEM_FONT_NAMES: SYSTEM_FONT_NAMES,
+    GENERIC_FONT_NAMES: GENERIC_FONT_NAMES,
     GOOGLE_FONTS: GOOGLE_FONTS,
     defaults: defaults,
     parse: parse,

@@ -6,7 +6,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (root) {
   'use strict';
 
-  var VERSION = '1.1.1';
+  var VERSION = '1.2.0';
 
   // ---------- logging ----------
   var debugEnabled = false;
@@ -41,8 +41,9 @@
   }
   // Zalgo: a long run of combining marks stacks glyphs far above and below the line, over other
   // messages. Keep the first 4 marks of a run (enough for Indic, Thai, Vietnamese and emoji sequences);
-  // format characters between marks (ZWJ, CGJ, ...) don't restart the count and go with the extras.
-  var MARK_RUN_RE = /((?:[\p{Mn}\p{Me}]\p{Cf}*){4})[\p{Mn}\p{Me}\p{Cf}]+/gu;
+  // format and other invisible (default-ignorable, e.g. ZWJ, CGJ, unassigned U+E0000) characters between
+  // marks don't restart the count and go with the extras.
+  var MARK_RUN_RE = /((?:[\p{Mn}\p{Me}][\p{Cf}\p{Default_Ignorable_Code_Point}]*){4})[\p{Mn}\p{Me}\p{Cf}\p{Default_Ignorable_Code_Point}]+/gu;
   function capMarks(s) { return typeof s === 'string' ? s.replace(MARK_RUN_RE, '$1') : s; }
   function idStr(v) {
     if (v === null || v === undefined) return '';
@@ -94,24 +95,66 @@
   }
   HttpError.prototype = Object.create(Error.prototype);
 
+  // Largest body read by default (decoded bytes). The biggest real payloads are a big channel's 7TV
+  // user (~2.4 MB) and the Homies badge list (~4 MB); a broken or hostile host can't make us buffer more.
+  var MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+  function tooLarge(url, max) {
+    var e = new Error('response over ' + max + ' bytes for ' + url);
+    e.tooLarge = true;
+    return e;
+  }
+
+  // Read a body as text, giving up (and aborting the download) once it passes max bytes.
+  function readText(res, url, max, ctrl) {
+    var len = res.headers && typeof res.headers.get === 'function' ? Number(res.headers.get('content-length')) : 0;
+    if (len > max) { if (ctrl) ctrl.abort(); return Promise.reject(tooLarge(url, max)); }
+    var body = res.body;
+    if (!body || typeof body.getReader !== 'function' || typeof TextDecoder === 'undefined') {
+      return res.text().then(function (txt) {
+        if (txt.length > max) throw tooLarge(url, max);
+        return txt;
+      });
+    }
+    var reader = body.getReader(), dec = new TextDecoder(), parts = [], n = 0;
+    function pump() {
+      return reader.read().then(function (r) {
+        if (r.done) { parts.push(dec.decode()); return parts.join(''); }
+        n += r.value.byteLength;
+        if (n > max) {
+          reader.cancel().catch(function () { /* ignore */ });
+          if (ctrl) ctrl.abort();
+          throw tooLarge(url, max);
+        }
+        parts.push(dec.decode(r.value, { stream: true }));
+        return pump();
+      });
+    }
+    return pump();
+  }
+
   // Simple GET (no custom headers: BTTV rejects preflights) or POST with JSON.
-  // opts: { timeout (total ms), headersTimeout (ms), method, headers, body }
+  // opts: { timeout (total ms), headersTimeout (ms), maxBytes, cache (fetch cache mode), method, headers, body }
+  // headersTimeout defaults to 8 s, or 3/4 of a longer total budget (servers that build the whole
+  // response before sending headers, like 7TV's GQL, get most of the time the caller gave them).
   function fetchJson(url, opts) {
     opts = opts || {};
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var total = opts.timeout || 10000;
-    var headersTimeout = Math.min(opts.headersTimeout || 8000, total);
+    var headersTimeout = Math.min(opts.headersTimeout || Math.max(8000, Math.round(total * 0.75)), total);
+    var maxBytes = opts.maxBytes || MAX_BODY_BYTES;
     var timedOut = false;
     var totalTimer = setTimeout(function () { timedOut = true; if (ctrl) ctrl.abort(); }, total);
     var headTimer = setTimeout(function () { timedOut = true; if (ctrl) ctrl.abort(); }, headersTimeout);
     var init = { method: opts.method || 'GET', signal: ctrl ? ctrl.signal : undefined, credentials: 'omit' };
     if (opts.headers) init.headers = opts.headers;
     if (opts.body !== undefined) init.body = opts.body;
+    if (opts.cache) init.cache = opts.cache;
     return fetch(url, init).then(function (res) {
       clearTimeout(headTimer);
       if (res.status === 404) return { __notFound: true };
       if (!res.ok) throw new HttpError(res.status, url);
-      return res.text().then(function (txt) { return txt ? JSON.parse(txt) : null; });
+      return readText(res, url, maxBytes, ctrl).then(function (txt) { return txt ? JSON.parse(txt) : null; });
     }).catch(function (err) {
       if (timedOut) { var e = new Error('timeout for ' + url); e.timeout = true; throw e; }
       throw err;
@@ -131,7 +174,8 @@
 
   function isNotFound(r) { return !!(r && r.__notFound); }
 
-  // Retry a loader on network errors / 5xx / timeouts. 404s are definitive (loader decides).
+  // Retry a loader on any failure (after 3 s, 10 s, 30 s, 60 s, then every 5 min) until it succeeds or
+  // is cancelled. 404s are definitive (the loader decides, usually by resolving empty).
   // Returns a controller { promise, retryNow(), cancel() }.
   var RETRY_DELAYS = [3000, 10000, 30000, 60000];
   function loadWithRetry(name, fn, onDone) {
@@ -188,7 +232,7 @@
   Backoff.prototype.reset = function () { this.attempts = 0; };
 
   // ---------- reconnecting socket client ----------
-  // opts: { name, url: string|fn, WebSocket, baseDelay, maxDelay, stableMs,
+  // opts: { name, url: string|fn, WebSocket, baseDelay, maxDelay, stableMs, connectTimeout (ms, 0 = off),
   //         onOpen(ctl), onMessage(data, ctl), onClose(ev, ctl) }
   // ctl (per connection): { send(str), setTimeout(fn,ms), setInterval(fn,ms), clearTimer(id),
   //                         reconnect(reason, {delay}), stop(reason), gen }
@@ -203,7 +247,6 @@
     this.ws = null;
     this.timers = [];
     this.reconnectTimer = null;
-    this.connects = 0;
   }
   SocketClient.prototype.start = function () {
     if (this.state !== 'idle' && this.state !== 'stopped') return;
@@ -216,7 +259,6 @@
     this.gen++;
     var gen = this.gen;
     this.state = 'connecting';
-    this.connects++;
     var url = typeof this.opts.url === 'function' ? this.opts.url() : this.opts.url;
     var ws;
     try {
@@ -229,8 +271,15 @@
     }
     this.ws = ws;
     var ctl = this._makeCtl(gen);
+    // A server that accepts the connection but never answers the upgrade would otherwise leave us
+    // 'connecting' until the browser gives up (minutes). One timer per attempt, cleared on open.
+    var connectTimeout = this.opts.connectTimeout === undefined ? 20000 : this.opts.connectTimeout;
+    var connTimer = connectTimeout > 0 ? ctl.setTimeout(function () {
+      if (self.state === 'connecting') self.scheduleReconnect('connect timeout');
+    }, connectTimeout) : null;
     ws.onopen = function () {
       if (gen !== self.gen) return;
+      if (connTimer !== null) ctl.clearTimer(connTimer);
       self.state = 'open';
       log(self.name, 'open');
       ctl.setTimeout(function () { self.backoff.reset(); }, self.stableMs);
@@ -356,7 +405,8 @@
 
   function defaultColor(userId, login) {
     var n = Number(userId);
-    if (!isFinite(n) || userId === '' || userId === undefined || userId === null) {
+    // Only a non-negative integer id indexes the palette; anything else ('-1', '1.5', 'demo-1') hashes.
+    if (!(n >= 0) || n % 1 !== 0 || !isFinite(n) || userId === '' || userId === undefined || userId === null) {
       n = 0;
       var s = String(login || userId || '');
       for (var i = 0; i < s.length; i++) n = (n * 31 + s.charCodeAt(i)) >>> 0;
