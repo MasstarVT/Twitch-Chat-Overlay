@@ -19,7 +19,8 @@ show it in white; the file itself is unchanged.
 
 ## 7TV: Apache License 2.0 with the Commons Clause
 
-Full text: https://github.com/SevenTV/Extension/blob/master/LICENSE.md
+Full text: [LICENSE-7TV.md](LICENSE-7TV.md), an unmodified copy of
+https://github.com/SevenTV/Extension/blob/master/LICENSE.md
 
 Copyright 2022 SEVENTV
 
