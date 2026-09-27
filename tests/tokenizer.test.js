@@ -152,6 +152,14 @@ describe('replies', () => {
   });
 });
 
+describe('fast path without ranges', () => {
+  test('messages with and without an emotes tag give the same items', () => {
+    const text = 'hi ' + RAINBOW + ' KEKW RainTime h! OMEGALUL  x';
+    assert.deepEqual(tok(text).items, tok(text, { emotes: '25:500-504' }).items);
+    assert.deepEqual(tok(text, {}, { gifs: false }).items, tok(text).items);
+  });
+});
+
 describe('text cleanup', () => {
   test('U+E0002 becomes U+200D without shifting later emote ranges', () => {
     const woman = String.fromCodePoint(0x1F469), laptop = String.fromCodePoint(0x1F4BB);
@@ -184,7 +192,7 @@ describe('precedence via the injected lookup', () => {
     assert.deepEqual(asked, ['Kappa'], 'only the second (unranged) word is looked up');
   });
 
-  test('the first matching tier wins (personal > channel > global)', () => {
+  test('the injected lookup decides the emote (tokenizer adds no precedence)', () => {
     const personal = new Map([['KEKW', em('7tv-personal', 'KEKW')]]);
     const channel = new Map([['KEKW', em('bttv', 'KEKW')], ['OMEGALUL', em('7tv', 'OMEGALUL')]]);
     const global = new Map([['OMEGALUL', em('ffz', 'OMEGALUL')], ['LUL', em('ffz', 'LUL')]]);
@@ -238,6 +246,53 @@ describe('zero-width stacking', () => {
   });
 });
 
+describe('zero-width and image caps', () => {
+  test('at most 4 zero-width layers on one emote; the rest are dropped', () => {
+    const r = tok('KEKW' + ' RainTime'.repeat(55));
+    assert.equal(r.items.length, 1);
+    assert.equal(r.items[0].overlays.length, 4);
+    assert.deepEqual(view(tok('KEKW RainTime SoSnowy ffzOverlay RainTime').items), ['emote:KEKW+RainTime+SoSnowy+ffzOverlay+RainTime']);
+  });
+
+  test('at most 300 emote images per message; later emote words stay text', () => {
+    const ALL2 = new Map([['OK', em('7tv', 'OK')], ['Z', em('7tv', 'Z', { zw: true })]]);
+    const ok = (text) => tk.tokenize({ text }, { lookup: (w) => ALL2.get(w) || null });
+    const r = ok('OK '.repeat(330).trim()); // 989 characters, from a hostile history line
+    assert.equal(r.items.length, 301);
+    assert.equal(r.items.filter((i) => i.type === 'emote').length, 300);
+    assert.equal(r.items[300].text, 'OK '.repeat(30).trim());
+    // zero-width layers count too
+    const z = ok('OK Z '.repeat(160).trim());
+    assert.equal(z.items.filter((i) => i.type === 'emote').reduce((n, i) => n + 1 + i.overlays.length, 0), 300);
+    // Twitch ranges too (adjacent one-character ranges from a hostile history line)
+    const t = tok('a'.repeat(400), { emotes: '25:' + Array.from({ length: 400 }, (_, i) => i + '-' + i).join(',') });
+    assert.equal(t.items.filter((i) => i.type === 'emote').length, 300);
+    assert.equal(t.items[t.items.length - 1].type, 'text');
+    // GIF ranges count too
+    const GU = 'https://media.giphy.com/media/abc/giphy.gif';
+    const g = tok('a'.repeat(400), { gifs: Array.from({ length: 400 }, (_, i) => i + '-' + i + '|id|' + GU).join(',') });
+    assert.equal(g.items.filter((i) => i.type === 'gif').length, 300);
+    assert.equal(g.items[g.items.length - 1].type, 'text');
+    // cheermotes too, and emotes share the same budget
+    const c = tok('O '.repeat(250) + 'cheer1 '.repeat(70).trim(), { bits: 70 }, { lookup: (w) => (w === 'O' ? em('7tv', 'O') : null) });
+    assert.equal(c.items.filter((i) => i.type === 'emote').length, 250);
+    assert.equal(c.items.filter((i) => i.type === 'cheer').length, 50);
+    assert.equal(c.items[c.items.length - 1].type, 'text');
+    // a real 500-character message of 2-letter emotes is not affected
+    const real = ok('OK '.repeat(167).trim());
+    assert.equal(real.items.length, 167);
+  });
+
+  test('text is cut at 1000 code points (history lines can be 16K)', () => {
+    const long = 'x'.repeat(5000);
+    assert.equal(tok(long).items[0].text.length, 1000);
+    assert.equal(tok(RAINBOW.repeat(1500)).items[0].text, RAINBOW.repeat(1000));
+    const r = tok('y'.repeat(999) + ' Kappa', { emotes: '25:1000-1004' });
+    assert.deepEqual(view(r.items), ['text:' + 'y'.repeat(999)]);
+    assert.equal(tok('z'.repeat(500)).items[0].text.length, 500);
+  });
+});
+
 describe('FFZ Hidden modifiers', () => {
   test('apply their effect to the previous emote and are not drawn', () => {
     const r = tok('KEKW ffzX');
@@ -271,7 +326,23 @@ describe('FFZ Hidden modifiers', () => {
   });
 });
 
+describe('repeated flips', () => {
+  test('a repeated FlipX/FlipY keeps the flip (flags, not a toggle)', () => {
+    assert.deepEqual(tok('KEKW ffzX ffzX').items[0].fx, fx({ sx: -1 }));
+    assert.deepEqual(tok('KEKW ffzY ffzX ffzY').items[0].fx, fx({ sx: -1, sy: -1 }));
+    assert.deepEqual(tok('h! h! KEKW').items[0].fx, fx({ sx: -1 }));
+    assert.deepEqual(tok('h! KEKW ffzX').items[0].fx, fx({ sx: -1 }));
+  });
+});
+
 describe('BTTV prefix modifiers', () => {
+  test('provider codes named like Object.prototype members are not prefixes', () => {
+    const set = new Set(tk.BTTV_PREFIXES.concat(['constructor', 'toString', '__proto__']));
+    const r = tok('constructor KEKW toString KEKW __proto__ KEKW', {}, { bttvPrefixes: set });
+    assert.deepEqual(view(r.items), ['text:constructor', 'emote:KEKW', 'text:toString', 'emote:KEKW', 'text:__proto__', 'emote:KEKW']);
+    assert.equal(r.items[1].fx, null);
+  });
+
   test('h! applies FlipX to the next emote and is hidden', () => {
     const r = tok('h! KEKW');
     assert.deepEqual(view(r.items), ['emote:KEKW']);
@@ -364,6 +435,13 @@ describe('cheers', () => {
     assert.equal(tk.plainText(r.items), 'Cheer1 a Cheer1 Cheer1');
   });
 
+  test('amounts are capped at 7 digits (no Infinity)', () => {
+    assert.equal(tk.cheerFor('cheer9999999').amount, 9999999);
+    assert.equal(tk.cheerFor('cheer10000000'), null);
+    assert.equal(tk.cheerFor('cheer' + '9'.repeat(400)), null);
+    assert.deepEqual(view(tok('cheer' + '9'.repeat(400), { bits: 1 }).items), ['text:cheer' + '9'.repeat(400)]);
+  });
+
   test('cheerFor is exported', () => {
     assert.equal(tk.cheerFor('ShowLove5000').tier, 5000);
     assert.equal(tk.cheerFor('nope100'), null);
@@ -374,9 +452,23 @@ describe('gifs', () => {
   const TITLE = '[Uh Oh Wrestling GIF by WWE]';
   const URL = 'https://media2.giphy.com/media/3oFzm0o2jMKftsaBoc/giphy.gif?cid=abc123&rid=giphy.gif&ct=g';
 
-  test('a giphy https url is accepted and used unmodified', () => {
+  test('a giphy original is swapped for the 200 px rendition; the original is kept as orig', () => {
     const r = tok(TITLE, { gifs: '0-27|3oFzm0o2jMKftsaBoc|' + URL });
-    assert.deepEqual(r.items, [{ type: 'gif', url: URL, title: TITLE, sp: false }]);
+    assert.deepEqual(r.items, [{ type: 'gif', url: 'https://media2.giphy.com/media/3oFzm0o2jMKftsaBoc/200.webp?cid=abc123&rid=200.webp&ct=g',
+      orig: URL, title: TITLE, sp: false }]);
+    const one = (u) => tok(TITLE, { gifs: '0-27|id|' + u }).items[0].url;
+    assert.equal(one('https://media0.giphy.com/media/v1.Y2lkPTc5/3oFzm0o2jMKftsaBoc/giphy.gif?cid=1&ep=2&rid=giphy.gif&ct=g'),
+      'https://media0.giphy.com/media/v1.Y2lkPTc5/3oFzm0o2jMKftsaBoc/200.webp?cid=1&ep=2&rid=200.webp&ct=g');
+    assert.equal(one('https://media.giphy.com/media/abc/giphy.gif'), 'https://media.giphy.com/media/abc/200.webp');
+  });
+
+  test('other giphy url shapes are used unmodified', () => {
+    ['https://i.giphy.com/abc.gif', 'https://media2.giphy.com/media/abc/200.gif?cid=1', 'https://giphy.com/media/abc/giphy.gif',
+      'https://media2.giphy.com/media/a/b/c/giphy.gif', 'https://media2.giphy.com/media/abc/giphy.gif#x'].forEach((u) => {
+      const it = tok(TITLE, { gifs: '0-27|id|' + u }).items[0];
+      assert.equal(it.url, u, u);
+      assert.equal(it.orig, u, u);
+    });
   });
 
   test('non-giphy, non-https or unsafe urls are rejected and the title stays text', () => {

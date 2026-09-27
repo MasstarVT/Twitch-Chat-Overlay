@@ -170,7 +170,6 @@
     return {
       id: t.id || '',
       sourceId: t['source-id'] || '',
-      channel: (p.params[0] || '').replace(/^#/, ''),
       roomId: roomId,
       sourceRoomId: sourceRoomId,
       mirrored: !!(sourceRoomId && roomId && sourceRoomId !== roomId),
@@ -179,12 +178,9 @@
       displayName: t['display-name'] || login,
       color: /^#[0-9a-f]{6}$/i.test(t.color || '') ? t.color : '',
       badges: parseBadges(t.badges),
-      badgeInfo: parseBadges(t['badge-info']),
       sourceBadges: parseBadges(t['source-badges']),
-      mod: t.mod === '1',
       ts: isFinite(ts) ? ts : Date.now(),
-      historical: t.historical === '1' || !!t['rm-received-ts'],
-      tags: t
+      historical: t.historical === '1' || !!t['rm-received-ts']
     };
   }
 
@@ -216,7 +212,6 @@
     var t = p.tags;
     var msgId = t['msg-id'] || '';
     m.kind = 'notice';
-    m.rawType = msgId;
     m.type = msgId === 'sharedchatnotice' ? (t['source-msg-id'] || '') : msgId;
     m.mirrored = m.mirrored || msgId === 'sharedchatnotice';
     m.systemMsg = t['system-msg'] || '';
@@ -232,7 +227,7 @@
     m.reply = null;
     var params = {};
     for (var k in t) if (k.indexOf('msg-param-') === 0) params[k.slice(10)] = t[k];
-    m.params = params;
+    m.params = params; // msg-param-* without the prefix (overlay.js reads threshold for bitsbadgetier)
     m.communityGiftId = params['community-gift-id'] || '';
     m.announceColor = (params.color || '').toUpperCase();
     return m;

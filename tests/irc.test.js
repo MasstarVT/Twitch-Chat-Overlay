@@ -2,6 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const irc = require('../js/irc.js');
+const ircParse = require('../js/irc-parse.js'); // the same module object irc.js calls into
+const util = require('../js/util.js');
 
 // Minimal WebSocket stand-in driven by the test.
 function fakeSockets() {
@@ -86,6 +88,26 @@ test('client PING every 60s; PONG (with or without prefix) clears the timeout', 
   s.client.stop();
 });
 
+test('a reconnect that never opens is retried once at the 20 s connect timeout', function (t) {
+  const s = setup(t);
+  s.sock(0).open();
+  t.mock.timers.tick(60000); // PING sent
+  t.mock.timers.tick(10000); // no PONG -> drop
+  t.mock.timers.tick(1000); // first backoff step is <= 1000 ms
+  assert.strictEqual(s.f.sockets.length, 2);
+  const ws2 = s.sock(1); // never opens
+  t.mock.timers.tick(19000); // nothing fires before the connect timeout
+  assert.strictEqual(s.f.sockets.length, 2);
+  assert.strictEqual(ws2.closed, false);
+  t.mock.timers.tick(1000); // connect timeout -> one reconnect, second backoff step is <= 2000 ms
+  assert.strictEqual(ws2.closed, true);
+  t.mock.timers.tick(2000);
+  assert.strictEqual(s.f.sockets.length, 3);
+  t.mock.timers.tick(10000); // no duplicate reconnect
+  assert.strictEqual(s.f.sockets.length, 3);
+  s.client.stop();
+});
+
 test('missing PONG triggers exactly one reconnect', function (t) {
   const s = setup(t);
   const ws = s.sock(0);
@@ -99,16 +121,58 @@ test('missing PONG triggers exactly one reconnect', function (t) {
   assert.strictEqual(closed[0][1].reason, 'pong timeout');
   t.mock.timers.tick(1000); // first backoff step is <= 1000 ms
   assert.strictEqual(s.f.sockets.length, 2);
-  t.mock.timers.tick(300000); // nothing else fires while the new socket is still connecting
+  t.mock.timers.tick(19000); // nothing else fires within the 20 s connect timeout
   assert.strictEqual(s.f.sockets.length, 2);
   const ws2 = s.sock(1);
   ws2.open();
   assert.strictEqual(ws2.sent[0], 'CAP REQ :twitch.tv/tags twitch.tv/commands');
   assert.strictEqual(ws2.sent[3], 'JOIN #xqc');
+  // the second connection gets its own joined status, keepalive and pong timeout
+  ws2.recv(ROOMSTATE + '\r\n');
+  assert.strictEqual(s.statuses.filter(function (x) { return x[0] === 'joined'; }).length, 1);
+  ws2.recv(PRIV + '\r\n');
+  assert.deepStrictEqual(s.lines.map(function (p) { return p.command; }), ['ROOMSTATE', 'PRIVMSG']);
+  t.mock.timers.tick(60000);
+  assert.strictEqual(ws2.sent.filter(function (l) { return l === 'PING :tco'; }).length, 1);
+  ws2.recv('PONG :tco\r\n');
+  t.mock.timers.tick(60000);
+  assert.strictEqual(ws2.sent.filter(function (l) { return l === 'PING :tco'; }).length, 2);
+  t.mock.timers.tick(10000); // no PONG this time
+  assert.strictEqual(ws2.closed, true);
+  assert.strictEqual(s.statuses.filter(function (x) { return x[0] === 'closed'; }).length, 2);
+  t.mock.timers.tick(4000);
+  assert.strictEqual(s.f.sockets.length, 3);
+  const ws3 = s.sock(2);
+  ws3.open();
+  ws3.recv(ROOMSTATE + '\r\n');
+  assert.strictEqual(s.statuses.filter(function (x) { return x[0] === 'joined'; }).length, 2);
   s.client.stop();
 });
 
-test('RECONNECT triggers a jittered reconnect (<= 2 s) and old frames are ignored', function (t) {
+test('a JOIN with no ROOMSTATE is sent once more after 15 s, and never again', function (t) {
+  const s = setup(t);
+  const ws = s.sock(0);
+  ws.open();
+  const joins = function (w) { return w.sent.filter(function (l) { return l === 'JOIN #xqc'; }).length; };
+  t.mock.timers.tick(14999);
+  assert.strictEqual(joins(ws), 1);
+  t.mock.timers.tick(1);
+  assert.strictEqual(joins(ws), 2);
+  t.mock.timers.tick(300000);
+  assert.strictEqual(joins(ws), 2);
+  assert.strictEqual(s.f.sockets.length, 1, 'no reconnect for a silent room');
+  // joined in time: no second JOIN
+  ws.serverClose(1006);
+  t.mock.timers.tick(1000);
+  const ws2 = s.sock(1);
+  ws2.open();
+  ws2.recv(ROOMSTATE + '\r\n');
+  t.mock.timers.tick(60000);
+  assert.strictEqual(joins(ws2), 1);
+  s.client.stop();
+});
+
+test('RECONNECT reconnects at once and old frames are ignored', function (t) {
   const s = setup(t);
   const ws = s.sock(0);
   ws.open();
@@ -116,13 +180,24 @@ test('RECONNECT triggers a jittered reconnect (<= 2 s) and old frames are ignore
   assert.strictEqual(ws.closed, true);
   assert.strictEqual(s.f.sockets.length, 1);
   assert.deepStrictEqual(s.statuses[s.statuses.length - 1], ['closed', { code: 0, reason: 'server' }]);
-  t.mock.timers.tick(2000);
+  t.mock.timers.tick(0);
   assert.strictEqual(s.f.sockets.length, 2);
   // a late RECONNECT/close from the old socket cannot reach the client any more
   assert.strictEqual(ws.onmessage, null);
   t.mock.timers.tick(60000);
   assert.strictEqual(s.f.sockets.length, 2);
   assert.strictEqual(s.lines.length, 0);
+  s.client.stop();
+});
+
+test('lines after RECONNECT in the same frame do not report joined after closed', function (t) {
+  const s = setup(t);
+  const ws = s.sock(0);
+  ws.open();
+  ws.recv(':tmi.twitch.tv RECONNECT\r\n' + ROOMSTATE + '\r\n' + PRIV + '\r\n');
+  assert.deepStrictEqual(s.statuses.map(function (x) { return x[0]; }), ['open', 'closed']);
+  // the lines themselves are still delivered (Twitch keeps sending until it closes the socket)
+  assert.deepStrictEqual(s.lines.map(function (p) { return p.command; }), ['ROOMSTATE', 'PRIVMSG']);
   s.client.stop();
 });
 
@@ -284,8 +359,19 @@ test('loadHistory trims trailing CR/LF (linear trim) before parsing', async func
   t.mock.method(globalThis, 'fetch', async function () {
     return { status: 200, ok: true, text: async function () { return JSON.stringify({ messages: [junk, trailing, '\r\n\n'] }); } };
   });
+  const spy = t.mock.method(ircParse, 'trimEol');
   const out = await irc.loadHistory('xqc', 10);
+  assert.strictEqual(spy.mock.callCount(), 3, 'every entry goes through the linear trimEol');
   const ok = out.filter(function (p) { return p.command === 'PRIVMSG'; });
   assert.strictEqual(ok.length, 1);
   assert.strictEqual(ok[0].params[1], 'ok');
+});
+
+test('loadHistory passes the caller timeout to the request (default 10 s)', async function (t) {
+  const seen = [];
+  t.mock.method(util, 'fetchJson', function (url, o) { seen.push(o.timeout); return Promise.resolve({ messages: [] }); });
+  await irc.loadHistory('xqc', 5, { timeout: 4000 });
+  await irc.loadHistory('xqc', 5);
+  await irc.loadHistory('xqc', 5, {});
+  assert.deepStrictEqual(seen, [4000, 10000, 10000]);
 });

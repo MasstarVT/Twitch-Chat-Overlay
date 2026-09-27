@@ -12,12 +12,18 @@
   var HISTORY_URL = 'https://recent-messages.robotty.de/api/v2/recent-messages/';
   var PING_EVERY = 60000;
   var PONG_TIMEOUT = 10000;
+  var JOIN_RETRY = 15000; // no ROOMSTATE by then: send JOIN once more
+  var HISTORY_TIMEOUT = 10000;
   var LOGIN_RE = /^[a-z0-9_]{1,25}$/;
   var MAX_HISTORY_LINE = 16384;
 
   function normLogin(s) {
     return String(s || '').trim().replace(/^#/, '').toLowerCase();
   }
+
+  // A detached copy of a short string. Tag values are slices of the whole IRC frame, so a cached id
+  // would otherwise keep its frame alive in V8.
+  function own(s) { return (' ' + s).slice(1); }
 
   function safeCall(fn, a, b) {
     if (typeof fn !== 'function') return;
@@ -58,7 +64,15 @@
       ctl.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
       ctl.send('PASS SCHMOOPIIE');
       ctl.send('NICK justinfan' + util.randInt(10000, 99999));
-      if (channel) ctl.send('JOIN #' + channel);
+      if (channel) {
+        ctl.send('JOIN #' + channel);
+        // A JOIN that Twitch drops leaves a healthy socket with a silent room. Ask once more; never
+        // reconnect for it, since a channel that does not exist gets no reply either.
+        ctl.setTimeout(function () {
+          var c = conn;
+          if (c && c.gen === ctl.gen && !c.joined) ctl.send('JOIN #' + channel);
+        }, JOIN_RETRY);
+      }
       ctl.setInterval(function () { sendPing(ctl); }, PING_EVERY);
       status('open');
     }
@@ -80,7 +94,7 @@
           continue;
         }
         if (cmd === 'RECONNECT') {
-          if (conn === c) drop(ctl, 'server', { delay: util.jitter(0, 2000) });
+          if (conn === c) drop(ctl, 'server', { delay: 0 }); // at once: nothing arrives meanwhile
           continue;
         }
         if (cmd === '001') {
@@ -94,9 +108,9 @@
           var id = p.tags.id;
           if (id) {
             if (seen.has(id)) continue;
-            seen.set(id, true);
+            seen.set(own(id), true);
           }
-        } else if (cmd === 'ROOMSTATE' && !c.joined) {
+        } else if (cmd === 'ROOMSTATE' && !c.joined && conn === c) { // not after an in-frame RECONNECT
           c.joined = true;
           status('joined', p);
         }
@@ -128,19 +142,21 @@
       markSeen: function (id) {
         if (!id) return false;
         var had = seen.has(id);
-        seen.set(id, true);
+        seen.set(own(id), true);
         return had;
       }
     };
   }
 
   // Recent chat backfill: { messages: [raw IRC lines] } -> parsed lines (tags include historical=1).
-  function loadHistory(login, limit) {
+  // `limit` counts raw lines of every type (moderation lines and notices included).
+  // opts: { timeout (ms) } - match the caller's own wait so an abandoned request is aborted.
+  function loadHistory(login, limit, opts) {
     var l = normLogin(login);
     var n = Math.floor(Number(limit));
     if (!LOGIN_RE.test(l) || !(n > 0)) return Promise.resolve([]);
     if (n > 800) n = 800;
-    return util.fetchJson(HISTORY_URL + encodeURIComponent(l) + '?limit=' + n, { timeout: 10000 }).then(function (r) {
+    return util.fetchJson(HISTORY_URL + encodeURIComponent(l) + '?limit=' + n, { timeout: opts && opts.timeout > 0 ? opts.timeout : HISTORY_TIMEOUT }).then(function (r) {
       if (!r || util.isNotFound(r)) return [];
       if (r.error) util.log('history:', r.error_code || r.error);
       // Third-party input: keep only the newest n entries, skip anything longer than a real IRC line can

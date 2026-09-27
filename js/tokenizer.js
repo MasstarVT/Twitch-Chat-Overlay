@@ -10,13 +10,21 @@
 
   var TWITCH_EMOTE_ID_RE = /^[A-Za-z0-9_]{1,64}$/;
   var GIPHY_HOST_RE = /(^|\.)giphy\.com$/;
+  // Giphy's 'original' rendition (the gifs tag's URL) is the uploaded file at any size. Swap it for the
+  // 200 px fixed-height rendition, still taller than any box we draw (<= 168 px). Only the known shape.
+  var GIPHY_ORIG_RE = /^(https:\/\/media\d?\.giphy\.com\/media\/(?:[A-Za-z0-9._-]+\/){1,2})giphy\.gif(\?[^#]*)?$/;
+
+  // Hostile-input bounds, far above anything real Twitch chat can send (500 characters per message):
+  // text past MAX_CPS code points is dropped, at most MAX_IMAGES images (emote bases, zero-width
+  // layers, GIFs and cheermotes) per message, at most MAX_ZW zero-width layers on one emote.
+  var MAX_CPS = 1000, MAX_IMAGES = 300, MAX_ZW = 4;
 
   // Global cheermote prefixes verified to exist on the public cheer CDN (2026-09).
   var CHEER_PREFIXES = ['cheerwhal', 'cheer', 'doodlecheer', 'corgo', 'pride', 'party', 'seemsgood', 'kappa',
     'frankerz', 'uni', 'showlove', 'anon', '4head', 'notlikethis', 'swiftrage', 'muxy', 'streamlabs',
     'vohiyo', 'mrdestructoid', 'bday', 'ripcheer', 'shamrock', 'kreygasm', 'trihard', 'heyguys'];
   var CHEER_100K = { cheer: true, doodlecheer: true, anon: true };
-  var CHEER_RE = new RegExp('^(' + CHEER_PREFIXES.join('|') + ')(\\d+)$', 'i');
+  var CHEER_RE = new RegExp('^(' + CHEER_PREFIXES.join('|') + ')(\\d{1,7})$', 'i'); // <= 9,999,999 bits
   var TIER_COLORS = { 1: '#979797', 100: '#9C3EE8', 1000: '#1DB2A5', 5000: '#0099FE', 10000: '#F43021', 100000: '#F3A71A' };
 
   // BTTV prefix modifiers -> effects applied to the following emote.
@@ -25,6 +33,7 @@
     'l!': { rot: -90 }, 'r!': { rot: 90 }, 'z!': { zs: true }, 'p!': {}, 's!': {}
   };
   var BTTV_PREFIXES = Object.keys(BTTV_PREFIX_FX);
+  var hasOwn = Object.prototype.hasOwnProperty; // chat words like 'constructor' are not prefixes
 
   // FFZ modifier_flags bits we render (static effects only).
   var FFZ_HIDDEN = 1, FFZ_FLIP_X = 2, FFZ_FLIP_Y = 4, FFZ_GROW_X = 8, FFZ_CURSED = 16384;
@@ -70,8 +79,8 @@
 
   function mergeFx(fx, add) {
     fx = fx || { sx: 1, sy: 1, rot: 0, grow: false, cursed: false, zs: false };
-    if (add.sx) fx.sx *= add.sx;
-    if (add.sy) fx.sy *= add.sy;
+    if (add.sx) fx.sx = -1; // flips are flags (FFZ ORs them, BTTV sets a class): a repeat keeps them
+    if (add.sy) fx.sy = -1;
     if (add.rot) fx.rot = add.rot;
     if (add.grow) fx.grow = true;
     if (add.cursed) fx.cursed = true;
@@ -88,25 +97,33 @@
     return add;
   }
 
+  function smallGif(url) {
+    var m = GIPHY_ORIG_RE.exec(url);
+    return m ? m[1] + '200.webp' + (m[2] || '').replace(/([?&]rid=)giphy\.gif(?=&|$)/, '$1200.webp') : url;
+  }
+
   // msg: { text, action, emotes, gifs, bits, msgId }
   // opts: { lookup(word) -> emote|null, bttvPrefixes: Set, gifs: bool, cheers: bool }
   // Emote objects: { provider, id, name, zw, hidden, flags, w, h, urls }
   function tokenize(msg, opts) {
     opts = opts || {};
     var cleaned = cleanText(msg.text, msg.action);
-    var cps = Array.from(cleaned.text);
+    var gifsOn = opts.gifs !== false && !!msg.gifs;
+    // Code points are only needed to map Twitch/GIF ranges, or to cut an over-long (history) text.
+    var cps = msg.emotes || gifsOn || cleaned.text.length > MAX_CPS ? Array.from(cleaned.text) : null;
+    if (cps && cps.length > MAX_CPS) cps.length = MAX_CPS;
     var ranges = [];
     var emoteRanges = ircParse.parseEmotesTag(msg.emotes);
     for (var i = 0; i < emoteRanges.length; i++) {
       var er = emoteRanges[i];
       if (er.end < cps.length && TWITCH_EMOTE_ID_RE.test(er.id)) ranges.push({ start: er.start, end: er.end, kind: 'twitch', id: er.id });
     }
-    if (opts.gifs !== false && msg.gifs) {
+    if (gifsOn) {
       var gifs = ircParse.parseGifsTag(msg.gifs);
       for (var g = 0; g < gifs.length; g++) {
         var gr = gifs[g];
         if (gr.end < cps.length && util.isSafeUrl(gr.url, GIPHY_HOST_RE)) {
-          ranges.push({ start: gr.start, end: gr.end, kind: 'gif', url: gr.url });
+          ranges.push({ start: gr.start, end: gr.end, kind: 'gif', url: smallGif(gr.url), orig: gr.url });
         }
       }
     }
@@ -133,7 +150,8 @@
       pendingSpace = false;
       pos = rg.end + 1;
     }
-    if (pos < cps.length) pushWords(cps.slice(pos).join(''));
+    if (!cps) pushWords(cleaned.text);
+    else if (pos < cps.length) pushWords(cps.slice(pos).join(''));
 
     // 2) Resolve pieces into items.
     var items = [];
@@ -141,6 +159,7 @@
     var pendingPrefix = [];
     var prefixSet = opts.bttvPrefixes || null;
     var cheersOn = opts.cheers !== false && msg.bits > 0;
+    var images = 0; // images so far: emotes, layers, GIFs, cheermotes (MAX_IMAGES)
 
     function emitText(word, sp) {
       var last = items[items.length - 1];
@@ -159,9 +178,11 @@
           return;
         }
       } else if (e.zw && lastEmote && !pendingPrefix.length) {
-        lastEmote.overlays.push(e);
-        return;
+        if (lastEmote.overlays.length < MAX_ZW && images < MAX_IMAGES) { lastEmote.overlays.push(e); images++; }
+        return; // extra layers are dropped
       }
+      if (images >= MAX_IMAGES) return false; // caller shows the word as text
+      images++;
       var item = { type: 'emote', emote: e, overlays: [], fx: null, big: false, sp: sp };
       if (pendingPrefix.length) {
         item.sp = pendingPrefix[0].sp;
@@ -175,32 +196,35 @@
     for (var j = 0; j < pieces.length; j++) {
       var pc = pieces[j];
       if (pc.kind === 'twitch') {
-        handleEmote(twitchEmote(pc.range.id, pc.text), pc.sp);
+        if (handleEmote(twitchEmote(pc.range.id, pc.text), pc.sp) === false) { flushPrefixes(); emitText(pc.text, pc.sp); }
         continue;
       }
       if (pc.kind === 'gif') {
         flushPrefixes();
-        items.push({ type: 'gif', url: pc.range.url, title: pc.text, sp: pc.sp });
+        if (images >= MAX_IMAGES) { emitText(pc.text, pc.sp); continue; }
+        images++;
+        items.push({ type: 'gif', url: pc.range.url, orig: pc.range.orig, title: pc.text, sp: pc.sp });
         lastEmote = null;
         continue;
       }
       var w = pc.text;
-      if (prefixSet && prefixSet.has(w) && BTTV_PREFIX_FX[w]) {
+      if (prefixSet && prefixSet.has(w) && hasOwn.call(BTTV_PREFIX_FX, w)) {
         pendingPrefix.push({ word: w, sp: pc.sp });
         continue;
       }
-      if (cheersOn) {
+      if (cheersOn && images < MAX_IMAGES) {
         var ch = cheerFor(w);
         if (ch) {
           flushPrefixes();
           ch.sp = pc.sp;
+          images++;
           items.push(ch);
           lastEmote = null;
           continue;
         }
       }
       var em = opts.lookup ? opts.lookup(w) : null;
-      if (em) { handleEmote(em, pc.sp); continue; }
+      if (em && handleEmote(em, pc.sp) !== false) continue;
       flushPrefixes();
       emitText(w, pc.sp);
     }

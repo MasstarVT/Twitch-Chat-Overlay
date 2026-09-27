@@ -261,15 +261,12 @@ describe('toChatMessage', () => {
     const m = irc.toChatMessage(irc.parseLine(PRIVMSG));
     assert.equal(m.kind, 'chat');
     assert.equal(m.id, 'f0ea0c84-1111-2222-3333-444455556666');
-    assert.equal(m.channel, 'xqc');
     assert.equal(m.roomId, '71092938');
     assert.equal(m.userId, '123456');
     assert.equal(m.login, 'someuser');
     assert.equal(m.displayName, 'SomeUser');
     assert.equal(m.color, '#1E90FF');
     assert.deepEqual(m.badges, [{ set: 'subscriber', version: '48' }, { set: 'premium', version: '1' }]);
-    assert.deepEqual(m.badgeInfo, [{ set: 'subscriber', version: '52' }]);
-    assert.equal(m.mod, false);
     assert.equal(m.ts, 1790299061671);
     assert.equal(m.text, 'Kappa hello :) world');
     assert.equal(m.action, false);
@@ -281,7 +278,8 @@ describe('toChatMessage', () => {
     assert.equal(m.reply, null);
     assert.equal(m.mirrored, false);
     assert.equal(m.historical, false);
-    assert.equal(m.tags['client-nonce'], 'abc');
+    // fields nothing reads are not built (and the tag object is not kept alive with the line)
+    ['channel', 'badgeInfo', 'mod', 'tags', 'rawType', 'params'].forEach((k) => assert.equal(k in m, false, k));
   });
 
   test('display-name falls back to the login; invalid colors are dropped', () => {
@@ -336,14 +334,13 @@ describe('toNoticeMessage', () => {
     const m = irc.toNoticeMessage(irc.parseLine(RESUB));
     assert.equal(m.kind, 'notice');
     assert.equal(m.type, 'resub');
-    assert.equal(m.rawType, 'resub');
     assert.equal(m.systemMsg, 'Gifter subscribed at Tier 1.');
     assert.equal(m.text, 'great stream Kappa');
     assert.equal(m.emotes, '25:13-17');
     assert.equal(m.login, 'gifter');
     assert.equal(m.displayName, 'Gifter');
     assert.equal(m.userId, '42');
-    assert.deepEqual(m.params, { 'cumulative-months': '5', 'sub-plan': '1000' });
+    ['channel', 'badgeInfo', 'mod', 'tags', 'rawType'].forEach((k) => assert.equal(k in m, false, k));
     assert.equal(m.mirrored, false);
     assert.equal(m.reply, null);
   });
@@ -359,7 +356,7 @@ describe('toNoticeMessage', () => {
     const m = irc.toNoticeMessage(irc.parseLine('@msg-id=sharedchatnotice;source-msg-id=announcement;msg-param-color=primary;' +
       'room-id=1;source-room-id=1025594235;login=a :tmi.twitch.tv USERNOTICE #chan :hello all'));
     assert.equal(m.type, 'announcement');
-    assert.equal(m.rawType, 'sharedchatnotice');
+    assert.equal(m.msgId, 'sharedchatnotice');
     assert.equal(m.mirrored, true);
     assert.equal(m.announceColor, 'PRIMARY');
   });
@@ -367,6 +364,10 @@ describe('toNoticeMessage', () => {
   test('community gift id is exposed for burst collapsing', () => {
     const m = irc.toNoticeMessage(irc.parseLine('@msg-id=submysterygift;msg-param-community-gift-id=6833281778898429912;msg-param-mass-gift-count=5;login=g :tmi.twitch.tv USERNOTICE #chan'));
     assert.equal(m.communityGiftId, '6833281778898429912');
-    assert.equal(m.params['mass-gift-count'], '5');
+  });
+
+  test('msg-param-* tags are kept as params (bitsbadgetier threshold)', () => {
+    const m = irc.toNoticeMessage(irc.parseLine('@msg-id=bitsbadgetier;msg-param-threshold=1000;login=c :tmi.twitch.tv USERNOTICE #chan'));
+    assert.equal(m.params.threshold, '1000');
   });
 });
