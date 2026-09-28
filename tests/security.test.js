@@ -82,6 +82,7 @@ test('every URL property assignment in js/ is a reviewed one', () => {
       /^img\.src = (?:small|full)$/, // the channel avatar preview: IVR logo, isSafeUrl(jtvnw.net) checked
       /^\$\('bar-open'\)\.href = url$/, // the generated overlay URL on this site
       /^a\.href = href$/, // builder links on this site
+      /^a\.href = kick\.apiUrl\(slug\)$/, // kick.com's channel API for a validated Kick name (config.normalizeKick)
       /^f\.src = src$/, // the preview iframe: overlay.html on this site
       /^s\.src = 'settings\.js\?t=' \+ Date\.now\(\)$/
     ],
@@ -252,6 +253,53 @@ test('provider emotes and badges: names are text, only https URLs are used', () 
   assert.strictEqual(twitchBadges.parseUser([{ id: 1, login: 'a', logo: 'https://static-cdn.jtvnw.net.evil.example/a-profile_image-600x600.png' }]).logo, null);
   assert.strictEqual(twitchBadges.parseUser([{ id: 1, login: 'a', logo: 'https://static-cdn.jtvnw.net/jtv_user_pictures/a.png' }]).logo,
     'https://static-cdn.jtvnw.net/jtv_user_pictures/a.png');
+});
+
+test('hostile Kick chat: names, text, replies, colors, badges, ids and emote codes stay text; URLs only on files.kick.com', () => {
+  const kick = require('../js/kick.js');
+  const icons = require('../js/icons.js');
+  const kmodel = (d) => {
+    const msg = kick.toMessage(d);
+    const tk = tokenizer.tokenize(msg, { lookup: () => null, gifs: false });
+    return { msg, m: R.modelFor(msg, R.normalizeCfg({}), { kind: 'chat', items: tk.items, action: tk.action, badges: [],
+      name: { text: msg.displayName, color: msg.color } }) };
+  };
+  const base = (extra) => Object.assign({ id: 'abc-1', chatroom_id: 1, type: 'reply', content: 'hi',
+    sender: { id: 7, username: 'u', identity: { color: '#53FC19', badges: [] } } }, extra);
+  PAYLOADS.forEach((p) => {
+    const { msg, m } = kmodel(base({
+      content: p + ' [emote:1:' + p.replace(/[\[\]]/g, '') + ']',
+      sender: { id: 7, username: p, identity: { color: p, badges: [{ type: p, text: p }, { type: 'moderator', text: p }] } },
+      metadata: { original_sender: { id: 8, username: p }, original_message: { id: 'abc-0', content: p } }
+    }));
+    assert.strictEqual(m.name.text, p.slice(0, 64), 'the name is literal text');
+    assert.match(m.name.color, /^#[0-9a-f]{6}$/i, 'a hostile color is replaced');
+    assert.strictEqual(m.reply.name, '@' + p);
+    assert.strictEqual(m.reply.body, p);
+    assert.strictEqual(m.cls, 'line platform-kick');
+    m.parts.filter((x) => x.t === 'text').forEach((x) => assert.ok(x.s.indexOf('<') < 0 || p.indexOf(x.s.trim()) >= 0));
+    urlsOf(m).forEach((u) => assert.match(u, /^https:\/\/files\.kick\.com\/emotes\/1\/fullsize$/, u));
+    // Only known badge types survive, and each becomes a fixed icon key.
+    assert.deepStrictEqual(msg.kickBadges.map((b) => b.type), ['moderator']);
+    assert.ok(icons.has('kick-' + msg.kickBadges[0].type));
+  });
+  // Emote codes whose id isn't digits stay text; a digits id can only ever build a files.kick.com URL.
+  ['[emote:../../x:a]', '[emote:1e9:a]', '[emote:javascript:alert(1)]', '[emote:1:a"onerror="x]'].forEach((c) => {
+    const { m } = kmodel(base({ content: c, type: 'message' }));
+    urlsOf(m).forEach((u) => assert.match(u, /^https:\/\/files\.kick\.com\/emotes\/\d+\/fullsize$/, u));
+  });
+  // Ids with path or markup characters are refused (no message), so they never reach an index or a class.
+  ['../x', 'a b', '<x>', 'a'.repeat(65)].forEach((id) => assert.strictEqual(kick.toMessage(base({ id: id })), null, id));
+  // Sub badge images from Kick's channel data must be https on files.kick.com.
+  const c = kick.parseChannel({ slug: 'x', chatroom: { id: 1 }, subscriber_badges: [
+    { months: 1, badge_image: { src: 'javascript:alert(1)' } },
+    { months: 2, badge_image: { src: 'https://files.kick.com.evil.example/b' } },
+    { months: 3, badge_image: { src: 'http://files.kick.com/b' } },
+    { months: 4, badge_image: { src: 'https://files.kick.com/b" onerror="x' } }
+  ] }, 'x');
+  assert.deepStrictEqual(c.subBadges, []);
+  // An icon badge draws only registry shapes: an unknown key is dropped, never used as markup or a class.
+  assert.deepStrictEqual(R.badgeModels([{ icon: '"><img src=x onerror=alert(1)>', title: 'x' }, { icon: 'toString', title: 'x' }], 1), []);
 });
 
 test('7TV paints: hostile values never escape their rule, and stay near the name', () => {

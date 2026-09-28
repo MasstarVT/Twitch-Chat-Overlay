@@ -10,7 +10,8 @@
   var BUILDER = 'builder.html';
   // The overlay itself, in demo mode: sample messages through the real parser and renderer.
   var DEMOS = [
-    { box: 'demo-column', name: 'column demo', src: 'overlay.html?demo=1', title: 'Live demo: the overlay showing sample chat', lazy: false },
+    // kick: the column also shows sample Kick lines, as a Twitch + Kick multistream chat.
+    { box: 'demo-column', name: 'column demo', src: 'overlay.html?demo=1&kick=demo', title: 'Live demo: the overlay showing sample Twitch and Kick chat', lazy: false },
     { box: 'demo-row', name: 'ticker demo', src: 'overlay.html?demo=1&layout=horizontal', title: 'Live demo: the overlay as a one-row ticker', lazy: true }
   ];
 

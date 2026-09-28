@@ -414,6 +414,11 @@ label.field-label { cursor: pointer; }
 /* a switch sits beside its label at every width */
 .field-check .field-head { flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; min-height: 46px; }
 .field-check .field-name { flex: 1 1 auto; }
+/* a text field with its own button (the Kick channel's Check) */
+.text-row { display: flex; gap: 8px; min-width: 0; }
+.text-row .text { flex: 1 1 auto; min-width: 0; }
+.text-row .btn { flex: none; padding: 0 16px; }
+.field .status a { color: var(--accent-hi); }
 
 /* provider marks: a logo where its license allows one, else an initial (as on the home page) */
 .logo { flex: none; width: 36px; height: 36px; margin-right: 2px; background: center / contain no-repeat; }

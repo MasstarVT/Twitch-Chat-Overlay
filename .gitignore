@@ -4,3 +4,8 @@ settings.js
 node_modules/
 .DS_Store
 Thumbs.db
+
+# Claude Code files (local only)
+.claude/
+CLAUDE.md
+claude.md

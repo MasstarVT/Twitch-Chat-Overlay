@@ -127,3 +127,40 @@ test('demo users get the cosmetics the catalog offers', () => {
   st.chatterino.set('x', [{ provider: 'chatterino', title: 'C' }]);
   assert.deepStrictEqual(d.extraBadges('demo-1'), [{ provider: 'chatterino', title: 'C' }]);
 });
+
+test('with a Kick channel set, every third line is a Kick event that kick.js parses; without one, none', () => {
+  const kick = require('../js/kick.js');
+  function run(cfg) {
+    const state = Object.assign(fakeState(true), { cfg: cfg });
+    const lines = [], kicks = [];
+    const d = demo.createDemo({ getState: () => state, feed: (l) => lines.push(l), feedKick: (e, data) => kicks.push(kick.parseEvent(e, data)) });
+    const realSet = globalThis.setInterval, realClear = globalThis.clearInterval;
+    let tick = null;
+    globalThis.setInterval = (fn) => { tick = fn; return 1; };
+    globalThis.clearInterval = () => {};
+    try {
+      d.start();
+      for (let i = 1; i < 9; i++) tick();
+      d.stop();
+    } finally {
+      globalThis.setInterval = realSet;
+      globalThis.clearInterval = realClear;
+    }
+    return { lines, kicks };
+  }
+  const off = run({ channel: 'forsen' });
+  assert.strictEqual(off.lines.length, 9);
+  assert.strictEqual(off.kicks.length, 0);
+  const on = run({ channel: 'forsen', kick: 'forsen' });
+  assert.strictEqual(on.lines.length, 6);
+  assert.deepStrictEqual(on.kicks.map((e) => e.type), ['message', 'message', 'notice']);
+  const first = on.kicks[0].msg;
+  assert.strictEqual(first.platform, 'kick');
+  assert.strictEqual(first.text, 'hello from Kick! KEKW');
+  assert.strictEqual(first.kickEmotes, '37226:17-20');
+  assert.deepStrictEqual(first.kickBadges.map((b) => b.type), ['og', 'subscriber']);
+  assert.match(on.kicks[1].msg.text, /^Twitch and Kick chat in one overlay (peepoHappy|catJAM)$/);
+  assert.strictEqual(on.kicks[2].msg.systemMsg, 'KickSubber subscribed for 3 months!');
+  // The Twitch script carries on where it was: the first six Twitch lines are the usual first six.
+  assert.deepStrictEqual(on.lines.map((l) => ircParse.parseLine(l).command), off.lines.slice(0, 6).map((l) => ircParse.parseLine(l).command));
+});
