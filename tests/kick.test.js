@@ -1,0 +1,309 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const kick = require('../js/kick.js');
+
+// Minimal WebSocket stand-in driven by the test (same shape as tests/irc.test.js).
+function fakeSockets() {
+  const sockets = [];
+  function FakeWS(url) {
+    this.url = url;
+    this.sent = [];
+    this.closed = false;
+    sockets.push(this);
+  }
+  FakeWS.prototype.send = function (s) { this.sent.push(JSON.parse(s)); };
+  FakeWS.prototype.close = function () { this.closed = true; };
+  FakeWS.prototype.open = function () { if (this.onopen) this.onopen({}); };
+  FakeWS.prototype.recv = function (frame) { if (this.onmessage) this.onmessage({ data: typeof frame === 'string' ? frame : JSON.stringify(frame) }); };
+  FakeWS.prototype.serverClose = function (code, reason) { if (this.onclose) this.onclose({ code: code || 1006, reason: reason || '' }); };
+  return { WS: FakeWS, sockets: sockets };
+}
+
+function setup(t, room) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const f = fakeSockets();
+  const events = [];
+  const statuses = [];
+  const client = kick.createKick({
+    room: room === undefined ? '668' : room,
+    WebSocket: f.WS,
+    onEvent: (e) => events.push(e),
+    onStatus: (s, d) => statuses.push([s, d])
+  });
+  client.start();
+  return { f, events, statuses, client, sock: (i) => f.sockets[i], names: () => statuses.map((x) => x[0]) };
+}
+
+const CHANNEL = 'chatrooms.668.v2';
+const ESTABLISHED = { event: 'pusher:connection_established', data: JSON.stringify({ socket_id: '1.2', activity_timeout: 120 }) };
+const SUBSCRIBED = { event: 'pusher_internal:subscription_succeeded', data: '{}', channel: CHANNEL };
+
+function chat(extra) {
+  return Object.assign({
+    id: '9d3f7c3e-1111-4222-8333-944455556666',
+    chatroom_id: 668,
+    content: 'hello [emote:37226:KEKW]',
+    type: 'message',
+    created_at: '2026-09-27T20:00:00+00:00',
+    sender: { id: 12345, username: 'Some_Viewer', slug: 'some-viewer', identity: { color: '#E9113C', badges: [{ type: 'subscriber', text: 'Subscriber', count: 3 }, { type: 'moderator', text: 'Moderator' }] } }
+  }, extra || {});
+}
+function frame(event, data, channel) {
+  return { event: 'App\\Events\\' + event, data: JSON.stringify(data), channel: channel || CHANNEL };
+}
+
+// ---------- channel lookup and paste ----------
+test('parseChannel reads the chatroom id, user id and safe sub badge images', () => {
+  const c = kick.parseChannel({
+    id: 668, user_id: 676, slug: 'xqc', chatroom: { id: 668 }, user: { username: 'xQc' },
+    subscriber_badges: [
+      { months: 6, badge_image: { src: 'https://files.kick.com/channel_subscriber_badges/2/original' } },
+      { months: 1, badge_image: { src: 'https://files.kick.com/channel_subscriber_badges/1/original' } },
+      { months: 3, badge_image: { src: 'https://evil.example/x.png' } },
+      { months: 'x', badge_image: { src: 'https://files.kick.com/a' } }
+    ]
+  }, 'xqc');
+  assert.deepStrictEqual(c, {
+    chatroomId: '668', userId: '676', slug: 'xqc', username: 'xQc',
+    subBadges: [
+      { months: 1, url: 'https://files.kick.com/channel_subscriber_badges/1/original' },
+      { months: 6, url: 'https://files.kick.com/channel_subscriber_badges/2/original' }
+    ]
+  });
+});
+
+test('parseChannel refuses another channel, a missing chatroom and junk', () => {
+  assert.strictEqual(kick.parseChannel({ slug: 'someone-else', chatroom: { id: 1 } }, 'xqc'), null);
+  assert.strictEqual(kick.parseChannel({ slug: 'xqc', chatroom: {} }, 'xqc'), null);
+  assert.strictEqual(kick.parseChannel({ slug: 'xqc', chatroom: { id: '1 OR 1' } }, 'xqc'), null);
+  assert.strictEqual(kick.parseChannel(null, 'xqc'), null);
+  assert.strictEqual(kick.parseChannel('text', 'xqc'), null);
+  // A username's underscores are hyphens in its slug.
+  assert.strictEqual(kick.parseChannel({ slug: 'adin-ross', chatroom: { id: 5 } }, 'adin_ross').chatroomId, '5');
+});
+
+test('roomFromText takes the number or the whole channel API page', () => {
+  assert.strictEqual(kick.roomFromText(' 668 '), '668');
+  assert.strictEqual(kick.roomFromText(668), '668');
+  assert.strictEqual(kick.roomFromText(JSON.stringify({ id: 1, slug: 'xqc', chatroom: { id: 668, chatable_type: 'x' } })), '668');
+  assert.strictEqual(kick.roomFromText('... "chatroom":{"id":4598,"chatable_type":"App\\\\Models\\\\Channel" ... (cut off'), '4598');
+  assert.strictEqual(kick.roomFromText('{"chatroom_id": 77, "oops"'), '77');
+  ['', 'abc', '1'.repeat(13), '{"chatroom":{}}', null, undefined, true].forEach((v) => assert.strictEqual(kick.roomFromText(v), '', String(v)));
+});
+
+test('apiUrl builds the channel API link from a normalized name', () => {
+  assert.strictEqual(kick.apiUrl('https://kick.com/XQC'), 'https://kick.com/api/v2/channels/xqc');
+  assert.strictEqual(kick.apiUrl('<bad name>'), 'https://kick.com/api/v2/channels/');
+});
+
+test('lookupChannel: success, 404 (with the hyphen spelling tried) and a blocked request', async (t) => {
+  const calls = [];
+  let reply = () => ({ status: 200, body: { slug: 'xqc', user_id: 676, chatroom: { id: 668 }, user: { username: 'xQc' } } });
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    const r = reply(url);
+    if (r.throws) throw new TypeError('Failed to fetch');
+    const txt = JSON.stringify(r.body || {});
+    return { status: r.status, ok: r.status >= 200 && r.status < 300, headers: { get: () => null }, text: async () => txt };
+  });
+  const c = await kick.lookupChannel('XQC');
+  assert.strictEqual(c.chatroomId, '668');
+  assert.strictEqual(calls[0], 'https://kick.com/api/v2/channels/xqc');
+
+  calls.length = 0;
+  reply = () => ({ status: 404 });
+  assert.strictEqual(await kick.lookupChannel('adin_ross'), null);
+  assert.deepStrictEqual(calls, ['https://kick.com/api/v2/channels/adin_ross', 'https://kick.com/api/v2/channels/adin-ross']);
+
+  reply = () => ({ throws: true }); // what a CORS refusal looks like to fetch
+  await assert.rejects(kick.lookupChannel('xqc'), /Failed to fetch/);
+  reply = () => ({ status: 200, body: { slug: 'xqc' } });
+  await assert.rejects(kick.lookupChannel('xqc'), /unexpected channel response/);
+  await assert.rejects(kick.lookupChannel('bad name'), /invalid channel name/);
+});
+
+// ---------- messages ----------
+test('splitEmotes turns [emote:id:name] into names plus code-point ranges', () => {
+  assert.deepStrictEqual(kick.splitEmotes('hello'), { text: 'hello', emotes: '' });
+  assert.deepStrictEqual(kick.splitEmotes('[emote:37226:KEKW] hi'), { text: 'KEKW hi', emotes: '37226:0-3' });
+  // An emoji before an emote counts as one code point; repeats group under one id; adjacent emotes work.
+  assert.deepStrictEqual(kick.splitEmotes('😀 [emote:1:a][emote:2:bb] [emote:1:a]'), { text: '😀 abb a', emotes: '1:2-2,6-6/2:3-4' });
+  // Malformed tokens stay text.
+  assert.deepStrictEqual(kick.splitEmotes('[emote:x:y] [emote:1:] [emote::a] [emote:1:a'), { text: '[emote:x:y] emote [emote::a] [emote:1:a', emotes: '1:12-16' });
+  assert.deepStrictEqual(kick.splitEmotes(null), { text: '', emotes: '' });
+  assert.strictEqual(kick.splitEmotes('x'.repeat(5000)).text.length, 2000);
+});
+
+test('toMessage builds a namespaced chat message', () => {
+  const m = kick.toMessage(chat());
+  assert.strictEqual(m.platform, 'kick');
+  assert.strictEqual(m.kind, 'chat');
+  assert.strictEqual(m.id, 'kick:9d3f7c3e-1111-4222-8333-944455556666');
+  assert.strictEqual(m.userId, 'kick:12345');
+  assert.strictEqual(m.roomId, 'kick:668');
+  assert.strictEqual(m.login, 'some_viewer');
+  assert.strictEqual(m.displayName, 'Some_Viewer');
+  assert.strictEqual(m.color, '#E9113C');
+  assert.strictEqual(m.text, 'hello KEKW');
+  assert.strictEqual(m.kickEmotes, '37226:6-9');
+  assert.strictEqual(m.emotes, '');
+  assert.deepStrictEqual(m.badges, []);
+  assert.deepStrictEqual(m.kickBadges, [{ type: 'subscriber', text: 'Subscriber', count: 3 }, { type: 'moderator', text: 'Moderator', count: 0 }]);
+  assert.strictEqual(m.ts, Date.parse('2026-09-27T20:00:00+00:00'));
+  assert.strictEqual(m.reply, null);
+  assert.strictEqual(m.mirrored, false);
+});
+
+test('toMessage: replies (object or JSON-string metadata), bad colors, unknown badges, invalid ids', () => {
+  const meta = { original_sender: { id: 7, username: 'Parent' }, original_message: { id: 'abc-1', content: 'hi [emote:5:Pog]' } };
+  const r = kick.toMessage(chat({ type: 'reply', metadata: meta }));
+  assert.deepStrictEqual(r.reply, { id: 'kick:abc-1', userId: 'kick:7', login: 'parent', name: 'Parent', body: 'hi Pog' });
+  assert.deepStrictEqual(kick.toMessage(chat({ type: 'reply', metadata: JSON.stringify(meta) })).reply, r.reply);
+  assert.strictEqual(kick.toMessage(chat({ type: 'reply', metadata: '{bad' })).reply, null);
+  assert.strictEqual(kick.toMessage(chat({ type: 'message', metadata: meta })).reply, null);
+
+  const s = chat().sender;
+  const odd = kick.toMessage(chat({ sender: Object.assign({}, s, { identity: { color: 'red', badges: [{ type: 'weird' }, { type: 'VIP', count: -2 }, { type: 'vip' }] } }) }));
+  assert.strictEqual(odd.color, '');
+  assert.deepStrictEqual(odd.kickBadges, [{ type: 'vip', text: '', count: 0 }]);
+
+  assert.strictEqual(kick.toMessage(chat({ id: '../x' })), null);
+  assert.strictEqual(kick.toMessage(chat({ id: '' })), null);
+  assert.strictEqual(kick.toMessage(chat({ sender: { id: 'a b', username: 'x' } })), null);
+  assert.strictEqual(kick.toMessage(chat({ sender: { id: 1, username: '' } })), null);
+  assert.strictEqual(kick.toMessage(null), null);
+});
+
+test('parseEvent maps every Kick event, with string or object data', () => {
+  const ev = (name, d) => kick.parseEvent('App\\Events\\' + name, JSON.stringify(d));
+  assert.strictEqual(ev('ChatMessageEvent', chat()).type, 'message');
+  assert.strictEqual(kick.parseEvent('App\\Events\\ChatMessageEvent', chat()).msg.userId, 'kick:12345');
+  assert.deepStrictEqual(ev('MessageDeletedEvent', { id: 'x', message: { id: 'abc-1' } }), { type: 'delete', id: 'kick:abc-1' });
+  assert.deepStrictEqual(ev('UserBannedEvent', { id: 'x', user: { id: 55, username: 'Troll' }, permanent: true }), { type: 'ban', userId: 'kick:55', login: 'troll' });
+  assert.deepStrictEqual(ev('ChatroomClearEvent', { id: 'x' }), { type: 'clear' });
+
+  const sub = ev('SubscriptionEvent', { chatroom_id: 668, username: 'Fan', months: 1 });
+  assert.strictEqual(sub.type, 'notice');
+  assert.strictEqual(sub.msg.kind, 'notice');
+  assert.strictEqual(sub.msg.type, 'sub');
+  assert.strictEqual(sub.msg.systemMsg, 'Fan subscribed!');
+  assert.strictEqual(sub.msg.login, 'fan');
+  assert.strictEqual(sub.msg.platform, 'kick');
+  assert.strictEqual(ev('SubscriptionEvent', { username: 'Fan', months: 7 }).msg.systemMsg, 'Fan subscribed for 7 months!');
+  assert.strictEqual(ev('GiftedSubscriptionsEvent', { gifter_username: 'Rich', gifted_usernames: ['a', 'b', 'c'] }).msg.systemMsg, 'Rich gifted 3 subs!');
+  assert.strictEqual(ev('GiftedSubscriptionsEvent', { gifter_username: 'Rich', gifted_usernames: ['Lucky'] }).msg.systemMsg, 'Rich gifted a sub to Lucky!');
+  assert.strictEqual(ev('GiftedSubscriptionsEvent', { gifter_username: 'Rich', gifted_usernames: [] }), null);
+  const host = ev('StreamHostEvent', { host_username: 'Friend', number_viewers: 42, optional_message: '' });
+  assert.strictEqual(host.msg.type, 'raid');
+  assert.strictEqual(host.msg.systemMsg, 'Friend is hosting with 42 viewers!');
+
+  assert.strictEqual(ev('PollUpdateEvent', {}), null);
+  assert.strictEqual(kick.parseEvent('pusher:ping', '{}'), null);
+  assert.strictEqual(kick.parseEvent('App\\Events\\ChatMessageEvent', '{not json'), null);
+  assert.strictEqual(kick.parseEvent('App\\Events\\ChatMessageEvent', 'x'.repeat(70000)), null);
+  assert.strictEqual(kick.parseEvent(null, '{}'), null);
+});
+
+// ---------- Pusher client ----------
+test('subscribes to the chatroom after connection_established and reports joined', (t) => {
+  const s = setup(t);
+  const ws = s.sock(0);
+  assert.strictEqual(ws.url, kick.WS_URL);
+  assert.match(ws.url, /^wss:\/\/ws-us2\.pusher\.com\/app\/[0-9a-f]+\?protocol=7&/);
+  ws.open();
+  assert.deepStrictEqual(ws.sent, []);
+  ws.recv(ESTABLISHED);
+  assert.deepStrictEqual(ws.sent, [{ event: 'pusher:subscribe', data: { auth: '', channel: CHANNEL } }]);
+  ws.recv({ event: 'pusher_internal:subscription_succeeded', data: '{}', channel: 'chatrooms.1.v2' });
+  assert.deepStrictEqual(s.names(), ['open']);
+  ws.recv(SUBSCRIBED);
+  ws.recv(SUBSCRIBED);
+  assert.deepStrictEqual(s.names(), ['open', 'joined']);
+  s.client.stop();
+});
+
+test('chat events on our channel reach onEvent; other channels and junk are ignored', (t) => {
+  const s = setup(t);
+  const ws = s.sock(0);
+  ws.open();
+  ws.recv(ESTABLISHED);
+  ws.recv(SUBSCRIBED);
+  ws.recv(frame('ChatMessageEvent', chat()));
+  ws.recv(frame('ChatMessageEvent', chat({ id: 'other-1' }), 'chatrooms.1.v2'));
+  ws.recv('not json');
+  ws.recv(JSON.stringify({ event: 'App\\Events\\ChatMessageEvent', channel: CHANNEL, data: JSON.stringify(chat({ content: 'x'.repeat(70000) })) }));
+  ws.recv(frame('MessageDeletedEvent', { message: { id: 'abc-1' } }));
+  assert.deepStrictEqual(s.events.map((e) => e.type), ['message', 'delete']);
+  assert.strictEqual(s.events[0].msg.text, 'hello KEKW');
+  s.client.stop();
+});
+
+test('answers pusher:ping, and pings after activity_timeout of silence', (t) => {
+  const s = setup(t);
+  const ws = s.sock(0);
+  ws.open();
+  ws.recv({ event: 'pusher:connection_established', data: JSON.stringify({ socket_id: '1.2', activity_timeout: 30 }) });
+  ws.sent.length = 0;
+  ws.recv({ event: 'pusher:ping', data: {} });
+  assert.deepStrictEqual(ws.sent, [{ event: 'pusher:pong', data: {} }]);
+  ws.sent.length = 0;
+  t.mock.timers.tick(25000);
+  assert.deepStrictEqual(ws.sent, []);
+  t.mock.timers.tick(10000);
+  assert.deepStrictEqual(ws.sent, [{ event: 'pusher:ping', data: {} }]);
+  ws.recv({ event: 'pusher:pong', data: {} });
+  t.mock.timers.tick(30000);
+  assert.strictEqual(s.f.sockets.length, 1, 'answered: no reconnect');
+  s.client.stop();
+});
+
+test('no pong within 30 s: reconnect', (t) => {
+  const s = setup(t);
+  const ws = s.sock(0);
+  ws.open();
+  ws.recv(ESTABLISHED);
+  t.mock.timers.tick(125000);
+  assert.deepStrictEqual(ws.sent[ws.sent.length - 1], { event: 'pusher:ping', data: {} });
+  t.mock.timers.tick(30000);
+  assert.ok(ws.closed);
+  assert.deepStrictEqual(s.names().slice(-1), ['closed']);
+  t.mock.timers.tick(30000);
+  assert.strictEqual(s.f.sockets.length, 2);
+  s.client.stop();
+});
+
+test('pusher:error 4001 (app key refused) stops for good and reports fatal', (t) => {
+  const s = setup(t);
+  const ws = s.sock(0);
+  ws.open();
+  ws.recv({ event: 'pusher:error', data: { code: 4001, message: 'App key 32cb not in this cluster' } });
+  assert.deepStrictEqual(s.statuses.slice(-1), [['fatal', { code: 4001, message: 'App key 32cb not in this cluster' }]]);
+  t.mock.timers.tick(600000);
+  assert.strictEqual(s.f.sockets.length, 1);
+});
+
+test('close 4000-4099 stops; 4200-4299 reconnects at once; 4100-4199 backs off', (t) => {
+  const s = setup(t);
+  s.sock(0).open();
+  s.sock(0).serverClose(4201);
+  t.mock.timers.tick(0);
+  assert.strictEqual(s.f.sockets.length, 2, '4201: reconnect now');
+  s.sock(1).open();
+  s.sock(1).serverClose(4100);
+  t.mock.timers.tick(0);
+  assert.strictEqual(s.f.sockets.length, 2, '4100: waits');
+  t.mock.timers.tick(30000);
+  assert.strictEqual(s.f.sockets.length, 3);
+  s.sock(2).open();
+  s.sock(2).serverClose(4004, 'over quota');
+  assert.deepStrictEqual(s.names().slice(-1), ['fatal']);
+  t.mock.timers.tick(600000);
+  assert.strictEqual(s.f.sockets.length, 3, '4004: never again');
+});
+
+test('an invalid chatroom id never connects', (t) => {
+  const s = setup(t, 'abc');
+  assert.strictEqual(s.f.sockets.length, 0);
+  assert.deepStrictEqual(s.statuses, [['fatal', { code: 0, message: 'invalid chatroom id' }]]);
+});

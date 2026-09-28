@@ -1,10 +1,11 @@
 /* DOM rendering: pending queue, line lifecycle (fade, trim, moderation), indexes, paint stylesheet, re-render. */
 (function (root, factory) {
   var util = typeof require === 'function' ? require('./util.js') : root.TCO.util;
-  var api = factory(root, util);
+  var icons = typeof require === 'function' ? require('./icons.js') : root.TCO.icons;
+  var api = factory(root, util, icons);
   if (typeof module === 'object' && module.exports) module.exports = api;
   (root.TCO = root.TCO || {}).renderer = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (root, util) {
+})(typeof window !== 'undefined' ? window : globalThis, function (root, util, icons) {
   'use strict';
 
   // ---------- constants ----------
@@ -34,12 +35,15 @@
   var PAINT_ID_RE = /^[0-9A-Za-z]{1,40}$/;
   var HEX_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
   var ANN_COLORS = ['PRIMARY', 'BLUE', 'GREEN', 'ORANGE', 'PURPLE'];
+  // Platforms other than Twitch that mark their lines with a class (.line.platform-kick). Twitch lines get none.
+  var LINE_PLATFORMS = { kick: 1 };
+  var SVG_NS = 'http://www.w3.org/2000/svg';
   // Kept equal to config.GENERIC_FONT_NAMES (tests/renderer-dom.test.js checks).
   var GENERIC_FONTS = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif',
     'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong'];
-  var RERENDER_KEYS = ['size', 'badges', 'badges_twitch', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap',
-    'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs', 'first_msg', 'shared',
-    'layout']; // layout: a row draws gigantified emotes at emote height, so it picks smaller files
+  var RERENDER_KEYS = ['size', 'badges', 'badges_twitch', 'badges_kick', 'platform_icons', 'badges_7tv', 'badges_bttv',
+    'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs',
+    'first_msg', 'shared', 'layout']; // layout: a row draws gigantified emotes at emote height, so it picks smaller files
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
 
   // ---------- pure helpers (exported as _internal for tests) ----------
@@ -313,6 +317,7 @@
       if (ann) c.push('announcement', ann);
     }
     if (msg.mirrored) c.push('mirrored');
+    if (typeof msg.platform === 'string' && Object.prototype.hasOwnProperty.call(LINE_PLATFORMS, msg.platform)) c.push('platform-' + msg.platform);
     return c.join(' ');
   }
 
@@ -324,20 +329,26 @@
     return { name: '@' + util.capMarks(name), body: util.capMarks(body) };
   }
 
-  // With badges off, only the Shared Chat source avatar (provider 'avatar') is kept: it marks the source
-  // channel rather than the user.
+  // With badges off, only the Shared Chat source avatar (provider 'avatar') and the platform icon (provider
+  // 'platform') are kept: they mark where a message came from rather than who wrote it.
+  function marksSource(b) { return !!b && (b.provider === 'avatar' || b.provider === 'platform'); }
   function visibleBadges(list, cfg) {
     if (!Array.isArray(list)) return [];
     if (!cfg || cfg.badges !== false) return list;
-    return list.filter(function (b) { return b && b.provider === 'avatar'; });
+    return list.filter(marksSource);
   }
 
+  // A badge is an image ({urls}) or a built-in icon ({icon: a js/icons.js key}, drawn as inline SVG).
   function badgeModels(list, want) {
     var out = [];
     if (!Array.isArray(list)) return out;
     for (var i = 0; i < list.length; i++) {
       var b = list[i];
       if (!b) continue;
+      if (b.icon !== undefined) {
+        if (icons && icons.has(b.icon)) out.push({ icon: b.icon, title: String(b.title || ''), platform: b.provider === 'platform' });
+        continue;
+      }
       var url = pickUrl(b.urls, want);
       if (!url) continue;
       out.push({
@@ -433,7 +444,11 @@
     cfg = cfg || {};
     d = d || {};
     if (d.kind === 'notice') {
-      return { kind: 'notice', cls: lineClasses(msg, cfg, 'notice', false), system: util.capMarks(String(msg.systemMsg || '')) };
+      var nm0 = { kind: 'notice', cls: lineClasses(msg, cfg, 'notice', false), system: util.capMarks(String(msg.systemMsg || '')) };
+      // A notice shows only the platform icon (in a combined Twitch + Kick chat), never the user's badges.
+      var marks = badgeModels(Array.isArray(d.badges) ? d.badges.filter(function (b) { return b && b.provider === 'platform'; }) : [], 1);
+      if (marks.length) nm0.badges = marks;
+      return nm0;
     }
     var px = fontPx(cfg.size);
     var action = !!d.action;
@@ -599,7 +614,38 @@
     }
     // A colored (FFZ / FFZ:AP) badge is a transparent mask: the color is the img's own background, so
     // there is no wrapper, and Custom CSS on .badge (display, margin, size) treats every badge alike.
+    // A built-in icon: inline SVG from the js/icons.js registry (constant shapes and colors; the title is text).
+    function svgEl(tag, attrs) {
+      var e = doc.createElementNS(SVG_NS, tag);
+      for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, String(attrs[k]));
+      return e;
+    }
+    function iconNode(b) {
+      var ic = icons.get(b.icon);
+      var svg = svgEl('svg', {
+        'class': 'badge icon icon-' + b.icon + (b.platform ? ' platform' : ''),
+        viewBox: ic.vb, width: BADGE_BASE_PX, height: BADGE_BASE_PX, role: 'img', 'aria-label': b.title
+      });
+      if (b.title) {
+        var t = svgEl('title', {});
+        t.textContent = b.title;
+        svg.appendChild(t);
+      }
+      var vb = ic.vb.split(' ').map(Number);
+      if (ic.tile) svg.appendChild(svgEl('rect', { x: vb[0], y: vb[1], width: vb[2], height: vb[3], rx: vb[2] * 0.2, fill: ic.tile }));
+      for (var i = 0; i < ic.shapes.length; i++) svg.appendChild(svgEl('path', { d: ic.shapes[i].d, fill: ic.shapes[i].fill }));
+      if (ic.text) {
+        var tx = svgEl('text', {
+          x: vb[0] + vb[2] / 2, y: vb[1] + vb[3] / 2 + ic.text.size * 0.36, 'text-anchor': 'middle',
+          'font-size': ic.text.size, 'font-weight': 800, fill: ic.text.fill
+        });
+        tx.textContent = ic.text.s;
+        svg.appendChild(tx);
+      }
+      return svg;
+    }
     function badgeNode(b) {
+      if (b.icon) return iconNode(b);
       var cls = b.avatar ? 'badge avatar' : 'badge';
       var img = makeImg(b.bg ? cls + ' colored' : cls, b.url, BADGE_BASE_PX, BADGE_BASE_PX, b.title, detach);
       if (!b.bg) return img;
@@ -668,6 +714,11 @@
       line.className = model.cls;
       line.textContent = '';
       if (model.kind === 'notice') {
+        if (model.badges) {
+          var nb = el('span', 'badges');
+          for (var n = 0; n < model.badges.length; n++) nb.appendChild(badgeNode(model.badges[n]));
+          line.appendChild(nb);
+        }
         line.appendChild(span('message', model.system));
         return;
       }
@@ -693,7 +744,7 @@
     }
 
     function buildModel(msg, kind) {
-      if (kind === 'notice') return modelFor(msg, cfg, { kind: 'notice' });
+      if (kind === 'notice') return modelFor(msg, cfg, { kind: 'notice', badges: callDep('badgesFor', msg) });
       var tk = normTokens(callDep('tokensFor', msg), msg);
       // Always asked: with badges off, badgesFor still supplies the Shared Chat avatar (modelFor keeps only that).
       var badges = callDep('badgesFor', msg);
@@ -1200,8 +1251,20 @@
       rerenderReplies(function (r) { return util.idStr(r.id) === id; });
     }
 
-    function clearAll() {
+    // Without pred: every line. With pred(msg): only the queued and on-screen lines it matches (a Twitch /clear
+    // keeps the Kick lines of a combined chat, and a Kick clear keeps the Twitch ones).
+    function clearAll(pred) {
       if (destroyed) return;
+      if (typeof pred === 'function') {
+        var hit = function (m) { try { return !!pred(m); } catch (e) { return false; } };
+        queue.filter(function (en) { return !hit(en.msg); });
+        var list = children();
+        for (var i = 0; i < list.length; i++) {
+          var rec = recs.get(list[i]);
+          if (rec && hit(rec.src || rec.msg)) removeLine(list[i]);
+        }
+        return;
+      }
       queue.clear();
       byId.clear();
       byUser.clear();

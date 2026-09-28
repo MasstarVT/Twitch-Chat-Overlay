@@ -8,7 +8,9 @@
   The builder (builder.html) can generate this file for you. All options are listed in README.md.
 */
 window.TCO_SETTINGS = {
-  channel: 'YOUR CHANNEL NAME', // your Twitch name, e.g. 'xqc'
+  channel: 'YOUR CHANNEL NAME', // your Twitch name, e.g. 'xqc' ('' for a Kick-only overlay)
+  // kick: '',            // your Kick channel name: Twitch and Kick chat in one overlay
+  // kick_room: '',       // its Kick chatroom id (the builder's Kick > Check finds it)
   // size: 'medium',      // small | medium | large
   // font: 'Inter',       // any Google Font or system font name
   // shadow: 2,           // 0-3

@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Only this site's own script files run (no inline scripts or styles, no eval). The demo frames are overlay.html. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: data:; frame-src 'self' file:; base-uri 'none'; form-action 'none'">
-  <title>Twitch Chat Overlay: Twitch chat for OBS with 7TV, BTTV and FFZ</title>
-  <meta name="description" content="A browser-source chat overlay for OBS with 7TV, BetterTTV and FrankerFaceZ emotes, 7TV name paints and badges from seven sources. No login and no server of your own.">
+  <title>Twitch Chat Overlay: Twitch and Kick chat for OBS with 7TV, BTTV and FFZ</title>
+  <meta name="description" content="A browser-source chat overlay for OBS with Twitch and Kick chat in one, 7TV, BetterTTV and FrankerFaceZ emotes, 7TV name paints and badges from seven sources. No login and no server of your own.">
   <link rel="icon" href="data:,">
   <!-- Old builder links (this page used to be the builder) are passed on before anything is drawn. -->
-  <script src="js/config.js?v=1.4.0"></script>
-  <script src="js/home.js?v=1.4.0"></script>
+  <script src="js/config.js?v=1.5.0"></script>
+  <script src="js/home.js?v=1.5.0"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&amp;family=Figtree:ital,wght@0,400..800;1,600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
-  <link rel="stylesheet" href="css/home.css?v=1.4.0">
+  <link rel="stylesheet" href="css/home.css?v=1.5.0">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -38,7 +38,7 @@
       <div class="hero-copy">
         <p class="eyebrow">OBS browser source / no login</p>
         <h1>Twitch chat for OBS, with 7TV, BTTV and FFZ built in.</h1>
-        <p class="lede">A browser-source overlay that shows your channel's chat with third-party emotes, 7TV name paints and badges from seven sources. No login, no server of your own, no build step.</p>
+        <p class="lede">A browser-source overlay that shows your channel's chat with third-party emotes, 7TV name paints and badges from seven sources. Multistreaming? Add your Kick channel and both chats share one overlay. No login, no server of your own, no build step.</p>
         <a class="cta" href="builder.html">Open the builder
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
@@ -66,7 +66,7 @@
       </div>
       <div class="hero-foot">
         <button type="button" class="toggle" id="demo-column-toggle" hidden>Pause column demo</button>
-        <p class="note">The frame runs the real overlay in demo mode: sample messages, with emotes and badges loaded from each provider.</p>
+        <p class="note">The frame runs the real overlay in demo mode: sample Twitch and Kick messages, with emotes and badges loaded from each provider.</p>
       </div>
     </section>
 
@@ -77,7 +77,7 @@
           <h2 class="big">Nothing.</h2>
         </div>
         <div class="facts">
-          <div><h3>No login.</h3><p>Chat is read through Twitch's anonymous, read-only chat connection. It reconnects automatically.</p></div>
+          <div><h3>No login.</h3><p>Chat is read through Twitch's and Kick's anonymous, read-only chat connections. They reconnect automatically.</p></div>
           <div><h3>No server of ours.</h3><p>Everything is fetched directly by your browser or OBS.</p></div>
           <div><h3>No telemetry.</h3><p>The overlay reports nothing back. The services it contacts are summarized further down.</p></div>
           <div><h3>No build step.</h3><p>Plain HTML and JavaScript. Host it on GitHub Pages or run it from a folder on your PC.</p></div>
@@ -301,7 +301,7 @@
       <div class="wrap split">
         <div>
           <h2>Chat can't run code on your stream PC.</h2>
-          <p class="copy">Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come from other people too. None of it can run code on your stream PC or change the overlay beyond the message it's in.</p>
+          <p class="copy">Anyone can type in a Twitch or Kick chat, and emote names, badges and 7TV paints come from other people too. None of it can run code on your stream PC or change the overlay beyond the message it's in.</p>
           <p class="note">tests/security.test.js feeds hostile messages, emotes, badges and paints through the real code to keep it this way.</p>
         </div>
         <dl class="guards">
@@ -320,7 +320,7 @@
       <div class="wrap split even">
         <div>
           <h2 class="minor">What it connects to</h2>
-          <p class="copy">Twitch chat, the emote and badge providers, their image hosts and Google Fonts for the font you pick. Recent chat on load comes from recent-messages, and <code>history=0</code> turns that off. Everything is fetched directly by your browser or OBS.</p>
+          <p class="copy">Twitch and Kick chat, the emote and badge providers, their image hosts and Google Fonts for the font you pick. Recent chat on load comes from recent-messages, and <code>history=0</code> turns that off. Everything is fetched directly by your browser or OBS.</p>
           <a class="plain" href="https://github.com/MasstarVT/Twitch-Chat-Overlay#services-this-overlay-contacts">The README lists every service and what it is used for.</a>
         </div>
         <div>
@@ -392,7 +392,7 @@
         <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay">GitHub</a>
         <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay#options">All options</a>
       </nav>
-      <p class="note">Not affiliated with Twitch, 7TV, BetterTTV, FrankerFaceZ or Chatterino. Their names and logos belong to their owners. <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay/blob/main/img/logos/NOTICE.md">Logo sources and licenses.</a></p>
+      <p class="note">Not affiliated with Twitch, Kick, 7TV, BetterTTV, FrankerFaceZ or Chatterino. Their names and logos belong to their owners. <a href="https://github.com/MasstarVT/Twitch-Chat-Overlay/blob/main/img/logos/NOTICE.md">Logo sources and licenses.</a></p>
     </div>
   </footer>
 </body>

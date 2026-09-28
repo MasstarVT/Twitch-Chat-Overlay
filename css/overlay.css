@@ -1,8 +1,9 @@
 /* Twitch Chat Overlay: clean default look (transparent page, white text, drop shadow). Chromium 103 safe. */
 
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .badges .badge .name .colon .message
-   .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored,
-   #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg */
+   .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
+   .platform-kick, badge modifiers .icon .platform (the Twitch / Kick logo), #chat modifiers .layout-vertical
+   .layout-horizontal .align-bottom .align-top .has-bg */
 
 html,
 body {
@@ -142,6 +143,8 @@ body {
 .badge.avatar { border-radius: 50%; }
 /* FFZ / FFZ:AP colored badges: a transparent mask over its own background color (set inline) */
 .badge.colored { border-radius: .15em; }
+/* Built-in icons (platform logos, Kick badges) are inline SVG, square like the other badges */
+.badge.icon { width: 1em; overflow: visible; }
 
 /* ---------- 7TV paints (base; per-paint rules are injected as .painted.p-<id>) ---------- */
 .painted {

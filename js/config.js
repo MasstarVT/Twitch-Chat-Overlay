@@ -6,9 +6,12 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (root) {
   'use strict';
 
-  // type: channel | enum | int | bool | font | list
+  // type: channel | kick | room | enum | int | bool | font | list
   var SPEC = {
     channel: { type: 'channel', def: '' },
+    kick: { type: 'kick', def: '' },
+    kick_room: { type: 'room', def: '' },
+    platform_icons: { type: 'bool', def: true },
     size: { type: 'enum', values: ['small', 'medium', 'large'], def: 'medium' },
     font: { type: 'font', def: 'Inter' },
     shadow: { type: 'int', min: 0, max: 3, def: 2 },
@@ -32,6 +35,7 @@
     emotes_ffz: { type: 'bool', def: true },
     badges: { type: 'bool', def: true },
     badges_twitch: { type: 'bool', def: true },
+    badges_kick: { type: 'bool', def: true },
     badges_7tv: { type: 'bool', def: true },
     badges_bttv: { type: 'bool', def: true },
     badges_ffz: { type: 'bool', def: true },
@@ -50,8 +54,8 @@
   // Settings the overlay can apply in place (the builder sends these via postMessage).
   var LIVE_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'bots',
     'hide_commands', 'block', 'events', 'replies', 'first_msg', 'gifs', 'badges', 'badges_twitch',
-    'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies',
-    'paints', 'readable', 'shared'];
+    'badges_kick', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies',
+    'paints', 'readable', 'shared', 'platform_icons'];
 
   // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
   // them), in their canonical spelling.
@@ -103,6 +107,15 @@
     return /^[a-z0-9_]{1,25}$/.test(s) ? s : '';
   }
 
+  // A Kick channel: a name, @name or kick.com link (incl. popout chat) -> the lowercased channel slug, or ''.
+  function normalizeKick(v) {
+    if (typeof v !== 'string' && typeof v !== 'number') return '';
+    var s = String(v).trim();
+    s = s.replace(/^(?:https?:\/\/)?(?:www\.)?kick\.com\/(?:popout\/)?/i, '').replace(/^@+/, '');
+    s = s.split(/[/?#]/)[0].trim().toLowerCase();
+    return /^[a-z0-9_-]{1,40}$/.test(s) ? s : '';
+  }
+
   function normalizeLogin(v) {
     if (typeof v !== 'string' && typeof v !== 'number') return '';
     var s = String(v || '').trim().replace(/^[@#]+/, '').toLowerCase();
@@ -131,6 +144,17 @@
       case 'channel': {
         var c = normalizeChannel(v);
         return c || undefined;
+      }
+      // Kick channel and chatroom id: '' is a valid value (no Kick), so an empty ?kick= clears settings.js.
+      case 'kick': {
+        if (tv === 'boolean') return undefined;
+        if (String(v).trim() === '') return '';
+        return normalizeKick(v) || undefined;
+      }
+      case 'room': {
+        if (tv === 'boolean') return undefined;
+        var r = String(v).trim();
+        return r === '' || /^\d{1,12}$/.test(r) ? r : undefined;
       }
       case 'enum': {
         var e = String(v).trim().toLowerCase();
@@ -281,6 +305,7 @@
     toParams: toParams,
     toObject: toObject,
     normalizeChannel: normalizeChannel,
+    normalizeKick: normalizeKick,
     normalizeLogin: normalizeLogin,
     parseBool: parseBool,
     isSystemFont: isSystemFont,

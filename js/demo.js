@@ -1,4 +1,5 @@
-/* Demo mode: loops synthetic IRC lines through the real parser/renderer, using the channel's real emotes. */
+/* Demo mode: loops synthetic IRC lines (and, with a Kick channel set, Kick chat events) through the real
+   parsers and renderer, using the channel's real emotes. */
 (function (root, factory) {
   var api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -15,6 +16,10 @@
     { id: 'demo-6', login: 'newviewer', name: 'NewViewer', color: '', badges: '' }
   ];
   var TWITCH_EMOTES = { Kappa: '25', PogChamp: '305954156', LUL: '425618' };
+  var KICK_USERS = [
+    { id: 9000001, username: 'KickFan', color: '#E9113C', badges: [{ type: 'og', text: 'OG' }, { type: 'subscriber', text: 'Subscriber', count: 3 }] },
+    { id: 9000002, username: 'KickMod', color: '#53FC19', badges: [{ type: 'moderator', text: 'Moderator' }, { type: 'verified', text: 'Verified' }] }
+  ];
 
   function escTag(v) {
     return String(v).replace(/\\/g, '\\\\').replace(/;/g, '\\:').replace(/ /g, '\\s').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
@@ -59,7 +64,9 @@
     var getState = opts.getState;
     var feed = opts.feed;
     var counter = 0;
-    var index = 0;
+    var index = 0;     // ticks
+    var line = 0;      // next Twitch SCRIPT line
+    var kickLine = 0;  // next KICK_SCRIPT line
     var timer = null;
     var cos = { linear: null, image: null, badge: null };
 
@@ -171,8 +178,38 @@
       }
     ];
 
+    // Kick lines, as the Pusher events Kick sends (event name + JSON data).
+    function kickChat(u, content) {
+      return {
+        event: 'App\\Events\\ChatMessageEvent',
+        data: JSON.stringify({
+          id: 'demo-kick-' + (++counter), chatroom_id: 0, content: content, type: 'message', created_at: new Date().toISOString(),
+          sender: { id: u.id, username: u.username, slug: u.username.toLowerCase(), identity: { color: u.color, badges: u.badges } }
+        })
+      };
+    }
+    var KICK_SCRIPT = [
+      function () { return kickChat(KICK_USERS[0], 'hello from Kick! [emote:37226:KEKW]'); },
+      function () {
+        var e = pick('7tv', 1);
+        return kickChat(KICK_USERS[1], 'Twitch and Kick chat in one overlay ' + (e[0] || ''));
+      },
+      function () {
+        return { event: 'App\\Events\\SubscriptionEvent', data: JSON.stringify({ chatroom_id: 0, username: 'KickSubber', months: 3 }) };
+      }
+    ];
+    function kickOn() { return typeof opts.feedKick === 'function' && !!S().cfg.kick; }
+
+    // With a Kick channel set, every third line comes from Kick.
     function tick() {
-      try { feed(SCRIPT[index % SCRIPT.length]()); } catch (e) { if (root.console) console.warn('[TCO] demo line failed', e); }
+      try {
+        if (kickOn() && index % 3 === 2) {
+          var f = KICK_SCRIPT[kickLine++ % KICK_SCRIPT.length]();
+          opts.feedKick(f.event, f.data);
+        } else {
+          feed(SCRIPT[line++ % SCRIPT.length]());
+        }
+      } catch (e) { if (root.console) console.warn('[TCO] demo line failed', e); }
       index++;
     }
 
@@ -226,5 +263,5 @@
     };
   }
 
-  return { createDemo: createDemo, USERS: USERS, _tagString: tagString };
+  return { createDemo: createDemo, USERS: USERS, KICK_USERS: KICK_USERS, _tagString: tagString };
 });

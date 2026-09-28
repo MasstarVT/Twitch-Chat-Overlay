@@ -1,12 +1,17 @@
 # Twitch Chat Overlay
 
-A chat overlay for Twitch streams, built as an OBS Browser Source. It shows your channel's chat with **7TV, BTTV and FFZ emotes**, **7TV name paints**, and **every badge**: Twitch, 7TV, FFZ, FFZ:AP, BTTV, Chatterino and Chatterino Homies.
+A chat overlay for Twitch and Kick streams, built as an OBS Browser Source. It shows your channel's chat with **7TV, BTTV and FFZ emotes**, **7TV name paints**, and **every badge**: Twitch, 7TV, FFZ, FFZ:AP, BTTV, Chatterino and Chatterino Homies. Multistreaming? Add your **Kick** channel and both chats show in one overlay, each line marked with a small Twitch or Kick icon.
 
 It is plain HTML and JavaScript. There is no build step, no login and no server of your own. Host it on GitHub Pages or run it straight from a folder on your PC.
 
 ## Features
 
 - **Twitch chat** without logging in, using Twitch's anonymous read-only chat connection. It reconnects automatically.
+- **Kick chat** without logging in, next to Twitch or on its own:
+  - Kick's own emotes and badges (broadcaster, mod, VIP, OG, founder, verified, staff, sub and sub gifter), with the channel's own sub badge images when Kick shares them.
+  - The Kick channel's 7TV emotes, or the Twitch channel's 7TV emotes when Kick's can't be looked up.
+  - Kick subs, gifted subs and hosts; deleted messages, bans and chat clears disappear from the overlay.
+  - With both channels set, each line starts with a small Twitch or Kick icon (`platform_icons`).
 - **Emotes:**
   - Twitch, 7TV, BTTV and FFZ, both global and channel emotes.
   - Zero-width emotes stack on the emote before them (7TV, BTTV, FFZ).
@@ -32,6 +37,8 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
 ## Quick start
 
 The overlay is hosted at **https://chat.masstar.org/**. Open the builder at **https://chat.masstar.org/builder.html**, enter your channel, and copy the overlay URL into OBS (steps 3–5 below). To host your own copy instead, use Option A or B.
+
+For Kick, open the builder's **Kick** section, enter your Kick channel and press **Check**. Check fills in the Kick chatroom id, which the overlay needs to join Kick's chat. If Kick refuses the lookup, the builder shows a link to your channel's page on Kick's API: open it, then paste the whole page (or just the number after `"chatroom":{"id":`) into **Kick chatroom id**. You only do this once; the id travels in the overlay URL.
 
 ### Option A: GitHub Pages (recommended)
 
@@ -62,7 +69,10 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 
 | Option | Default | Values | What it does |
 |---|---|---|---|
-| `channel` | none (required) | Twitch login | The channel to show. `@name` and full twitch.tv URLs (including popout, embed and `/subs/` links) are accepted. `#name` works in settings.js and the builder; in a URL write it as `%23name` or leave the `#` out. |
+| `channel` | none | Twitch login | The Twitch channel to show. `@name` and full twitch.tv URLs (including popout, embed and `/subs/` links) are accepted. `#name` works in settings.js and the builder; in a URL write it as `%23name` or leave the `#` out. A `channel`, a `kick` channel, or both, is required. |
+| `kick` | none | Kick channel name | A Kick channel whose chat is shown too (or alone). `@name` and kick.com links (including popout chat) are accepted. |
+| `kick_room` | none | number | The Kick channel's chatroom id. The builder's **Check** fills it in. Without it the overlay asks kick.com itself, which Kick may refuse (see notes). |
+| `platform_icons` | `1` | bool | With both a Twitch and a Kick channel, start each line with a small Twitch or Kick icon. It shows even with `badges=0`. |
 | `size` | `medium` | `small`, `medium`, `large` | Text size: 18, 24 or 32 px. |
 | `font` | `Inter` | font name | Any Google Font, a stock Windows font (Arial, Segoe UI, Verdana, Calibri, …) or a CSS generic name (`sans-serif`, `monospace`, `system-ui`, …). Windows fonts and generic names are used as installed and never fetched. Any other name is loaded from Google Fonts, with each word capitalized to match Google's spelling (`roboto slab` becomes `Roboto Slab`). |
 | `shadow` | `2` | `0`–`3` | Drop-shadow strength behind text and emotes. |
@@ -81,9 +91,9 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `history` | `5` | `0`–`100` | Load up to this many recent lines on start (from recent-messages.robotty.de). `0` turns it off. Timeouts, deletions, sub and raid notices, deleted messages and hidden bots count toward the limit, so fewer chat messages may appear. |
 | `shared` | `1` | bool | Show messages from other channels during a Shared Chat session. |
 | `gifs` | `1` | bool | Show Twitch chat GIFs. They load as Giphy's 200 px animated WebP instead of the full-size original. |
-| `emotes_7tv`, `emotes_bttv`, `emotes_ffz` | `1` | bool | Turn each emote provider on or off. |
+| `emotes_7tv`, `emotes_bttv`, `emotes_ffz` | `1` | bool | Turn each emote provider on or off. Kick chat uses 7TV only (BTTV and FFZ don't exist on Kick). |
 | `badges` | `1` | bool | Master switch for all badges. |
-| `badges_twitch`, `badges_7tv`, `badges_bttv`, `badges_ffz`, `badges_ffzap`, `badges_chatterino`, `badges_homies` | `1` | bool | Turn each badge provider on or off. `badges_ffz` also covers the channel's FFZ custom mod and VIP badges, which show even with `badges_twitch=0`. |
+| `badges_twitch`, `badges_kick`, `badges_7tv`, `badges_bttv`, `badges_ffz`, `badges_ffzap`, `badges_chatterino`, `badges_homies` | `1` | bool | Turn each badge provider on or off. `badges_ffz` also covers the channel's FFZ custom mod and VIP badges, which show even with `badges_twitch=0`. |
 | `paints` | `1` | bool | Show 7TV name paints. |
 | `stv_lookup` | `1` | bool | Look up 7TV paints and badges for chatters who don't run a 7TV client (see notes). |
 | `readable` | `1` | bool | Lighten dark name colors so they stay readable on stream. |
@@ -100,15 +110,18 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `#chat.layout-horizontal` | the overlay in the horizontal layout |
 | `.line` | one message |
 | `.line.notice` | a sub, raid or other notice |
+| `.line.platform-kick` | a message from Kick (Twitch lines have no platform class) |
 | `.line.action` | a `/me` message |
 | `.badges`, `.badge` | badge container and badge images |
+| `.badge.platform` | the Twitch or Kick icon at the start of a line |
+| `.badge.icon` | a built-in badge drawn as SVG (the platform icons and Kick's role badges) |
 | `.badge.colored` | an FFZ or FFZ:AP badge drawn on its own background color |
 | `.name` | username |
 | `.message` | message text |
 | `.emote` | emote images |
 | `.reply` | reply header |
 
-For example, `.line { text-transform: uppercase; }`, `.badge { display: none; }` (hides every badge; `badges=0` does the same), or `.layout-horizontal .line { max-width: 30em; }` to cut long messages shorter in the horizontal layout.
+For example, `.line { text-transform: uppercase; }`, `.badge { display: none; }` (hides every badge, the platform icons too; `badges=0` keeps the platform icons), or `.layout-horizontal .line { max-width: 30em; }` to cut long messages shorter in the horizontal layout.
 
 Emote height is the `--emote-h` variable (default `1.75em`), so `#chat { --emote-h: 2em; }` makes emotes bigger. Images are fetched at the size they are normally drawn, so emotes or badges enlarged with Custom CSS may look slightly softer.
 
@@ -119,9 +132,12 @@ Everything is fetched directly by your browser or OBS. There is no server of our
 | Service | Used for |
 |---|---|
 | Twitch chat (`irc-ws.chat.twitch.tv`) | chat messages (anonymous, read-only) |
+| Kick chat (`ws-us2.pusher.com`) | Kick chat messages and events (anonymous, read-only), only with `kick` set |
+| Kick (`kick.com`) | the Kick channel's chatroom id, sub badge images and user id (for its 7TV set); the builder's Check uses it too |
+| Kick CDN (`files.kick.com`) | Kick emote and sub badge images |
 | IVR API (`api.ivr.fi`) | Twitch badge lists, channel id lookup and the Shared Chat avatar |
 | Twitch GQL (`gql.twitch.tv`) | fallback for Twitch badges when IVR is down |
-| 7TV (`7tv.io`, `events.7tv.io`, `cdn.7tv.app`) | 7TV emotes, paints and badges, and live updates |
+| 7TV (`7tv.io`, `events.7tv.io`, `cdn.7tv.app`) | 7TV emotes, paints and badges, and live updates; the Kick channel's 7TV emotes |
 | BTTV (`api.betterttv.net`, `sockets.betterttv.net`, `cdn.betterttv.net`) | BTTV emotes and badges, and live updates |
 | FrankerFaceZ (`api.frankerfacez.com`, `cdn.frankerfacez.com`) | FFZ emotes and badges |
 | FFZ:AP (`api.ffzap.com`) | FFZ:AP supporter badges and their images |
@@ -137,11 +153,11 @@ Badge and emote lists name their own image URLs, so a provider can move its imag
 
 Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come from other people too. None of it can run code on your stream PC or change the overlay beyond the message it's in.
 
-- **Text stays text.** Messages, names, reply headers, emote names and badge titles are only ever inserted as plain text. Nothing is parsed as HTML, so `<script>`, `<img onerror=…>` and similar just show up as typed.
-- **Only https images.** Emote, badge, GIF and paint images must be `https://` URLs. GIFs are limited to Giphy, 7TV paint images to 7TV's CDN, and Twitch badges and the Shared Chat avatar to Twitch's CDN.
+- **Text stays text.** Messages, names, reply headers, emote names and badge titles are only ever inserted as plain text. Nothing is parsed as HTML, so `<script>`, `<img onerror=…>` and similar just show up as typed. The same goes for Kick chat.
+- **Only https images.** Emote, badge, GIF and paint images must be `https://` URLs. GIFs are limited to Giphy, 7TV paint images to 7TV's CDN, and Twitch badges and the Shared Chat avatar to Twitch's CDN. A Kick emote URL is built from the emote's numeric id only, and Kick sub badge images must be on `files.kick.com`. The platform icons and Kick's role badges are built-in SVG shapes: chat can only pick one by name from a fixed list.
 - **Validated styling.** Name and badge colors must be hex colors. 7TV paints are rebuilt from checked numbers and colors, with limited layers and shadows (up to 8 layers and 10 shadows, and the whole shadow chain shares a 32 px reach on each axis and for blur), so a paint can't escape its own rule or draw far outside the name.
 - **Zalgo text** (piles of combining marks) is cut to 4 marks per letter, even with invisible characters between them, so it can reach at most about one text row into the message above instead of covering the chat. Normal accents and emoji are unaffected.
-- **Size limits.** Message text is cut at 1000 characters, a message draws at most 300 emote images, and one emote stacks at most 4 zero-width layers. Real Twitch messages (500 characters) never reach these; only crafted history lines can. BTTV's rotate modifiers draw the emote in a square box, so a rotated wide emote stays within its own line.
+- **Size limits.** Message text is cut at 1000 characters (a Kick message at 2000 before its emote codes are read, and a Kick frame over 64 KB is dropped), a message draws at most 300 emote images, and one emote stacks at most 4 zero-width layers. Real Twitch messages (500 characters) never reach these; only crafted history lines can. BTTV's rotate modifiers draw the emote in a square box, so a rotated wide emote stays within its own line.
 - **Content-Security-Policy.** As a second layer, `overlay.html`, the builder and the home page only run their own script files: no inline scripts, no `eval`, nothing from other sites. Only `overlay.html` allows inline styles, because OBS applies a source's Custom CSS that way.
 - **Sandboxed preview.** When the builder is served over http(s), its live-chat preview runs in a sandboxed frame (`allow-scripts` only) with no access to the builder page. Opened from disk (`file://`), the preview runs unsandboxed, because a sandboxed frame can't load local files; Chrome still gives each local page its own origin.
 
@@ -149,6 +165,9 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 
 ## Notes and limitations
 
+- **Kick chatroom id:** Kick's chat socket needs the channel's numeric chatroom id, and the only place to get it is `kick.com/api/v2/channels/<name>`. That API sits behind Cloudflare and may refuse requests from other websites, so the builder puts the id in the overlay URL (`kick_room`) once, and the overlay never depends on the lookup. If Kick refuses the builder's Check, open the link it shows (a normal page visit, which Kick usually lets through) and paste the page into **Kick chatroom id**.
+- **Kick's chat key:** the overlay joins Kick's chat with the same public Pusher key kick.com's own website uses. Kick has changed that key before; if it does again, the overlay shows "Kick refused the chat connection" until the key in `js/kick.js` is updated.
+- **Kick limits:** Kick chat has no recent-message history, and Kick chatters get no 7TV paints or 7TV/BTTV/FFZ badges (those are looked up by Twitch account). The block list and the bot filter apply to both platforms by name.
 - **DankChat badges are not supported.** DankChat's badge server doesn't allow browser requests (no CORS header), so a static page can't load them.
 - **`stv_lookup`:** 7TV's own clients only learn another user's paint and badge when that user runs a 7TV client. This overlay also asks 7TV's API for each chatter's active paint and badge, so viewers on mobile get their paint too. That API doesn't check whether the cosmetic is still owned, so a lapsed 7TV subscriber may keep showing a paint. Lookups are batched, at most one request every 5 s, so in a busy chat a new chatter's paint or badge may appear a few seconds after their first line (a lone chatter is looked up about 0.3 s after their first message). Set `stv_lookup=0` to use 7TV-client events only.
 - **Third-party services:** Twitch's official badge API needs a login. This overlay uses the community IVR API instead, falling back to Twitch's public GQL endpoint. If both are down, Twitch badges are hidden rather than shown as broken images.
@@ -157,7 +176,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Homies badges:** when a user is in more than one Homies list, their badges show in list order (itzalex badges, badges2, chatterinohomies), whichever list loads first.
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
-- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`.
+- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`.
 - **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
 
@@ -177,6 +196,8 @@ Layout:
 - `overlay.html`, `css/overlay.css`: the overlay page.
 - `js/overlay.js`: startup and wiring. `js/errors.js` records script errors (e.g. a broken settings.js) for the startup hint.
 - `js/irc*.js`: Twitch chat.
+- `js/kick.js`: Kick chat (channel lookup, the Pusher socket, Kick events to overlay messages).
+- `js/icons.js`: built-in SVG badges (the Twitch and Kick icons, Kick's role badges).
 - `js/seventv.js`, `js/bttv.js`, `js/ffz.js`, `js/twitch-badges.js`, `js/extra-badges.js`: emote and badge providers.
 - `js/tokenizer.js`: turns messages into emote and text tokens.
 - `js/renderer.js`: builds the DOM.

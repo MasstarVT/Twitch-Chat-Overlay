@@ -277,3 +277,51 @@ test('the top bar: Home and GitHub follow the brand in one column', (t) => {
   assert.deepStrictEqual(p.$('builder').children.map((e) => e.id || e.className),
     ['top', 'preview', 'settings', 'bar']);
 });
+
+test('Kick field: Check fills in the chatroom id; when Kick refuses, it links the page to copy the id from', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  let reply = () => ({ status: 200, body: { slug: 'xqc', user_id: 676, chatroom: { id: 668 }, user: { username: 'xQc' } } });
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    const r = reply();
+    if (r.throws) throw new TypeError('Failed to fetch');
+    const txt = JSON.stringify(r.body || {});
+    return { status: r.status, ok: r.status === 200, headers: { get: () => null }, text: async () => txt };
+  });
+  const p = open(t, HREF + '?kick=https://kick.com/XQC');
+  await settle();
+  assert.deepStrictEqual(calls, ['https://kick.com/api/v2/channels/xqc'], 'a ?kick= link without a chatroom id looks it up');
+  const room = p.$('f-kick_room');
+  assert.strictEqual(room.value, '668');
+  const row = p.$('f-kick').parentNode.parentNode.parentNode;
+  const status = row.children.filter((e) => e.getAttribute('role') === 'status')[0];
+  assert.strictEqual(status.className, 'status ok');
+  assert.match(status.textContent, /xQc found\. Chatroom id 668/);
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=xqc&kick_room=668$/);
+  assert.strictEqual(p.$('tab-platforms').getAttribute('data-section'), 'platforms');
+
+  // Another channel: the old id goes, and Kick refusing the lookup shows how to copy the id by hand.
+  reply = () => ({ throws: true });
+  const input = p.$('f-kick');
+  input.value = '@Someone_Else';
+  input.dispatch('change');
+  await settle();
+  assert.strictEqual(input.value, 'someone_else');
+  assert.strictEqual(room.value, '');
+  assert.strictEqual(status.className, 'status warn');
+  assert.match(status.textContent, /Kick didn’t allow the lookup/);
+  const link = status.children[0].children.filter((e) => e.tagName === 'A')[0];
+  assert.strictEqual(link.href, 'https://kick.com/api/v2/channels/someone_else');
+  assert.strictEqual(link.rel, 'noopener');
+  assert.match(p.text('bar-note'), /chatroom id is missing/);
+
+  // Pasting the whole channel page into the chatroom id field reads the id out of it.
+  room.value = JSON.stringify({ slug: 'someone_else', chatroom: { id: 4598 } });
+  room.dispatch('change');
+  assert.strictEqual(room.value, '4598');
+  room.value = 'not a number';
+  room.dispatch('change');
+  assert.strictEqual(room.getAttribute('aria-invalid'), 'true');
+  assert.match(p.text('bar-url'), /kick=someone_else&kick_room=4598$/);
+});

@@ -19,12 +19,12 @@ test('every config key except channel is in exactly one form group, with a label
   config.KEYS.filter((k) => k !== 'channel').forEach((k) => assert.ok(seen[k], 'missing field for ' + k));
   assert.ok(!seen.channel);
   assert.deepStrictEqual(builder.groupLayout().map((g) => g.title),
-    ['Look', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Advanced']);
+    ['Look', 'Kick', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Advanced']);
 });
 
 test('sections: one per group plus Add to OBS, each with an id a link can open', () => {
   const ids = builder.sectionIds();
-  assert.deepStrictEqual(ids, ['look', 'messages', 'events', 'filters', 'emotes', 'badges', 'advanced', 'obs']);
+  assert.deepStrictEqual(ids, ['look', 'platforms', 'messages', 'events', 'filters', 'emotes', 'badges', 'advanced', 'obs']);
   assert.strictEqual(new Set(ids).size, ids.length);
   builder.groupLayout().forEach((g) => assert.ok(g.note, g.id + ' says what it holds'));
   assert.strictEqual(builder.sectionFromHash('#obs'), 'obs');
@@ -102,6 +102,8 @@ test('widgets: switches, segmented choices, steppers, one slider', () => {
   ['fade', 'max', 'history'].forEach((k) => assert.strictEqual(kinds[k], 'stepper', k));
   assert.strictEqual(kinds.font, 'font');
   assert.strictEqual(kinds.block, 'text');
+  assert.strictEqual(kinds.kick, 'text');
+  assert.strictEqual(kinds.kick_room, 'text');
   assert.deepStrictEqual(builder.segValues('shadow'), [
     { value: '0', label: 'None' }, { value: '1', label: 'Light' }, { value: '2', label: 'Medium' }, { value: '3', label: 'Strong' }]);
   assert.deepStrictEqual(builder.segValues('size').map((o) => o.value), config.SPEC.size.values);
@@ -190,7 +192,7 @@ test('changedKeys, tagText and groupCounts follow the overlay URL', () => {
   assert.strictEqual(builder.tagText('font', cfg), 'font=Open Sans');
   assert.strictEqual(builder.tagText('size', cfg), 'size');
   assert.deepStrictEqual(builder.groupCounts(cfg),
-    { look: 3, messages: 1, events: 0, filters: 2, emotes: 0, badges: 1, advanced: 0 });
+    { look: 3, platforms: 0, messages: 1, events: 0, filters: 2, emotes: 0, badges: 1, advanced: 0 });
   // The changed settings are exactly the URL's parameters after the channel.
   const inUrl = builder.urlParts(builder.overlayUrl(cfg, BASE)).params.map((p) => p.key);
   assert.deepStrictEqual(inUrl.slice(1).sort(), Object.keys(builder.changedKeys(cfg)).sort());
@@ -242,6 +244,18 @@ test('urlNote: a warning when the URL will not work, else what it holds', () => 
   const file = builder.urlNote(cfg, found, builder.overlayUrl(cfg, 'file:///C:/overlay/builder.html'));
   assert.match(file.text, /lists every setting/);
   assert.strictEqual(builder.urlNote(cfg, null, 'https://x/overlay.html').cls, '');
+});
+
+test('urlNote: a Kick channel alone is enough; without its chatroom id the URL gets a warning', () => {
+  const cfg = Object.assign(config.defaults(), { kick: 'xqc', kick_room: '668' });
+  const ok = builder.urlNote(cfg, { state: 'empty', login: '' }, builder.overlayUrl(cfg, BASE));
+  assert.strictEqual(ok.cls, '');
+  assert.match(ok.text, /the 2 settings you changed/);
+  assert.strictEqual(builder.overlayUrl(cfg, BASE), 'https://masstarvt.github.io/Twitch-Chat-Overlay/overlay.html?kick=xqc&kick_room=668');
+  cfg.kick_room = '';
+  const warn = builder.urlNote(cfg, { state: 'empty', login: '' }, builder.overlayUrl(cfg, BASE));
+  assert.strictEqual(warn.cls, 'warn');
+  assert.match(warn.text, /Kick chatroom id is missing/);
 });
 
 test('builder.css draws the provider logos the fields name, from img/logos', () => {
@@ -309,7 +323,7 @@ test('overlayUrl from a file:// builder lists every setting, so a settings.js th
   assert.strictEqual(p.get('bots'), '0');
   assert.strictEqual(p.get('demo'), '0');
   // A settings.js that changes defaults loses to every key in the URL.
-  const settings = { channel: 'streamer', size: 'large', fade: 30, bots: true, demo: true, block: ['x'] };
+  const settings = { channel: 'streamer', kick: 'someone', kick_room: '5', size: 'large', fade: 30, bots: true, demo: true, block: ['x'] };
   assert.deepStrictEqual(config.parse(p, settings), cfg);
   // and the long URL still round-trips through the paste box
   const r = builder.parsePasted(url);
@@ -388,7 +402,7 @@ test('parsePasted reads settings.example.js as shipped and once edited by hand',
     .replace('bots: false', 'bots: true');
   const r2 = builder.parsePasted(edited);
   assert.ok(r2, 'edited settings.js parses');
-  assert.strictEqual(r2.count, 9);
+  assert.strictEqual(r2.count, 11);
   assert.strictEqual(r2.cfg.layout, 'horizontal');
   assert.strictEqual(r2.cfg.channel, 'xqc');
   assert.strictEqual(r2.cfg.size, 'large');
@@ -517,7 +531,10 @@ function flip(cfg, k) {
   else if (s.type === 'enum') c[k] = s.values.filter((v) => v !== c[k])[0];
   else if (s.type === 'channel') c[k] = c[k] === 'xqc' ? 'forsen' : 'xqc';
   else if (s.type === 'font') c[k] = c[k] === 'Roboto' ? 'Inter' : 'Roboto';
-  else c[k] = (c[k] || []).concat('someone');
+  else if (s.type === 'kick') c[k] = c[k] === 'xqc' ? 'forsen' : 'xqc';
+  else if (s.type === 'room') c[k] = c[k] === '668' ? '4598' : '668';
+  else if (s.type === 'list') c[k] = (c[k] || []).concat('someone');
+  else throw new Error('flip: no case for type ' + s.type);
   return c;
 }
 
@@ -529,7 +546,7 @@ test('reloadSignature: live keys never reload the preview; reload keys do, excep
   // In demo mode the keys the demo ignores don't reload it; everything else still does.
   const demo = Object.assign({}, live, { demo: true });
   const dsig = builder.reloadSignature(demo);
-  assert.deepStrictEqual(builder.DEMO_INERT.slice().sort(), ['history', 'shared', 'stv_lookup']);
+  assert.deepStrictEqual(builder.DEMO_INERT.slice().sort(), ['history', 'kick_room', 'shared', 'stv_lookup']);
   builder.RELOAD_KEYS.forEach((k) => {
     assert.strictEqual(builder.reloadSignature(flip(demo, k)) === dsig, builder.DEMO_INERT.indexOf(k) >= 0, k);
   });
@@ -582,6 +599,9 @@ test('startCfg: a ?channel= link keeps the remembered settings; a full link star
   assert.strictEqual(c.fromStore, true);
   assert.strictEqual(c.fromQuery, false);
   assert.strictEqual(c.cfg.fade, 30);
+  // The overlay's hint links name the Twitch and Kick channels: that still keeps the remembered look.
+  const k = builder.startCfg('?channel=a&kick=b&kick_room=1', stored);
+  assert.deepStrictEqual([k.cfg.channel, k.cfg.kick, k.cfg.kick_room, k.cfg.size], ['a', 'b', '1', 'large']);
   assert.strictEqual(builder.startCfg('?utm=1', null).fromStore, false);
   assert.deepStrictEqual(builder.startCfg('?utm=1', ['x']).cfg, config.defaults());
 });
