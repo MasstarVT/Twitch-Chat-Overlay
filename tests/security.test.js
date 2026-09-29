@@ -173,6 +173,9 @@ test('every page: a Content-Security-Policy that only runs the site\'s own scrip
     scripts.forEach((s) => assert.match(s, /^<script\b[^>]*\bsrc="[^"]+"[^>]*><\/script>$/, page + ': ' + s.slice(0, 60)));
     assert.ok(!/<[a-z][^>]*\son[a-z]+\s*=/i.test(html), page + ': inline event handler');
   });
+  const overlayCsp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/.exec(read('overlay.html'))[1];
+  const imgSrc = overlayCsp.split(';').map((d) => d.trim().split(/\s+/)).find((d) => d[0] === 'img-src');
+  assert.deepStrictEqual(imgSrc, ['img-src', "'self'", 'file:', 'https:'], 'the overlay badge asset loads locally without allowing arbitrary schemes');
   // OBS applies Custom CSS as an inline style, so the overlay (only) must allow inline styles.
   assert.match(read('overlay.html'), /style-src [^;]*'unsafe-inline'/);
   assert.doesNotMatch(read('builder.html'), /'unsafe-inline'/);
