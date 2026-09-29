@@ -643,6 +643,24 @@ test('FFZ custom mod/VIP badges follow the FFZ switch, not the Twitch one', asyn
   assert.deepStrictEqual(b.map((x) => x.provider + ':' + x.title), ['ffz:Moderator']);
 });
 
+test('MasstarVT developer badge comes before all other badges', async (t) => {
+  const h = await boot(t);
+  join(h);
+  await settle();
+  h.S().twitchGlobal.set('moderator', new Map([['1', {
+    title: 'Moderator', urls: { 1: 'https://cdn.example/mod.png' }
+  }]]));
+
+  const parse = globalThis.TCO.ircParse;
+  const developer = parse.toChatMessage(parse.parseLine(priv('MasstarVT', 'hello', { badges: 'moderator/1' })));
+  const other = parse.toChatMessage(parse.parseLine(priv('viewer', 'hello')));
+  const badges = h.deps.badgesFor(developer);
+
+  assert.deepStrictEqual(badges.map((badge) => badge.provider), ['developer', 'twitch']);
+  assert.strictEqual(badges[0].urls[1], 'img/logos/Badge.svg');
+  assert.ok(!h.deps.badgesFor(other).some((badge) => badge.provider === 'developer'));
+});
+
 // ---------- errors.js ----------
 function runErrors(state) {
   const handlers = { error: [], DOMContentLoaded: [] };
