@@ -287,6 +287,9 @@
     var room = roomFor(m);
     if (cfg.badges && m.kind === 'chat' && m.login === 'masstarvt') {
       var badgeUrl = 'img/logos/Badge.svg';
+      if (root.location && /^https?:$/.test(root.location.protocol) && root.location.href) {
+        badgeUrl = new URL(badgeUrl, root.location.href).href;
+      }
       out.push({ provider: 'developer', title: 'MasstarVT developer', urls: { 1: badgeUrl, 2: badgeUrl, 4: badgeUrl } });
     }
     // The Shared Chat source avatar marks where a message came from, so it shows even with badges off.
