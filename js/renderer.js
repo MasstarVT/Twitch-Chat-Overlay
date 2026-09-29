@@ -286,8 +286,10 @@
 
   function pickUrl(urls, want) {
     if (!urls || typeof urls !== 'object') return null;
-    var u = util.absUrl(util.pickScale(urls, want));
-    return typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u) ? u : null; // https only: every provider serves it
+    var raw = util.pickScale(urls, want);
+    if (raw === 'img/logos/Badge.svg') return raw;
+    var u = util.absUrl(raw);
+    return typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u) ? u : null; // provider images are https; the local app badge is allowlisted above
   }
 
   function num(v, def) {
