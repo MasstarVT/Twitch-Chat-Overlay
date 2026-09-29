@@ -6,7 +6,7 @@
   <!-- Chat is always inserted as text, never as HTML. As a second line of defence, this policy only runs this
        overlay's own script files: no inline scripts, no eval, nothing from other sites. Styles may be inline, because
        OBS applies a browser source's Custom CSS (including its transparent background) as an inline style. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src https:; connect-src https: wss:; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: https:; connect-src https: wss:; base-uri 'none'; form-action 'none'">
   <title>Twitch Chat Overlay</title>
   <link rel="stylesheet" href="css/overlay.css?v=1.5.0">
   <!-- Every script is deferred: none blocks the parser, so all are fetched in parallel (a meta CSP turns off the
