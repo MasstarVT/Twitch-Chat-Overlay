@@ -52,7 +52,7 @@ test('font sizes and want-scale: emotes ceil(fontPx*1.75*dpr/base), badges ceil(
     'odd provider heights never pick a smaller file than a 28px base would');
 });
 
-test('pickUrl uses util.pickScale, fixes protocol-relative urls and rejects non-http', () => {
+test('pickUrl uses util.pickScale, fixes protocol-relative urls and rejects unsafe URLs', () => {
   const urls = { 1: 'https://a/1', 2: 'https://a/2', 4: 'https://a/4' };
   assert.strictEqual(R.pickUrl(urls, 3), 'https://a/4');
   assert.strictEqual(R.pickUrl({ 1: 'https://a/1' }, 3), 'https://a/1');
@@ -335,6 +335,16 @@ test('icon badges: known icons become icon models, unknown keys are dropped, pla
   // A notice keeps only the platform icon; without one its model is unchanged.
   const n = R.modelFor({ systemMsg: 'Fan subscribed!', platform: 'kick' }, R.normalizeCfg({}), { kind: 'notice', badges: list });
   assert.deepStrictEqual(n, { kind: 'notice', cls: 'line notice platform-kick', system: 'Fan subscribed!', badges: [{ icon: 'kick', title: 'Kick', platform: true }] });
+});
+
+test('badge URL picker allows the local developer asset but rejects other relative URLs', () => {
+  assert.deepStrictEqual(R.badgeModels([
+    { title: 'Developer', urls: { 1: 'img/logos/Badge.svg' } },
+    { title: 'Relative', urls: { 1: 'img/other.svg' } },
+    { title: 'Data', urls: { 1: 'data:image/svg+xml,<svg></svg>' } }
+  ], 1), [
+    { url: 'img/logos/Badge.svg', title: 'Developer', avatar: false, bg: null }
+  ]);
 });
 
 test('reply header model strips ACTION and newlines; empty parent names give no header', () => {

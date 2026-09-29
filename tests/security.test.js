@@ -74,7 +74,7 @@ test('no code in js/ can turn a string into markup or code', () => {
 });
 
 // Every URL property assignment in js/ (.href, .src, .srcset, .poster, .formAction, or el['src'] and the
-// like) is a reviewed one, keyed on the file and the exact assignment text (not line numbers). A new one must be checked (https only, no chat or provider text
+// like) is a reviewed one, keyed on the file and the exact assignment text (not line numbers). A new one must be checked (https only, except the fixed local badge asset; no chat or provider text
 // reaching it unvalidated) and then added here.
 test('every URL property assignment in js/ is a reviewed one', () => {
   const REVIEWED = {
@@ -94,7 +94,7 @@ test('every URL property assignment in js/ is a reviewed one', () => {
       /^link\.href = 'https:\/\/fonts\.googleapis\.com\/css2\?family=' \+ encodeURIComponent\(/
     ],
     'renderer.js': [
-      /^img\.src = url$/, // url comes from pickUrl (https only)
+      /^img\.src = url$/, // url comes from pickUrl (https, except the fixed local badge asset)
       /^img\.src = p\.orig$/ // a GIF's original URL: partsFor keeps it only when util.isSafeUrl (https)
     ]
   };
@@ -371,10 +371,11 @@ test('Zalgo: runs of combining marks are capped at 4, real scripts and emoji are
   assert.ok(Date.now() - t0 < 1000);
 });
 
-test('pickUrl: https only', () => {
+test('pickUrl: https only except the fixed local badge asset', () => {
   assert.strictEqual(R.pickUrl({ 1: 'https://cdn.7tv.app/x' }, 1), 'https://cdn.7tv.app/x');
   assert.strictEqual(R.pickUrl({ 1: '//cdn.7tv.app/x' }, 1), 'https://cdn.7tv.app/x');
-  ['http://cdn.7tv.app/x', 'javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:image/png,x', 'blob:https://x/y', '/relative.png', 'https://a b'].forEach((u) => {
+  assert.strictEqual(R.pickUrl({ 1: 'img/logos/Badge.svg' }, 1), 'img/logos/Badge.svg');
+  ['http://cdn.7tv.app/x', 'javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:image/png,x', 'blob:https://x/y', '/relative.png', 'img/other.svg', 'https://a b'].forEach((u) => {
     assert.strictEqual(R.pickUrl({ 1: u }, 1), null, u);
   });
 });
