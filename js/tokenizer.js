@@ -1,4 +1,4 @@
-/* Message text -> render tokens (Twitch emote ranges, 3rd-party emotes, zero-width, modifiers, cheers, GIFs). Pure. */
+/* Message text -> render tokens (Twitch and Kick emote ranges, 3rd-party emotes, zero-width, modifiers, cheers, GIFs). Pure. */
 (function (root, factory) {
   var ircParse = typeof require === 'function' ? require('./irc-parse.js') : root.TCO.ircParse;
   var util = typeof require === 'function' ? require('./util.js') : root.TCO.util;
@@ -9,6 +9,7 @@
   'use strict';
 
   var TWITCH_EMOTE_ID_RE = /^[A-Za-z0-9_]{1,64}$/;
+  var KICK_EMOTE_ID_RE = /^\d{1,12}$/;
   var GIPHY_HOST_RE = /(^|\.)giphy\.com$/;
   // Giphy's 'original' rendition (the gifs tag's URL) is the uploaded file at any size. Swap it for the
   // 200 px fixed-height rendition, still taller than any box we draw (<= 168 px). Only the known shape.
@@ -41,6 +42,12 @@
   function twitchEmote(id, name) {
     var base = 'https://static-cdn.jtvnw.net/emoticons/v2/' + id + '/default/dark/';
     return { provider: 'twitch', id: id, name: name, w: 28, h: 28, urls: { 1: base + '1.0', 2: base + '2.0', 4: base + '3.0' } };
+  }
+
+  // Kick serves one size per emote; the URL is built from the digit id only.
+  function kickEmote(id, name) {
+    var url = 'https://files.kick.com/emotes/' + id + '/fullsize';
+    return { provider: 'kick', id: id, name: name, w: 28, h: 28, urls: { 1: url, 2: url, 4: url } };
   }
 
   function cheerFor(word) {
@@ -102,21 +109,26 @@
     return m ? m[1] + '200.webp' + (m[2] || '').replace(/([?&]rid=)giphy\.gif(?=&|$)/, '$1200.webp') : url;
   }
 
-  // msg: { text, action, emotes, gifs, bits, msgId }
+  // msg: { text, action, emotes, kickEmotes (Kick emote ranges, in the emotes tag format), gifs, bits, msgId }
   // opts: { lookup(word) -> emote|null, bttvPrefixes: Set, gifs: bool, cheers: bool }
   // Emote objects: { provider, id, name, zw, hidden, flags, w, h, urls }
   function tokenize(msg, opts) {
     opts = opts || {};
     var cleaned = cleanText(msg.text, msg.action);
     var gifsOn = opts.gifs !== false && !!msg.gifs;
-    // Code points are only needed to map Twitch/GIF ranges, or to cut an over-long (history) text.
-    var cps = msg.emotes || gifsOn || cleaned.text.length > MAX_CPS ? Array.from(cleaned.text) : null;
+    // Code points are only needed to map Twitch/Kick/GIF ranges, or to cut an over-long (history) text.
+    var cps = msg.emotes || msg.kickEmotes || gifsOn || cleaned.text.length > MAX_CPS ? Array.from(cleaned.text) : null;
     if (cps && cps.length > MAX_CPS) cps.length = MAX_CPS;
     var ranges = [];
     var emoteRanges = ircParse.parseEmotesTag(msg.emotes);
     for (var i = 0; i < emoteRanges.length; i++) {
       var er = emoteRanges[i];
       if (er.end < cps.length && TWITCH_EMOTE_ID_RE.test(er.id)) ranges.push({ start: er.start, end: er.end, kind: 'twitch', id: er.id });
+    }
+    var kickRanges = ircParse.parseEmotesTag(msg.kickEmotes);
+    for (var q = 0; q < kickRanges.length; q++) {
+      var kr = kickRanges[q];
+      if (kr.end < cps.length && KICK_EMOTE_ID_RE.test(kr.id)) ranges.push({ start: kr.start, end: kr.end, kind: 'kick', id: kr.id });
     }
     if (gifsOn) {
       var gifs = ircParse.parseGifsTag(msg.gifs);
@@ -195,8 +207,9 @@
 
     for (var j = 0; j < pieces.length; j++) {
       var pc = pieces[j];
-      if (pc.kind === 'twitch') {
-        if (handleEmote(twitchEmote(pc.range.id, pc.text), pc.sp) === false) { flushPrefixes(); emitText(pc.text, pc.sp); }
+      if (pc.kind === 'twitch' || pc.kind === 'kick') {
+        var native = pc.kind === 'kick' ? kickEmote(pc.range.id, pc.text) : twitchEmote(pc.range.id, pc.text);
+        if (handleEmote(native, pc.sp) === false) { flushPrefixes(); emitText(pc.text, pc.sp); }
         continue;
       }
       if (pc.kind === 'gif') {
@@ -279,6 +292,7 @@
     cleanText: cleanText,
     cheerFor: cheerFor,
     twitchEmote: twitchEmote,
+    kickEmote: kickEmote,
     CHEER_PREFIXES: CHEER_PREFIXES,
     BTTV_PREFIXES: BTTV_PREFIXES,
     TIER_COLORS: TIER_COLORS

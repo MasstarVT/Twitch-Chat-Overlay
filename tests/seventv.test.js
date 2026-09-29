@@ -1002,6 +1002,17 @@ describe('loaders', () => {
     assert.equal(await stv._sources.channelV4('1'), null, 'null: the overlay keeps what it shows');
   });
 
+  test('loadChannel(id, \'kick\') reads a Kick channel\'s set by Kick user id; other ids load nothing', async (t) => {
+    const calls = mockFetch(t, function () {
+      return { status: 200, body: { id: '676', emote_set_id: NEW_SET, emote_set: { id: NEW_SET, emotes: [] }, user: { id: OWNER } } };
+    });
+    assert.deepEqual(await stv.loadChannel('676', 'kick'), { emotes: new Map(), setId: NEW_SET, ownerId: OWNER });
+    assert.equal(calls[0].url, 'https://7tv.io/v3/users/kick/676');
+    assert.equal(await stv.loadChannel('kick:676', 'kick'), null);
+    assert.equal(await stv.loadChannel('../x', 'kick'), null);
+    assert.equal(calls.length, 1);
+  });
+
   test('loadSet falls back to v4 GQL when v3 fails, and fails (not empties) when v4 has no set', async (t) => {
     t.mock.method(console, 'warn', function () {});
     let v4 = { status: 200, body: { data: { emoteSets: { emoteSet: { id: NEW_SET, emotes: { items: [v4Item('E1', 'Hi')] } } } } } };

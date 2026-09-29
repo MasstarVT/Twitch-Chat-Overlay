@@ -530,6 +530,54 @@ test('badges: a colored badge is a plain .badge img (no wrapper), and a broken o
   assert.deepStrictEqual(bs.children.map((k) => k.className), ['badge']);
 });
 
+test('icon badges render as inline SVG from the registry; notices carry only the platform icon', (t) => {
+  const s = setup(t, {}, { badgesFor: (m) => [
+    { provider: 'platform', icon: m.platform || 'twitch', title: m.platform === 'kick' ? 'Kick' : 'Twitch' },
+    { provider: 'kick', icon: 'kick-og', title: 'OG' },
+    { provider: 'kick', icon: 'kick-bogus', title: 'Bogus' }
+  ] });
+  s.r.push(chat('amy', 'hi', { platform: 'kick' }));
+  s.r.push({ kind: 'notice', id: 'n-kick', platform: 'kick', systemMsg: 'Fan subscribed!', text: '' });
+  s.r.flush();
+  const [line, notice] = s.lines();
+  assert.strictEqual(line.className, 'line platform-kick');
+  const kids = line.byClass('badges')[0].children;
+  assert.deepStrictEqual(kids.map((k) => [k.tagName, k.className]), [['SVG', 'badge icon icon-kick platform'], ['SVG', 'badge icon icon-kick-og']]);
+  const logo = kids[0];
+  assert.strictEqual(logo.namespaceURI, 'http://www.w3.org/2000/svg');
+  assert.strictEqual(logo.getAttribute('viewBox'), '-4 -4 32 32');
+  assert.strictEqual(logo.getAttribute('aria-label'), 'Kick');
+  assert.deepStrictEqual(logo.children.map((c) => c.tagName), ['TITLE', 'RECT', 'PATH']);
+  assert.strictEqual(logo.children[0].textContent, 'Kick');
+  assert.deepStrictEqual(kids[1].children.map((c) => c.tagName), ['TITLE', 'RECT', 'TEXT']);
+  assert.strictEqual(kids[1].children[2].textContent, 'OG');
+  assert.strictEqual(notice.className, 'line notice platform-kick');
+  assert.deepStrictEqual(notice.byClass('badges')[0].children.map((k) => k.className), ['badge icon icon-kick platform']);
+  assert.strictEqual(notice.byClass('message')[0].textContent, 'Fan subscribed!');
+});
+
+test('clearAll(pred) clears only the matching queued and on-screen lines', (t) => {
+  const s = setup(t);
+  s.r.push(chat('amy', 'twitch 1'));
+  s.r.push(chat('kim', 'kick 1', { platform: 'kick', userId: 'kick:1' }));
+  s.r.push(resub('bob', 'twitch resub'));
+  s.r.flush();
+  s.r.hold(true);
+  s.r.push(chat('kim', 'kick 2', { platform: 'kick', userId: 'kick:1' }));
+  s.r.push(chat('amy', 'twitch 2'));
+  s.r.clearAll((m) => m.platform !== 'kick');
+  assert.deepStrictEqual(s.texts(), ['kick 1']);
+  s.r.hold(false);
+  assert.deepStrictEqual(s.texts(), ['kick 1', 'kick 2']);
+  s.r.clearAll((m) => m.platform === 'kick');
+  assert.deepStrictEqual(s.texts(), []);
+  assert.deepStrictEqual([s.r.stats().ids, s.r.stats().users], [0, 0]);
+  s.r.push(chat('amy', 'again'));
+  s.r.clearAll(() => { throw new Error('bad predicate'); });
+  s.r.flush();
+  assert.deepStrictEqual(s.texts(), ['again'], 'a throwing predicate clears nothing');
+});
+
 test('overlay.css: badge size and highlight tint stay overridable by Custom CSS', () => {
   const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8');
   const badge = /\n\.badge \{([^}]*)\}/.exec(css)[1];

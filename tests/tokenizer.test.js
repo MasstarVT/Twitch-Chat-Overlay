@@ -117,6 +117,32 @@ describe('Twitch emotes', () => {
   });
 });
 
+describe('Kick emotes', () => {
+  const kick = require('../js/kick.js');
+
+  test('kickEmotes ranges become kick emotes on files.kick.com, built from the id only', () => {
+    const b = kick.splitEmotes(RAINBOW + ' [emote:37226:KEKW] hi [emote:4148074:HYPERCLAP][emote:37226:KEKW]');
+    const r = tok(b.text, { kickEmotes: b.emotes });
+    assert.deepEqual(view(r.items), ['text:' + RAINBOW, 'emote:KEKW', 'text:hi', 'emote:HYPERCLAP', 'emote:KEKW']);
+    const e = r.items[1].emote;
+    assert.equal(e.provider, 'kick');
+    assert.equal(e.id, '37226');
+    assert.deepEqual(e.urls, { 1: 'https://files.kick.com/emotes/37226/fullsize', 2: 'https://files.kick.com/emotes/37226/fullsize', 4: 'https://files.kick.com/emotes/37226/fullsize' });
+    assert.deepEqual(r.items.map((i) => i.sp), [false, true, true, true, false]);
+  });
+
+  test('a bad id or an out-of-range Kick range stays text', () => {
+    assert.deepEqual(view(tok('PogU', { kickEmotes: 'abc:0-3' }).items), ['text:PogU']);
+    assert.deepEqual(view(tok('PogU', { kickEmotes: '1/../x:0-3' }).items), ['text:PogU']);
+    assert.deepEqual(view(tok('PogU', { kickEmotes: '37226:0-30' }).items), ['text:PogU']);
+  });
+
+  test('Kick emotes and word-lookup emotes mix; a Kick range beats the lookup', () => {
+    const r = tok('KEKW OMEGALUL KEKW', { kickEmotes: '1:0-3' });
+    assert.deepEqual(r.items.map((i) => i.emote.provider), ['kick', '7tv', 'bttv']);
+  });
+});
+
 describe('replies', () => {
   const reply = { id: 'p', userId: '77', login: 'lmnfm', name: 'LMNfm', body: 'x' };
 

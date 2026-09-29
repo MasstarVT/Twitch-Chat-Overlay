@@ -191,8 +191,9 @@
     return validId(oid) ? { emotes: new Map(), setId: null, ownerId: oid } : null;
   }
 
-  function channelV3(id) {
-    return util.fetchJson(V3 + '/users/twitch/' + id, { timeout: 20000 }).then(function (r) {
+  // platform: 'twitch' (default) or 'kick' (a Kick user id).
+  function channelV3(id, platform) {
+    return util.fetchJson(V3 + '/users/' + (platform === 'kick' ? 'kick' : 'twitch') + '/' + id, { timeout: 20000 }).then(function (r) {
       if (!r || util.isNotFound(r) || !r.user) return null;
       if (!r.emote_set) {
         // An active set id with no set object is a glitch on 7TV's side, not "no set": fail so the
@@ -223,8 +224,10 @@
   }
 
   // v3 REST; on network error / 5xx / timeout retry once, then v4 GQL.
-  function loadChannel(roomId) {
+  // platform 'kick': the 7TV set of a Kick channel, by its Kick user id (v3 only; the caller's loader retries).
+  function loadChannel(roomId, platform) {
     var id = util.idStr(roomId);
+    if (platform === 'kick') return /^\d{1,12}$/.test(id) ? channelV3(id, 'kick') : Promise.resolve(null);
     if (!TWITCH_ID_RE.test(id)) return Promise.resolve(null);
     return channelV3(id).catch(function (err) {
       util.log('7tv channel v3 failed, retrying once:', err && err.message);

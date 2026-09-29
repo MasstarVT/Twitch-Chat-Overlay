@@ -2,14 +2,15 @@
 (function (root, factory) {
   var util = typeof require === 'function' ? require('./util.js') : root.TCO.util;
   var config = typeof require === 'function' ? require('./config.js') : root.TCO.config;
-  var api = factory(root, util, config);
+  var kick = typeof require === 'function' ? require('./kick.js') : root.TCO.kick;
+  var api = factory(root, util, config, kick);
   if (typeof module === 'object' && module.exports) module.exports = api;
   (root.TCO = root.TCO || {}).builder = api;
   if (typeof document !== 'undefined' && document.getElementById && !root.TCO_NO_AUTOBOOT) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { api.start(); });
     else api.start();
   }
-})(typeof window !== 'undefined' ? window : globalThis, function (root, util, config) {
+})(typeof window !== 'undefined' ? window : globalThis, function (root, util, config, kick) {
   'use strict';
 
   var IVR_USER = 'https://api.ivr.fi/v2/twitch/user?login=';
@@ -38,6 +39,14 @@
   // Human labels and help text per config key. Widgets default from SPEC types.
   // logo: a provider logo drawn by css/builder.css (.logo-<name>); tile: an initial where a logo isn't allowed.
   var META = {
+    kick: { label: 'Kick channel', tile: 'K', check: true, placeholder: 'yourname or a kick.com link',
+      bad: 'That isn’t a valid Kick name. Use letters, numbers, _ and - only.',
+      help: 'Adds this Kick channel’s chat to the overlay, with the Twitch channel above or on its own.' },
+    kick_room: { label: 'Kick chatroom id', placeholder: 'Check fills this in', parse: 'kickRoom',
+      bad: 'Use the number only, or paste the whole channel page.',
+      help: 'Kick’s chat needs this number. Check fills it in when Kick allows the lookup. If it doesn’t, open the link Check shows, and paste that whole page (or the number after "chatroom":{"id":) here.' },
+    platform_icons: { label: 'Show a Twitch or Kick icon on each message',
+      help: 'Only when both a Twitch and a Kick channel are set. Shows even with badges off.' },
     size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' } },
     font: { label: 'Font', help: 'Any Google Fonts family, or a font installed on the streaming PC (Arial, Segoe UI…).' },
     shadow: { label: 'Text shadow', widget: 'seg', names: ['None', 'Light', 'Medium', 'Strong'] },
@@ -65,11 +74,12 @@
     shared: { label: 'Include Shared Chat',
       help: 'During a Shared Chat session, also show the other channels’ messages, marked with their avatar.' },
     gifs: { label: 'Show GIFs posted in chat' },
-    emotes_7tv: { label: '7TV', logo: '7tv', help: 'Channel and global emotes, updated live when the channel changes them.' },
+    emotes_7tv: { label: '7TV', logo: '7tv', help: 'Channel and global emotes, updated live when the channel changes them. Also shown in Kick chat.' },
     emotes_bttv: { label: 'BetterTTV', tile: 'B' },
     emotes_ffz: { label: 'FrankerFaceZ', tile: 'F' },
     badges: { label: 'Show badges', help: 'Master switch for every badge source below.' },
     badges_twitch: { label: 'Twitch', tile: 'T' },
+    badges_kick: { label: 'Kick', tile: 'K' },
     badges_7tv: { label: '7TV', logo: '7tv' },
     badges_bttv: { label: 'BetterTTV', tile: 'B' },
     badges_ffz: { label: 'FrankerFaceZ', tile: 'F' },
@@ -85,23 +95,27 @@
     debug: { label: 'Debug status line', help: 'Shows which providers loaded or failed, and logs details to the browser console.' }
   };
 
-  var BADGE_SUBS = ['badges_twitch', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap',
+  var BADGE_SUBS = ['badges_twitch', 'badges_kick', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap',
     'badges_chatterino', 'badges_homies'];
   // What the short source names leave out.
-  var BADGE_SUBS_HELP = 'Twitch covers sub, mod, VIP and bits badges. BetterTTV covers Pro and staff. ' +
-    'FrankerFaceZ includes custom mod and VIP badges. FFZ:AP covers its supporters.';
+  var BADGE_SUBS_HELP = 'Twitch covers sub, mod, VIP and bits badges. Kick covers broadcaster, mod, VIP, OG, founder, ' +
+    'verified, staff, sub and gifter badges. BetterTTV covers Pro and staff. FrankerFaceZ includes custom mod and VIP ' +
+    'badges. FFZ:AP covers its supporters.';
 
   // One section of the settings panel each; the rail lists them in this order, then "Add to OBS".
   var GROUPS = [
     { id: 'look', title: 'Look', note: 'Text, layout and how new messages come in.',
       keys: ['layout', 'size', 'font', 'shadow', 'bg', 'align', 'animate'] },
+    { id: 'platforms', title: 'Kick', note: 'Kick chat alongside Twitch, in one overlay.',
+      foot: 'Kick chat shows Kick and 7TV emotes, and Kick badges. It has no recent-message history.',
+      keys: ['kick', 'kick_room', 'platform_icons'] },
     { id: 'messages', title: 'Messages', note: 'How many messages show, and for how long.',
       keys: ['fade', 'max', 'history'] },
     { id: 'events', title: 'Chat events', note: 'Subs, raids, replies and first messages.',
       keys: ['events', 'replies', 'first_msg', 'shared'] },
     { id: 'filters', title: 'Filters', note: 'Who and what stays out of the overlay.',
       keys: ['bots', 'hide_commands', 'block'] },
-    { id: 'emotes', title: 'Emotes', note: 'Twitch emotes are always shown.',
+    { id: 'emotes', title: 'Emotes', note: 'Twitch and Kick emotes are always shown.',
       keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs'] },
     { id: 'badges', title: 'Badges & paints', note: 'Each badge source has its own switch.',
       foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
@@ -118,7 +132,7 @@
 
   // Keys a demo overlay ignores: it loads no history (overlay.js loadHistory), looks up no chatters
   // on 7TV and has no Shared Chat, so changing one (when it is a reload key) needs no demo reload.
-  var DEMO_INERT = ['history', 'shared', 'stv_lookup'];
+  var DEMO_INERT = ['history', 'shared', 'stv_lookup', 'kick_room'];
 
   // Live keys reach the frame by postMessage, so only reload keys decide whether to reload.
   function reloadSignature(pc) {
@@ -306,7 +320,7 @@
     params.forEach(function (v, k) { if (isKnown(k)) known.push(String(k).toLowerCase()); });
     var base = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
     if (known.length) {
-      var onlyChannel = known.every(function (k) { return k === 'channel'; });
+      var onlyChannel = known.every(function (k) { return k === 'channel' || k === 'kick' || k === 'kick_room'; });
       return { cfg: config.parse(params, onlyChannel ? base : null), fromQuery: true, fromStore: false };
     }
     if (base) return { cfg: config.parse('', base), fromQuery: false, fromStore: true };
@@ -412,7 +426,10 @@
 
   // The line beside the overlay URL: what is wrong with it, or what it holds.
   function urlNote(cfg, ch, url) {
-    if (!cfg.channel) return { text: 'Add a channel first. Without one the overlay only shows a hint.', cls: 'warn' };
+    if (!cfg.channel && !cfg.kick) return { text: 'Add a channel first. Without one the overlay only shows a hint.', cls: 'warn' };
+    if (cfg.kick && !cfg.kick_room) {
+      return { text: 'The Kick chatroom id is missing, and Kick may refuse the overlay’s own lookup. Press Check next to the Kick channel.', cls: 'warn' };
+    }
     if (ch && ch.state === 'notfound' && ch.login === cfg.channel) {
       return { text: 'Twitch has no channel called “' + cfg.channel + '”. Check the spelling.', cls: 'warn' };
     }
@@ -556,7 +573,7 @@
     if (s.type === 'enum') return 'seg';
     if (s.type === 'int') return 'stepper';
     if (s.type === 'font') return 'font';
-    return 'text'; // list
+    return 'text'; // list, kick, room
   }
 
   // The provider mark beside a field: the images are css/builder.css backgrounds, so no URL is set here.
@@ -764,27 +781,81 @@
         field.set = function (v) { fi.value = v; bad.hidden = true; fi.setAttribute('aria-invalid', 'false'); };
         break;
       }
-      default: { // list
+      default: { // text: a list of names (block), or one value (kick, kick_room)
         addLabel(true);
-        var li = control(h('input', 'text'));
+        var isList = spec.type === 'list';
+        var li = h('input', 'text');
         li.type = 'text';
         li.id = id;
         li.autocomplete = 'off';
         li.spellcheck = false;
         if (m.placeholder) li.placeholder = m.placeholder;
-        field.helpEl = addHelp(row, key, li);
+        if (m.check) {
+          // The input and its Check button share one control row.
+          var rowc = control(h('div', 'text-row'));
+          rowc.appendChild(li);
+        } else {
+          control(li);
+        }
+        var th = addHelp(row, key, li);
+        field.helpEl = th;
         var lt = null;
+        if (isList) {
+          li.addEventListener('input', function () {
+            clearTimeout(lt);
+            lt = setTimeout(function () { update(key, li.value); }, 400);
+          });
+          li.addEventListener('change', function () {
+            clearTimeout(lt);
+            update(key, li.value);
+            li.value = (B.cfg[key] || []).join(', ');
+          });
+          field.inputs.push(li);
+          field.set = function (v) { li.value = (v || []).join(', '); };
+          break;
+        }
+        var tbad = h('p', 'status err', m.bad || 'That value isn’t valid.');
+        tbad.id = 'e-' + key;
+        tbad.hidden = true;
+        row.appendChild(tbad);
+        var showBad = function (ok) {
+          if (!ok && tbad.hidden) announce(tbad.textContent);
+          tbad.hidden = ok;
+          li.setAttribute('aria-invalid', ok ? 'false' : 'true');
+          li.setAttribute('aria-describedby', (th ? th.id : '') + (ok ? '' : ' ' + tbad.id));
+        };
+        var commitText = function (final) {
+          clearTimeout(lt);
+          var raw = li.value.trim();
+          // kick_room takes the pasted channel page too: the chatroom id is read out of it.
+          if (raw && m.parse === 'kickRoom') raw = kick.roomFromText(raw) || raw;
+          var before = B.cfg[key];
+          var ok = update(key, raw);
+          showBad(ok);
+          if (!ok || !final) return;
+          li.value = B.cfg[key];
+          if (key === 'kick' && B.cfg.kick !== before) onKickChanged(before);
+        };
         li.addEventListener('input', function () {
           clearTimeout(lt);
-          lt = setTimeout(function () { update(key, li.value); }, 400);
+          lt = setTimeout(function () { commitText(false); }, 600);
         });
-        li.addEventListener('change', function () {
-          clearTimeout(lt);
-          update(key, li.value);
-          li.value = (B.cfg[key] || []).join(', ');
-        });
+        li.addEventListener('change', function () { commitText(true); });
+        li.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); commitText(true); } });
         field.inputs.push(li);
-        field.set = function (v) { li.value = (v || []).join(', '); };
+        field.set = function (v) { li.value = v || ''; showBad(true); };
+        if (m.check) {
+          var cbtn = h('button', 'btn', 'Check');
+          cbtn.type = 'button';
+          rowc.appendChild(cbtn);
+          var kst = h('div', 'status');
+          kst.setAttribute('role', 'status');
+          kst.setAttribute('aria-live', 'polite');
+          row.appendChild(kst);
+          field.statusEl = kst;
+          cbtn.addEventListener('click', function () { commitText(true); checkKick(true); });
+          field.inputs.push(cbtn);
+        }
       }
     }
     return field;
@@ -1065,6 +1136,7 @@
     syncForm();
     if (prev.layout !== next.layout) followLayout(prev.layout, next.layout);
     $('channel').value = next.channel || '';
+    if (next.kick !== prev.kick) checkKick(false);
     if (next.channel !== B.ch.login || B.ch.state === 'bad') checkChannel(next.channel);
     else renderChannelStatus(); // the field was rewritten: nothing typed is pending any more
     renderOutputs();
@@ -1200,6 +1272,60 @@
     } else {
       box.textContent = 'Couldn’t check “' + login + '” right now. The overlay will still try this name.';
     }
+  }
+
+  // ---------- Kick ----------
+  // A new Kick channel: the old chatroom id belongs to the old channel, so it goes, and the new one is looked up.
+  function onKickChanged(before) {
+    if (before && B.cfg.kick_room) {
+      update('kick_room', '');
+      B.fields.kick_room.set('');
+    }
+    checkKick(false);
+  }
+
+  // Look up the Kick channel's chatroom id (kick.com's channel API) and fill in kick_room. Kick may refuse the
+  // request from another site (Cloudflare): then the status line says how to copy the id by hand.
+  // force: the Check button (looks up even when an id is already set).
+  function checkKick(force) {
+    var f = B.fields.kick;
+    if (!f || !f.statusEl) return;
+    var box = f.statusEl, slug = B.cfg.kick;
+    var seq = ++B.kickSeq;
+    clear(box);
+    box.className = 'status';
+    if (!slug || (B.cfg.kick_room && !force)) return;
+    box.className = 'status busy';
+    box.textContent = 'Looking up “' + slug + '” on Kick…';
+    kick.lookupChannel(slug, { timeout: 8000 }).then(function (c) {
+      if (seq !== B.kickSeq) return;
+      clear(box);
+      if (!c) {
+        box.className = 'status err';
+        box.textContent = 'No Kick channel called “' + slug + '” was found.';
+        return;
+      }
+      update('kick_room', c.chatroomId);
+      B.fields.kick_room.set(B.cfg.kick_room);
+      box.className = 'status ok';
+      var t = h('span');
+      t.appendChild(h('strong', null, c.username || slug));
+      t.appendChild(document.createTextNode(' found. Chatroom id ' + c.chatroomId + ' is filled in below.'));
+      box.appendChild(t);
+    }, function () {
+      if (seq !== B.kickSeq) return;
+      clear(box);
+      box.className = 'status warn';
+      var t = h('span');
+      t.appendChild(document.createTextNode('Kick didn’t allow the lookup from this page. Open '));
+      var a = h('a', null, 'the channel page');
+      a.href = kick.apiUrl(slug);
+      a.target = '_blank';
+      a.rel = 'noopener';
+      t.appendChild(a);
+      t.appendChild(document.createTextNode(', then paste the whole page (or the number after "chatroom":{"id":) into the chatroom id below.'));
+      box.appendChild(t);
+    });
   }
 
   // ---------- paste existing URL ----------
@@ -1393,14 +1519,14 @@
       if (st === 'notfound') hint = 'Channel “' + B.ch.login + '” was not found.';
       else if (st === 'bad') hint = 'The channel name isn’t valid.';
       if (pc.demo) hint = (hint ? hint + ' ' : '') + 'Demo chat with global emotes only. Enter a channel to preview its own emotes and badges.';
-      else hint = (hint ? hint + ' ' : '') + 'Enter a channel (then press Enter) to watch its live chat here.';
+      else if (!pc.kick) hint = (hint ? hint + ' ' : '') + 'Enter a channel (then press Enter) to watch its live chat here.';
     } else if (B.mode === 'live' && B.cfg.demo) {
       hint = 'Demo messages are switched on under Advanced, so the overlay shows fake chat.';
     }
     var modeEl = $('tag-mode'), mode = pc.demo ? 'demo' : 'live chat';
     if (modeEl.textContent !== mode) { modeEl.textContent = mode; fitSoon(); } // fit() picks how much of the tag line fits
     setHint(hint);
-    if (!pc.channel && !pc.demo) setFrame(null, null);
+    if (!pc.channel && !pc.kick && !pc.demo) setFrame(null, null);
     // Badge and paint data a source turned on later is loaded by the overlay when the setting arrives.
     else setFrame(previewUrl(pc, root.location.href), reloadSignature(pc));
   }
@@ -1734,6 +1860,8 @@
     $('reset').addEventListener('click', function () {
       var d = config.defaults();
       d.channel = B.cfg.channel;
+      d.kick = B.cfg.kick;
+      d.kick_room = B.cfg.kick_room;
       replaceCfg(d);
       flash($('reset'), 'Reset');
     });
@@ -1797,6 +1925,7 @@
       fields: {},
       ch: { state: 'empty', login: '', user: null },
       chSeq: 0,
+      kickSeq: 0,
       chDraft: '',
       chStatusKey: '',
       chCache: new Map(),

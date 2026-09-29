@@ -1,4 +1,5 @@
-/* Overlay bootstrap: config, staged loading, IRC handling, badge/emote/paint composition, live updates. */
+/* Overlay bootstrap: config, staged loading, Twitch IRC and Kick chat handling, badge/emote/paint composition,
+   live updates. */
 (function (root, factory) {
   var api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -11,7 +12,7 @@
   'use strict';
 
   var DEFAULT_BOTS = ['nightbot', 'streamelements', 'streamlabs', 'moobot', 'fossabot', 'wizebot',
-    'soundalerts', 'sery_bot', 'kofistreambot', 'botrixoficial', 'blerp', 'pokemoncommunitygame'];
+    'soundalerts', 'sery_bot', 'kofistreambot', 'botrixoficial', 'botrix', 'blerp', 'pokemoncommunitygame'];
   var NOTICE_TYPES = { sub: 1, resub: 1, subgift: 1, submysterygift: 1, giftpaidupgrade: 1,
     anongiftpaidupgrade: 1, raid: 1, bitsbadgetier: 1 };
   // How long live chat waits for the history backfill; the request is aborted at the same moment.
@@ -19,6 +20,10 @@
   // History is third-party data: at most this many distinct Shared Chat rooms may be loaded because of it
   // (a real session has at most 6 channels).
   var MAX_HISTORY_ROOMS = 8;
+  // A Kick chatroom that can't be looked up (and has no kick_room) shows a hint after this long.
+  var KICK_HINT_MS = 10000;
+  var KICK_BADGE_TITLES = { broadcaster: 'Broadcaster', moderator: 'Moderator', vip: 'VIP', og: 'OG', founder: 'Founder',
+    verified: 'Verified', staff: 'Kick Staff', subscriber: 'Subscriber', sub_gifter: 'Sub Gifter' };
   // A Shared Chat room part that failed is retried on the room's next message after this delay (doubling).
   var PART_RETRY_MS = 30000;
   var PART_RETRY_MAX_MS = 300000;
@@ -41,13 +46,20 @@
     // Inside the builder's preview iframe the builder is already open, so skip the link there.
     if (withLink && root.parent === root) {
       var a = document.createElement('a');
-      a.href = 'builder.html' + (S && S.cfg.channel ? '?channel=' + encodeURIComponent(S.cfg.channel) : '');
+      a.href = 'builder.html' + builderQuery();
       a.target = '_blank';
       a.rel = 'noopener';
       a.textContent = 'Open the overlay builder';
       h.appendChild(a);
     }
     h.hidden = false;
+  }
+  function builderQuery() {
+    if (!S) return '';
+    var q = [];
+    if (S.cfg.channel) q.push('channel=' + encodeURIComponent(S.cfg.channel));
+    if (S.cfg.kick) q.push('kick=' + encodeURIComponent(S.cfg.kick));
+    return q.length ? '?' + q.join('&') : '';
   }
   function hideHint() {
     if (S && S.hintSticky) return;
@@ -154,6 +166,42 @@
     return S.rooms.home();
   }
 
+  // ---------- platforms ----------
+  function isKick(m) { return !!m && m.platform === 'kick'; }
+  function notKick(m) { return !isKick(m); }
+  // Twitch data (IRC, Twitch-keyed badges and BTTV/FFZ) is only needed with a Twitch channel (or the demo).
+  function twitchOn() { return !!(S.cfg.channel || S.cfg.demo); }
+  // Each line says where it came from once two platforms share the overlay.
+  function showPlatforms() { return !!(S.cfg.platform_icons && S.cfg.kick && twitchOn()); }
+  function platformIcon(m) {
+    return isKick(m)
+      ? { provider: 'platform', icon: 'kick', title: 'Kick' }
+      : { provider: 'platform', icon: 'twitch', title: 'Twitch' };
+  }
+
+  function lookupIn(maps) {
+    return function (word) {
+      for (var j = 0; j < maps.length; j++) {
+        var e = maps[j].get(word);
+        if (e) return e;
+      }
+      return null;
+    };
+  }
+
+  // Kick chatters have 7TV only: the Kick channel's own set when it is known, else the Twitch channel's
+  // (a multistream usually has the same one), then 7TV global.
+  function kickLookup() {
+    var maps = [];
+    if (S.cfg.emotes_7tv) {
+      var home = S.rooms.home();
+      if (S.kickStv.size) maps.push(S.kickStv);
+      else if (home) maps.push(home.stv.emotes);
+      maps.push(S.stvGlobal);
+    }
+    return lookupIn(maps);
+  }
+
   function makeLookup(room, userId) {
     var cfg = S.cfg;
     var maps = [];
@@ -173,16 +221,13 @@
     if (cfg.emotes_7tv) maps.push(S.stvGlobal);
     if (cfg.emotes_bttv) maps.push(S.bttvGlobal);
     if (cfg.emotes_ffz) maps.push(S.ffzGlobal);
-    return function (word) {
-      for (var j = 0; j < maps.length; j++) {
-        var e = maps[j].get(word);
-        if (e) return e;
-      }
-      return null;
-    };
+    return lookupIn(maps);
   }
 
   function tokensFor(m) {
+    if (isKick(m)) {
+      return T.tokenizer.tokenize(m, { lookup: kickLookup(), bttvPrefixes: null, gifs: false }).items;
+    }
     var room = roomFor(m);
     var r = T.tokenizer.tokenize(m, {
       lookup: makeLookup(room, m.userId),
@@ -205,9 +250,39 @@
     for (var i = 0; i < list.length; i++) if (list[i]) out.push(list[i]);
   }
 
+  // A Kick subscriber badge: the channel's own image for that many months when the channel lookup gave the
+  // images, else the built-in icon.
+  function kickSubImage(months) {
+    var list = S.kickSubBadges, url = null;
+    for (var i = 0; i < list.length; i++) if (list[i].months <= months || !url) url = list[i].url;
+    return url;
+  }
+
+  function kickBadgesFor(m, out) {
+    var cfg = S.cfg;
+    if (!cfg.badges || !cfg.badges_kick) return out;
+    var list = m.kickBadges || [];
+    for (var i = 0; i < list.length; i++) {
+      var b = list[i];
+      var title = KICK_BADGE_TITLES[b.type];
+      if (!title) continue;
+      if (b.type === 'subscriber') {
+        if (b.count > 0) title += ' (' + b.count + (b.count === 1 ? ' month)' : ' months)');
+        var img = kickSubImage(b.count);
+        if (img) { out.push({ provider: 'kick', title: title, urls: { 1: img, 2: img, 4: img } }); continue; }
+      }
+      out.push({ provider: 'kick', icon: 'kick-' + b.type, title: title });
+    }
+    return out;
+  }
+
   function badgesFor(m) {
     var cfg = S.cfg;
     var out = [];
+    // The platform icon comes first, and is all a notice line shows.
+    if (showPlatforms()) out.push(platformIcon(m));
+    if (m.kind === 'notice') return out;
+    if (isKick(m)) return kickBadgesFor(m, out);
     var uid = m.userId;
     var room = roomFor(m);
     if (cfg.badges && m.kind === 'chat' && m.login === 'masstarvt') {
@@ -285,7 +360,7 @@
     var color = m.color || T.util.defaultColor(m.userId, m.login);
     if (S.cfg.readable) color = T.util.readableColor(color);
     var paintId = null;
-    if (S.cfg.paints && m.userId) {
+    if (S.cfg.paints && m.userId && !isKick(m)) {
       var eff = effective(m.userId);
       if (eff.paint && S.stv.paints.has(eff.paint)) paintId = eff.paint;
     }
@@ -314,7 +389,8 @@
     if (!cfg.bots && login) {
       if (DEFAULT_BOTS.indexOf(login) >= 0) return false;
       var home = S.rooms.home();
-      if (home && home.bttv.bots.has(login)) return false;
+      // The channel's BTTV bot list names Twitch accounts: it doesn't cover Kick lines.
+      if (home && home.bttv.bots.has(login) && !isKick(m)) return false;
       // A Shared Chat partner's own BTTV bot list covers its mirrored lines.
       if (m.mirrored) {
         var src = S.rooms.get(m.sourceRoomId);
@@ -597,7 +673,7 @@
 
   // ---------- chat handling ----------
   function noteUser(m) {
-    if (!m.userId || S.cfg.demo) return;
+    if (!m.userId || S.cfg.demo || isKick(m)) return;
     S.recentUsers.set(m.userId, T.util.now());
     if (S.stvLookup && S.cfg.stv_lookup && (S.cfg.paints || (S.cfg.badges && S.cfg.badges_7tv))) S.stvLookup.want(m.userId);
   }
@@ -665,7 +741,94 @@
     }
     var target = p.tags['target-user-id'];
     if (target) S.renderer.clearUser(target);
-    else if (!p.params[1]) S.renderer.clearAll();
+    else if (!p.params[1]) {
+      // A Twitch /clear leaves the Kick lines of a combined chat alone.
+      if (S.cfg.kick) S.renderer.clearAll(notKick);
+      else S.renderer.clearAll();
+    }
+  }
+
+  // ---------- Kick ----------
+  function onKickEvent(ev) {
+    if (!ev) return;
+    // While Twitch history loads, live lines are buffered: keep Kick events in order with them.
+    if (S.historyPending) {
+      S.liveBuffer.push({ __kick: ev });
+      return;
+    }
+    switch (ev.type) {
+      case 'message':
+      case 'notice':
+        return deliver(ev.msg);
+      case 'delete': return S.renderer.clearMessage(ev.id);
+      case 'ban': return S.renderer.clearUser(ev.userId);
+      case 'clear': return S.renderer.clearAll(isKick);
+    }
+  }
+
+  function kickHint(text) {
+    S.kickHintShown = true;
+    showHint(text, true, true);
+  }
+
+  function onKickStatus(status, detail) {
+    S.kickStatus = status;
+    if (status === 'joined') {
+      if (S.kickHintShown) {
+        S.kickHintShown = false;
+        S.hintSticky = false;
+        hideHint();
+      }
+    } else if (status === 'fatal') {
+      kickHint('Kick refused the chat connection' + (detail && detail.code ? ' (error ' + detail.code + ')' : '') +
+        '. Kick may have changed its chat server; check for an overlay update.');
+    }
+  }
+
+  function connectKick(room) {
+    if (S.kick) return;
+    S.kick = T.kick.createKick({ room: room, onEvent: onKickEvent, onStatus: onKickStatus });
+    S.kick.start();
+  }
+
+  // The channel lookup's extras: the channel's sub badge images, and its own 7TV set (by Kick user id).
+  function applyKickChannel(c) {
+    S.kickSubBadges = c.subBadges || [];
+    if (c.userId && S.cfg.emotes_7tv) {
+      track('7tv-kick-channel', function () { return T.seventv.loadChannel(c.userId, 'kick'); }, function (r) {
+        if (r) fillMap(S.kickStv, r.emotes);
+        scheduleRerender(isKick);
+      });
+    }
+    scheduleRerender(isKick);
+  }
+
+  // Kick's chat socket needs the numeric chatroom id. kick_room (set by the builder) connects at once; without
+  // it the channel API is asked, which Kick may refuse to other sites (Cloudflare), so a hint says what to do.
+  function startKick() {
+    var cfg = S.cfg;
+    S.kickStatus = 'resolving';
+    var lookup = function () { return T.kick.lookupChannel(cfg.kick); };
+    if (cfg.kick_room) {
+      connectKick(cfg.kick_room);
+      lookup().then(function (c) { if (c) applyKickChannel(c); }, function (e) {
+        T.util.log('kick channel lookup failed (chat still works with kick_room):', e && e.message);
+      });
+      return;
+    }
+    track('kick-channel', lookup, function (c) {
+      if (!c) {
+        kickHint('Kick channel "' + cfg.kick + '" was not found. Check the name in your overlay URL or settings.js.');
+        return;
+      }
+      applyKickChannel(c);
+      connectKick(c.chatroomId);
+    });
+    setTimeout(function () {
+      if (!S.kick && !S.kickHintShown) {
+        kickHint('Couldn\'t look up the Kick chatroom for "' + cfg.kick + '". Set its chatroom id (kick_room) in the builder.');
+      }
+    }, KICK_HINT_MS);
   }
 
   function onLine(p) {
@@ -731,6 +894,7 @@
       S.liveBuffer = [];
       buf.forEach(function (m) {
         if (m.__clear) handleClearchat(m.__clear);
+        else if (m.__kick) onKickEvent(m.__kick);
         else deliver(m);
       });
     }
@@ -759,20 +923,20 @@
   // ---------- tiers ----------
   function startTier1() {
     var cfg = S.cfg;
-    if (cfg.badges && cfg.badges_twitch) {
+    if (cfg.badges && cfg.badges_twitch && twitchOn()) {
       track('twitch-global-badges', T.twitchBadges.loadGlobal, function (m) { S.twitchGlobal = m; changed({ all: true }); }, true);
     }
     if (cfg.emotes_7tv) {
       track('7tv-global', T.seventv.loadGlobal, function (m) { S.stvGlobal = m; changed({ all: true }); }, true);
     }
-    if (cfg.emotes_bttv) {
+    if (cfg.emotes_bttv && twitchOn()) {
       track('bttv-global', T.bttv.loadGlobal, function (r) {
         S.bttvGlobal = r.emotes;
         S.bttvPrefixes = r.prefixes;
         changed({ all: true });
       }, true);
     }
-    if (cfg.emotes_ffz) {
+    if (cfg.emotes_ffz && twitchOn()) {
       track('ffz-global', T.ffz.loadGlobal, function (m) { S.ffzGlobal = m; changed({ all: true }); }, true);
     }
     if (cfg.channel) {
@@ -798,8 +962,10 @@
     }
   }
 
+  // Paints and third-party badges are keyed by Twitch user id: a Kick-only overlay needs none of them.
   function startTier2() {
     var cfg = S.cfg;
+    if (!twitchOn()) return;
     if (cfg.paints || (cfg.badges && cfg.badges_7tv) || cfg.demo) {
       track('7tv-catalog', T.seventv.loadCatalog, function (c) {
         S.stv.mergeCatalog(c);
@@ -823,7 +989,7 @@
 
   function startTier3() {
     var cfg = S.cfg;
-    if (cfg.badges && cfg.badges_homies) {
+    if (cfg.badges && cfg.badges_homies && twitchOn()) {
       // One loader per list, all filling one index: a list that fails retries on its own.
       var homies = T.extraBadges.createHomies();
       for (var i = 0; i < T.extraBadges.HOMIES_COUNT; i++) {
@@ -842,7 +1008,8 @@
     var d = el('debug');
     if (!d) return;
     d.hidden = false;
-    var parts = ['irc:' + (S.cfg.demo ? 'demo' : S.ircStatus)];
+    var parts = ['irc:' + (S.cfg.demo ? 'demo' : S.cfg.channel ? S.ircStatus : 'off')];
+    if (S.cfg.kick) parts.push('kick:' + (S.cfg.demo ? 'demo' : S.kickStatus));
     S.loads.forEach(function (ctl, name) { parts.push(name + ':' + ctl.status); });
     var home = S.rooms.home();
     parts.push('emotes 7tv ' + S.stvGlobal.size + '/' + (home ? home.stv.emotes.size : 0) +
@@ -925,6 +1092,11 @@
       histRooms: new Set(),
       historyPending: false,
       liveBuffer: [],
+      kick: null,
+      kickStatus: 'idle',
+      kickHintShown: false,
+      kickStv: new Map(),
+      kickSubBadges: [],
       demo: null
     };
     S.bus.on('changed', onChanged);
@@ -947,8 +1119,10 @@
     var sErr = settingsError();
     if (sErr) showHint('settings.js has an error: ' + sErr, true, true);
     // Without a channel there is nothing to show: load nothing (also when settings.js is broken).
-    if (!cfg.channel && !cfg.demo) {
-      if (!sErr) showHint('No channel set. Add ?channel=yourname to the overlay URL, or use the builder.', true);
+    if (!cfg.channel && !cfg.kick && !cfg.demo) {
+      if (!sErr) {
+        showHint('No channel set. Add ?channel=yourname (Twitch) or ?kick=yourname (Kick) to the overlay URL, or use the builder.', true);
+      }
       return;
     }
 
@@ -958,7 +1132,8 @@
     if (cfg.demo) {
       S.demo = T.demo.createDemo({
         getState: function () { return S; },
-        feed: function (line) { onLine(T.ircParse.parseLine(line)); }
+        feed: function (line) { onLine(T.ircParse.parseLine(line)); },
+        feedKick: function (event, data) { onKickEvent(T.kick.parseEvent(event, data)); }
       });
     } else {
       S.stvLookup = T.seventv.createLookup({
@@ -974,6 +1149,7 @@
       S.irc = T.irc.createIrc({ channel: cfg.channel, onLine: onLine, onStatus: onIrcStatus });
       S.irc.start();
     }
+    if (cfg.kick && !cfg.demo) startKick();
     // Release the startup hold once tier-1 loads settle, or after 2.5 s at most.
     setTimeout(releaseHold, 2500);
     checkHold();
@@ -993,6 +1169,7 @@
 
     if (root.addEventListener) root.addEventListener('online', function () {
       if (S.irc) S.irc.kick();
+      if (S.kick) S.kick.kick();
       if (S.stvEvents) S.stvEvents.kick();
       if (S.bttvLive) S.bttvLive.kick();
       S.loads.forEach(function (ctl) { if (ctl.status === 'failed') ctl.retryNow(); });
