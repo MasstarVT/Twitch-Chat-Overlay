@@ -7,11 +7,11 @@ describe('spec', () => {
   test('defaults match the plan', () => {
     const d = config.defaults();
     assert.deepEqual(d, {
-      channel: '', size: 'medium', font: 'Inter', shadow: 2, bg: 0, layout: 'vertical', align: 'bottom', animate: true,
+      channel: '', kick: '', kick_room: '', platform_icons: true, size: 'medium', font: 'Inter', shadow: 2, bg: 0, layout: 'vertical', align: 'bottom', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
       events: true, replies: true, first_msg: false, history: 5, shared: true, gifs: true,
       emotes_7tv: true, emotes_bttv: true, emotes_ffz: true,
-      badges: true, badges_twitch: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
+      badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
       badges_ffzap: true, badges_chatterino: true, badges_homies: true,
       paints: true, stv_lookup: true, readable: true, demo: false, debug: false
     });
@@ -26,7 +26,7 @@ describe('spec', () => {
   });
 
   test('LIVE_KEYS plus the reload keys partition every key', () => {
-    const reload = ['channel', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'demo', 'debug'];
+    const reload = ['channel', 'kick', 'kick_room', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'demo', 'debug'];
     config.LIVE_KEYS.forEach((k) => assert.ok(config.SPEC[k], k + ' is not in SPEC'));
     reload.forEach((k) => assert.ok(!config.LIVE_KEYS.includes(k), k + ' must force a reload'));
     assert.deepEqual([...config.LIVE_KEYS, ...reload].sort(), [...config.KEYS].sort());
@@ -74,6 +74,61 @@ describe('normalizeChannel', () => {
     });
     assert.equal(config.normalizeChannel(null), '');
     assert.equal(config.normalizeChannel(undefined), '');
+  });
+});
+
+describe('normalizeKick', () => {
+  test('accepts names, @names and kick.com links (incl. popout chat)', () => {
+    assert.equal(config.normalizeKick('xqc'), 'xqc');
+    assert.equal(config.normalizeKick('  XQC '), 'xqc');
+    assert.equal(config.normalizeKick('@Adin_Ross'), 'adin_ross');
+    assert.equal(config.normalizeKick('some-streamer'), 'some-streamer');
+    assert.equal(config.normalizeKick('https://kick.com/xQc'), 'xqc');
+    assert.equal(config.normalizeKick('https://www.kick.com/xqc/videos?x=1'), 'xqc');
+    assert.equal(config.normalizeKick('kick.com/xqc#chat'), 'xqc');
+    assert.equal(config.normalizeKick('https://kick.com/popout/xqc/chat'), 'xqc');
+    assert.equal(config.normalizeKick(12345), '12345');
+  });
+
+  test('rejects anything that is not a Kick channel name', () => {
+    ['', '   ', 'bad name', 'a'.repeat(41), 'xqc.tv', '<script>', '@', 'https://twitch.tv/xqc', null, undefined, true, {}]
+      .forEach((v) => assert.equal(config.normalizeKick(v), '', JSON.stringify(v)));
+  });
+
+  test('kick and kick_room: empty is valid (no Kick), invalid falls back, booleans are rejected', () => {
+    assert.equal(config.coerce('kick', ''), '');
+    assert.equal(config.coerce('kick', '  '), '');
+    assert.equal(config.coerce('kick', 'https://kick.com/XQC'), 'xqc');
+    assert.equal(config.coerce('kick', 'bad name'), undefined);
+    assert.equal(config.coerce('kick', true), undefined);
+    assert.equal(config.coerce('kick_room', ''), '');
+    assert.equal(config.coerce('kick_room', ' 668 '), '668');
+    assert.equal(config.coerce('kick_room', 668), '668');
+    assert.equal(config.coerce('kick_room', '12a'), undefined);
+    assert.equal(config.coerce('kick_room', '-5'), undefined);
+    assert.equal(config.coerce('kick_room', 1.5), undefined);
+    assert.equal(config.coerce('kick_room', '1'.repeat(13)), undefined);
+    assert.equal(config.coerce('kick_room', false), undefined);
+  });
+
+  test('an empty ?kick= clears a settings.js Kick channel; an invalid one keeps it', () => {
+    const settings = { kick: 'xqc', kick_room: '668' };
+    assert.equal(config.parse('', settings).kick, 'xqc');
+    assert.equal(config.parse('kick=&kick_room=', settings).kick, '');
+    assert.equal(config.parse('kick=&kick_room=', settings).kick_room, '');
+    assert.equal(config.parse('kick=bad%20name', settings).kick, 'xqc');
+    assert.equal(config.parse('Kick=Other&KICK_ROOM=5', settings).kick_room, '5');
+  });
+
+  test('only a set Kick channel and room reach the URL and settings.js', () => {
+    const cfg = config.defaults();
+    assert.equal(config.toParams(cfg).toString(), '');
+    assert.deepEqual(config.toObject(cfg), {});
+    cfg.kick = 'xqc';
+    cfg.kick_room = '668';
+    cfg.platform_icons = false;
+    assert.equal(config.toParams(cfg).toString(), 'kick=xqc&kick_room=668&platform_icons=0');
+    assert.deepEqual(config.toObject(cfg), { kick: 'xqc', kick_room: '668', platform_icons: false });
   });
 });
 

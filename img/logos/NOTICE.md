@@ -17,6 +17,19 @@ published terms either ask for written consent before their logos are used, or g
 `7tv.svg` is drawn in `currentColor`, which is black when the file is loaded as an image. Both pages invert
 it with CSS to show it in white; the file itself is unchanged.
 
+## Platform icons in the overlay
+
+With both a Twitch and a Kick channel set, the overlay starts each chat line with a small Twitch or Kick icon, so
+viewers can tell where a message came from. These are not image files: `js/icons.js` draws them as inline SVG
+from the path data of the Twitch and Kick icons in [Simple Icons](https://simpleicons.org) 16.33.0
+(`icons/twitch.svg` and `icons/kick.svg`; Simple Icons is released under CC0 1.0). The Twitch icon gets a white
+fill inside its outline, as in Twitch's own logo. The marks remain the property of Twitch and Kick; they are
+used only to identify the platform a message came from, and `platform_icons=0` turns them off. The home page and
+the builder still show Twitch as an initial.
+
+Kick's role badges (broadcaster, moderator, VIP and the others) are simple glyphs on colored tiles, drawn for
+this project in `js/icons.js`; they are not copies of Kick's own badge art.
+
 ## 7TV: Apache License 2.0 with the Commons Clause
 
 Full text: [LICENSE-7TV.md](LICENSE-7TV.md), an unmodified copy of

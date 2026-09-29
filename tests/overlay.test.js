@@ -9,8 +9,8 @@ const vm = require('node:vm');
 
 const JS = path.join(__dirname, '..', 'js');
 // overlay.html order
-const ORDER = ['util', 'config', 'irc-parse', 'badge-resolve', 'paint-css', 'tokenizer', 'irc', 'twitch-badges',
-  'seventv', 'bttv', 'ffz', 'extra-badges', 'rooms', 'renderer', 'demo', 'overlay'];
+const ORDER = ['util', 'config', 'irc-parse', 'badge-resolve', 'paint-css', 'tokenizer', 'irc', 'kick', 'twitch-badges',
+  'seventv', 'bttv', 'ffz', 'extra-badges', 'rooms', 'icons', 'renderer', 'demo', 'overlay'];
 const HOME = '100';
 const PARTNER = '200';
 
@@ -52,7 +52,7 @@ async function boot(t, opts) {
   const h = {
     calls: [], pushed: [], cleared: [], rerenders: 0, refilters: 0, listeners: {}, links: [],
     els: { chat: fakeEl('div'), hint: fakeEl('div'), debug: fakeEl('div') },
-    irc: null, stv: null, bttvLive: null, lookupWants: [],
+    irc: null, kick: null, stv: null, bttvLive: null, lookupWants: [], clearPreds: [],
     called(name) { return this.calls.filter((c) => c[0] === name); },
     feed(raw) { this.irc.receive(globalThis.TCO.ircParse.parseLine(raw)); },
     S() { return globalThis.TCO.overlay.state(); }
@@ -102,6 +102,13 @@ async function boot(t, opts) {
   stub(T.extraBadges, 'loadFfzap', 'ffzap', ok(() => new Map()));
   stub(T.extraBadges, 'loadHomiesSource', 'homies', (i, into) => Promise.resolve(into));
   stub(T.irc, 'loadHistory', 'history', ok(() => []));
+  // Kick's channel API is refused by default (what a CORS / Cloudflare block looks like).
+  stub(T.kick, 'lookupChannel', 'kick-lookup', () => Promise.reject(new TypeError('Failed to fetch')));
+  T.kick.createKick = function (o) {
+    h.kick = { opts: o, started: 0, kicks: 0, start() { this.started++; }, kick() { this.kicks++; },
+      send(event, data) { o.onEvent(globalThis.TCO.kick.parseEvent('App\\Events\\' + event, JSON.stringify(data))); } };
+    return h.kick;
+  };
   T.irc.createIrc = function (o) {
     const seen = new Set();
     h.irc = {
@@ -130,7 +137,9 @@ async function boot(t, opts) {
     return {
       push(m) { if (!o.deps.shouldShow(m)) return false; h.pushed.push(m); return true; },
       clearUser(u) { h.cleared.push('user:' + u); },
-      clearAll() { h.cleared.push('all'); },
+      clearAll(pred) {
+        if (pred) { h.clearPreds.push(pred); h.cleared.push('some'); } else h.cleared.push('all');
+      },
       clearMessage(id) { h.cleared.push('msg:' + id); },
       rerender(pred) {
         h.rerenders++;
@@ -689,4 +698,142 @@ test('errors.js: attributes muted errors to settings.js until util.js ran, caps 
   r2.ready();
   r2.fire({ filename: 'x.js', message: 'after boot' });
   assert.strictEqual(r2.win.__tcoErrors.length, 0);
+});
+
+// ---------- Kick ----------
+let kn = 0;
+function kickChat(login, content, extra) {
+  kn++;
+  return Object.assign({ id: 'k' + kn, chatroom_id: 668, content: content, type: 'message', created_at: '2026-09-27T20:00:00Z',
+    sender: { id: 5000 + kn, username: login, slug: login, identity: { color: '#53FC19', badges: [] } } }, extra || {});
+}
+
+test('Kick only: connects with kick_room, loads no Twitch data, and shows Kick lines without platform icons', async (t) => {
+  const h = await boot(t, { search: '?kick=kickname&kick_room=668' });
+  assert.strictEqual(h.kick.opts.room, '668');
+  assert.strictEqual(h.kick.started, 1);
+  assert.strictEqual(h.irc, null);
+  ['lookupUser', 'history', 'twitch-global', 'bttv-global', 'ffz-global'].forEach((n) => assert.deepStrictEqual(h.called(n), [], n));
+  assert.strictEqual(h.called('7tv-global').length, 1, '7TV global emotes still apply to Kick chat');
+  assert.deepStrictEqual(h.called('kick-lookup').map((c) => c[1]), ['kickname'], 'extras are looked up once');
+  t.mock.timers.tick(6000);
+  await settle();
+  ['7tv-catalog', 'ffz-badges', 'bttv-badges', 'chatterino', 'ffzap', 'homies'].forEach((n) => assert.deepStrictEqual(h.called(n), [], n));
+  assert.strictEqual(h.els.hint.hidden, true, 'with kick_room set a refused lookup is fine');
+
+  h.kick.send('ChatMessageEvent', kickChat('KickViewer', 'hi [emote:37226:KEKW]', {
+    sender: { id: 77, username: 'KickViewer', identity: { color: '#53FC19', badges: [{ type: 'moderator' }, { type: 'subscriber', count: 2 }] } }
+  }));
+  assert.deepStrictEqual(texts(h), ['hi KEKW']);
+  const m = h.pushed[0];
+  assert.strictEqual(m.platform, 'kick');
+  assert.deepStrictEqual(h.deps.badgesFor(m), [
+    { provider: 'kick', icon: 'kick-moderator', title: 'Moderator' },
+    { provider: 'kick', icon: 'kick-subscriber', title: 'Subscriber (2 months)' }
+  ]);
+  const items = h.deps.tokensFor(m);
+  assert.deepStrictEqual(items.map((i) => i.type === 'emote' ? i.emote.provider + ':' + i.emote.name : i.text), ['hi', 'kick:KEKW']);
+  assert.deepStrictEqual(h.lookupWants, [], 'Kick users are never looked up on 7TV by Twitch id');
+  assert.match(h.S().cfg.kick, /kickname/);
+});
+
+test('Twitch + Kick: platform icons on every line (toggled live), Kick badges switch, and a Twitch /clear spares Kick', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0' });
+  join(h);
+  h.feed(priv('viewer', 'from twitch'));
+  h.kick.send('ChatMessageEvent', kickChat('kickviewer', 'from kick', {
+    sender: { id: 9, username: 'kickviewer', identity: { badges: [{ type: 'vip' }] } }
+  }));
+  h.kick.send('SubscriptionEvent', { chatroom_id: 668, username: 'Fan', months: 1 });
+  assert.deepStrictEqual(texts(h), ['from twitch', 'from kick', '']);
+  const [tw, kk, sub] = h.pushed;
+  assert.deepStrictEqual(h.deps.badgesFor(tw)[0], { provider: 'platform', icon: 'twitch', title: 'Twitch' });
+  assert.deepStrictEqual(h.deps.badgesFor(kk), [
+    { provider: 'platform', icon: 'kick', title: 'Kick' },
+    { provider: 'kick', icon: 'kick-vip', title: 'VIP' }
+  ]);
+  assert.deepStrictEqual(h.deps.badgesFor(sub), [{ provider: 'platform', icon: 'kick', title: 'Kick' }]);
+  assert.strictEqual(sub.systemMsg, 'Fan subscribed!');
+
+  // Live changes from the builder preview.
+  globalThis.parent = {};
+  const send = (cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
+  send({ platform_icons: false, badges_kick: false });
+  assert.deepStrictEqual(h.deps.badgesFor(kk), []);
+  assert.strictEqual(h.deps.badgesFor(tw).some((b) => b.provider === 'platform'), false);
+  send({ platform_icons: true, badges_kick: true, events: false });
+  assert.strictEqual(h.deps.shouldShow(sub), false, 'events=0 hides Kick notices too');
+
+  // Twitch /clear: only Twitch lines. Kick's own clear: only Kick lines.
+  h.feed('@room-id=' + HOME + ' :tmi.twitch.tv CLEARCHAT #home');
+  h.kick.send('ChatroomClearEvent', { id: 'x' });
+  assert.deepStrictEqual(h.cleared, ['some', 'some']);
+  assert.deepStrictEqual(h.clearPreds.map((p) => [p(tw), p(kk)]), [[true, false], [false, true]]);
+
+  // Kick moderation uses namespaced ids.
+  h.kick.send('UserBannedEvent', { user: { id: 9, username: 'kickviewer' } });
+  h.kick.send('MessageDeletedEvent', { message: { id: 'abc-1' } });
+  assert.deepStrictEqual(h.cleared.slice(2), ['user:kick:9', 'msg:kick:abc-1']);
+});
+
+test('Kick: the block list and bot list cover Kick names; a Twitch channel\'s BTTV bot list does not', async (t) => {
+  const h = await boot(t, {
+    search: '?channel=home&kick=kickname&kick_room=668&history=0&block=troll',
+    stubs(T) { T.bttv.loadChannel = () => Promise.resolve({ emotes: new Map(), bots: new Set(['samename']) }); }
+  });
+  join(h);
+  await settle();
+  ['troll', 'botrix', 'samename', 'fine'].forEach((n) => h.kick.send('ChatMessageEvent', kickChat(n, n + ' says hi')));
+  h.feed(priv('samename', 'twitch bot line'));
+  assert.deepStrictEqual(texts(h), ['samename says hi', 'fine says hi']);
+});
+
+test('Kick: events wait for Twitch history, in order with Twitch lines', async (t) => {
+  const hist = deferred();
+  const h = await boot(t, {
+    search: '?channel=home&kick=kickname&kick_room=668',
+    stubs(T) { T.irc.loadHistory = () => hist.promise; }
+  });
+  join(h);
+  h.kick.send('ChatMessageEvent', kickChat('a', 'kick 1'));
+  h.feed(priv('b', 'twitch 1'));
+  h.kick.send('UserBannedEvent', { user: { id: 1, username: 'x' } });
+  assert.deepStrictEqual(texts(h), []);
+  assert.deepStrictEqual(h.cleared, []);
+  hist.resolve([]);
+  await settle();
+  assert.deepStrictEqual(texts(h), ['kick 1', 'twitch 1']);
+  assert.deepStrictEqual(h.cleared, ['user:kick:1']);
+});
+
+test('Kick without kick_room: the channel lookup finds the chatroom; a refused lookup shows how to set it', async (t) => {
+  let h = await boot(t, {
+    search: '?kick=kickname',
+    stubs(T) {
+      T.kick.lookupChannel = () => Promise.resolve({ chatroomId: '4598', userId: '676', slug: 'kickname', username: 'KickName',
+        subBadges: [{ months: 1, url: 'https://files.kick.com/sub/1' }, { months: 6, url: 'https://files.kick.com/sub/6' }] });
+    }
+  });
+  assert.strictEqual(h.kick.opts.room, '4598');
+  assert.deepStrictEqual(h.called('7tv-channel').map((c) => c.slice(1)), [['676', 'kick']], 'the Kick channel\'s own 7TV set');
+  h.kick.send('ChatMessageEvent', kickChat('fan', 'hi', { sender: { id: 1, username: 'fan', identity: { badges: [{ type: 'subscriber', count: 8 }] } } }));
+  assert.deepStrictEqual(h.deps.badgesFor(h.pushed[0]), [{ provider: 'kick', title: 'Subscriber (8 months)', urls: { 1: 'https://files.kick.com/sub/6', 2: 'https://files.kick.com/sub/6', 4: 'https://files.kick.com/sub/6' } }]);
+  t.mock.timers.tick(11000);
+  assert.strictEqual(h.els.hint.hidden, true);
+
+  h = await boot(t, { search: '?kick=kickname' });
+  assert.strictEqual(h.kick, null);
+  t.mock.timers.tick(11000);
+  assert.strictEqual(h.els.hint.hidden, false);
+  assert.match(h.els.hint.children[0].textContent, /Kick chatroom for "kickname".*kick_room/);
+  assert.strictEqual(h.els.hint.children[1].href, 'builder.html?kick=kickname');
+});
+
+test('Kick: a refused app key shows a hint that joining clears', async (t) => {
+  const h = await boot(t, { search: '?kick=kickname&kick_room=668' });
+  h.kick.opts.onStatus('fatal', { code: 4001, message: 'x' });
+  assert.strictEqual(h.els.hint.hidden, false);
+  assert.match(h.els.hint.children[0].textContent, /Kick refused the chat connection \(error 4001\)/);
+  h.kick.opts.onStatus('joined');
+  assert.strictEqual(h.els.hint.hidden, true);
 });

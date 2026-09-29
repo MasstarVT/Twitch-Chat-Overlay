@@ -107,7 +107,10 @@ class Element extends Node {
       };
     }
   }
-  setAttribute(k, v) { this.attributes[k] = String(v); }
+  setAttribute(k, v) {
+    this.attributes[k] = String(v);
+    if (k === 'class') this.className = String(v); // SVG elements get their class this way
+  }
   getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attributes, k) ? this.attributes[k] : null; }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
   removeEventListener(type, fn) {
@@ -178,6 +181,7 @@ function createDocument(opts) {
     visibilityState: 'visible',
     listeners: {},
     createElement: (t) => new Element(doc, t),
+    createElementNS: (ns, t) => Object.assign(new Element(doc, t), { namespaceURI: ns }),
     createTextNode: (s) => new Text(doc, String(s)),
     createDocumentFragment: () => new Fragment(doc),
     addEventListener(type, fn) { (doc.listeners[type] = doc.listeners[type] || []).push(fn); },

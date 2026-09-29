@@ -307,6 +307,36 @@ test('line classes: action, first-msg (only with cfg.first_msg), highlight, anno
   for (const c of ['PRIMARY', 'BLUE', 'GREEN', 'ORANGE', 'PURPLE']) assert.strictEqual(R.annClass(c), 'ann-' + c.toLowerCase());
 });
 
+test('line classes: a whitelisted platform class for Kick lines; Twitch lines and unknown platforms get none', () => {
+  assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'chat', false), 'line platform-kick');
+  assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'notice', false), 'line notice platform-kick');
+  assert.strictEqual(R.lineClasses({ platform: 'twitch' }, {}, 'chat', false), 'line');
+  assert.strictEqual(R.lineClasses({ platform: 'x" onload="y' }, {}, 'chat', false), 'line');
+  assert.strictEqual(R.lineClasses({ platform: 'constructor' }, {}, 'chat', false), 'line');
+});
+
+test('icon badges: known icons become icon models, unknown keys are dropped, platform icons survive badges=0', () => {
+  const list = [
+    { provider: 'platform', icon: 'kick', title: 'Kick' },
+    { provider: 'kick', icon: 'kick-moderator', title: 'Moderator' },
+    { provider: 'kick', icon: 'nope', title: 'Unknown' },
+    { provider: 'kick', icon: '__proto__', title: 'Proto' },
+    { provider: 'kick', title: 'Subscriber', urls: { 1: 'https://files.kick.com/sub/1' } }
+  ];
+  assert.deepStrictEqual(R.badgeModels(list, 1), [
+    { icon: 'kick', title: 'Kick', platform: true },
+    { icon: 'kick-moderator', title: 'Moderator', platform: false },
+    { url: 'https://files.kick.com/sub/1', title: 'Subscriber', avatar: false, bg: null }
+  ]);
+  assert.deepStrictEqual(R.visibleBadges(list, { badges: false }), [list[0]]);
+  const msg = { userId: 'kick:1', login: 'a', displayName: 'A', platform: 'kick' };
+  const off = R.modelFor(msg, R.normalizeCfg({ badges: false }), { kind: 'chat', items: [], badges: list });
+  assert.deepStrictEqual(off.badges, [{ icon: 'kick', title: 'Kick', platform: true }]);
+  // A notice keeps only the platform icon; without one its model is unchanged.
+  const n = R.modelFor({ systemMsg: 'Fan subscribed!', platform: 'kick' }, R.normalizeCfg({}), { kind: 'notice', badges: list });
+  assert.deepStrictEqual(n, { kind: 'notice', cls: 'line notice platform-kick', system: 'Fan subscribed!', badges: [{ icon: 'kick', title: 'Kick', platform: true }] });
+});
+
 test('reply header model strips ACTION and newlines; empty parent names give no header', () => {
   assert.deepStrictEqual(R.replyModel({ name: 'Bob', body: '\u0001ACTION waves\u0001' }), { name: '@Bob', body: 'waves' });
   assert.deepStrictEqual(R.replyModel({ login: 'bob', body: 'a\nb' }), { name: '@bob', body: 'a b' });
