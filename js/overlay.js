@@ -292,6 +292,13 @@
       }
       out.push({ provider: 'developer', title: 'MasstarVT developer', urls: { 1: badgeUrl, 2: badgeUrl, 4: badgeUrl } });
     }
+    if (cfg.badges && m.kind === 'chat' && ['masstarvt', 'evanaxel', 'ray_xash', 'musicalfox30'].indexOf(m.login) >= 0) {
+      var betaBadgeUrl = 'img/logos/Beta.svg';
+      if (root.location && /^https?:$/.test(root.location.protocol) && root.location.href) {
+        betaBadgeUrl = new URL(betaBadgeUrl, root.location.href).href;
+      }
+      out.push({ provider: 'beta-tester', title: 'Beta Tester', urls: { 1: betaBadgeUrl, 2: betaBadgeUrl, 4: betaBadgeUrl } });
+    }
     // The Shared Chat source avatar marks where a message came from, so it shows even with badges off.
     if (m.mirrored && room && room.logo) {
       out.push({ provider: 'avatar', title: room.displayName || room.login || 'Shared chat', urls: { 1: room.logo, 2: room.logo, 4: room.logo } });

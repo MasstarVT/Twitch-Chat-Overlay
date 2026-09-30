@@ -667,9 +667,31 @@ test('MasstarVT developer badge comes before all other badges', async (t) => {
   const other = parse.toChatMessage(parse.parseLine(priv('viewer', 'hello')));
   const badges = h.deps.badgesFor(developer);
 
-  assert.deepStrictEqual(badges.map((badge) => badge.provider), ['developer', 'twitch']);
+  assert.deepStrictEqual(badges.map((badge) => badge.provider), ['developer', 'beta-tester', 'twitch']);
   assert.strictEqual(badges[0].urls[1], 'https://owner.github.io/project/img/logos/Badge.svg');
   assert.ok(!h.deps.badgesFor(other).some((badge) => badge.provider === 'developer'));
+});
+
+test('Beta Tester badge is assigned to the listed accounts', async (t) => {
+  const h = await boot(t);
+  join(h);
+  await settle();
+  globalThis.location.protocol = 'https:';
+  globalThis.location.href = 'https://owner.github.io/project/overlay.html?channel=home';
+
+  const parse = globalThis.TCO.ircParse;
+  for (const login of ['MasstarVT', 'EvanAxel', 'ray_xash', 'Musicalfox30']) {
+    const message = parse.toChatMessage(parse.parseLine(priv(login, 'hello')));
+    const badges = h.deps.badgesFor(message);
+    const beta = badges.find((badge) => badge.provider === 'beta-tester');
+
+    assert.ok(beta, login + ' receives the Beta Tester badge');
+    assert.strictEqual(beta.title, 'Beta Tester');
+    assert.strictEqual(beta.urls[1], 'https://owner.github.io/project/img/logos/Beta.svg');
+  }
+
+  const other = parse.toChatMessage(parse.parseLine(priv('viewer', 'hello')));
+  assert.ok(!h.deps.badgesFor(other).some((badge) => badge.provider === 'beta-tester'));
 });
 
 // ---------- errors.js ----------
