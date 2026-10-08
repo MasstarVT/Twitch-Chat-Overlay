@@ -99,11 +99,15 @@
   var EMOTE_ONLY = { big: 2, huge: 3 };
   // gif_size: a GIF's height in emote heights (--gif-mul); 3x is the stylesheet's. At 1x a GIF also takes an emote's
   // margins (--gif-margin), so its line is no taller than one with emotes: as css/overlay.css gives an emote in a column,
-  // -.3em .05em, except that one taller than its line (emote_scale above 100) never reaches above it and at most .2em
-  // below it (a row draws GIFs with its own margins).
+  // -.3em .05em, except that it reaches past its line only as far as there is room: one taller than its line (emote_scale
+  // above 100) never above it and at most .2em below it, less at a line_height below 135, and at spacing=tight without a
+  // box no more than twice the gap (--emote-hang). A row draws GIFs with its own margins. --gif-margin is set on #chat,
+  // where --emote-h, --line-height and --emote-hang are too, so the var()s below take #chat's values.
   var GIF_MUL = { '1x': '1', '2x': '2' };
-  var TALL_ROOM = '2.05em - var(--emote-h, 1.75em)';
-  var GIF_1X_MARGIN = 'calc(-1 * max(0em, min(.3em, ' + TALL_ROOM + '))) .05em calc(-1 * max(.2em, min(.3em, ' + TALL_ROOM + ')))';
+  var EMOTE_ROOM = '.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), ' +
+    '(2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)';
+  var GIF_1X_MARGIN = 'calc(-1 * max(0em, min(' + EMOTE_ROOM + '))) .05em ' +
+    'calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(' + EMOTE_ROOM + ')))';
   // name_sep: what goes between the name and the message (a /me line keeps its space). Never '': the name and
   // the message would run together.
   var NAME_SEPS = { colon: ': ', space: ' ', dash: ' – ', arrow: ' › ' };
@@ -254,16 +258,19 @@
   function ceilSafe(x) { return Math.ceil(x - 1e-9); }
   // Images are requested at the drawn size times the device pixel ratio. OBS draws at DPR 1, and scaling a
   // source in OBS scales the finished page, so bigger files would only cost download, decode and memory.
-  // baseH: the provider's 1x height (7TV scales in 32 px steps, Twitch/BTTV/FFZ in 28 px ones). scale: emote_scale
-  // (times an emote-only line's factor) or badge_size; 1 when left out. Past a provider's largest file pickUrl takes
-  // that one, so nothing smaller than the drawn size is fetched while a big enough file exists.
+  // baseH: the emote's 1x height (baseHeight): a provider's files are 2x, 3x, 4x that, and every emote is drawn as tall
+  // as an emote line's emotes whatever its own height. scale: emote_scale (times an emote-only line's factor) or
+  // badge_size; 1 when left out. Past a provider's largest file pickUrl takes that one, so nothing smaller than the
+  // drawn size is fetched while a big enough file exists.
   function wantEmote(px, big, dpr, baseH, scale) {
     return ceilSafe(px * EMOTE_EM * (big ? 3 : 1) * (scale > 0 ? scale : 1) * (dpr > 0 ? dpr : 1) /
       (baseH > 0 ? baseH : EMOTE_BASE_PX));
   }
   function wantBadge(px, dpr, scale) { return ceilSafe(px * (scale > 0 ? scale : 1) * (dpr > 0 ? dpr : 1) / BADGE_BASE_PX); }
-  // A provider's 1x emote height, kept to the known 28-32 px so odd metadata can't pick a tiny file.
-  function baseHeight(h) { return h >= 32 ? 32 : EMOTE_BASE_PX; }
+  // A provider's 1x emote height (dim: 0 when unknown). A short one (an FFZ emote 20 px tall, a wide 7TV one) is its
+  // own: it is stretched to the same drawn height, so it needs a bigger file than a 28 px emote. 28 to 31 px count as
+  // 28 (7TV's are 32), and anything taller as 32, so odd metadata can't pick a smaller file than those would.
+  function baseHeight(h) { return h >= 32 ? 32 : h > 0 && h < EMOTE_BASE_PX ? h : EMOTE_BASE_PX; }
 
   // A built-in shadow in a config color: the same offsets, blurs and alphas, with the color's rgb for black.
   // Anything but a config color (hexRgb checks it) leaves the shadow black.
@@ -358,6 +365,10 @@
     if (c.layout === 'horizontal') return 'left';
     if (c.smooth_scroll !== true) return null;
     return newestFirst(c) ? 'down' : 'up';
+  }
+  // row_sep: whether a row draws marks between its messages (css/overlay.css draws them for a row only).
+  function rowMarks(c) {
+    return !!c && c.layout === 'horizontal' && (c.row_sep === 'dot' || c.row_sep === 'bar' || c.row_sep === 'diamond');
   }
 
   // Inline `animation` value for a line ('' = none). A horizontal row slides new lines in sideways. style (enter_style),
@@ -1416,14 +1427,35 @@
     // first line that leaves in view takes the mark after it along, as before.
     function keepSepAfter(line) {
       var next = line.nextElementSibling;
-      if (!next || line !== linesEl.firstElementChild || cfg.layout !== 'horizontal') return;
-      if (cfg.row_sep !== 'dot' && cfg.row_sep !== 'bar' && cfg.row_sep !== 'diamond') return;
+      if (!next || line !== linesEl.firstElementChild || !rowMarks(cfg)) return;
       var nrec = recs.get(next);
       if (!nrec || nrec.keepSep) return;
       var view = rootEl.getBoundingClientRect();
       if (!(view.width > 0) || !(line.getBoundingClientRect().right <= view.left)) return;
       nrec.keepSep = true;
       next.classList.add('keep-sep');
+    }
+    // A kept mark stays only while the line before it would still be out of view. Once the row has moved right past that
+    // (a mod deleted or timed out the newer lines, a /clear or a filter took some, the source got wider), the first line
+    // would show it in view with nothing before it: it drops the mark and the space after it. keepSepAfter marks a line
+    // that starts at most the row's gap right of the view's left edge, so further in than that (where it sits at home: a
+    // running slide's offset, the row's transform, taken off) is past it.
+    function dropLoneSep() {
+      if (!cfg || cfg.layout !== 'horizontal') return;
+      var first = linesEl.firstElementChild;
+      var rec = first && recs.get(first);
+      if (!rec || !rec.keepSep) return;
+      var view = rootEl.getBoundingClientRect();
+      if (!(view.width > 0)) return;
+      var slid = linesEl.getBoundingClientRect().left - view.left;
+      var cs = typeof win.getComputedStyle === 'function' ? win.getComputedStyle(linesEl) : null;
+      var gap = cs ? parseFloat(cs.columnGap) || 0 : 0;
+      if (first.getBoundingClientRect().left - slid <= view.left + gap + 1) return;
+      unkeepSep(first, rec);
+    }
+    function unkeepSep(line, rec) {
+      rec.keepSep = false;
+      line.classList.remove('keep-sep');
     }
     // The single place a line leaves the DOM; clears every index.
     function removeLine(line) {
@@ -1566,11 +1598,14 @@
         cnt = overflowCount(n, rectAt, cfg.align, view.top - s, view.bottom + s);
       }
       cnt = Math.min(cnt, n - 1);
-      if (!cnt) return;
-      var top = newestFirst(cfg);
-      var victims = [];
-      for (var i = 0; i < cnt; i++) victims.push(top ? kids[n - 1 - i] : kids[i]);
-      for (var j = 0; j < victims.length; j++) removeLine(victims[j]);
+      if (cnt) {
+        var top = newestFirst(cfg);
+        var victims = [];
+        for (var i = 0; i < cnt; i++) victims.push(top ? kids[n - 1 - i] : kids[i]);
+        for (var j = 0; j < victims.length; j++) removeLine(victims[j]);
+      }
+      // Every flush, and every resize (a wider source moves the row right): a kept mark that is no longer kept for anything.
+      dropLoneSep();
     }
     function scheduleTrim() {
       // Deferred out of ResizeObserver callbacks so removals never cause an RO loop error.
@@ -1927,6 +1962,14 @@
         // preview (it sends the layout first), so trim once both have landed.
         settleUntil = Date.now() + LAYOUT_SETTLE_MS;
       }
+      // A kept row_sep mark (.keep-sep) is for the row it was kept in: a switch to a column (and back) or row_sep=none
+      // ends it, so a row drawn again marks only the lines after another.
+      if (prev.layout !== cfg.layout || !rowMarks(cfg)) {
+        children().forEach(function (l) {
+          var r = recs.get(l);
+          if (r && r.keepSep) unkeepSep(l, r);
+        });
+      }
       // A slide that no longer applies stops where it is and the lines go home at once: a row's on a switch to a column
       // or animate=0, a column's glide (smooth_scroll) turned off, turned round by an align flip (the lines were just
       // reversed), or ended by a layout switch or animate=0. Left running, a row's would carry the column in sideways.
@@ -1985,6 +2028,8 @@
       for (var i = 0; i < list.length; i++) removeLine(list[i]);
       // Other people's replies quoting this user lose the header (see replyGone).
       rerenderReplies(function (r) { return util.idStr(r.userId) === uid; });
+      // A row moves right when newer lines go (no resize to trim on): in the same frame, not one later.
+      dropLoneSep();
     }
 
     function clearMessage(msgId) {
@@ -1995,6 +2040,7 @@
       removeLine(byId.get(id));
       removeLine(byId.get(id + ':m'));
       rerenderReplies(function (r) { return util.idStr(r.id) === id; });
+      dropLoneSep();
     }
 
     // Without pred: every line. With pred(msg): only the queued and on-screen lines it matches (a Twitch /clear
@@ -2009,6 +2055,7 @@
           var rec = recs.get(list[i]);
           if (rec && hit(rec.src || rec.msg)) removeLine(list[i]);
         }
+        dropLoneSep();
         return;
       }
       queue.clear();

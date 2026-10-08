@@ -682,16 +682,20 @@ test('without rAF (hidden OBS source) the fallback timer flushes', (t) => {
 
 // ---------- horizontal slide ----------
 
-// A row of lines, newest on the right edge of a W px wide chat; each character is 10 px.
-function rowLayout(s, W) {
+// A row of lines, newest on the right edge of a W px wide chat; each character is 10 px. W may be a function (a source
+// resized later); gap: px between lines (the row's flex gap; 0 by default).
+function rowLayout(s, W, gap) {
+  const width = typeof W === 'function' ? W : () => W;
+  const g = gap || 0;
   const widths = () => s.lines().map((l) => l.textContent.length * 10);
   s.doc.layout = (el) => {
-    if (el === s.root || el === s.linesEl) return { left: 0, right: W, width: W, top: 0, bottom: 50, height: 50 };
+    const cw = width();
+    if (el === s.root || el === s.linesEl) return { left: 0, right: cw, width: cw, top: 0, bottom: 50, height: 50 };
     const i = s.lines().indexOf(el);
     if (i < 0) return null;
     const w = widths();
-    let right = W;
-    for (let j = w.length - 1; j > i; j--) right -= w[j];
+    let right = cw;
+    for (let j = w.length - 1; j > i; j--) right -= w[j] + g;
     return { left: right - w[i], right: right, width: w[i], top: 0, bottom: 50, height: 50 };
   };
   const moves = [];
@@ -1497,6 +1501,14 @@ test('overlay.css: the layout rules (stage 4) stay off by default, in their own 
   seps.forEach((s) => s.split(/,\s*(?=:where)/).forEach((one) => {
     assert.match(one, /^:where\(\.layout-horizontal(?:\)|\.|:not\(\.has-bg\)\))/, one);
     if (one === ':where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond)') return; // --row-em
+    if (/^:where\(\.layout-horizontal\.sep-(?:dot|bar|diamond)\)$/.test(one)) return; // --sep-w (renderer-css round 2)
+    // A line with a bar or a tint, without a box: its mark before the bar and outside the tint (renderer-css round 2).
+    const dec = /^:where\(\.layout-horizontal:not\(\.has-bg\)\):where\(\.sep-dot, \.sep-bar, \.sep-diamond\) :is\(\.line \+ \.line, \.line\.keep-sep\):where\(([^)]*)\)(?: > \.reply \+ \*::before| > :first-child:not\(\.reply\)::before)?$/.exec(one);
+    if (dec) {
+      const decos = ['.accent', '.first-msg', '.role-bar', '.announcement', '.highlight', '.mention', '.keyword', '.user-hl', '.role-tint'];
+      assert.ok(dec[1].split(', ').every((c) => decos.indexOf(c) >= 0), one);
+      return;
+    }
     // (.time: a time that carries the mark, stage 6.)
     assert.match(one, / :is\(\.line \+ \.line, \.line\.keep-sep\)(?:\.notice > :first-child::before| > (?:\.reply \+ \*::before|:first-child:not\(\.reply\)::before|\.badges:empty|\.reply \+ \.time::before|\.time:first-child::before))$/, one);
   }));
@@ -1546,11 +1558,16 @@ test('the sizes: a font-size or variable on #chat only while changed, gone again
     [{ '--emote-h': '0.875em' }, {}, { '--emote-h': '2.0125em' }, { '--emote-h': '2.1875em' }, { '--emote-h': '3.5em' }]);
   assert.deepStrictEqual(['normal', 'big', 'huge'].map((v) => one('emote_only', v)), [{}, { '--eo': '2' }, { '--eo': '3' }]);
   // At 1x an emote's margins in a column: -.3em .05em at the usual emote size, and like an emote taller than its line
-  // with emote_scale above 100 (never above the line, at most .2em below it).
-  const tall = '2.05em - var(--emote-h, 1.75em)';
+  // with emote_scale above 100 (never above the line, at most .2em below it), at a line_height below 135 and at
+  // spacing=tight (--emote-hang): the stylesheet's emote rule, with --emote-h for --eh.
+  const room = '.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)';
   assert.deepStrictEqual(['1x', '2x', '3x'].map((v) => one('gif_size', v)),
-    [{ '--gif-mul': '1', '--gif-margin': 'calc(-1 * max(0em, min(.3em, ' + tall + '))) .05em calc(-1 * max(.2em, min(.3em, ' + tall + ')))' },
-      { '--gif-mul': '2' }, {}]);
+    [{ '--gif-mul': '1', '--gif-margin': 'calc(-1 * max(0em, min(' + room + '))) .05em ' +
+      'calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(' + room + ')))' }, { '--gif-mul': '2' }, {}]);
+  const emoteRule = /\n:where\(\.layout-vertical\) \.emote-stack \{\s*margin-top: ([^;]+);\s*margin-bottom: ([^;]+);/.exec(overlayCss());
+  assert.ok(emoteRule, 'the emote rule');
+  const flat = (x) => x.replace(/\s+/g, ' ').split('var(--eh)').join('var(--emote-h, 1.75em)');
+  assert.strictEqual(flat(emoteRule[1]) + ' .05em ' + flat(emoteRule[2]), one('gif_size', '1x')['--gif-margin'], 'the same margins as an emote');
   assert.deepStrictEqual(one('giant_emotes', false), {}, 'giant_emotes is drawn on the lines only');
   // No class for any of them, in either layout.
   s.r.setConfig({ text_px: 40, badge_size: 150, emote_scale: 150, emote_only: 'huge', gif_size: '2x', layout: 'horizontal' });
@@ -1870,12 +1887,14 @@ test('overlay.css: the stage-7 rules (tints, role bar) are class-only, ordered, 
   assert.ok(at(':where(.has-bg) .line.highlight {') < at('.line.mention {') && at(':where(.has-bg) .line.mention,') < at('.line.announcement {'));
   assert.ok(at('.line.highlight:where(.accent, .first-msg, .role-bar) { padding-left: .4em; }') > at('.line.highlight {'));
   assert.ok(at('.line.mention:where(.accent, .first-msg, .role-bar),') > at('.line.mention,\n.line.keyword'));
-  // Every rule that names a new class is (0,2,0) at most: classes only (a :where() adds nothing), never #chat.
+  // Every rule that names a new class is (0,2,0) at most: classes only (a :where() adds nothing), never #chat. (row_sep's
+  // rules for a line with a bar or a tint, renderer-css round 2, are at .line + .line's (0,2,0) through :is(); their mark's
+  // ::before is held to the row_sep rules' own shape in the stage-4 test.)
   const sels = Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim())
-    .filter((s) => /mention|keyword|user-hl|role-/.test(s));
+    .filter((s) => /mention|keyword|user-hl|role-/.test(s) && !/::before/.test(s));
   assert.ok(sels.length >= 10, 'the scan finds them');
   sels.forEach((sel) => sel.split(/,\n/).forEach((one) => {
-    const bare = one.replace(/:where\([^()]*\)/g, '');
+    const bare = one.replace(/:where\((?:[^()]|\([^()]*\))*\)/g, '').replace(':is(.line + .line, .line.keep-sep)', '.line.keep-sep');
     assert.doesNotMatch(bare, /#|\[|:/, one);
     assert.ok((bare.match(/\.[\w-]+/g) || []).length <= 2, one + ' is (0,2,0) at most');
   }));
@@ -1948,20 +1967,69 @@ test('overlay.css: a bar beside a line keeps its room under any tint, a first me
   assert.strictEqual(linePadLeft(css + '\n.line.highlight { padding-left: 2px; }', ['line', 'first-msg', 'highlight']), '2px');
 });
 
+test('overlay.css: a reply header clips .3em past its line above and below, and its margins take that back', () => {
+  // renderer-css round 2: it clipped at its line box, so at a line_height below about 130 the tails of g, j, p, q, y and
+  // the accents of capitals were cut off flat (and Vietnamese or Thai marks at the default).
+  const css = overlayCss();
+  const rule = /\n\.reply \{([^}]*)\}/.exec(css)[1];
+  const decl = (k) => { const m = new RegExp('\\n  ' + k + ': ([^;]+);').exec(rule); return m && m[1]; };
+  assert.deepStrictEqual(['overflow', 'text-overflow', 'white-space', 'padding-top', 'padding-bottom', 'margin-top', 'margin-bottom'].map(decl),
+    ['hidden', 'ellipsis', 'nowrap', '.3em', '.3em', '-.3em', '-.3em']);
+  // Nothing else gives .reply a padding or a vertical margin (a row's only caps its width), so the two cancel.
+  const others = Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g))
+    .filter((m) => m[1].trim() !== '.reply' && m[1].split(',').some((x) => /\.reply\s*$/.test(x)));
+  assert.ok(others.length >= 3, others.map((m) => m[1].trim()).join(' | '));
+  others.forEach((m) => assert.doesNotMatch(m[2], /(?:^|[;\n])\s*(?:padding|margin)(?:-\w+)?\s*:/, m[1].trim()));
+});
+
+// A column rule's emote margins worked out as numbers (em) from the rule's own text: eh the image's height (--eh, or
+// --emote-h for a cheer), L the line_height, hang --emote-hang (twice --line-gap in a column without a box; the .3em
+// fallback with one).
+function emoteMargins(css, sel, eh, L, hang) {
+  const m = new RegExp('\\n' + sel.replace(/[.()]/g, '\\$&') + ' \\{\\s*margin-top: ([^;]+);\\s*margin-bottom: ([^;]+);').exec(css);
+  assert.ok(m, sel);
+  const js = (x) => x.replace(/var\(--eh\)|var\(--emote-h, 1\.75em\)/g, '(' + eh + ')').replace(/var\(--line-height, 1\.35\)/g, '(' + L + ')')
+    .replace(/var\(--emote-hang, \.3em\)/g, '(' + hang + ')').replace(/(\d*\.?\d+)em\b/g, '$1').replace(/\bcalc\(/g, '(')
+    .replace(/\bmin\(/g, 'Math.min(').replace(/\bmax\(/g, 'Math.max(');
+  return [m[1], m[2]].map((x) => Math.round(Function('return ' + js(x))() * 1000) / 1000 + 0);
+}
+
 test('overlay.css: an emote or cheer taller than its line grows the line in a column, never reaching above it', () => {
   const css = overlayCss();
   const at = (s) => css.indexOf('\n' + s);
-  // The margins: -.3em while the image is at most the usual 1.75em (today's look), none above and .2em below once it is
-  // .3em taller, in between on the way there. Only in a column: a row keeps one height and its own .3em room.
-  const tall = (h) => ' {\n  margin-top: calc(-1 * max(0em, min(.3em, 2.05em - ' + h + ')));\n' +
-    '  margin-bottom: calc(-1 * max(.2em, min(.3em, 2.05em - ' + h + ')));\n}';
-  assert.ok(at(':where(.layout-vertical) .emote-stack' + tall('var(--eh)')) > at('.emote-stack {'), 'emotes, after the shorthand');
-  assert.ok(at(':where(.layout-vertical) .cheer-img' + tall('var(--emote-h, 1.75em)')) > at('.cheer-img {'), 'cheers, after the shorthand');
+  assert.ok(at(':where(.layout-vertical) .emote-stack {') > at('.emote-stack {'), 'emotes, after the shorthand');
+  assert.ok(at(':where(.layout-vertical) .cheer-img {') > at('.cheer-img {'), 'cheers, after the shorthand');
   assert.ok(at(':where(.layout-vertical) .emote-stack {') > at(':where(.line.emote-only) .emote-stack:not(.big)'), '--eh is set by then');
   // --eh carries every height (emote_scale, emote_only, gigantified), and the shorthand keeps today's -.3em .05em.
   assert.match(/\n\.emote-stack \{([^}]*)\}/.exec(css)[1], /\n  margin: -\.3em \.05em;/);
-  assert.strictEqual(Array.from(css.matchAll(/2\.05em/g)).length, 4, 'nowhere else');
   assert.doesNotMatch(css, /:where\(\.layout-horizontal\)[^{]*\.emote-stack \{\s*margin/);
+  // The margins: -.3em while the image is at most the usual 1.75em (today's look), none above and .2em below once it is
+  // .3em taller, in between on the way there. Only in a column: a row keeps one height and its own .3em room.
+  [[':where(.layout-vertical) .emote-stack', 'emotes'], [':where(.layout-vertical) .cheer-img', 'cheers']].forEach(([sel, what]) => {
+    const at135 = (eh) => emoteMargins(css, sel, eh, 1.35, 0.3);
+    assert.deepStrictEqual([1.75, 0.875, 1.9, 2.05, 2.1875, 3.5, 5.25].map(at135),
+      [[-0.3, -0.3], [-0.3, -0.3], [-0.15, -0.2], [0, -0.2], [0, -0.2], [0, -0.2], [0, -0.2]], what);
+  });
+});
+
+test('overlay.css: at a line_height below 135, and at spacing=tight without a box, a column\'s emotes keep clear of the lines next to them', () => {
+  // renderer-css round 2: the 2.05em above took no account of either, so a 1.75em emote kept its -.3em margins and reached
+  // into the name row (name_line), a reply header, the text above it or the next line's emotes.
+  const css = overlayCss();
+  assert.match(css, /\n:where\(\.layout-vertical:not\(\.has-bg\)\) \{ --emote-hang: calc\(2 \* var\(--line-gap, \.15em\)\); \}/);
+  [[':where(.layout-vertical) .emote-stack', 'emotes'], [':where(.layout-vertical) .cheer-img', 'cheers']].forEach(([sel, what]) => {
+    const em = (eh, L, hang) => emoteMargins(css, sel, eh, L, hang);
+    // line_height: below 135 the threshold comes down twice as fast, so the line grows instead (100 to 120: none above,
+    // .2em below); at 135 and up nothing changes.
+    assert.deepStrictEqual([1, 1.1, 1.2, 1.25, 1.3, 1.35, 1.5, 2].map((L) => em(1.75, L, 0.3)),
+      [[0, -0.2], [0, -0.2], [0, -0.2], [-0.1, -0.2], [-0.2, -0.2], [-0.3, -0.3], [-0.3, -0.3], [-0.3, -0.3]], what + ' line_height');
+    assert.deepStrictEqual([1, 1.5].map((L) => em(2.1875, L, 0.3)), [[0, -0.2], [0, -0.2]], what + ': taller ones as before');
+    // spacing: twice the gap between two lines' text, tight's .05em a side; normal, loose and extra keep -.3em. With a box
+    // (the fallback .3em) nothing changes.
+    assert.deepStrictEqual([0.1, 0.3, 0.6, 1].map((h) => em(1.75, 1.35, h)), [[-0.1, -0.1], [-0.3, -0.3], [-0.3, -0.3], [-0.3, -0.3]], what + ' spacing');
+    assert.deepStrictEqual(em(1.75, 1, 0.1), [0, -0.1], what + ': both');
+    assert.deepStrictEqual(em(2.1875, 1.35, 0.1), [0, -0.1], what + ': taller at tight');
+  });
 });
 
 test('row_sep: the line after one that left out of view at the left edge keeps its mark (.keep-sep), on a rerender too', (t) => {
@@ -2015,6 +2083,142 @@ test('row_sep: the line after one that left out of view at the left edge keeps i
     s.r.flush();
     assert.ok(s.lines().length >= 2);
     assert.ok(s.lines().every((l) => l.className === 'line'), s.lines().map((l) => l.className).join());
+  });
+});
+
+test('overlay.css: row_sep without a box puts a barred or tinted message\'s mark before its bar and outside its tint', () => {
+  // renderer-css round 2: the mark was drawn inside the message after its left padding, so the bar (accent, role, first
+  // message, announcement) came before the mark, right after the message before it, and the tint wrapped round the mark.
+  const css = overlayCss();
+  const P = ':where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep)';
+  const D = ':where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint)';
+  const rule = (sel) => {
+    const at = css.indexOf('\n' + sel + ' {');
+    assert.ok(at >= 0, sel);
+    const body = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at));
+    const o = {};
+    body.split(';').forEach((d) => { const i = d.indexOf(':'); if (i > 0) o[d.slice(0, i).trim()] = d.slice(i + 1).trim(); });
+    return o;
+  };
+  const line = rule(P + D);
+  assert.deepStrictEqual(line, { '--sep-pad': '.3em', 'border-left': 'calc(var(--sep-w) + var(--row-gap, 1em)) solid transparent',
+    'background-clip': 'padding-box', overflow: 'clip', 'overflow-clip-margin': '5em' });
+  assert.deepStrictEqual(rule(P + ':where(.accent, .first-msg, .role-bar)'), { '--sep-pad': '.4em' });
+  assert.deepStrictEqual(rule(P + ':where(.announcement)'), { '--sep-pad': '.5em' });
+  const round = 'calc(var(--sep-w) + var(--row-gap, 1em) + .3em) .3em';
+  assert.deepStrictEqual(rule(P + ':where(.highlight, .mention, .keyword, .user-hl, .role-tint)'),
+    { 'border-top-left-radius': round, 'border-bottom-left-radius': round }, 'the tint\'s corners: .3em inside the border');
+  const mark = rule(P + D + ' > .reply + *::before,\n' + P + D + ' > :first-child:not(.reply)::before');
+  assert.deepStrictEqual(mark, { display: 'inline-block', width: 'var(--sep-w)', 'text-align': 'center',
+    'margin-left': 'calc(-1 * (var(--sep-w) + var(--row-gap, 1em) + var(--sep-pad)))', 'margin-right': 'calc(var(--row-gap, 1em) + var(--sep-pad))' });
+  assert.ok(css.indexOf('\n' + P + D + ' > .reply + *::before,') > css.indexOf('margin-right: var(--row-gap, 1em);'), 'after the plain mark\'s gap, which it ties');
+  // Each line's own padding: the bars' .4em, the tints' .3em, the announcement's .5em (the line's, over both).
+  assert.match(css, /\n\.line\.accent \{[^}]*padding-left: \.4em;/);
+  assert.match(css, /\n\.line\.announcement \{[^}]*padding-left: \.5em;/);
+  // The numbers, at every row gap (spacing) and mark: the mark starts at the line's left edge, the bar right after the
+  // border (the mark and the gap), and the name where its padding puts it. The clip room covers the widest border.
+  const w = { 'sep-dot': 0.5, 'sep-bar': 0.36, 'sep-diamond': 0.86 };
+  Object.keys(w).forEach((c) => assert.ok(css.indexOf('\n:where(.layout-horizontal.' + c + ') { --sep-w: ' + String(w[c]).replace(/^0/, '') + 'em; }') >= 0, c));
+  [0.5, 1, 1.5, 2].forEach((g) => Object.keys(w).forEach((c) => [0.3, 0.4, 0.5].forEach((p) => {
+    const border = w[c] + g, contentLeft = border + p;
+    const markLeft = contentLeft - (w[c] + g + p), after = markLeft + w[c] + (g + p);
+    assert.ok(Math.abs(markLeft) < 1e-9 && Math.abs(after - contentLeft) < 1e-9, g + ' ' + c + ' ' + p);
+    assert.ok(5 >= border + 0.5, 'clip room for ' + c + ' at ' + g);
+  })));
+});
+
+// renderer-css round 2: a kept mark used to stay for good, so the row could later show it in view before the first
+// message with nothing ahead of it.
+function keptRow(t, cfg, opts) {
+  const o = opts || {};
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 1000000 });
+  const doc = createDocument();
+  let resized = null;
+  doc.defaultView.ResizeObserver = function (cb) { resized = cb; this.observe = () => {}; this.disconnect = () => {}; };
+  if (o.gap) doc.defaultView.getComputedStyle = () => ({ columnGap: o.gap + 'px' });
+  const root = doc.createElement('div');
+  doc.body.appendChild(root);
+  const r = renderer.createRenderer({ root: root, cfg: cfg, deps: {} });
+  t.after(() => r.destroy());
+  const s = { doc, root, r, linesEl: root.firstElementChild, lines: () => root.firstElementChild.children,
+    texts: () => root.firstElementChild.children.map((l) => l.byClass('message').map((m) => m.textContent).join('')),
+    tick: (ms) => t.mock.timers.tick(ms), resize: () => { resized([]); t.mock.timers.tick(0); } };
+  s.W = o.W || 300;
+  rowLayout(s, () => s.W, o.gap);
+  return s;
+}
+const classes = (s) => s.lines().map((l) => l.className);
+
+[['clearMessage', (s, c) => s.r.clearMessage(c.id)], ['clearUser', (s, c) => s.r.clearUser(c.userId)],
+  ['clearAll(pred)', (s, c) => s.r.clearAll((m) => m.id === c.id)]].forEach(([how, del]) => {
+  test('row_sep: a kept mark goes once deleting the newer lines brings its line into view with nothing before it: ' + how, (t) => {
+    const s = keptRow(t, { layout: 'horizontal', animate: false, row_sep: 'bar' });
+    s.r.push(chat('a', 'x'.repeat(7))); // 100 px
+    s.r.push(chat('b', 'y'.repeat(17))); // 200 px
+    s.r.flush();
+    const c = chat('c', 'z'.repeat(12)); // 150 px: a ends at -50 and goes, b keeps its mark at -50..150
+    s.r.push(c);
+    s.r.flush();
+    assert.deepStrictEqual(classes(s), ['line keep-sep', 'line']);
+    del(s, c); // b alone at 100..300: 100 px of empty row before its mark
+    assert.deepStrictEqual(s.texts(), ['y'.repeat(17)]);
+    assert.deepStrictEqual(classes(s), ['line'], 'in the same call, not a frame later');
+    // It doesn't come back on a rerender (a keyword now marks b).
+    s.r.setConfig({ layout: 'horizontal', animate: false, row_sep: 'bar', keywords: ['y'.repeat(17)] });
+    assert.deepStrictEqual(classes(s), ['line keyword']);
+  });
+});
+
+test('row_sep: a kept mark goes once a wider source brings its line into view with nothing before it', (t) => {
+  const s = keptRow(t, { layout: 'horizontal', animate: false, row_sep: 'dot' });
+  s.r.push(chat('a', 'x'.repeat(7)));
+  s.r.push(chat('b', 'y'.repeat(17)));
+  s.r.flush();
+  s.r.push(chat('c', 'z'.repeat(12)));
+  s.r.flush();
+  assert.deepStrictEqual(classes(s), ['line keep-sep', 'line']);
+  s.W = 320; // b at -30..170: still out of view at the left edge, so it keeps its mark
+  s.resize();
+  assert.deepStrictEqual(classes(s), ['line keep-sep', 'line']);
+  s.W = 700; // b at 350..550
+  s.resize();
+  assert.deepStrictEqual(classes(s), ['line', 'line']);
+});
+
+test('row_sep: a kept mark stays while its line starts within the row\'s gap of the left edge (the line before it would still be out of view)', (t) => {
+  // A 24 px gap between messages: c is 60 px, so b sits at 16..216 and a ends at -8, out of view, and is trimmed.
+  const s = keptRow(t, { layout: 'horizontal', animate: false, row_sep: 'diamond' }, { gap: 24 });
+  s.r.push(chat('a', 'x'.repeat(7)));
+  s.r.push(chat('b', 'y'.repeat(17)));
+  s.r.flush();
+  s.r.push(chat('c', 'zzz'));
+  s.r.flush();
+  assert.deepStrictEqual(s.texts(), ['y'.repeat(17), 'zzz']);
+  assert.deepStrictEqual(classes(s), ['line keep-sep', 'line'], 'b\'s mark, in view, stays');
+  s.resize();
+  s.r.setConfig({ layout: 'horizontal', animate: false, row_sep: 'diamond' });
+  s.tick(0);
+  assert.deepStrictEqual(classes(s), ['line keep-sep', 'line'], 'and stays on the next trim');
+  // One more px of source puts b 17 px in: still within the gap.
+  s.W = 301;
+  s.resize();
+  assert.deepStrictEqual(classes(s), ['line keep-sep', 'line']);
+});
+
+[[{ layout: 'vertical' }, 'a switch to a column'], [{ row_sep: 'none' }, 'row_sep=none']].forEach(([change, what]) => {
+  test('row_sep: ' + what + ' ends a kept mark, so a row drawn again marks only lines after another', (t) => {
+    const row = { layout: 'horizontal', animate: false, row_sep: 'bar' };
+    const s = keptRow(t, row);
+    s.r.push(chat('a', 'x'.repeat(7)));
+    s.r.push(chat('b', 'y'.repeat(17)));
+    s.r.flush();
+    s.r.push(chat('c', 'z'.repeat(12)));
+    s.r.flush();
+    assert.deepStrictEqual(classes(s), ['line keep-sep', 'line']);
+    s.r.setConfig(Object.assign({}, row, change));
+    assert.deepStrictEqual(classes(s), ['line', 'line']);
+    s.r.setConfig(row);
+    assert.deepStrictEqual(classes(s), ['line', 'line']);
   });
 });
 

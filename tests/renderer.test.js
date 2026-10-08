@@ -129,6 +129,13 @@ test('font sizes and want-scale: emotes ceil(fontPx*1.75*dpr/base), badges ceil(
   assert.strictEqual(R.wantEmote(24, false, 2, R.baseHeight(32)), 3); // 84/32 = 2.6
   assert.deepStrictEqual([R.baseHeight(0), R.baseHeight(28), R.baseHeight(30), R.baseHeight(32), R.baseHeight(900)], [28, 28, 28, 32, 32],
     'odd provider heights never pick a smaller file than a 28px base would');
+  // A short emote (renderer-css round 2): its own 1x height, so it gets the bigger file its stretch to emote height needs.
+  // An FFZ emote 20 px tall at the defaults: 42 px drawn, so its 2x (40 px) is too small and its 4x (80 px) is taken.
+  assert.deepStrictEqual([1, 16, 20, 23, 27, 27.5].map(R.baseHeight), [1, 16, 20, 23, 27, 27.5]);
+  assert.strictEqual(R.wantEmote(24, false, 1, R.baseHeight(20)), 3); // 42/20 = 2.1
+  assert.strictEqual(R.pickUrl({ 1: 'https://cdn.example/1', 2: 'https://cdn.example/2', 4: 'https://cdn.example/4' },
+    R.wantEmote(24, false, 1, R.baseHeight(20))), 'https://cdn.example/4');
+  assert.strictEqual(R.wantEmote(24, false, 1, R.baseHeight(21)), 2, 'down to 21 px the 2x file (42 px) still covers it');
 });
 
 test('pxFor: text_px while it is set (8 at least), else the size step; fontPx(size) stays as it was', () => {
@@ -161,14 +168,16 @@ test('scaled emotes and badges are never fetched smaller than drawn while the pr
   // Twitch/BTTV/FFZ: 28 px steps up to 4x (112 px); 7TV: 32 px steps up to 4x (128 px); badges: 18 px steps up to 4x (72 px).
   const urls = (keys) => { const o = {}; keys.forEach((k) => { o[k] = 'https://cdn.example/' + k; }); return o; };
   const fileKey = (u) => Number(u.split('/').pop());
-  const kinds = [{ base: 28, keys: [1, 2, 4] }, { base: 32, keys: [1, 2, 3, 4] }];
+  // Short emotes too (an FFZ one 20 or 23 px tall at 1x, a wide 7TV one 16 px tall): drawn just as tall, from their own files.
+  const kinds = [{ base: 28, keys: [1, 2, 4] }, { base: 32, keys: [1, 2, 3, 4] }, { base: 23, keys: [1, 2, 4] },
+    { base: 20, keys: [1, 2, 4] }, { base: 16, keys: [1, 2, 3, 4] }];
   let checked = 0;
   [8, 13, 18, 24, 32, 40, 57, 72, 96].forEach((px) => [1, 2].forEach((dpr) => {
     for (let pct = 50; pct <= 200; pct += 5) {
       kinds.forEach((kd) => [1, 2, 3].forEach((eo) => [false, true].forEach((big) => {
         const s = (pct / 100) * (big ? 1 : eo);
         const drawn = px * 1.75 * (big ? 3 : 1) * s * dpr;
-        const k = fileKey(R.pickUrl(urls(kd.keys), R.wantEmote(px, big, dpr, kd.base, s)));
+        const k = fileKey(R.pickUrl(urls(kd.keys), R.wantEmote(px, big, dpr, R.baseHeight(kd.base), s)));
         const max = kd.keys[kd.keys.length - 1];
         if (drawn <= max * kd.base) assert.ok(k * kd.base >= drawn - 1e-6, px + 'px ' + pct + '% x' + eo + (big ? ' big' : '') + ': file ' + k);
         else assert.strictEqual(k, max, 'past the largest file: the largest');

@@ -250,7 +250,10 @@ body {
 .line.notice { font-size: var(--notice-size, .85em); }
 .line.notice .message { color: var(--notice-color, #E2D6FF); }
 
-/* ---------- reply header ---------- */
+/* ---------- reply header ----------
+   It clips (for the ellipsis), so its clip box reaches .3em past its line above and below: accents and descenders
+   that go past a short line_height, and stacked marks (Vietnamese, Thai) at any, are drawn whole instead of cut off
+   flat. The negative margins take that room back, so nothing moves. */
 .reply {
   display: block;
   font-size: .75em;
@@ -258,6 +261,10 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding-top: .3em;
+  padding-bottom: .3em;
+  margin-top: -.3em;
+  margin-bottom: -.3em;
 }
 /* outline / shadow_style=text: the header's text-shadow layers draw past its clipped box as far as they reach
    (--tshadow-room), so they aren't cut off flat at its sides and under its descenders. The ellipsis still works. */
@@ -309,12 +316,21 @@ body {
 /* emote_only=big/huge: a message of emotes alone (.emote-only, a column only) draws them --eo times as tall. A
    gigantified emote (.big) keeps its own 3x. */
 :where(.line.emote-only) .emote-stack:not(.big) { --eh: calc(var(--emote-h, 1.75em) * var(--eo, 2)); }
-/* An emote taller than its line (gigantified, emote_only, emote_scale above 100) reaches at most .2em below its line
-   and never above it, in a column: the line grows instead (as for a GIF), so the emote keeps clear of the name above it
-   (name_line), a reply header, the row of text above it and its bg box. Up to the usual 1.75em the margins stay -.3em. */
+/* In a column an emote reaches past its line only as far as there is room; past that the line grows instead (as for a
+   GIF), so the emote keeps clear of the name above it (name_line), a reply header, the row of text above it, its bg box
+   and the emotes of the next line. At the defaults the margins stay -.3em, as always.
+   - Taller than its line (gigantified, emote_only, emote_scale above 100): from 2.05em (1.75em + .3em) it reaches at most
+     .2em below its line and never above it.
+   - line_height below 135: the line has less room above its text, so that 2.05em comes down twice as fast as the line
+     height (1.35em at line_height 100), and a 1.75em emote's line grows.
+   - spacing=tight, without a box: at most twice the gap between two lines' text (--emote-hang, set on #chat), so the
+     emotes of two lines in a row overlap no more than at normal spacing. A box's own .2em padding holds them. */
+:where(.layout-vertical:not(.has-bg)) { --emote-hang: calc(2 * var(--line-gap, .15em)); }
 :where(.layout-vertical) .emote-stack {
-  margin-top: calc(-1 * max(0em, min(.3em, 2.05em - var(--eh))));
-  margin-bottom: calc(-1 * max(.2em, min(.3em, 2.05em - var(--eh))));
+  margin-top: calc(-1 * max(0em, min(.3em, var(--emote-hang, .3em), 2.05em - var(--eh),
+    (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));
+  margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(.3em, var(--emote-hang, .3em), 2.05em - var(--eh),
+    (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));
 }
 /* An emote wider than its line (line_width, a big emote_scale or text_px, a narrow source) is fitted to it: its box
    keeps the height (so zero-width layers still line up) and the image is letterboxed in it. A w! emote (its base image
@@ -347,10 +363,12 @@ body {
   vertical-align: middle;
   margin: -.3em .05em;
 }
-/* Taller than its line (emote_scale above 100): as an emote's, in a column */
+/* Taller than its line (emote_scale above 100), a line_height below 135, spacing=tight: as an emote's, in a column */
 :where(.layout-vertical) .cheer-img {
-  margin-top: calc(-1 * max(0em, min(.3em, 2.05em - var(--emote-h, 1.75em))));
-  margin-bottom: calc(-1 * max(.2em, min(.3em, 2.05em - var(--emote-h, 1.75em))));
+  margin-top: calc(-1 * max(0em, min(.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em),
+    (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
+  margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em),
+    (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
 }
 .cheer-amount { font-weight: 800; }
 
@@ -445,6 +463,38 @@ body {
 :where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child::before {
   font-size: var(--row-em);
   line-height: 0;
+}
+/* Without a box, a message with a bar or a tint (accent_bar, role_style, a first message, an announcement, a channel-points
+   highlight, a mention, keyword or highlighted user) has its mark before the bar and outside the tint, where a plain
+   message has it, so the bar is never read as the end of the message before. The line gets a transparent left border as
+   wide as the mark and the gap after it: the bar (an inset shadow, or the announcement's image) and the tint (clipped to
+   the padding box, its corners still .3em round inside the border) start after it. The mark is drawn in that border,
+   centered in a slot as wide as its glyph in Inter (--sep-w), with the line's own padding (--sep-pad) after the gap. The
+   line clips both ways (with room to spare, for the mark: overflow-clip-margin takes a plain length only), as a row's line
+   clips its sides anyway. */
+:where(.layout-horizontal.sep-dot) { --sep-w: .5em; }
+:where(.layout-horizontal.sep-bar) { --sep-w: .36em; }
+:where(.layout-horizontal.sep-diamond) { --sep-w: .86em; }
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint) {
+  --sep-pad: .3em;
+  border-left: calc(var(--sep-w) + var(--row-gap, 1em)) solid transparent;
+  background-clip: padding-box;
+  overflow: clip;
+  overflow-clip-margin: 5em;
+}
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar) { --sep-pad: .4em; }
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.announcement) { --sep-pad: .5em; }
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.highlight, .mention, .keyword, .user-hl, .role-tint) {
+  border-top-left-radius: calc(var(--sep-w) + var(--row-gap, 1em) + .3em) .3em;
+  border-bottom-left-radius: calc(var(--sep-w) + var(--row-gap, 1em) + .3em) .3em;
+}
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint) > .reply + *::before,
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint) > :first-child:not(.reply)::before {
+  display: inline-block;
+  width: var(--sep-w);
+  text-align: center;
+  margin-left: calc(-1 * (var(--sep-w) + var(--row-gap, 1em) + var(--sep-pad)));
+  margin-right: calc(var(--row-gap, 1em) + var(--sep-pad));
 }
 
 /* line_width=5..100: no message wider than --line-max, in either layout (a longer one wraps in a column and ends in
