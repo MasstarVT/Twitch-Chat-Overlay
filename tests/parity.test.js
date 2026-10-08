@@ -206,7 +206,11 @@ const PREREQ = {
   bg_width: { bg: 40, layout: 'vertical' },
   notice_color: { events: true },
   notice_size: { events: true },
-  first_msg_color: { first_msg: true }
+  first_msg_color: { first_msg: true },
+  shadow_color: { shadow: 2 },
+  shadow_style: { shadow: 2 },
+  outline_color: { outline: 2 },
+  paint_images: { paints: true }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 

@@ -20,6 +20,20 @@
     'drop-shadow(0 0 2px #000) drop-shadow(0 0 1px #000) drop-shadow(2px 3px 4px rgba(0,0,0,.9))'
   ];
   var DEFAULT_SHADOW = 2;
+  // shadow_style=text: each level as text-shadow layers on the letters, not a filter over the whole line. A
+  // drop-shadow's blur is a standard deviation and a text-shadow's a radius (twice that), so the blurs double.
+  var TEXT_SHADOWS = [
+    '',
+    '1px 1px 2px rgba(0,0,0,.8)',
+    '0 0 2px rgba(0,0,0,.9), 1px 2px 4px rgba(0,0,0,.75)',
+    '0 0 4px #000, 0 0 2px #000, 2px 3px 8px rgba(0,0,0,.9)'
+  ];
+  // How far each level's text shadow reaches past the letters (offset plus blur, the farther axis): the room it
+  // needs where an edge is clipped.
+  var TEXT_SHADOW_ROOM = ['', '3px', '6px', '11px'];
+  // outline=1..3: how far the eight sharp copies of the text that draw the outline sit from it.
+  var OUTLINE_EM = ['', '.04em', '.06em', '.08em'];
+  var OUTLINE_DIRS = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
   var IN_MS = 180;            // tco-in / tco-in-x (animate=1)
   var SLIDE_MS = 250;         // layout=horizontal, animate=1: the row glides left to make room for a new line
   var LAYOUT_SETTLE_MS = 300; // after a live layout switch no trimming, until the builder has resized the preview too
@@ -43,12 +57,14 @@
     'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong'];
   var RERENDER_KEYS = ['size', 'badges', 'badges_twitch', 'badges_kick', 'platform_icons', 'badges_7tv', 'badges_bttv',
     'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs',
-    'first_msg', 'shared', 'layout']; // layout: a row draws gigantified emotes at emote height, so it picks smaller files
+    'first_msg', 'shared', 'layout', // layout: a row draws gigantified emotes at emote height, so it picks smaller files
+    'accent_bar'];
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
   // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
   var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
-    'spacing', 'notice_color', 'notice_size', 'first_msg_color'];
+    'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline',
+    'outline_color', 'paint_images'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -87,7 +103,12 @@
     spacing: { values: ['tight', 'normal', 'loose', 'extra'], def: 'normal' },
     notice_color: { hex: true, def: '' },
     notice_size: { min: 50, max: 150, def: 85 },
-    first_msg_color: { hex: true, def: '' }
+    first_msg_color: { hex: true, def: '' },
+    shadow_color: { hex: true, def: '' },
+    shadow_style: { values: ['filter', 'text'], def: 'filter' },
+    outline: { min: 0, max: 3, def: 0 },
+    outline_color: { hex: true, def: '' },
+    paint_images: { values: ['animated', 'static'], def: 'animated' }
   };
   var NORM_KEYS = Object.keys(NORM);
   var NORM_DEFAULTS = {};
@@ -160,7 +181,41 @@
   // A provider's 1x emote height, kept to the known 28-32 px so odd metadata can't pick a tiny file.
   function baseHeight(h) { return h >= 32 ? 32 : EMOTE_BASE_PX; }
 
-  function shadowCss(level) { return SHADOWS[clampInt(level, 0, 3, DEFAULT_SHADOW)]; }
+  // A built-in shadow in a config color: the same offsets, blurs and alphas, with the color's rgb for black.
+  // Anything but a config color (hexRgb checks it) leaves the shadow black.
+  function tint(s, hex) {
+    var rgb = hexRgb(hex);
+    if (rgb === null) return s;
+    return s.replace(/rgba\(0,0,0,/g, 'rgba(' + rgb.replace(/ /g, '') + ',').replace(/#000\b/g, '#' + hex);
+  }
+  // --shadow: the level's filter, exactly as written above while shadow_color is '' (black).
+  function shadowCss(level, color) {
+    var s = SHADOWS[clampInt(level, 0, 3, DEFAULT_SHADOW)];
+    return color ? tint(s, color) : s;
+  }
+  function outlineAt(d, w) { return d === 0 ? '0' : d < 0 ? '-' + w : w; }
+  // --tshadow, the text-shadow layers (null when there are none): the outline (outline=1..3), eight sharp copies of
+  // the text around it in outline_color (black by default), then shadow_style=text's shadow in shadow_color.
+  function tshadow(c) {
+    var layers = [];
+    var w = OUTLINE_EM[clampInt(c.outline, 0, 3, 0)];
+    if (w) {
+      var col = hexColor(c.outline_color) || '#000';
+      for (var i = 0; i < OUTLINE_DIRS.length; i++) {
+        layers.push(outlineAt(OUTLINE_DIRS[i][0], w) + ' ' + outlineAt(OUTLINE_DIRS[i][1], w) + ' 0 ' + col);
+      }
+    }
+    if (c.shadow_style === 'text' && c.shadow > 0) layers.push(tint(TEXT_SHADOWS[clampInt(c.shadow, 0, 3, 0)], c.shadow_color));
+    return layers.length ? layers.join(', ') : null;
+  }
+  // --tshadow-room (null without layers): how far --tshadow reaches past the letters, so a row's line and a reply
+  // header leave that much room at their clipped edges: the text shadow's reach, or else the outline's width. One
+  // plain length, as overflow-clip-margin takes no calc() or max(). With both on, the shadow's 3px or more covers
+  // the outline too (.08em stays under 3px up to a 37px font).
+  function tshadowRoom(c) {
+    if (c.shadow_style === 'text' && c.shadow > 0) return TEXT_SHADOW_ROOM[clampInt(c.shadow, 0, 3, 0)];
+    return OUTLINE_EM[clampInt(c.outline, 0, 3, 0)] || null;
+  }
   function bgAlpha(bg) { return clampInt(bg, 0, 100, 0) / 100; }
 
   // Value for --font: a quoted family name, or a bare generic keyword ("system-ui" must stay unquoted).
@@ -380,6 +435,9 @@
       if (msg.highlight || msg.msgId === 'highlighted-message') c.push('highlight');
       var ann = annClass(msg.announcement);
       if (ann) c.push('announcement', ann);
+      // accent_bar: a bar in the name color (renderInto sets it), except on an announcement, whose own bar it
+      // would cover. A first message's bar wins in the stylesheet.
+      else if (cfg.accent_bar === true) c.push('accent');
     }
     if (msg.mirrored) c.push('mirrored');
     if (typeof msg.platform === 'string' && Object.prototype.hasOwnProperty.call(LINE_PLATFORMS, msg.platform)) c.push('platform-' + msg.platform);
@@ -559,7 +617,7 @@
   }
 
   // ---------- renderer ----------
-  // opts: { root: #chat element, cfg, deps: {tokensFor, badgesFor, nameFor, paintRule, shouldShow} }
+  // opts: { root: #chat element, cfg, deps: {tokensFor, badgesFor, nameFor, paintRule, paintStaticRule, shouldShow} }
   function createRenderer(opts) {
     opts = opts || {};
     var rootEl = opts.root;
@@ -580,6 +638,7 @@
     var byUser = new Map();      // user id -> Set<line>
     var recs = new WeakMap();    // line -> {msg, src, kind, gid, born, sig, ids, userId, fadeLater}
     var paintState = new Map();  // paint id -> true (rule inserted) | false (rule rejected)
+    var stillState = new Map();  // paint_images=static: paint id -> true (still rule inserted) | false (none)
     var styleEl = null;
     var held = false, destroyed = false;
     var scheduled = false, rafId = null, flushTimer = null, gapTimer = null, lastFlushAt = 0;
@@ -637,7 +696,7 @@
       }
     }
 
-    // ----- paints: one rule per paint id in our own <style> -----
+    // ----- paints: one rule per paint id in our own <style> (two with still paints) -----
     function paintSheet() {
       if (!styleEl) {
         styleEl = doc.createElement('style');
@@ -647,19 +706,38 @@
       return styleEl.sheet || null;
     }
     function ensurePaint(id) {
-      if (paintState.has(id)) return paintState.get(id);
-      var rule = callDep('paintRule', id);
-      if (typeof rule !== 'string' || !rule) return false; // not known yet: retried on the next render
-      var sheet = paintSheet();
-      if (!sheet) return false;
+      if (!paintState.has(id)) {
+        var rule = callDep('paintRule', id);
+        if (typeof rule !== 'string' || !rule) return false; // not known yet: retried on the next render
+        var sheet = paintSheet();
+        if (!sheet) return false;
+        try {
+          sheet.insertRule(rule, sheet.cssRules.length);
+          paintState.set(id, true);
+        } catch (e) {
+          util.warn('renderer: paint rule rejected', id, e && e.message);
+          paintState.set(id, false);
+        }
+      }
+      var ok = paintState.get(id);
+      if (ok && cfg.paint_images === 'static') ensureStill(id);
+      return ok;
+    }
+    // paint_images=static: a second rule with the paint's still images, which applies only while #chat has
+    // .paint-static. Added only once static is chosen, so by default the sheet holds one rule per paint as
+    // before. A paint without an animated image has none, and a rejected one leaves the paint as it was.
+    function ensureStill(id) {
+      if (stillState.has(id)) return;
+      var rule = callDep('paintStaticRule', id);
+      var sheet = typeof rule === 'string' && rule ? paintSheet() : null;
+      if (!sheet) { stillState.set(id, false); return; }
       try {
         sheet.insertRule(rule, sheet.cssRules.length);
-        paintState.set(id, true);
+        stillState.set(id, true);
       } catch (e) {
-        util.warn('renderer: paint rule rejected', id, e && e.message);
-        paintState.set(id, false);
+        util.warn('renderer: still paint rule rejected', id, e && e.message);
+        stillState.set(id, false);
       }
-      return paintState.get(id);
     }
 
     // ----- images: one factory, per-kind fallbacks -----
@@ -778,6 +856,13 @@
     function renderInto(line, model) {
       line.className = model.cls;
       line.textContent = '';
+      // accent_bar: the name color as the line's own --line-accent, taken off again with the class (a rerender
+      // keeps the line element and its style).
+      if (model.kind === 'chat' && / accent( |$)/.test(model.cls) && HEX_COLOR_RE.test(model.name.color)) {
+        line.style.setProperty('--line-accent', model.name.color);
+      } else if (line.style.getPropertyValue('--line-accent')) {
+        line.style.removeProperty('--line-accent');
+      }
       if (model.kind === 'notice') {
         if (model.badges) {
           var nb = el('span', 'badges');
@@ -1244,10 +1329,17 @@
       cl.toggle('no-names', !c.names);
       cl.toggle('name-line', c.name_line); // the stylesheet applies it to a column only
       cl.toggle('bg-full', c.bg_width === 'full'); // and this to a column with bg only
+      // shadow_style=text: the shadow goes on the letters (--tshadow), and the line's filter is dropped.
+      var shadowText = c.shadow_style === 'text' && c.shadow > 0;
+      cl.toggle('has-outline', c.outline > 0);
+      cl.toggle('shadow-text', shadowText);
+      cl.toggle('paint-static', c.paint_images === 'static');
       var st = rootEl.style;
       setVar(st, '--font', fontVar(c.font));
-      setVar(st, '--shadow', shadowCss(c.shadow));
+      setVar(st, '--shadow', shadowText ? 'none' : shadowCss(c.shadow, c.shadow_color));
       setVar(st, '--bg-alpha', bgAlpha(c.bg));
+      setVar(st, '--tshadow', tshadow(c));
+      setVar(st, '--tshadow-room', tshadowRoom(c));
       // --emote-h is left to the stylesheet (1.75em = EMOTE_EM), so OBS Custom CSS can change it.
       setVar(st, '--text-weight', c.text_weight === 'semibold' ? null : WEIGHTS[c.text_weight]);
       setVar(st, '--name-weight', c.name_weight === 'heavy' ? null : WEIGHTS[c.name_weight]);
@@ -1284,6 +1376,11 @@
         settleUntil = Date.now() + LAYOUT_SETTLE_MS;
       }
       if (!cfg.animate) clearSlide();
+      // Switched to still paints: the paints already in use get their still rule now (applyRoot set the class).
+      // Back to animated, the rules stay, unused without the class.
+      if (cfg.paint_images === 'static' && prev.paint_images !== 'static') {
+        paintState.forEach(function (ok, id) { if (ok) ensureStill(id); });
+      }
       if (prev.fade !== cfg.fade) restart = true;
       if (restart) restartFades(Date.now());
       if (changedAny(prev, cfg, FILTER_KEYS)) sweepFilters();
@@ -1431,6 +1528,7 @@
       byId.clear();
       byUser.clear();
       paintState.clear();
+      stillState.clear();
       detach(linesEl);
       detach(styleEl);
       styleEl = null;
@@ -1467,6 +1565,9 @@
       FONT_PX: FONT_PX,
       EMOTE_EM: EMOTE_EM,
       SHADOWS: SHADOWS,
+      TEXT_SHADOWS: TEXT_SHADOWS,
+      OUTLINE_EM: OUTLINE_EM,
+      TEXT_SHADOW_ROOM: TEXT_SHADOW_ROOM,
       IN_MS: IN_MS,
       SLIDE_MS: SLIDE_MS,
       LAYOUT_SETTLE_MS: LAYOUT_SETTLE_MS,
@@ -1496,6 +1597,8 @@
       wantBadge: wantBadge,
       baseHeight: baseHeight,
       shadowCss: shadowCss,
+      tshadow: tshadow,
+      tshadowRoom: tshadowRoom,
       bgAlpha: bgAlpha,
       fontVar: fontVar,
       fadeTiming: fadeTiming,

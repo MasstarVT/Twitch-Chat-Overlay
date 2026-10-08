@@ -343,9 +343,15 @@ test('Badges & paints: the sources are one labelled grid under Show badges, with
   rows.forEach((e) => assert.strictEqual(e.className, 'field field-check sub'));
   assert.deepStrictEqual([help.tagName, help.className], ['P', 'help']);
   assert.match(help.textContent, /^Twitch covers sub, mod, VIP and bits badges\./);
-  // No sub-heading or "More in Advanced" here (yet): the section is as it was.
+  // No sub-heading here; the DankChat note, then "More in Advanced" to the lighter-on-PC switches.
   assert.strictEqual(p.$('group-badges').byClass('subhead').length, 0);
-  assert.deepStrictEqual(p.$('group-badges').children.map((e) => e.className), ['section-head', 'fields', 'help section-foot']);
+  assert.deepStrictEqual(p.$('group-badges').children.map((e) => e.className), ['section-head', 'fields', 'help section-foot', 'section-foot']);
+  // One rule over the two: the link's foot drops its own (a section with only one keeps its look).
+  const css = fs.readFileSync(path.join(ROOT, 'css', 'builder.css'), 'utf8');
+  assert.match(css, /\n\.section-foot \{ padding: 12px 0 4px; border-top: 1px solid var\(--border\); \}/);
+  assert.match(css, /\n\.section-foot \+ \.section-foot \{ padding-top: 8px; border-top: 0; \}/);
+  const more = p.$('group-badges').children[3].children[0];
+  assert.deepStrictEqual([more.tagName, more.textContent, more.href], ['A', 'More in Advanced', '#adv-lighter']);
 });
 
 test('a field that only applies while another setting allows it is greyed out and back, after every kind of change', (t) => {
@@ -416,10 +422,11 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
     assert.strictEqual(e.id, undefined, 'only Advanced headings are anchors');
   });
   assert.deepStrictEqual(outline('group-look'), ['Layout', 'layout', 'align', 'Text', 'size', 'font', 'text_weight', 'text_color',
-    'shadow', 'Names', 'name_line', 'Box', 'bg', 'bg_color', 'Animation', 'animate']);
+    'shadow', 'outline', 'Names', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate']);
   assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'line_height',
-    'text_case', 'Names#adv-names', 'names', 'name_weight', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing',
-    'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color']);
+    'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'Box#adv-box', 'bg_shape', 'bg_width',
+    'spacing', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'Lighter on PC#adv-lighter',
+    'shadow_style', 'paint_images', 'homies_lists']);
   const adv = fields('group-advanced').filter((e) => e.tagName === 'H3');
   adv.forEach((e) => assert.strictEqual(e.tabIndex, -1, e.id));
   // The link is the section's foot: an <a> to the heading's anchor. Chat events has one too.
@@ -558,6 +565,52 @@ test('the stage-2 dependencies: greyed out while bg, events, first_msg or names 
   assert.strictEqual(p.$('f-notice_size').disabled, true);
   flip('f-events', true);
   assert.strictEqual(p.$('f-notice_size').disabled, false);
+});
+
+test('the stage-3 fields: greyed out while shadow, outline, paints or the Homies badges are off; only homies_lists reloads', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const off = (key) => rowOf(p, key).classList.contains('disabled');
+  const keys = ['shadow_color', 'outline_color', 'shadow_style', 'paint_images', 'homies_lists'];
+  const state = () => keys.filter(off);
+  assert.deepStrictEqual(state(), ['outline_color'], 'defaults: no outline yet');
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  const flip = (id, v) => { const e = p.$(id); e.checked = v; e.dispatch('change'); };
+  // Look's outline: a segmented field from None to Thick, live in the preview.
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-outline"]').map((r) => r.value), ['0', '1', '2', '3']);
+  seg('outline', '2');
+  assert.deepStrictEqual(state(), []);
+  seg('shadow_style', 'text');
+  flip('f-accent_bar', true);
+  seg('paint_images', 'static');
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?shadow_style=text&outline=2&accent_bar=1&paint_images=static');
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.outline, last.shadow_style, last.accent_bar, last.paint_images], [2, 'text', true, 'static']);
+  seg('homies_lists', 'light');
+  t.mock.timers.tick(2000);
+  assert.notStrictEqual(frame(), first, 'the Homies lists load at start: a new preview');
+  assert.match(frame().src, /[?&]homies_lists=light(&|$)/);
+  // What each depends on.
+  seg('shadow', '0');
+  assert.deepStrictEqual(state(), ['shadow_color', 'shadow_style']);
+  seg('outline', '0');
+  flip('f-paints', false);
+  flip('f-badges_homies', false);
+  assert.deepStrictEqual(state(), keys);
+  flip('f-badges_homies', true);
+  assert.strictEqual(off('homies_lists'), false);
+  flip('f-badges', false);
+  assert.strictEqual(off('homies_lists'), true, 'badges off too');
 });
 
 test('the weights are sliders over their six names; the letter case is a segmented field that may wrap', (t) => {

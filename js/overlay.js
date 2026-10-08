@@ -393,6 +393,11 @@
     var p = S.stv.paints.get(id);
     return p ? T.paintCss.ruleFor(p) : null;
   }
+  // paint_images=static: the paint's still frame (the renderer asks only then).
+  function paintStaticRule(id) {
+    var p = S.stv.paints.get(id);
+    return p ? T.paintCss.staticRuleFor(p) : null;
+  }
 
   // "!cmd", also when sent as a reply ("@Parent !cmd", shown without the "@Parent" prefix).
   function isCommand(m) {
@@ -1018,9 +1023,11 @@
   function startTier3() {
     var cfg = S.cfg;
     if (cfg.badges && cfg.badges_homies && twitchOn()) {
-      // One loader per list, all filling one index: a list that fails retries on its own.
+      // One loader per list, all filling one index: a list that fails retries on its own. homies_lists=light
+      // leaves out the big chatterinohomies.com list (the last one).
       var homies = T.extraBadges.createHomies();
-      for (var i = 0; i < T.extraBadges.HOMIES_COUNT; i++) {
+      var lists = cfg.homies_lists === 'light' ? T.extraBadges.HOMIES_LIGHT_COUNT : T.extraBadges.HOMIES_COUNT;
+      for (var i = 0; i < lists; i++) {
         (function (i) {
           track('homies-badges-' + i, function () { return T.extraBadges.loadHomiesSource(i, homies); }, function () {
             S.homies = homies;
@@ -1139,7 +1146,8 @@
     S.renderer = T.renderer.createRenderer({
       root: chatEl,
       cfg: cfg,
-      deps: { tokensFor: tokensFor, badgesFor: badgesFor, nameFor: nameFor, paintRule: paintRule, shouldShow: shouldShow }
+      deps: { tokensFor: tokensFor, badgesFor: badgesFor, nameFor: nameFor, paintRule: paintRule, paintStaticRule: paintStaticRule,
+        shouldShow: shouldShow }
     });
     S.renderer.hold(true);
     applyFont(cfg.font, cfg);

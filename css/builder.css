@@ -399,6 +399,8 @@ textarea.text { display: block; padding: 10px 12px; line-height: 20px; }
 .section-head h2 { font: 800 34px/1.08 var(--font-display); letter-spacing: -.025em; color: #fff; }
 .section-note { font: 13px/1.55 var(--mono); color: var(--muted); text-wrap: pretty; }
 .section-foot { padding: 12px 0 4px; border-top: 1px solid var(--border); }
+/* a foot note, then "More in Advanced" under it: one rule for both */
+.section-foot + .section-foot { padding-top: 8px; border-top: 0; }
 .obs .section-head { padding-bottom: 16px; }
 
 .fields { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 48px; }

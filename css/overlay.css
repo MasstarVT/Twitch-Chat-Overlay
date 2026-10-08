@@ -2,12 +2,13 @@
 
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .badges .badge .name .colon .message
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
-   .platform-kick, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel),
+   .platform-kick .accent, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel),
    #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg .bg-full .no-names .name-line
-   .case-upper .case-lower .case-smallcaps.
+   .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static.
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
    --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
-   --first-color */
+   --first-color. Outline and shadow_style set --tshadow and --tshadow-room, and accent_bar sets --line-accent on
+   each line */
 
 html,
 body {
@@ -72,6 +73,19 @@ body {
 /* bg_width=full: every box as wide as the column */
 :where(.layout-vertical.has-bg).bg-full .line { width: auto; }
 
+/* outline=1..3 and shadow_style=text: the outline, then the shadow, as text-shadow layers (--tshadow) on the
+   letters only. A reply header draws its own, in step with its smaller text. Painted names keep none (.painted),
+   and so do the letters in the built-in SVG badges (Kick's OG). */
+:where(.has-outline, .shadow-text) .line,
+:where(.has-outline, .shadow-text) .reply { text-shadow: var(--tshadow, none); }
+:where(.has-outline, .shadow-text) .badge.icon text { text-shadow: none; }
+/* Room for those layers where a row's line without a box clips its sides (overflow-x: clip): --tshadow-room, the
+   outline's width or the shadow's reach. The reply header gets the same room with its own rule (below). */
+:where(.layout-horizontal:not(.has-bg)):where(.has-outline, .shadow-text) .line {
+  padding-left: var(--tshadow-room, 0);
+  padding-right: var(--tshadow-room, 0);
+}
+
 .name { font-weight: var(--name-weight, 800); }
 .message { overflow-wrap: anywhere; }
 /* Right-to-left text: a name is its own bidi run (an Arabic name can't swap places with the start of the
@@ -102,6 +116,13 @@ body {
 .case-lower .name, .case-lower .colon, .case-lower .message, .case-lower .reply { text-transform: lowercase; }
 .case-smallcaps .name, .case-smallcaps .colon, .case-smallcaps .message, .case-smallcaps .reply { font-variant-caps: small-caps; }
 
+/* accent_bar=1: a bar in the chatter's name color (--line-accent, set on the line). It comes before
+   .first-msg, whose bar takes its place; an announcement keeps its own bar and gets none (renderer.js). */
+.line.accent {
+  box-shadow: inset .2em 0 0 var(--line-accent, currentColor);
+  padding-left: .4em;
+}
+
 /* first-msg=1 (only when first_msg is enabled) */
 .line.first-msg {
   box-shadow: inset .2em 0 0 var(--first-color, #9146FF);
@@ -115,6 +136,9 @@ body {
   padding-left: .3em;
   padding-right: .3em;
 }
+/* accent_bar=1: room for the bar, over .highlight's .3em. :where keeps this at the specificity of .line.highlight,
+   so Custom CSS written as `.line.highlight { ... }` wins here too. */
+.line.highlight:where(.accent) { padding-left: .4em; }
 /* With bg set, the tint goes over the dark box instead of replacing it. :where keeps this at the
    specificity of .line.highlight, so Custom CSS written as `.line.highlight { ... }` still wins. */
 :where(.has-bg) .line.highlight {
@@ -154,6 +178,12 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* outline / shadow_style=text: the header's text-shadow layers draw past its clipped box as far as they reach
+   (--tshadow-room), so they aren't cut off flat at its sides and under its descenders. The ellipsis still works. */
+:where(.has-outline, .shadow-text) .reply {
+  overflow: clip;
+  overflow-clip-margin: var(--tshadow-room, 0);
 }
 .reply-name { font-weight: var(--name-weight, 800); }
 

@@ -81,11 +81,16 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `line_height` | `135` | `100`–`200` | Line height in percent of the text size. Below about 115 emotes reach into the lines next to them. In the horizontal layout it also sets the row's height. |
 | `text_case` | `none` | `none`, `upper`, `lower`, `smallcaps` | Show names, messages and reply headers in upper case, lower case or small caps. Only the look changes: emotes, filters and the built-in badges see the text as typed. |
 | `shadow` | `2` | `0`–`3` | Drop-shadow strength behind text and emotes. |
+| `shadow_color` | none | hex color | Color of the shadow (black when unset). It is drawn around the whole message, so emotes, badges and the `bg` box get it too, except with `shadow_style=text`. Needs `shadow` above 0. |
+| `shadow_style` | `filter` | `filter`, `text` | `text` draws the shadow on the letters only (as `text-shadow`), which takes about half the drawing work while animated emotes are on screen. Emotes, badges, GIFs, the box and painted names then have no shadow. Needs `shadow` above 0. |
+| `outline` | `0` | `0`–`3` | A sharp outline around the letters: thin, medium or thick (`0` = none). It is eight copies of the text, without a filter. Emotes and painted names get none. |
+| `outline_color` | none | hex color | Color of the outline (black when unset). Needs `outline` above 0. |
 | `names` | `1` | bool | Show the name and colon before each message. Reply headers and sub or raid notices keep their names. |
 | `name_weight` | `heavy` | as `text_weight` | Weight of the names before messages and in reply headers. A name inside a sub or raid notice follows `text_weight`. `light` and `black` add a weight to the font request, as with `text_weight`. |
 | `name_line` | `0` | bool | Start each message on a line of its own under the name. Vertical layout, with `names=1`. |
 | `bg` | `0` | `0`–`100` | Opacity of a box behind each message (black, or `bg_color`). |
 | `bg_color` | none | hex color | Color of the box behind each message (black when unset). Needs `bg` above 0. |
+| `accent_bar` | `0` | bool | A bar in the chatter's name color on the left of each chat message. A first-time chatter's bar (`first_msg`) takes its place; announcements keep their own bar, and notices get none. |
 | `bg_shape` | `round` | `square`, `soft`, `round`, `pill` | Corners of the box. `pill` gives a one-line box round ends (an announcement keeps its bar side less round). Needs `bg` above 0. |
 | `bg_width` | `fit` | `fit`, `full` | `full` makes every box as wide as the column. Vertical layout, with `bg` above 0. |
 | `spacing` | `normal` | `tight`, `normal`, `loose`, `extra` | Space between messages: above and below each one in the vertical layout, the gap between them in the horizontal layout. |
@@ -109,7 +114,9 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `emotes_7tv`, `emotes_bttv`, `emotes_ffz` | `1` | bool | Turn each emote provider on or off. Kick chat uses 7TV only (BTTV and FFZ don't exist on Kick). |
 | `badges` | `1` | bool | Master switch for all badges. |
 | `badges_twitch`, `badges_kick`, `badges_7tv`, `badges_bttv`, `badges_ffz`, `badges_ffzap`, `badges_chatterino`, `badges_homies` | `1` | bool | Turn each badge provider on or off. `badges_ffz` also covers the channel's FFZ custom mod and VIP badges, which show even with `badges_twitch=0`. |
+| `homies_lists` | `all` | `all`, `light` | `light` loads only the two small Homies lists and skips the chatterinohomies.com list (about 0.5 MB to download, 4 MB to read and 1–2 MB of memory for the whole stream). About 9,400 users who are only in that list lose their Homies badge. Needs `badges` and `badges_homies`. |
 | `paints` | `1` | bool | Show 7TV name paints. |
+| `paint_images` | `animated` | `animated`, `static` | `static` draws animated image paints with their still first frame, so painted names stop redrawing many times a second while chat is quiet. Gradient paints are unchanged. Needs `paints`. |
 | `stv_lookup` | `1` | bool | Look up 7TV paints and badges for chatters who don't run a 7TV client (see notes). |
 | `readable` | `1` | bool | Lighten dark name colors so they stay readable on stream. |
 | `demo` | `0` | bool | Show looping sample messages instead of live chat. The builder preview uses this. |
@@ -130,12 +137,16 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `#chat.no-names` | names hidden (`names=0`) |
 | `#chat.name-line` | each message on a line of its own under the name (`name_line=1`; the vertical layout, with names shown) |
 | `#chat.case-upper`, `#chat.case-lower`, `#chat.case-smallcaps` | the letter case of names, messages and reply headers (`text_case`) |
+| `#chat.has-outline` | text with an outline (`outline` above 0) |
+| `#chat.shadow-text` | the shadow drawn on the letters only (`shadow_style=text`) |
+| `#chat.paint-static` | 7TV image paints drawn still (`paint_images=static`) |
 | `.lines` | the box that holds the messages |
 | `.line` | one message |
 | `.line.notice` | a sub, raid or other notice |
 | `.line.platform-kick` | a message from Kick (Twitch lines have no platform class) |
 | `.line.action` | a `/me` message |
 | `.line.first-msg` | a first-time chatter's message (with `first_msg=1`) |
+| `.line.accent` | a message with a bar in the chatter's name color (`accent_bar=1`); the color is the line's `--line-accent` variable |
 | `.line.highlight` | a message highlighted with channel points |
 | `.line.announcement` | an `/announce` message (its bar color is one of `.ann-primary`, `.ann-blue`, `.ann-green`, `.ann-orange` or `.ann-purple`) |
 | `.line.mirrored` | a message from another channel during Shared Chat |
@@ -176,6 +187,8 @@ These options set a variable on `#chat`, and only while they are changed, so Cus
 | `--notice-size` | `notice_size` | `.85em` |
 | `--first-color` | `first_msg_color` | `#9146FF` |
 
+`outline` and `shadow_style=text` draw their layers from the `--tshadow` variable (on `.line` and `.reply`), and set how far those layers reach past the letters as `--tshadow-room`: a horizontal line without a box gets that much padding at its sides, and a reply header lets them draw that far past its edges. Both are set only while those options are on.
+
 ## Services this overlay contacts
 
 Everything is fetched directly by your browser or OBS. There is no server of our own, no telemetry and no login.
@@ -193,7 +206,7 @@ Everything is fetched directly by your browser or OBS. There is no server of our
 | FrankerFaceZ (`api.frankerfacez.com`, `cdn.frankerfacez.com`) | FFZ emotes and badges |
 | FFZ:AP (`api.ffzap.com`) | FFZ:AP supporter badges and their images |
 | Chatterino (`api.chatterino.com`; images on `fourtf.com`) | Chatterino badges |
-| Chatterino Homies (`itzalex.github.io`, `chatterinohomies.com`, `cdn.chatterinohomies.com`) | Homies badges |
+| Chatterino Homies (`itzalex.github.io`, `chatterinohomies.com`, `cdn.chatterinohomies.com`) | Homies badges (`chatterinohomies.com` only with `homies_lists=all`) |
 | recent-messages (`recent-messages.robotty.de`) | recent chat history, unless `history=0` |
 | Twitch CDN (`static-cdn.jtvnw.net`), cheer CDN (`d3aqoihi2n8ty8.cloudfront.net`), Giphy (`media*.giphy.com`) | Twitch emote, badge, avatar, cheermote and GIF images |
 | Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | the chosen font, unless it is a system font |
@@ -224,10 +237,11 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Third-party services:** Twitch's official badge API needs a login. This overlay uses the community IVR API instead, falling back to Twitch's public GQL endpoint. If both are down, Twitch badges are hidden rather than shown as broken images.
 - **Custom cheermotes:** channel-specific cheermotes can't be loaded without a login, so they show as plain text. Twitch's global cheermotes (Cheer, DoodleCheer, Kappa and others) show as images with a colored amount.
 - **Badges off:** during Shared Chat, every message still shows its channel's avatar so you can tell the channels apart.
-- **Homies badges:** when a user is in more than one Homies list, their badges show in list order (itzalex badges, badges2, chatterinohomies), whichever list loads first.
+- **Homies badges:** when a user is in more than one Homies list, their badges show in list order (itzalex badges, badges2, chatterinohomies), whichever list loads first. With `homies_lists=light` the chatterinohomies list isn't loaded.
+- **Still paints:** `paint_images=static` takes an animated paint's still frame from 7TV's own list of its images. A paint that arrives in 7TV's older format (one image URL: when 7TV's paint list can't be loaded, or for a paint newer than the list) doesn't say whether it is animated, so it stays as it is.
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
-- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-trouble` (Troubleshooting), `#adv-text`, `#adv-names`, `#adv-box` and `#adv-events` (Chat events).
+- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-trouble` (Troubleshooting), `#adv-text`, `#adv-names`, `#adv-box`, `#adv-events` (Chat events) and `#adv-lighter` (Lighter on PC).
 - **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
 

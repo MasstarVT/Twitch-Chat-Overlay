@@ -347,6 +347,33 @@ test('7TV paints: hostile values never escape their rule, and stay near the name
   assert.match(v3, /drop-shadow\(0px -32px 3px /);
 });
 
+test('7TV still paints (paint_images=static): hostile image URLs never escape the still rule either', () => {
+  const still = (url) => ({ url: url, mime: 'image/webp', scale: 1, frameCount: 1 });
+  const anim = { url: 'https://cdn.7tv.app/paint/p/layer/l/1x.webp', mime: 'image/webp', scale: 1, frameCount: 20 };
+  const hostile = [
+    paintCss.fromV3({ id: 's1', function: 'URL', image_url: 'https://cdn.7tv.app/x");}*{display:none}.a{b:url("1x.webp' }),
+    paintCss.fromV3({ id: 's2', function: 'URL', image_url: 'https://evil.example/paint/1x.webp' }),
+    paintCss.fromV3({ id: 's3', function: 'URL', image_url: 'https://cdn.7tv.app/a b/1x.webp' }),
+    paintCss.fromV4({ id: 's4', data: { layers: [{ ty: { __typename: 'PaintLayerTypeImage', images: [anim,
+      still('https://cdn.7tv.app/x");}*{display:none}/1x_static.webp'), still('https://evil.example/1x_static.webp')] } }] } }),
+    paintCss.fromV4({ id: 's5', data: { layers: [{ ty: { __typename: 'PaintLayerTypeImage', images: [anim, still('javascript:alert(1)')] } }] } }),
+    paintCss.fromV4({ id: 's6', data: { layers: [{ ty: { __typename: 'PaintLayerTypeImage', images: [anim, still('https://cdn.7tv.app/ok/1x_static.webp')] } }] } }),
+    { id: 's7}*{x:y', bgImageStatic: 'url("https://cdn.7tv.app/x")' }
+  ];
+  let rules = 0;
+  hostile.forEach((p, i) => {
+    const rule = paintCss.staticRuleFor(p);
+    if (!rule) return;
+    rules++;
+    assert.match(rule, /^\.paint-static \.painted\.p-[0-9A-Za-z]+\{background-image:[^{}]*\}$/, 'one rule, one block: ' + i);
+    assert.doesNotMatch(rule, /url\((?!"https:\/\/cdn\.7tv\.app\/)/, 'no url() off cdn.7tv.app: ' + i);
+    assert.doesNotMatch(rule, /[;{}]\s*[;{}]|\*|@import|expression|e\+/i, 'nothing smuggled: ' + i);
+  });
+  // Only s6: an unusable still (s4, s5) leaves the layer's animated file, so there is nothing to swap.
+  assert.strictEqual(rules, 1);
+  assert.strictEqual(paintCss.staticRuleFor(hostile[5]), '.paint-static .painted.p-s6{background-image:url("https://cdn.7tv.app/ok/1x_static.webp")}');
+});
+
 test('Zalgo: runs of combining marks are capped at 4, real scripts and emoji are untouched', () => {
   const zalgo = 'H' + '\u030D\u0352\u0316\u0353'.repeat(120);
   assert.strictEqual(util.capMarks(zalgo), 'H\u030D\u0352\u0316\u0353');
@@ -375,12 +402,13 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
   const config = require('../js/config.js');
   const { createDocument } = require('./fake-dom.js');
   const COLORS = config.KEYS.filter((k) => config.SPEC[k].type === 'color');
-  assert.deepStrictEqual(COLORS, ['text_color', 'bg_color', 'notice_color', 'first_msg_color']);
+  assert.deepStrictEqual(COLORS, ['text_color', 'shadow_color', 'outline_color', 'bg_color', 'notice_color', 'first_msg_color']);
   const hostile = ['red;background:url(https://evil.example/x)', 'fff}*{display:none}', '#fff;', 'url(x)', 'var(--x)',
     'expression(1)', '000000 !important', 'ffffff\n;x', 'f\\66', '0x123456', '#ff8800aa', ' #12345', 'ｆｆｆ'].concat(PAYLOADS);
   // config never takes them (so neither the URL, settings.js nor the builder's live messages carry them)...
   COLORS.forEach((k) => hostile.forEach((v) => assert.strictEqual(config.coerce(k, v), undefined, k + '=' + JSON.stringify(v))));
-  // ...and the renderer checks again: a cfg handed to it directly sets nothing it didn't check.
+  // ...and the renderer checks again: a cfg handed to it directly sets nothing it didn't check. The outline and
+  // the text-only shadow are on, so their colors would show if they got through.
   const doc = createDocument();
   const root = doc.createElement('div');
   doc.body.appendChild(root);
@@ -390,19 +418,34 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
     COLORS.forEach((k) => { cfg[k] = v; });
     r.setConfig(cfg);
     assert.deepStrictEqual(Object.keys(root.style).sort(), ['--bg-alpha', '--font', '--shadow'], JSON.stringify(String(v)));
+    assert.strictEqual(root.style['--shadow'], R.SHADOWS[2]);
+    r.setConfig(Object.assign(cfg, { outline: 2, shadow_style: 'text', shadow: 3 }));
+    assert.deepStrictEqual(Object.keys(root.style).sort(), ['--bg-alpha', '--font', '--shadow', '--tshadow', '--tshadow-room']);
+    assert.strictEqual(root.style['--tshadow-room'], '11px');
+    assert.strictEqual(root.style['--tshadow'], R.tshadow({ outline: 2 }) + ', ' + R.TEXT_SHADOWS[3], 'black, as built in');
   });
-  const ok = { bg: 40, text_color: 'ff8800', bg_color: '102030', notice_color: 'abcdef', first_msg_color: '000000' };
+  const ok = { bg: 40, text_color: 'ff8800', bg_color: '102030', notice_color: 'abcdef', first_msg_color: '000000',
+    shadow_color: '0000ff', outline: 1, outline_color: '00ff00' };
   r.setConfig(ok);
   assert.deepStrictEqual([root.style['--text-color'], root.style['--bg-rgb'], root.style['--notice-color'], root.style['--first-color']],
     ['#ff8800', '16, 32, 48', '#abcdef', '#000000']);
+  assert.strictEqual(root.style['--shadow'], 'drop-shadow(0 0 1px rgba(0,0,255,.9)) drop-shadow(1px 2px 2px rgba(0,0,255,.75))');
+  assert.match(root.style['--tshadow'], /^(?:-?(?:\.04em|0) -?(?:\.04em|0) 0 #00ff00(?:, |$)){8}$/);
   r.destroy();
-  // Every color variable is set through hexRgb/hexColor, never from the cfg value as it came.
-  const apply = /function applyRoot\(c\) \{([\s\S]*?)\n {4}\}/.exec(read('js/renderer.js'))[1];
+  // Every color variable is set through hexRgb/hexColor, never from the cfg value as it came. The shadow and
+  // outline colors are built into --shadow and --tshadow by shadowCss, tshadow and tint, which check them the
+  // same way (hostile values above).
+  const src = read('js/renderer.js');
+  // A function's body, up to the brace that closes it at its own indent (2 spaces, 4 inside createRenderer).
+  const body = (name, indent) => new RegExp('\\n( {' + (indent || 2) + '})function ' + name + '\\([\\w, ]*\\) \\{([\\s\\S]*?)\\n\\1\\}').exec(src)[2];
+  const apply = body('applyRoot', 4) + body('tshadow');
   COLORS.forEach((k) => {
     const uses = apply.split('\n').filter((l) => l.indexOf('c.' + k) >= 0);
     assert.ok(uses.length > 0, k + ' is applied');
-    uses.forEach((l) => assert.match(l, new RegExp('hex(?:Rgb|Color)\\(c\\.' + k + '\\)'), l.trim()));
+    uses.forEach((l) => assert.match(l, new RegExp('(?:hex(?:Rgb|Color)\\(|shadowCss\\(c\\.shadow, |tint\\([^;]*, )c\\.' + k + '\\)'), l.trim()));
   });
+  assert.match(body('tint'), /var rgb = hexRgb\(hex\);\s*if \(rgb === null\) return s;/);
+  assert.match(body('shadowCss'), /return color \? tint\(s, color\) : s;/);
 });
 
 test('pickUrl: https only except the fixed local badge asset', () => {

@@ -236,6 +236,32 @@ test('badges_homies=0 and stv_lookup=0 are honoured; hidden chatters are never l
   assert.deepStrictEqual(h.lookupWants, []);
 });
 
+test('homies_lists=light loads only the two small Homies lists, never the chatterinohomies.com one', async (t) => {
+  const h = await boot(t, { search: '?channel=home&homies_lists=light' });
+  const EB = globalThis.TCO.extraBadges;
+  assert.deepStrictEqual([EB.HOMIES_COUNT, EB.HOMIES_LIGHT_COUNT], [3, 2]);
+  join(h);
+  t.mock.timers.tick(20000);
+  await settle();
+  assert.deepStrictEqual(h.called('homies').map((c) => c[1]), [0, 1]);
+  assert.strictEqual(h.S().cfg.homies_lists, 'light');
+  // It isn't a live setting: the builder reloads the preview for it, and a live message can't change it.
+  assert.strictEqual(globalThis.TCO.config.LIVE_KEYS.indexOf('homies_lists'), -1);
+});
+
+test('paints: the renderer gets the still-frame rule from the paint data, next to the usual one', async (t) => {
+  const h = await boot(t);
+  const pc = globalThis.TCO.paintCss;
+  const img = (url, frames) => ({ url: url, mime: 'image/webp', scale: 1, frameCount: frames });
+  const base = 'https://cdn.7tv.app/paint/P1/layer/L1/';
+  const p = pc.fromV4({ id: 'P1', data: { layers: [{ ty: { __typename: 'PaintLayerTypeImage',
+    images: [img(base + '1x.webp', 30), img(base + '1x_static.webp', 1)] } }] } });
+  h.S().stv.paints.set('P1', p);
+  assert.strictEqual(h.deps.paintRule('P1'), pc.ruleFor(p));
+  assert.strictEqual(h.deps.paintStaticRule('P1'), '.paint-static .painted.p-P1{background-image:url("' + base + '1x_static.webp")}');
+  assert.strictEqual(h.deps.paintStaticRule('nope'), null);
+});
+
 test('BTTV channel data: skipped with emotes_bttv=0 and bots=1, loaded for the bot list with bots=0', async (t) => {
   let h = await boot(t, { search: '?channel=home&emotes_bttv=0&bots=1' });
   join(h);

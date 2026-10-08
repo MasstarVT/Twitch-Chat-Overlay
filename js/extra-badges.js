@@ -18,6 +18,8 @@
     { url: 'https://itzalex.github.io/badges2', timeout: 10000 },
     { url: 'https://chatterinohomies.com/api/badges/list', timeout: 20000 }
   ];
+  // homies_lists=light loads only the lists before this one: the two small itzalex lists (~27 KB together).
+  var HOMIES_LIGHT_COUNT = 2;
   // util.fetchJson caps bodies at 8 MB by default; the Homies lists get headroom over that.
   var HOMIES_MAX_BYTES = 16 * 1024 * 1024;
   var ID_RE = /^\d+$/;
@@ -248,6 +250,7 @@
     parseHomies: parseHomies,
     createHomies: createHomies,
     HOMIES_COUNT: HOMIES_SOURCES.length,
+    HOMIES_LIGHT_COUNT: HOMIES_LIGHT_COUNT,
     parseFfzap: parseFfzap,
     loadChatterino: loadChatterino,
     loadFfzap: loadFfzap,

@@ -9,14 +9,15 @@ describe('spec', () => {
     assert.deepEqual(d, {
       channel: '', kick: '', kick_room: '', platform_icons: true, size: 'medium', font: 'Inter',
       text_weight: 'semibold', text_color: '', line_height: 135, text_case: 'none', shadow: 2,
+      shadow_color: '', shadow_style: 'filter', outline: 0, outline_color: '',
       names: true, name_weight: 'heavy', name_line: false,
-      bg: 0, bg_color: '', bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom', animate: true,
+      bg: 0, bg_color: '', accent_bar: false, bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
       events: true, notice_color: '', notice_size: 85, replies: true, first_msg: false, first_msg_color: '', history: 5, shared: true, gifs: true,
       emotes_7tv: true, emotes_bttv: true, emotes_ffz: true,
       badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
-      badges_ffzap: true, badges_chatterino: true, badges_homies: true,
-      paints: true, stv_lookup: true, readable: true, demo: false, debug: false
+      badges_ffzap: true, badges_chatterino: true, badges_homies: true, homies_lists: 'all',
+      paints: true, paint_images: 'animated', stv_lookup: true, readable: true, demo: false, debug: false
     });
     assert.deepEqual(config.KEYS, Object.keys(config.SPEC));
   });
@@ -29,7 +30,9 @@ describe('spec', () => {
   });
 
   test('LIVE_KEYS plus the reload keys partition every key', () => {
-    const reload = ['channel', 'kick', 'kick_room', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'demo', 'debug'];
+    // homies_lists: the Homies lists fill one index, which can't drop a list once it has loaded.
+    const reload = ['channel', 'kick', 'kick_room', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'demo', 'debug',
+      'homies_lists'];
     config.LIVE_KEYS.forEach((k) => assert.ok(config.SPEC[k], k + ' is not in SPEC'));
     reload.forEach((k) => assert.ok(!config.LIVE_KEYS.includes(k), k + ' must force a reload'));
     assert.deepEqual([...config.LIVE_KEYS, ...reload].sort(), [...config.KEYS].sort());
@@ -214,6 +217,22 @@ describe('coerce', () => {
     assert.equal(config.coerce('name_weight', '800'), undefined, 'names, not numbers');
     assert.equal(config.coerce('line_height', '99'), 100);
     assert.equal(config.coerce('notice_size', 500), 150);
+  });
+
+  test('outline, shadow and the lighter-on-PC choices', () => {
+    assert.equal(config.coerce('outline', 9), 3);
+    assert.equal(config.coerce('outline', '-1'), 0);
+    assert.equal(config.coerce('shadow_style', 'TEXT'), 'text');
+    assert.equal(config.coerce('shadow_style', 'none'), undefined);
+    assert.equal(config.coerce('paint_images', 'Static'), 'static');
+    assert.equal(config.coerce('paint_images', 'still'), undefined, 'the value, not the builder\'s label');
+    assert.equal(config.coerce('homies_lists', 'light'), 'light');
+    assert.equal(config.coerce('accent_bar', 'on'), true);
+    assert.equal(config.coerce('outline_color', '#123'), '112233');
+    assert.equal(config.coerce('shadow_color', 'red'), undefined);
+    // homies_lists doesn't start with badges_: overlay.js reads the live badges_* keys as badge sources.
+    assert.ok(config.KEYS.filter((k) => /^badges_/.test(k)).every((k) => config.SPEC[k].type === 'bool'));
+    assert.equal(config.toParams(Object.assign(config.defaults(), { outline: 2, homies_lists: 'light' })).toString(), 'outline=2&homies_lists=light');
   });
 
   test('list: normalized, deduped logins from strings or arrays', () => {

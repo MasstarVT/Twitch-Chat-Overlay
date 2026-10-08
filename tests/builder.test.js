@@ -637,21 +637,33 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   };
   assert.deepStrictEqual(outline(g('look')), [
     ['Layout', 'layout', 'align'],
-    ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow'],
+    ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline'],
     ['Names', 'name_line'],
-    ['Box', 'bg', 'bg_color'],
+    ['Box', 'bg', 'bg_color', 'accent_bar'],
     ['Animation', 'animate']
   ]);
   assert.deepStrictEqual(outline(g('advanced')), [
     ['Troubleshooting #adv-trouble', 'debug', 'demo'],
-    ['Text #adv-text', 'line_height', 'text_case'],
+    ['Text #adv-text', 'line_height', 'text_case', 'shadow_color', 'outline_color'],
     ['Names #adv-names', 'names', 'name_weight'],
     ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
-    ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color']
+    ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color'],
+    ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']
   ]);
   assert.strictEqual(g('look').more, 'adv-text');
   assert.strictEqual(g('events').more, 'adv-events');
-  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events']);
+  assert.strictEqual(g('badges').more, 'adv-lighter');
+  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events', 'badges']);
+  // The lighter-on-PC switches name what they save and what they cost.
+  assert.deepStrictEqual(builder.META.shadow_style.options, { filter: 'Whole line', text: 'Text only' });
+  assert.deepStrictEqual(builder.META.paint_images.options, { animated: 'Animated', static: 'Still' });
+  assert.deepStrictEqual(builder.META.homies_lists.options, { all: 'All lists', light: 'Light' });
+  assert.match(builder.META.shadow_style.help, /half/);
+  assert.match(builder.META.shadow_style.help, /Emotes, badges, GIFs, the box and painted names then have no shadow/);
+  assert.match(builder.META.homies_lists.help, /9,400/);
+  assert.match(builder.META.shadow_color.help, /emotes, badges and the box/);
+  assert.deepStrictEqual(builder.META.outline.names, ['None', 'Thin', 'Medium', 'Thick']);
+  assert.deepStrictEqual(builder.segValues('outline').map((v) => v.label), ['None', 'Thin', 'Medium', 'Thick']);
 });
 
 test('the look options grey out while the setting they need is off, and their help names it', () => {
@@ -664,7 +676,12 @@ test('the look options grey out while the setting they need is off, and their he
     name_line: [{ names: false }, {}, 'Show names'],
     notice_color: [{ events: false }, {}, 'Show subs'],
     notice_size: [{ events: false }, {}, 'Show subs'],
-    first_msg_color: [{ first_msg: false }, { first_msg: true }, 'Mark first-time chatters']
+    first_msg_color: [{ first_msg: false }, { first_msg: true }, 'Mark first-time chatters'],
+    shadow_color: [{ shadow: 0 }, {}, 'Text shadow'],
+    shadow_style: [{ shadow: 0 }, { shadow: 1 }, 'Text shadow'],
+    outline_color: [{ outline: 0 }, { outline: 1 }, 'Text outline'],
+    paint_images: [{ paints: false }, {}, '7TV name paints'],
+    homies_lists: [{ badges_homies: false }, {}, 'Chatterino Homies']
   };
   Object.keys(needs).forEach((k) => {
     assert.strictEqual(off(k, needs[k][0]), true, k + ' off');

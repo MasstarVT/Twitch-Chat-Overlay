@@ -669,6 +669,125 @@ test('spacing: a column spaces its lines (--line-gap), a row its messages (--row
   assert.strictEqual(JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent])), before);
 });
 
+test('outline, shadow color and shadow method: on #chat only while changed, gone again when set back', (t) => {
+  const s = setup(t, {});
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  assert.strictEqual(s.root.style['--shadow'], R.SHADOWS[2]);
+  s.r.setConfig({ outline: 2 });
+  assert.deepStrictEqual(rootExtras(s), { cls: ['has-outline'], style: { '--tshadow': R.tshadow({ outline: 2 }), '--tshadow-room': '.06em' } });
+  assert.strictEqual(s.root.style['--shadow'], R.SHADOWS[2], 'the line filter stays');
+  s.r.setConfig({ outline: 3, outline_color: 'ffffff', shadow_color: '102030' });
+  assert.strictEqual(s.root.style['--tshadow-room'], '.08em', 'the filter shadow needs no room: it draws past the clips');
+  assert.ok(s.root.style['--tshadow'].split(', ').every((l) => / 0 #ffffff$/.test(l)));
+  assert.strictEqual(s.root.style['--shadow'], R.shadowCss(2, '102030'));
+  // shadow_style=text: the filter goes, the shadow is drawn as text layers after the outline's.
+  s.r.setConfig({ outline: 1, shadow_style: 'text', shadow: 3, shadow_color: '102030' });
+  assert.deepStrictEqual(rootExtras(s).cls, ['has-outline', 'shadow-text']);
+  assert.strictEqual(s.root.style['--shadow'], 'none');
+  assert.strictEqual(s.root.style['--tshadow'], R.tshadow({ outline: 1 }) + ', 0 0 4px #102030, 0 0 2px #102030, 2px 3px 8px rgba(16,32,48,.9)');
+  assert.strictEqual(s.root.style['--tshadow-room'], '11px');
+  s.r.setConfig({ shadow_style: 'text', shadow: 0 });
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} }, 'no shadow: nothing to draw either way');
+  assert.strictEqual(s.root.style['--shadow'], 'none');
+  s.r.setConfig({ shadow_style: 'text' });
+  assert.deepStrictEqual(rootExtras(s), { cls: ['shadow-text'], style: { '--tshadow': R.TEXT_SHADOWS[2], '--tshadow-room': '6px' } });
+  s.r.setConfig({});
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  assert.strictEqual(s.root.style['--shadow'], R.SHADOWS[2]);
+  // None of it touches the lines: it is CSS on #chat.
+  s.r.push(chat('amy', 'hi'));
+  s.r.flush();
+  const before = JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  s.r.setConfig({ outline: 2, shadow_style: 'text', shadow_color: 'ff0000', outline_color: '00ff00' });
+  assert.strictEqual(JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent])), before);
+});
+
+test('accent_bar: chat lines get the class and their name color as --line-accent; both go again when it is off', (t) => {
+  const s = setup(t, { accent_bar: true, first_msg: true }, { nameFor: (m) => ({ text: m.displayName, color: m.login === 'odd' ? 'red' : '#1E90FF' }) });
+  s.r.push(chat('amy', 'hi'));
+  s.r.push(chat('newbie', 'first!', { firstMsg: true }));
+  s.r.push(chat('ann', 'listen', { announcement: 'GREEN' }));
+  s.r.push(resub('bob', 'still here'));
+  s.r.push(chat('odd', 'a color that is not hex'));
+  s.r.flush();
+  const shown = () => s.lines().map((l) => [l.className, l.style['--line-accent']]);
+  assert.deepStrictEqual(shown(), [
+    ['line accent', '#1E90FF'],
+    ['line first-msg accent', '#1E90FF'],
+    ['line announcement ann-green', undefined],
+    ['line notice', undefined],
+    ['line accent', '#1E90FF'],
+    ['line accent', undefined]
+  ]);
+  s.r.setConfig({ first_msg: true });
+  assert.deepStrictEqual(shown(), [['line', undefined], ['line first-msg', undefined], ['line announcement ann-green', undefined],
+    ['line notice', undefined], ['line', undefined], ['line', undefined]], 'rebuilt without the bar or its color');
+  s.r.setConfig({ first_msg: true, accent_bar: true });
+  assert.strictEqual(shown()[0][1], '#1E90FF');
+});
+
+test('paint_images=static: a still rule per animated paint only while static; the paint sheet as before otherwise', (t) => {
+  const still = { P1: '.paint-static .painted.p-P1{background-image:url("https://cdn.7tv.app/s")}', BAD: '.paint-static .p-BAD { INVALID }' };
+  const s = setup(t, {}, {
+    nameFor: (m) => ({ text: m.displayName, color: '#FFFFFF', paintId: m.login === 'cy' ? 'P2' : m.login === 'zed' ? 'BAD' : 'P1' }),
+    paintRule: (id) => '.painted.p-' + id + '{background-image:url("https://cdn.7tv.app/' + id + '")}',
+    paintStaticRule: (id) => still[id] || null
+  });
+  const sheet = () => s.doc.head.children.find((e) => e.getAttribute('data-tco') === 'paints').sheet.cssRules.slice();
+  s.r.push(chat('amy', '1'));
+  s.r.push(chat('cy', '2'));
+  s.r.flush();
+  // (A flush builds the newest message first.)
+  assert.deepStrictEqual(sheet(), ['.painted.p-P2{background-image:url("https://cdn.7tv.app/P2")}',
+    '.painted.p-P1{background-image:url("https://cdn.7tv.app/P1")}'], 'default: one rule per paint, no still rules');
+  assert.ok(!s.root.classList.contains('paint-static'));
+  s.r.setConfig({ paint_images: 'static' });
+  assert.ok(s.root.classList.contains('paint-static'));
+  assert.deepStrictEqual(sheet().slice(2), [still.P1], 'the paints in use get theirs at once; P2 (a gradient) has none');
+  // A paint seen while static gets both; a rejected still rule leaves the paint itself.
+  s.r.push(chat('zed', '3'));
+  s.r.flush();
+  assert.deepStrictEqual(sheet().slice(3), ['.painted.p-BAD{background-image:url("https://cdn.7tv.app/BAD")}']);
+  assert.strictEqual(s.lines()[2].byClass('name')[0].className, 'name painted p-BAD');
+  // Back to animated: the class goes, the still rules stay (unused without it), and none is added twice.
+  s.r.setConfig({});
+  assert.ok(!s.root.classList.contains('paint-static'));
+  s.r.setConfig({ paint_images: 'static' });
+  s.r.rerender();
+  assert.strictEqual(sheet().length, 4);
+  assert.strictEqual(s.r.stats().paints, 3);
+});
+
+test('overlay.css: the stage-3 rules (outline, text-only shadow, name-color bar) stay off by default and overridable', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8')
+    .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  // text-shadow only under .has-outline / .shadow-text, never on the built-in SVG badges' letters, and painted
+  // names keep none.
+  const ts = Array.from(css.matchAll(/([^{}]+)\{[^}]*text-shadow:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]);
+  assert.deepStrictEqual(ts, [
+    [':where(.has-outline, .shadow-text) .line,\n:where(.has-outline, .shadow-text) .reply', 'var(--tshadow, none)'],
+    [':where(.has-outline, .shadow-text) .badge.icon text', 'none'],
+    ['.painted', 'none']
+  ]);
+  // Room for the outline and the text-only shadow where a line (a row without a box) clips its sides, and the
+  // reply header lets them draw that far past its box: after .reply's own overflow: hidden, at its specificity.
+  assert.match(css, /\n:where\(\.layout-horizontal:not\(\.has-bg\)\):where\(\.has-outline, \.shadow-text\) \.line \{\s*padding-left: var\(--tshadow-room, 0\);\s*padding-right: var\(--tshadow-room, 0\);\s*\}/);
+  const reply = css.indexOf('\n.reply {'), room = css.indexOf('\n:where(.has-outline, .shadow-text) .reply {\n  overflow: clip;');
+  assert.ok(reply > 0 && room > reply, 'after .reply { overflow: hidden }');
+  assert.match(css, /\n:where\(\.has-outline, \.shadow-text\) \.reply \{\s*overflow: clip;\s*overflow-clip-margin: var\(--tshadow-room, 0\);\s*\}/);
+  assert.doesNotMatch(css, /--outline-width/);
+  // The name-color bar comes before .first-msg, so a first message's bar wins at the same specificity.
+  const accent = css.indexOf('\n.line.accent {'), first = css.indexOf('\n.line.first-msg {');
+  assert.ok(accent > 0 && accent < first);
+  assert.match(css, /\n\.line\.accent \{\s*box-shadow: inset \.2em 0 0 var\(--line-accent, currentColor\);\s*padding-left: \.4em;\s*\}/);
+  // Its room over .line.highlight's .3em: later, at .line.highlight's own specificity (:where), so Custom CSS written
+  // as `.line.highlight { ... }` still wins.
+  const hl = css.indexOf('\n.line.highlight {'), hlAccent = css.indexOf('\n.line.highlight:where(.accent) { padding-left: .4em; }');
+  assert.ok(hl > 0 && hlAccent > hl, 'over .line.highlight\'s .3em');
+  assert.doesNotMatch(css, /\.accent\.highlight|\.highlight\.accent/);
+  ['has-outline', 'shadow-text', 'accent', 'paint-static'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
+});
+
 test('overlay.css: the stage-2 rules keep today\'s look by default and stay overridable', () => {
   const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   // text_case never reaches the built-in SVG badges (Kick's OG): only names, colons, messages and reply headers.

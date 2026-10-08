@@ -42,6 +42,10 @@
   function namesOn(cfg) { return !!cfg.names; }
   function eventsOn(cfg) { return !!cfg.events; }
   function firstMsgOn(cfg) { return !!cfg.first_msg; }
+  function shadowOn(cfg) { return cfg.shadow > 0; }
+  function outlineOn(cfg) { return cfg.outline > 0; }
+  function paintsOn(cfg) { return !!cfg.paints; }
+  function homiesOn(cfg) { return !!(cfg.badges && cfg.badges_homies); }
 
   // text_weight and name_weight: six steps from light to black, on a slider (a row of six choices wraps
   // unevenly on a phone).
@@ -73,6 +77,12 @@
     text_case: { label: 'Letter case', options: { none: 'As typed', upper: 'UPPER', lower: 'lower', smallcaps: 'Small caps' },
       wrap: true, help: 'Names, messages and reply headers. Emotes work either way.' },
     shadow: { label: 'Text shadow', widget: 'seg', names: ['None', 'Light', 'Medium', 'Strong'] },
+    shadow_color: { label: 'Shadow color', swatch: '#000000', when: shadowOn,
+      help: 'Black by default. The shadow is drawn around the whole message, so emotes, badges and the box get this color too (unless Shadow method, under Lighter on PC, is Text only). Needs Text shadow (Look).' },
+    outline: { label: 'Text outline', widget: 'seg', names: ['None', 'Thin', 'Medium', 'Thick'],
+      help: 'A sharp edge around the letters, black unless you pick an Outline color (Advanced). Emotes and painted names get none.' },
+    outline_color: { label: 'Outline color', swatch: '#000000', when: outlineOn,
+      help: 'Black by default. Needs Text outline (Look).' },
     names: { label: 'Show names',
       help: 'Off hides the name and colon before each message. Reply headers and sub or raid notices keep their names.' },
     name_weight: { label: 'Name weight', widget: 'range', options: WEIGHT_LABELS,
@@ -83,6 +93,8 @@
       help: 'A rounded box behind each message, black unless you pick a Box color. Helps on bright or busy scenes.' },
     bg_color: { label: 'Box color', swatch: '#000000', when: bgOn,
       help: 'Black by default. A light box needs a dark Text color (and Notice text color, in Advanced). Needs Line background (Look).' },
+    accent_bar: { label: 'Name-color bar',
+      help: 'A bar in the chatter’s name color beside each message. A first-time chatter’s bar takes its place, and announcements keep their own.' },
     bg_shape: { label: 'Box corners', options: { square: 'Square', soft: 'Soft', round: 'Round', pill: 'Pill' }, when: bgOn,
       help: 'Pill gives a one-line box round ends. Needs Line background (Look).' },
     bg_width: { label: 'Box width', options: { fit: 'Fit the text', full: 'Full width' }, when: bgOn, only: 'vertical',
@@ -129,7 +141,13 @@
     badges_ffzap: { label: 'FFZ:AP', logo: 'ffzap', when: badgesOn },
     badges_chatterino: { label: 'Chatterino', logo: 'chatterino', when: badgesOn },
     badges_homies: { label: 'Chatterino Homies', logo: 'homies', when: badgesOn },
+    homies_lists: { label: 'Chatterino Homies lists', options: { all: 'All lists', light: 'Light' }, when: homiesOn,
+      help: 'Light skips the big chatterinohomies.com list: about 0.5 MB less to download, 4 MB less to read and 1 to 2 MB less memory, but about 9,400 people lose their Homies badge. Needs Show badges and Chatterino Homies (Badges & paints).' },
     paints: { label: '7TV name paints', help: 'Gradient and image name colors from 7TV.' },
+    paint_images: { label: '7TV image paints', options: { animated: 'Animated', static: 'Still' }, when: paintsOn,
+      help: 'Still shows the first frame of an animated paint, so painted names stop redrawing many times a second while chat is quiet. Needs 7TV name paints (Badges & paints).' },
+    shadow_style: { label: 'Shadow method', options: { filter: 'Whole line', text: 'Text only' }, when: shadowOn,
+      help: 'Text only draws the shadow on the letters alone, about half the PC work while animated emotes are on screen. Emotes, badges, GIFs, the box and painted names then have no shadow. Needs Text shadow (Look).' },
     stv_lookup: { label: 'Look up 7TV cosmetics for every chatter',
       help: '7TV only announces paints and badges for people running a 7TV extension. This asks 7TV about everyone else, in small rate-limited batches. The answer isn’t checked against subscriptions, so it can show paints for lapsed 7TV subs.' },
     readable: { label: 'Brighten dark name colors', help: 'Lightens very dark usernames so they stay readable.' },
@@ -157,7 +175,8 @@
   // id, linked at the foot of the section as "More in Advanced".
   var GROUPS = [
     { id: 'look', title: 'Look', note: 'Layout, text, names, boxes and how new messages come in.',
-      keys: ['layout', 'align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'name_line', 'bg', 'bg_color', 'animate'],
+      keys: ['layout', 'align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_line', 'bg', 'bg_color',
+        'accent_bar', 'animate'],
       subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_line' },
         { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
       more: 'adv-text' },
@@ -174,13 +193,14 @@
       keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs'] },
     { id: 'badges', title: 'Badges & paints', note: 'Each badge source has its own switch.',
       foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
-      keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable']) },
-    { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then finer settings for the other sections.',
-      keys: ['debug', 'demo', 'line_height', 'text_case', 'names', 'name_weight', 'bg_shape', 'bg_width', 'spacing',
-        'notice_color', 'notice_size', 'first_msg_color'],
+      keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable']), more: 'adv-lighter' },
+    { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then fine-tuning for every section and lighter-on-PC switches.',
+      keys: ['debug', 'demo', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight', 'bg_shape',
+        'bg_width', 'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_style', 'paint_images', 'homies_lists'],
       subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'line_height' },
         { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
-        { id: 'adv-events', title: 'Chat events', first: 'notice_color' }] }
+        { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
+        { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }
   ];
 
   // ---------- pure helpers (unit tested) ----------
@@ -1107,8 +1127,8 @@
         if (SUBGRIDS[sg].help) grids[sg].appendChild(h('p', 'help', SUBGRIDS[sg].help));
       });
       sec.appendChild(body);
-      if (g.more) sec.appendChild(moreLink(g.more));
       if (g.foot) sec.appendChild(h('p', 'help section-foot', g.foot));
+      if (g.more) sec.appendChild(moreLink(g.more));
       host.appendChild(sec);
     });
 

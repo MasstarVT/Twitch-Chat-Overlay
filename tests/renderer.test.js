@@ -28,6 +28,67 @@ test('shadow levels 0-3 match the plan; invalid falls back to 2', () => {
   assert.strictEqual(R.shadowCss(undefined), R.shadowCss(2));
 });
 
+test('shadowCss(level, color): today\'s strings without a color, the same shadow in the color\'s rgb with one', () => {
+  [0, 1, 2, 3].forEach((l) => {
+    assert.strictEqual(R.shadowCss(l, ''), R.SHADOWS[l], l + ': no color');
+    assert.strictEqual(R.shadowCss(l, undefined), R.SHADOWS[l]);
+    // Not a config color (bare lowercase rrggbb): black, as written.
+    ['red', '#ff0000', 'FF0000', 'ff0000;x', ' ff0000', 123456, {}].forEach((c) => assert.strictEqual(R.shadowCss(l, c), R.SHADOWS[l], l + ' ' + String(c)));
+  });
+  assert.strictEqual(R.shadowCss(0, 'ff0000'), 'none');
+  assert.strictEqual(R.shadowCss(1, 'ff0000'), 'drop-shadow(1px 1px 1px rgba(255,0,0,.8))');
+  assert.strictEqual(R.shadowCss(2, '0a141e'), 'drop-shadow(0 0 1px rgba(10,20,30,.9)) drop-shadow(1px 2px 2px rgba(10,20,30,.75))');
+  assert.strictEqual(R.shadowCss(3, 'ff8800'), 'drop-shadow(0 0 2px #ff8800) drop-shadow(0 0 1px #ff8800) drop-shadow(2px 3px 4px rgba(255,136,0,.9))');
+});
+
+test('tshadow: the outline\'s eight sharp layers, then the text-only shadow; null when neither is on', () => {
+  const d = { outline: 0, outline_color: '', shadow: 2, shadow_color: '', shadow_style: 'filter' };
+  const t = (over) => R.tshadow(Object.assign({}, d, over));
+  assert.strictEqual(t({}), null, 'the defaults draw no text-shadow');
+  assert.strictEqual(R.tshadow({}), null, 'nor does a partial cfg');
+  assert.strictEqual(t({ outline: 1 }), '-.04em -.04em 0 #000, 0 -.04em 0 #000, .04em -.04em 0 #000, -.04em 0 0 #000, ' +
+    '.04em 0 0 #000, -.04em .04em 0 #000, 0 .04em 0 #000, .04em .04em 0 #000');
+  assert.deepStrictEqual(R.OUTLINE_EM, ['', '.04em', '.06em', '.08em']);
+  [2, 3].forEach((o) => {
+    const layers = t({ outline: o }).split(', ');
+    assert.strictEqual(layers.length, 8);
+    layers.forEach((l) => assert.match(l, new RegExp('^(?:-?' + R.OUTLINE_EM[o].replace('.', '\\.') + '|0) (?:-?' + R.OUTLINE_EM[o].replace('.', '\\.') + '|0) 0 #000$'), l));
+  });
+  assert.ok(t({ outline: 2, outline_color: 'ffcc00' }).split(', ').every((l) => / 0 #ffcc00$/.test(l)));
+  assert.ok(t({ outline: 2, outline_color: 'nope' }).split(', ').every((l) => / 0 #000$/.test(l)), 'not a config color: black');
+  assert.strictEqual(t({ outline: 9 }).split(', ')[0], '-.08em -.08em 0 #000', 'clamped');
+  // shadow_style=text: the level's text layers, blurs doubled from the drop-shadows'.
+  assert.deepStrictEqual(R.TEXT_SHADOWS, ['', '1px 1px 2px rgba(0,0,0,.8)', '0 0 2px rgba(0,0,0,.9), 1px 2px 4px rgba(0,0,0,.75)',
+    '0 0 4px #000, 0 0 2px #000, 2px 3px 8px rgba(0,0,0,.9)']);
+  [1, 2, 3].forEach((s) => assert.strictEqual(t({ shadow_style: 'text', shadow: s }), R.TEXT_SHADOWS[s]));
+  assert.strictEqual(t({ shadow_style: 'text', shadow: 0 }), null);
+  assert.strictEqual(t({ shadow_style: 'text', shadow: 3, shadow_color: '00ff00' }), '0 0 4px #00ff00, 0 0 2px #00ff00, 2px 3px 8px rgba(0,255,0,.9)');
+  assert.strictEqual(t({ shadow_color: '00ff00' }), null, 'the whole-line shadow is --shadow, not this');
+  // Outline first, then the shadow under it.
+  const both = t({ outline: 1, outline_color: 'ffffff', shadow_style: 'text', shadow: 1 });
+  assert.strictEqual(both, t({ outline: 1, outline_color: 'ffffff' }) + ', 1px 1px 2px rgba(0,0,0,.8)');
+});
+
+test('tshadowRoom: how far --tshadow reaches past the letters; null when it has no layers', () => {
+  const d = { outline: 0, outline_color: '', shadow: 2, shadow_color: '', shadow_style: 'filter' };
+  const t = (over) => R.tshadowRoom(Object.assign({}, d, over));
+  assert.strictEqual(t({}), null, 'the defaults need none');
+  assert.strictEqual(R.tshadowRoom({}), null, 'nor does a partial cfg');
+  assert.strictEqual(t({ shadow: 3, shadow_color: 'ffffff' }), null, 'the whole-line filter draws past the clips');
+  [1, 2, 3].forEach((o) => assert.strictEqual(t({ outline: o, outline_color: 'ff0000' }), R.OUTLINE_EM[o]));
+  assert.strictEqual(t({ outline: 9 }), '.08em', 'clamped');
+  // Offset plus blur radius along the farther axis: 1+2, 2+4 (down), 3+8 (down).
+  assert.deepStrictEqual(R.TEXT_SHADOW_ROOM, ['', '3px', '6px', '11px']);
+  [1, 2, 3].forEach((s) => assert.strictEqual(t({ shadow_style: 'text', shadow: s }), R.TEXT_SHADOW_ROOM[s]));
+  assert.strictEqual(t({ shadow_style: 'text', shadow: 0 }), null);
+  // Both: the shadow's reach, which covers the outline at the overlay's sizes (one plain length: overflow-clip-margin
+  // takes no max()).
+  assert.strictEqual(t({ outline: 3, shadow_style: 'text', shadow: 1 }), '3px');
+  assert.ok(0.08 * R.FONT_PX.large < 3);
+  assert.strictEqual(t({ outline: 1, shadow_style: 'text', shadow: 3 }), '11px');
+  [1, 2, 3].forEach((o) => [0, 1, 2, 3].forEach((s) => assert.match(String(t({ outline: o, shadow_style: 'text', shadow: s })), /^\.?\d+(?:em|px)$/)));
+});
+
 test('font sizes and want-scale: emotes ceil(fontPx*1.75*dpr/base), badges ceil(fontPx*dpr/18)', () => {
   assert.deepStrictEqual([R.fontPx('small'), R.fontPx('medium'), R.fontPx('large'), R.fontPx('bogus')], [18, 24, 32, 24]);
   // OBS draws at DPR 1: the file only has to cover the drawn size
@@ -345,6 +406,21 @@ test('line classes: action, first-msg (only with cfg.first_msg), highlight, anno
   for (const c of ['PRIMARY', 'BLUE', 'GREEN', 'ORANGE', 'PURPLE']) assert.strictEqual(R.annClass(c), 'ann-' + c.toLowerCase());
 });
 
+test('line classes: accent_bar marks chat lines only, never a notice or an announcement', () => {
+  const on = { accent_bar: true };
+  assert.strictEqual(R.lineClasses({}, on, 'chat', false), 'line accent');
+  assert.strictEqual(R.lineClasses({ firstMsg: true, msgId: 'highlighted-message', mirrored: true, platform: 'kick' },
+    { accent_bar: true, first_msg: true }, 'chat', true), 'line action first-msg highlight accent mirrored platform-kick',
+  'next to first-msg too (the stylesheet lets the first-message bar win)');
+  assert.strictEqual(R.lineClasses({}, on, 'notice', false), 'line notice');
+  assert.strictEqual(R.lineClasses({ announcement: 'BLUE' }, on, 'chat', false), 'line announcement ann-blue');
+  [false, 'true', 1, undefined].forEach((v) => assert.strictEqual(R.lineClasses({}, { accent_bar: v }, 'chat', false), 'line', String(v)));
+  // In the model: the class, with the name color the line's bar takes (renderInto).
+  const m = R.modelFor({ id: 'a', userId: '1', login: 'a', displayName: 'A' }, on, { kind: 'chat', name: { color: '#123456' } });
+  assert.strictEqual(m.cls, 'line accent');
+  assert.strictEqual(m.name.color, '#123456');
+});
+
 test('line classes: a whitelisted platform class for Kick lines; Twitch lines and unknown platforms get none', () => {
   assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'chat', false), 'line platform-kick');
   assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'notice', false), 'line notice platform-kick');
@@ -571,8 +647,11 @@ test('every live config key is handled by the renderer', () => {
   // checks that each one changes what is drawn).
   const ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
-    'spacing', 'notice_color', 'notice_size', 'first_msg_color'];
+    'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
+    'paint_images'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
+  // accent_bar is drawn on each line (a class and the line's own --line-accent), so it rebuilds the lines.
+  assert.ok(R.RERENDER_KEYS.indexOf('accent_bar') >= 0 && ROOT_KEYS.indexOf('accent_bar') < 0);
   const LIVE_KEYS = require('../js/config.js').LIVE_KEYS;
   assert.ok(Array.isArray(LIVE_KEYS) && LIVE_KEYS.length > 0);
   for (const k of LIVE_KEYS) {

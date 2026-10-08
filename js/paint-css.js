@@ -64,12 +64,14 @@
     return util.isSafeUrl(u, PAINT_HOST_RE) ? 'url("' + u + '")' : null;
   }
 
-  function pickV4Image(images) {
+  // The smallest webp of a v4 image layer: an animated one when there is one, or with still a single-frame one
+  // (paint_images=static; 7TV gives every animated layer a 1x_static.webp too).
+  function pickV4Image(images, still) {
     if (!Array.isArray(images)) return null;
     var webp = images.filter(function (im) { return im && im.mime === 'image/webp' && typeof im.url === 'string'; });
     if (!webp.length) webp = images.filter(function (im) { return im && typeof im.url === 'string'; });
-    var animated = webp.filter(function (im) { return (im.frameCount || 1) > 1; });
-    var pool = animated.length ? animated : webp;
+    var want = webp.filter(function (im) { return still ? (im.frameCount || 1) <= 1 : (im.frameCount || 1) > 1; });
+    var pool = want.length ? want : webp;
     pool.sort(function (a, b) { return (a.scale || 1) - (b.scale || 1); });
     return pool.length ? pool[0].url : null;
   }
@@ -99,10 +101,12 @@
   // v4: {id, name, data:{layers:[{opacity, ty:{__typename, ...}}], shadows:[{color:{hex}, offsetX, offsetY, blur}]}}
   // 7TV draws layer 0 at the bottom; CSS draws the first background-image on top, so walk the layers
   // top-down. A layer's opacity is folded into its colors (CSS cannot fade one background image).
+  // bgImageStatic: the same layers with each image's still frame, only for a paint with an animated image.
   function fromV4(p) {
     if (!p || !ID_RE.test(p.id || '')) return null;
     var data = p.data || {};
-    var images = [];
+    var images = [], stills = [];
+    var add = function (css, still) { images.push(css); stills.push(still || css); };
     var bgColor = null;
     var layers = Array.isArray(data.layers) ? data.layers.slice(0, MAX_LAYERS) : [];
     for (var i = layers.length - 1; i >= 0; i--) {
@@ -119,23 +123,23 @@
           if (!c) break;
           // The bottom layer is the background color; a color over other layers must keep its place.
           if (i === 0) bgColor = c;
-          else images.push('linear-gradient(' + c + ', ' + c + ')');
+          else add('linear-gradient(' + c + ', ' + c + ')');
           break;
         }
         case 'PaintLayerTypeLinearGradient': {
           var g = gradient('linear', ty.repeating, fmt(ty.angle) + 'deg', stopsCss(ty.stops || [], colorFn));
-          if (g) images.push(g);
+          if (g) add(g);
           break;
         }
         case 'PaintLayerTypeRadialGradient': {
           var shape = String(ty.shape || 'ellipse').toLowerCase() === 'circle' ? 'circle' : 'ellipse';
           var r = gradient('radial', ty.repeating, shape, stopsCss(ty.stops || [], colorFn));
-          if (r) images.push(r);
+          if (r) add(r);
           break;
         }
         case 'PaintLayerTypeImage': {
           var u = cssUrl(pickV4Image(ty.images));
-          if (u) images.push(u);
+          if (u) add(u, cssUrl(pickV4Image(ty.images, true)));
           break;
         }
       }
@@ -143,10 +147,15 @@
     var filter = shadowsCss(data.shadows, function (s) {
       return s ? { x: s.offsetX, y: s.offsetY, blur: s.blur, color: hexColor(s.color) } : null;
     });
-    return { id: p.id, name: p.name || '', bgImage: images.length ? images.join(', ') : null, bgColor: bgColor, filter: filter };
+    var out = { id: p.id, name: p.name || '', bgImage: images.length ? images.join(', ') : null, bgColor: bgColor, filter: filter };
+    if (out.bgImage && stills.join(', ') !== out.bgImage) out.bgImageStatic = stills.join(', ');
+    return out;
   }
 
   // v3: {id, name, function, color, angle, shape, image_url, repeat, stops:[{at, color:int}], shadows:[{x_offset, y_offset, radius, color:int}]}
+  // An image paint names one file and doesn't say whether it is animated. 7TV's CDN keeps a <n>x_static.webp only
+  // beside an animated one, so guessing that name would blank a still paint: a v3 paint has no bgImageStatic, and
+  // paint_images=static leaves it as it is.
   function fromV3(p) {
     if (!p || !ID_RE.test(p.id || '')) return null;
     var image = null;
@@ -179,6 +188,14 @@
     return '.painted.' + className(paint.id) + '{' + decl.join(';') + '}';
   }
 
+  // paint_images=static: the paint's still images, for #chat.paint-static only (one class more than ruleFor's
+  // selector, and no #chat in it, so OBS Custom CSS written as `#chat .name { ... }` still wins). null for a paint
+  // without an animated image, and for one in the older v3 format.
+  function staticRuleFor(paint) {
+    if (!paint || !ID_RE.test(paint.id || '') || !paint.bgImageStatic) return null;
+    return '.paint-static .painted.' + className(paint.id) + '{background-image:' + paint.bgImageStatic + '}';
+  }
+
   return {
     MAX_LAYERS: MAX_LAYERS,
     MAX_STOPS: MAX_STOPS,
@@ -187,6 +204,7 @@
     fromV4: fromV4,
     fromV3: fromV3,
     ruleFor: ruleFor,
+    staticRuleFor: staticRuleFor,
     className: className,
     ID_RE: ID_RE
   };

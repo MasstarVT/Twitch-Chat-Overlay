@@ -90,6 +90,38 @@ describe('fromV4', () => {
     assert.equal(stat.bgImage, 'url("' + IMG + '1x_static.webp")');
   });
 
+  test('paint_images=static: an animated image layer also gets its still frame, every other layer as it is', () => {
+    const images = [
+      { url: IMG + '2x.webp', mime: 'image/webp', scale: 2, frameCount: 100 },
+      { url: IMG + '1x.webp', mime: 'image/webp', scale: 1, frameCount: 100 },
+      { url: IMG + '2x_static.webp', mime: 'image/webp', scale: 2, frameCount: 1 },
+      { url: IMG + '1x_static.webp', mime: 'image/webp', scale: 1, frameCount: 1 },
+      { url: IMG + '1x.avif', mime: 'image/avif', scale: 1, frameCount: 100 }
+    ];
+    const grad = { __typename: 'PaintLayerTypeLinearGradient', angle: 90, stops: [{ at: 0, color: hex('#FF0000FF') }, { at: 1, color: hex('#0000FF') }] };
+    const p = pc.fromV4(v4([{ opacity: 1, ty: grad }, layer({ __typename: 'PaintLayerTypeImage', images })], [SHADOW_V4]));
+    assert.equal(p.bgImage, 'url("' + IMG + '1x.webp"), linear-gradient(90deg, #FF0000FF 0%, #0000FF 100%)');
+    assert.equal(p.bgImageStatic, 'url("' + IMG + '1x_static.webp"), linear-gradient(90deg, #FF0000FF 0%, #0000FF 100%)');
+    // The animated rule is ruleFor's, unchanged; the still one only swaps the images, under #chat.paint-static.
+    assert.equal(pc.ruleFor(p), '.painted.p-' + ID + '{background-image:' + p.bgImage + ';filter:drop-shadow(0px 0px 0.5px #000000FF)}');
+    assert.equal(pc.staticRuleFor(p), '.paint-static .painted.p-' + ID + '{background-image:' + p.bgImageStatic + '}');
+    assertLonghandsOnly(pc.staticRuleFor(p));
+    // Nothing to swap: a still image, a gradient, an animated image without a still (the animated one stays).
+    const still = pc.fromV4(v4([layer({ __typename: 'PaintLayerTypeImage', images: images.slice(2, 4) })]));
+    const onlyAnim = pc.fromV4(v4([layer({ __typename: 'PaintLayerTypeImage', images: images.slice(0, 2) })]));
+    const gradOnly = pc.fromV4(v4([{ opacity: 1, ty: grad }]));
+    [still, onlyAnim, gradOnly].forEach((x) => {
+      assert.ok(!('bgImageStatic' in x), JSON.stringify(x));
+      assert.equal(pc.staticRuleFor(x), null);
+    });
+    assert.equal(onlyAnim.bgImage, 'url("' + IMG + '1x.webp")');
+    // A still that isn't on cdn.7tv.app keeps the animated file.
+    const offCdn = pc.fromV4(v4([layer({ __typename: 'PaintLayerTypeImage', images: [images[1], { url: 'https://evil.example/1x_static.webp', mime: 'image/webp', scale: 1, frameCount: 1 }] })]));
+    assert.equal(pc.staticRuleFor(offCdn), null);
+    assert.equal(pc.staticRuleFor(null), null);
+    assert.equal(pc.staticRuleFor({ id: '../x', bgImageStatic: 'url("https://cdn.7tv.app/x")' }), null);
+  });
+
   test('image URLs outside cdn.7tv.app, non-https, protocol-relative or with quotes are rejected', () => {
     const bad = [
       'https://evil.example/paint.webp',
@@ -243,6 +275,14 @@ describe('fromV3', () => {
     const rule = pc.ruleFor(p);
     assertLonghandsOnly(rule);
     assert.ok(rule.startsWith('.painted.p-' + ID + '{background-image:url("'));
+    // paint_images=static: no still frame is guessed. 7TV's CDN has a 1x_static.webp only beside an animated file,
+    // and v3 doesn't say which this is, so the paint stays as it is (a guessed name would blank a still one).
+    ['1x.webp', '1x_static.webp', '1x.gif', 'paint.png', '1x.webp?x=1'].forEach((f) => {
+      const o = pc.fromV3({ id: ID, function: 'URL', image_url: IMG + f, stops: [], shadows: [] });
+      assert.ok(o.bgImage && !('bgImageStatic' in o), f);
+      assert.equal(pc.staticRuleFor(o), null, f);
+    });
+    assert.deepEqual(Object.keys(p), ['id', 'name', 'bgImage', 'bgColor', 'filter']);
   });
 
   test('empty stops (shadow-only paints): no gradient, shadows kept', () => {

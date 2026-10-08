@@ -23,11 +23,16 @@
     line_height: { type: 'int', min: 100, max: 200, def: 135 },
     text_case: { type: 'enum', values: ['none', 'upper', 'lower', 'smallcaps'], def: 'none' },
     shadow: { type: 'int', min: 0, max: 3, def: 2 },
+    shadow_color: { type: 'color', def: '' },
+    shadow_style: { type: 'enum', values: ['filter', 'text'], def: 'filter' },
+    outline: { type: 'int', min: 0, max: 3, def: 0 },
+    outline_color: { type: 'color', def: '' },
     names: { type: 'bool', def: true },
     name_weight: { type: 'enum', values: WEIGHTS.slice(), def: 'heavy' },
     name_line: { type: 'bool', def: false },
     bg: { type: 'int', min: 0, max: 100, def: 0 },
     bg_color: { type: 'color', def: '' },
+    accent_bar: { type: 'bool', def: false },
     bg_shape: { type: 'enum', values: ['square', 'soft', 'round', 'pill'], def: 'round' },
     bg_width: { type: 'enum', values: ['fit', 'full'], def: 'fit' },
     spacing: { type: 'enum', values: ['tight', 'normal', 'loose', 'extra'], def: 'normal' },
@@ -60,7 +65,9 @@
     badges_ffzap: { type: 'bool', def: true },
     badges_chatterino: { type: 'bool', def: true },
     badges_homies: { type: 'bool', def: true },
+    homies_lists: { type: 'enum', values: ['all', 'light'], def: 'all' },
     paints: { type: 'bool', def: true },
+    paint_images: { type: 'enum', values: ['animated', 'static'], def: 'animated' },
     stv_lookup: { type: 'bool', def: true },
     readable: { type: 'bool', def: true },
     demo: { type: 'bool', def: false },
@@ -69,13 +76,14 @@
 
   var KEYS = Object.keys(SPEC);
 
-  // Settings the overlay can apply in place (the builder sends these via postMessage).
+  // Settings the overlay can apply in place (the builder sends these via postMessage). homies_lists is not one:
+  // the Homies lists fill one index, which can't drop a list once it is loaded.
   var LIVE_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'bots',
     'hide_commands', 'block', 'events', 'replies', 'first_msg', 'gifs', 'badges', 'badges_twitch',
     'badges_kick', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies',
     'paints', 'readable', 'shared', 'platform_icons', 'text_weight', 'text_color', 'line_height', 'text_case', 'names',
     'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width', 'spacing', 'notice_color', 'notice_size',
-    'first_msg_color'];
+    'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color', 'accent_bar', 'paint_images'];
 
   // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
   // them), in their canonical spelling.
