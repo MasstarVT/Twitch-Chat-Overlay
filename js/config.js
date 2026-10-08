@@ -6,7 +6,11 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (root) {
   'use strict';
 
-  // type: channel | kick | room | enum | int | bool | font | list
+  // Font weights, lightest first: 300, 400, 600, 700, 800 and 900 (renderer.js WEIGHTS).
+  var WEIGHTS = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
+
+  // type: channel | kick | room | enum | int | bool | font | list | color
+  // color: a hex color stored as bare lowercase rrggbb ('' = the overlay's built-in color).
   var SPEC = {
     channel: { type: 'channel', def: '' },
     kick: { type: 'kick', def: '' },
@@ -14,8 +18,19 @@
     platform_icons: { type: 'bool', def: true },
     size: { type: 'enum', values: ['small', 'medium', 'large'], def: 'medium' },
     font: { type: 'font', def: 'Inter' },
+    text_weight: { type: 'enum', values: WEIGHTS.slice(), def: 'semibold' },
+    text_color: { type: 'color', def: '' },
+    line_height: { type: 'int', min: 100, max: 200, def: 135 },
+    text_case: { type: 'enum', values: ['none', 'upper', 'lower', 'smallcaps'], def: 'none' },
     shadow: { type: 'int', min: 0, max: 3, def: 2 },
+    names: { type: 'bool', def: true },
+    name_weight: { type: 'enum', values: WEIGHTS.slice(), def: 'heavy' },
+    name_line: { type: 'bool', def: false },
     bg: { type: 'int', min: 0, max: 100, def: 0 },
+    bg_color: { type: 'color', def: '' },
+    bg_shape: { type: 'enum', values: ['square', 'soft', 'round', 'pill'], def: 'round' },
+    bg_width: { type: 'enum', values: ['fit', 'full'], def: 'fit' },
+    spacing: { type: 'enum', values: ['tight', 'normal', 'loose', 'extra'], def: 'normal' },
     layout: { type: 'enum', values: ['vertical', 'horizontal'], def: 'vertical' },
     align: { type: 'enum', values: ['bottom', 'top'], def: 'bottom' },
     animate: { type: 'bool', def: true },
@@ -25,8 +40,11 @@
     hide_commands: { type: 'bool', def: false },
     block: { type: 'list', def: [] },
     events: { type: 'bool', def: true },
+    notice_color: { type: 'color', def: '' },
+    notice_size: { type: 'int', min: 50, max: 150, def: 85 },
     replies: { type: 'bool', def: true },
     first_msg: { type: 'bool', def: false },
+    first_msg_color: { type: 'color', def: '' },
     history: { type: 'int', min: 0, max: 100, def: 5 },
     shared: { type: 'bool', def: true },
     gifs: { type: 'bool', def: true },
@@ -55,7 +73,9 @@
   var LIVE_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'bots',
     'hide_commands', 'block', 'events', 'replies', 'first_msg', 'gifs', 'badges', 'badges_twitch',
     'badges_kick', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies',
-    'paints', 'readable', 'shared', 'platform_icons'];
+    'paints', 'readable', 'shared', 'platform_icons', 'text_weight', 'text_color', 'line_height', 'text_case', 'names',
+    'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width', 'spacing', 'notice_color', 'notice_size',
+    'first_msg_color'];
 
   // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
   // them), in their canonical spelling.
@@ -171,6 +191,15 @@
       case 'font': {
         var f = String(v).trim().replace(/\s+/g, ' ');
         return /^[A-Za-z0-9][A-Za-z0-9 \-]{0,59}$/.test(f) ? f : undefined;
+      }
+      // A hex color, '#' optional, 3 or 6 digits ('F80' -> 'ff8800'). '' is valid (the built-in color), so an
+      // empty ?text_color= clears settings.js and the builder's Default reaches a live preview.
+      case 'color': {
+        if (tv !== 'string') return undefined;
+        var x = v.trim().replace(/^#/, '').toLowerCase();
+        if (x === '') return '';
+        if (/^[0-9a-f]{3}$/.test(x)) x = x.charAt(0) + x.charAt(0) + x.charAt(1) + x.charAt(1) + x.charAt(2) + x.charAt(2);
+        return /^[0-9a-f]{6}$/.test(x) ? x : undefined;
       }
       case 'list': {
         var arr = Array.isArray(v) ? v : String(v).split(/[\s,]+/);

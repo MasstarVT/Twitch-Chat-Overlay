@@ -13,6 +13,7 @@ window.TCO_SETTINGS = {
   // kick_room: '',       // its Kick chatroom id (the builder's Kick > Check finds it)
   // size: 'medium',      // small | medium | large
   // font: 'Inter',       // any Google Font or system font name
+  // text_color: '',      // hex color such as 'ffe08a', '#' optional ('' = the built-in white)
   // shadow: 2,           // 0-3
   // layout: 'vertical',  // vertical | horizontal (one row, like a ticker)
   // fade: 0,             // seconds a message stays; the last second fades out (0 = never)

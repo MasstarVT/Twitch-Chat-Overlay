@@ -80,22 +80,33 @@
   }
 
   // ---------- fonts ----------
-  var loadedFonts = {};
-  function applyFont(name) {
+  // The weights a font is requested in: the four the overlay draws by default, plus Light (300) and Black (900)
+  // only while text_weight or name_weight uses one, so the usual request (and the font a browser has cached for
+  // it) never changes.
+  function fontWeights(cfg) {
+    var w = [400, 600, 700, 800], c = cfg || {};
+    if (c.text_weight === 'light' || c.name_weight === 'light') w.unshift(300);
+    if (c.text_weight === 'black' || c.name_weight === 'black') w.push(900);
+    return w.join(';');
+  }
+
+  var loadedFonts = {}; // name + ':' + weights
+  function applyFont(name, cfg) {
     // Google Fonts family names are case-sensitive in the request URL.
     if (name && T.config.canonicalFont) name = T.config.canonicalFont(name);
-    if (!name || T.config.isSystemFont(name) || loadedFonts[name]) return;
+    var weights = fontWeights(cfg), key = name + ':' + weights;
+    if (!name || T.config.isSystemFont(name) || loadedFonts[key]) return;
     // Generic families (system-ui, serif, ...) are never Google Fonts: a request for one is a wasted 400.
     if (T.renderer.isGenericFont && T.renderer.isGenericFont(name)) return;
-    loadedFonts[name] = true;
+    loadedFonts[key] = true;
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name).replace(/%20/g, '+') +
-      ':wght@400;600;700;800&display=swap';
+      ':wght@' + weights + '&display=swap';
     // A failed request (offline start) is forgotten, so the next reconnect can ask again.
     link.onerror = function () {
       if (link.parentNode) link.parentNode.removeChild(link);
-      delete loadedFonts[name];
+      delete loadedFonts[key];
     };
     document.head.appendChild(link);
   }
@@ -878,7 +889,7 @@
         // for a socket that is connected.
         if (S.stvEvents) S.stvEvents.kick();
         if (S.bttvLive) S.bttvLive.kick();
-        applyFont(S.cfg.font);
+        applyFont(S.cfg.font, S.cfg);
       }
       S.closedAt = 0;
       hideHint();
@@ -1052,7 +1063,7 @@
     }
     var prev = S.cfg;
     S.cfg = next;
-    applyFont(next.font);
+    applyFont(next.font, next);
     S.renderer.setConfig(next);
     // Data for badge providers / paints that were off at boot was never loaded: load it now.
     var turnedOn = ['badges', 'paints'].concat(keys.filter(function (k) { return k.indexOf('badges_') === 0; }))
@@ -1131,7 +1142,7 @@
       deps: { tokensFor: tokensFor, badgesFor: badgesFor, nameFor: nameFor, paintRule: paintRule, shouldShow: shouldShow }
     });
     S.renderer.hold(true);
-    applyFont(cfg.font);
+    applyFont(cfg.font, cfg);
 
     var sErr = settingsError();
     if (sErr) showHint('settings.js has an error: ' + sErr, true, true);
@@ -1190,7 +1201,7 @@
       if (S.stvEvents) S.stvEvents.kick();
       if (S.bttvLive) S.bttvLive.kick();
       S.loads.forEach(function (ctl) { if (ctl.status === 'failed') ctl.retryNow(); });
-      applyFont(S.cfg.font); // a font stylesheet that failed offline
+      applyFont(S.cfg.font, S.cfg); // a font stylesheet that failed offline
     });
     // (The renderer itself flushes on visibilitychange / obsSourceVisibleChanged.)
     setInterval(function () {

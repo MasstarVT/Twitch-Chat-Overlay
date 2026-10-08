@@ -371,6 +371,40 @@ test('Zalgo: runs of combining marks are capped at 4, real scripts and emoji are
   assert.ok(Date.now() - t0 < 1000);
 });
 
+test('color options: only checked hex digits reach #chat, whatever the URL, settings.js or a live message holds', () => {
+  const config = require('../js/config.js');
+  const { createDocument } = require('./fake-dom.js');
+  const COLORS = config.KEYS.filter((k) => config.SPEC[k].type === 'color');
+  assert.deepStrictEqual(COLORS, ['text_color', 'bg_color', 'notice_color', 'first_msg_color']);
+  const hostile = ['red;background:url(https://evil.example/x)', 'fff}*{display:none}', '#fff;', 'url(x)', 'var(--x)',
+    'expression(1)', '000000 !important', 'ffffff\n;x', 'f\\66', '0x123456', '#ff8800aa', ' #12345', 'ｆｆｆ'].concat(PAYLOADS);
+  // config never takes them (so neither the URL, settings.js nor the builder's live messages carry them)...
+  COLORS.forEach((k) => hostile.forEach((v) => assert.strictEqual(config.coerce(k, v), undefined, k + '=' + JSON.stringify(v))));
+  // ...and the renderer checks again: a cfg handed to it directly sets nothing it didn't check.
+  const doc = createDocument();
+  const root = doc.createElement('div');
+  doc.body.appendChild(root);
+  const r = renderer.createRenderer({ root: root, cfg: {}, deps: {} });
+  hostile.concat([123456, true, { toString: () => 'ff0000' }, ['ff0000']]).forEach((v) => {
+    const cfg = { bg: 40 };
+    COLORS.forEach((k) => { cfg[k] = v; });
+    r.setConfig(cfg);
+    assert.deepStrictEqual(Object.keys(root.style).sort(), ['--bg-alpha', '--font', '--shadow'], JSON.stringify(String(v)));
+  });
+  const ok = { bg: 40, text_color: 'ff8800', bg_color: '102030', notice_color: 'abcdef', first_msg_color: '000000' };
+  r.setConfig(ok);
+  assert.deepStrictEqual([root.style['--text-color'], root.style['--bg-rgb'], root.style['--notice-color'], root.style['--first-color']],
+    ['#ff8800', '16, 32, 48', '#abcdef', '#000000']);
+  r.destroy();
+  // Every color variable is set through hexRgb/hexColor, never from the cfg value as it came.
+  const apply = /function applyRoot\(c\) \{([\s\S]*?)\n {4}\}/.exec(read('js/renderer.js'))[1];
+  COLORS.forEach((k) => {
+    const uses = apply.split('\n').filter((l) => l.indexOf('c.' + k) >= 0);
+    assert.ok(uses.length > 0, k + ' is applied');
+    uses.forEach((l) => assert.match(l, new RegExp('hex(?:Rgb|Color)\\(c\\.' + k + '\\)'), l.trim()));
+  });
+});
+
 test('pickUrl: https only except the fixed local badge asset', () => {
   assert.strictEqual(R.pickUrl({ 1: 'https://cdn.7tv.app/x' }, 1), 'https://cdn.7tv.app/x');
   assert.strictEqual(R.pickUrl({ 1: '//cdn.7tv.app/x' }, 1), 'https://cdn.7tv.app/x');

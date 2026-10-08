@@ -415,11 +415,12 @@ label.field-label { cursor: pointer; }
 .tag.changed { color: var(--accent-hi); }
 .field.disabled { opacity: .45; }
 .field.disabled .field-label, .field.disabled .switch,
-.field.disabled label, .field.disabled button, .field.disabled input { cursor: not-allowed; }
+.field.disabled label, .field.disabled button, .field.disabled input,
+.field.disabled input[type=color] { cursor: not-allowed; }
 /* and no hover feedback from a control that does nothing; the chosen option keeps its white on the fill */
 .field.disabled .seg label:hover input:not(:checked) + span { color: var(--muted); }
 .field.disabled .step:hover { background: transparent; }
-.field.disabled .text:hover, .field.disabled .stepper:hover { border-color: var(--field-edge); }
+.field.disabled .text:hover, .field.disabled .stepper:hover, .field.disabled input[type=color]:hover { border-color: var(--field-edge); }
 /* the row is dimmed already, so a disabled button in it is not dimmed twice */
 .field.disabled .btn:disabled { opacity: 1; }
 /* a switch sits beside its label at every width */
@@ -429,6 +430,16 @@ label.field-label { cursor: pointer; }
 .text-row { display: flex; gap: 8px; min-width: 0; }
 .text-row .text { flex: 1 1 auto; min-width: 0; }
 .text-row .btn { flex: none; padding: 0 16px; }
+/* a color: the browser's picker as a swatch, the hex code, and Default */
+.field-color input[type=color] {
+  flex: none; width: 44px; height: 44px; margin: 0; padding: 3px;
+  border: 1px solid var(--field-edge); border-radius: var(--radius-sm);
+  background: var(--field); cursor: pointer;
+}
+.field-color input[type=color]:hover { border-color: var(--edge); }
+.field-color input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+.field-color input[type=color]::-webkit-color-swatch { border: 0; border-radius: 6px; }
+.field-color input[type=color]::-moz-color-swatch { border: 0; border-radius: 6px; }
 .field .status a { color: var(--accent-hi); }
 
 /* provider marks (as on the home page) */
@@ -509,6 +520,8 @@ label.field-label { cursor: pointer; }
 .range { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .range input { flex: 1 1 auto; min-width: 0; height: 44px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .range-value { flex: none; min-width: 44px; text-align: right; font-weight: 700; font-size: 14px; color: var(--accent-hi); font-variant-numeric: tabular-nums; }
+/* a slider over names (text_weight): as wide as the longest, so the track doesn't change length while dragging */
+.range-value.names { min-width: 5.5em; }
 
 /* stepper: a number you can type, with a button either side */
 .stepper {
@@ -661,7 +674,7 @@ label.field-label { cursor: pointer; }
   .field-control { flex: none; max-width: 100%; }
   .field-text .field-control { flex: 1 1 100%; }
   .field-font .field-control { width: 240px; }
-  .field-range .field-control { width: 260px; }
+  .field-range .field-control, .field-color .field-control { width: 260px; }
   .seg { display: inline-flex; }
   .seg label { flex: none; }
   .seg span { padding: 0 13px; white-space: nowrap; }
@@ -685,6 +698,9 @@ label.field-label { cursor: pointer; }
   .field:not(.field-check) .field-label { flex: none; max-width: 100%; }
   .field:not(.field-check) .tag { min-width: 0; text-align: right; }
   .field .text { min-height: 48px; }
+  .field-color input[type=color] { width: 48px; height: 48px; }
+  /* a .wrap field's choices as wide as their words, so none breaks inside its segment (Small caps) */
+  .seg.wrap label { flex: 1 1 auto; }
   /* the gap beside a portrait frame is narrow: a small moon in it, level with the tag line, so that
      builder.js hides it (tag-on-moon) wherever it would meet the frame */
   .scene .moon { right: 8px; top: 24px; width: 40px; height: 40px; }
@@ -886,6 +902,8 @@ label.field-label { cursor: pointer; }
   .seg input:focus-visible + span { outline: 3px solid Highlight; outline-offset: 2px; }
   /* color samples, and the scene they pick, keep their own colors */
   .sw { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .field-color input[type=color], .field-color input[type=color]:hover { forced-color-adjust: none; border-color: CanvasText; background: Canvas; }
+  .field-color input[type=color]:focus-visible { outline-color: CanvasText; }
   .swatches input:checked + .sw { box-shadow: 0 0 0 2px Canvas, 0 0 0 4px Highlight; }
   .swatches input:focus-visible + .sw { outline-color: CanvasText; }
   .stage { forced-color-adjust: none; }

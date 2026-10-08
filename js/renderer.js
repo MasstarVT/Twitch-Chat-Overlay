@@ -46,11 +46,24 @@
     'first_msg', 'shared', 'layout']; // layout: a row draws gigantified emotes at emote height, so it picks smaller files
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
   // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
-  var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max'];
+  var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
+    'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
+    'spacing', 'notice_color', 'notice_size', 'first_msg_color'];
+
+  // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
+  var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
+  var WEIGHTS = { light: 300, regular: 400, semibold: 600, bold: 700, heavy: 800, black: 900 };
+  // bg_shape: the box corners. round is the stylesheet's .4em (.3em on a channel-points highlighted line).
+  var BG_RADIUS = { square: '0', soft: '.2em', pill: '1em' };
+  // spacing: the gap between messages. A column pads (or, with bg, spaces) each line by .15em at normal; a row
+  // leaves 1em between messages, .4em between boxes (the second value).
+  var LINE_GAP = { tight: '.05em', loose: '.3em', extra: '.5em' };
+  var ROW_GAP = { tight: ['.5em', '.2em'], loose: ['1.5em', '.6em'], extra: ['2em', '.8em'] };
 
   // The values normalizeCfg makes safe, each with its config.js default (tests/parity.test.js checks they
   // match SPEC): values = the enum's choices, min/max = an int's range, bool = missing means the default,
-  // str = a string or the default. Tests and older callers pass partial cfgs, so a missing key reads as today.
+  // str = a string or the default, hex = a config color (bare lowercase rrggbb) or the default ''. Tests and
+  // older callers pass partial cfgs, so a missing key reads as today.
   var NORM = {
     size: { values: ['small', 'medium', 'large'], def: 'medium' },
     layout: { values: ['vertical', 'horizontal'], def: 'vertical' },
@@ -60,7 +73,21 @@
     fade: { min: 0, max: 3600, def: 0 },
     max: { min: 1, max: 200, def: 50 },
     animate: { bool: true, def: true },
-    font: { str: true, def: 'Inter' }
+    font: { str: true, def: 'Inter' },
+    text_weight: { values: WEIGHT_NAMES, def: 'semibold' },
+    text_color: { hex: true, def: '' },
+    line_height: { min: 100, max: 200, def: 135 },
+    text_case: { values: ['none', 'upper', 'lower', 'smallcaps'], def: 'none' },
+    names: { bool: true, def: true },
+    name_weight: { values: WEIGHT_NAMES, def: 'heavy' },
+    name_line: { bool: true, def: false },
+    bg_color: { hex: true, def: '' },
+    bg_shape: { values: ['square', 'soft', 'round', 'pill'], def: 'round' },
+    bg_width: { values: ['fit', 'full'], def: 'fit' },
+    spacing: { values: ['tight', 'normal', 'loose', 'extra'], def: 'normal' },
+    notice_color: { hex: true, def: '' },
+    notice_size: { min: 50, max: 150, def: 85 },
+    first_msg_color: { hex: true, def: '' }
   };
   var NORM_KEYS = Object.keys(NORM);
   var NORM_DEFAULTS = {};
@@ -78,6 +105,7 @@
     if (n.values) return n.values.indexOf(v) >= 0 ? v : n.def;
     if (n.bool) return v === undefined ? n.def : !!v;
     if (n.str) return typeof v === 'string' ? v : n.def;
+    if (n.hex) return hexRgb(v) === null ? n.def : v;
     return clampInt(v, n.min, n.max, n.def);
   }
 
@@ -103,10 +131,11 @@
   // A config color (bare lowercase rrggbb, config.js) as 'r, g, b' for rgba(); null for anything else, so
   // only checked digits ever reach a CSS value.
   function hexRgb(hex) {
-    var s = String(hex === undefined || hex === null ? '' : hex);
-    if (!/^[0-9a-f]{6}$/.test(s)) return null;
-    return parseInt(s.slice(0, 2), 16) + ', ' + parseInt(s.slice(2, 4), 16) + ', ' + parseInt(s.slice(4, 6), 16);
+    if (typeof hex !== 'string' || !/^[0-9a-f]{6}$/.test(hex)) return null;
+    return parseInt(hex.slice(0, 2), 16) + ', ' + parseInt(hex.slice(2, 4), 16) + ', ' + parseInt(hex.slice(4, 6), 16);
   }
+  // The same color as '#rrggbb' for a CSS color value; null for anything else.
+  function hexColor(hex) { return hexRgb(hex) === null ? null : '#' + hex; }
 
   function sameValue(a, b) {
     if (Array.isArray(a) || Array.isArray(b)) {
@@ -1207,11 +1236,32 @@
       cl.toggle('align-top', c.align === 'top');
       cl.toggle('align-bottom', c.align !== 'top');
       cl.toggle('has-bg', c.bg > 0);
+      // The options below add a class or a variable only off their default (css/overlay.css has the rules, with
+      // today's values as the var() fallbacks), and take it away again when set back.
+      cl.toggle('case-upper', c.text_case === 'upper');
+      cl.toggle('case-lower', c.text_case === 'lower');
+      cl.toggle('case-smallcaps', c.text_case === 'smallcaps');
+      cl.toggle('no-names', !c.names);
+      cl.toggle('name-line', c.name_line); // the stylesheet applies it to a column only
+      cl.toggle('bg-full', c.bg_width === 'full'); // and this to a column with bg only
       var st = rootEl.style;
       setVar(st, '--font', fontVar(c.font));
       setVar(st, '--shadow', shadowCss(c.shadow));
       setVar(st, '--bg-alpha', bgAlpha(c.bg));
       // --emote-h is left to the stylesheet (1.75em = EMOTE_EM), so OBS Custom CSS can change it.
+      setVar(st, '--text-weight', c.text_weight === 'semibold' ? null : WEIGHTS[c.text_weight]);
+      setVar(st, '--name-weight', c.name_weight === 'heavy' ? null : WEIGHTS[c.name_weight]);
+      setVar(st, '--text-color', hexColor(c.text_color));
+      // Unitless, so the smaller reply header and notice lines keep their own spacing.
+      setVar(st, '--line-height', c.line_height === 135 ? null : String(c.line_height / 100));
+      setVar(st, '--bg-rgb', hexRgb(c.bg_color));
+      setVar(st, '--bg-radius', BG_RADIUS[c.bg_shape]);
+      var row = c.layout === 'horizontal' ? ROW_GAP[c.spacing] : null;
+      setVar(st, '--line-gap', c.layout === 'horizontal' ? null : LINE_GAP[c.spacing]);
+      setVar(st, '--row-gap', row ? row[c.bg > 0 ? 1 : 0] : null);
+      setVar(st, '--notice-color', hexColor(c.notice_color));
+      setVar(st, '--notice-size', c.notice_size === 85 ? null : c.notice_size / 100 + 'em');
+      setVar(st, '--first-color', hexColor(c.first_msg_color));
     }
 
     function setConfig(next) {
@@ -1438,6 +1488,8 @@
       normalizeCfg: normalizeCfg,
       setVar: setVar,
       hexRgb: hexRgb,
+      hexColor: hexColor,
+      WEIGHTS: WEIGHTS,
       changedAny: changedAny,
       fontPx: fontPx,
       wantEmote: wantEmote,

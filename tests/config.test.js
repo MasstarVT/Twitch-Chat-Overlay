@@ -7,9 +7,12 @@ describe('spec', () => {
   test('defaults match the plan', () => {
     const d = config.defaults();
     assert.deepEqual(d, {
-      channel: '', kick: '', kick_room: '', platform_icons: true, size: 'medium', font: 'Inter', shadow: 2, bg: 0, layout: 'vertical', align: 'bottom', animate: true,
+      channel: '', kick: '', kick_room: '', platform_icons: true, size: 'medium', font: 'Inter',
+      text_weight: 'semibold', text_color: '', line_height: 135, text_case: 'none', shadow: 2,
+      names: true, name_weight: 'heavy', name_line: false,
+      bg: 0, bg_color: '', bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
-      events: true, replies: true, first_msg: false, history: 5, shared: true, gifs: true,
+      events: true, notice_color: '', notice_size: 85, replies: true, first_msg: false, first_msg_color: '', history: 5, shared: true, gifs: true,
       emotes_7tv: true, emotes_bttv: true, emotes_ffz: true,
       badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
       badges_ffzap: true, badges_chatterino: true, badges_homies: true,
@@ -179,6 +182,38 @@ describe('coerce', () => {
     ['Roboto;}body{', "Font'x", 'a"b', '-dash', 'a'.repeat(61), '', 'x<y'].forEach((v) => {
       assert.equal(config.coerce('font', v), undefined, JSON.stringify(v));
     });
+  });
+
+  test('color: hex, # optional, 3 or 6 digits, stored as bare lowercase rrggbb; empty is the built-in color', () => {
+    assert.equal(config.coerce('text_color', 'FF8800'), 'ff8800');
+    assert.equal(config.coerce('text_color', '#ff8800'), 'ff8800');
+    assert.equal(config.coerce('text_color', ' #F80 '), 'ff8800');
+    assert.equal(config.coerce('bg_color', 'abc'), 'aabbcc');
+    assert.equal(config.coerce('notice_color', '#000000'), '000000');
+    assert.equal(config.coerce('first_msg_color', ''), '', 'Default');
+    assert.equal(config.coerce('first_msg_color', '  '), '');
+    assert.equal(config.coerce('first_msg_color', '#'), '');
+    ['red', 'ff88001a', '#ff88001a', 'ff88', '#ff880', 'ggg', '##fff', 'ff 880', 'rgb(1,2,3)', 'ff8800;}',
+      'url(x)', 'var(--x)', true, false, 123456, 0].forEach((v) => assert.equal(config.coerce('text_color', v), undefined, JSON.stringify(v)));
+    // Through the URL, and back out without a '#' (which would start the URL's fragment).
+    assert.equal(config.parse('text_color=%23F80').text_color, 'ff8800');
+    assert.equal(config.parse('text_color=F80').text_color, 'ff8800');
+    assert.equal(config.parse('text_color=', { text_color: '00ff00' }).text_color, '', 'an empty one clears settings.js');
+    assert.equal(config.parse('text_color=nope', { text_color: '00ff00' }).text_color, '00ff00');
+    assert.equal(config.toParams(Object.assign(config.defaults(), { text_color: 'ff8800' })).toString(), 'text_color=ff8800');
+    assert.equal(config.serialize('bg_color', ''), '');
+    assert.equal(config.isDefault('bg_color', ''), true);
+    assert.equal(config.isDefault('bg_color', '000000'), false, 'black picked is a choice, not the default');
+  });
+
+  test('text and name weights: six names, lightest first', () => {
+    const w = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
+    assert.deepEqual(config.SPEC.text_weight.values, w);
+    assert.deepEqual(config.SPEC.name_weight.values, w);
+    assert.equal(config.coerce('text_weight', 'Black'), 'black');
+    assert.equal(config.coerce('name_weight', '800'), undefined, 'names, not numbers');
+    assert.equal(config.coerce('line_height', '99'), 100);
+    assert.equal(config.coerce('notice_size', 500), 150);
   });
 
   test('list: normalized, deduped logins from strings or arrays', () => {

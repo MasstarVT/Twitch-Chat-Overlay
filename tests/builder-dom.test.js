@@ -343,11 +343,9 @@ test('Badges & paints: the sources are one labelled grid under Show badges, with
   rows.forEach((e) => assert.strictEqual(e.className, 'field field-check sub'));
   assert.deepStrictEqual([help.tagName, help.className], ['P', 'help']);
   assert.match(help.textContent, /^Twitch covers sub, mod, VIP and bits badges\./);
-  // No sub-heading or "More in Advanced" anywhere until a section has one.
-  ['group-look', 'group-badges', 'group-advanced'].forEach((id) => {
-    assert.deepStrictEqual(p.$(id).byClass('subhead'), [], id);
-    assert.deepStrictEqual(p.$(id).children.map((e) => e.className), ['section-head', 'fields'].concat(id === 'group-badges' ? ['help section-foot'] : []), id);
-  });
+  // No sub-heading or "More in Advanced" here (yet): the section is as it was.
+  assert.strictEqual(p.$('group-badges').byClass('subhead').length, 0);
+  assert.deepStrictEqual(p.$('group-badges').children.map((e) => e.className), ['section-head', 'fields', 'help section-foot']);
 });
 
 test('a field that only applies while another setting allows it is greyed out and back, after every kind of change', (t) => {
@@ -388,13 +386,9 @@ test('a field that only applies while another setting allows it is greyed out an
   assert.strictEqual(p.$('l-size').parentNode.parentNode.byClass('seg')[0].className, 'seg field-control');
 });
 
-// Look with a sub-heading and a More in Advanced link, Advanced with a heading. focused: what a heading's
-// focus() was called on.
-function withHeadings(focused) {
+// focused: what a sub-heading's focus() was called on.
+function watchFocus(focused) {
   return (b, doc) => {
-    b.GROUPS[0].subs = [{ title: 'Text', first: 'size' }];
-    b.GROUPS[0].more = 'adv-trouble';
-    b.GROUPS[b.GROUPS.length - 1].subs = [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }];
     const make = doc.createElement;
     doc.createElement = (tag) => {
       const e = make(tag);
@@ -406,7 +400,7 @@ function withHeadings(focused) {
 
 test('a link to an Advanced sub-heading opens Advanced, and leaves the focus alone while the page loads', (t) => {
   const focused = [];
-  const p = open(t, HREF + '#adv-trouble', { setup: withHeadings(focused) });
+  const p = open(t, HREF + '#adv-box', { setup: watchFocus(focused) });
   assert.strictEqual(p.$('group-advanced').hidden, false);
   assert.strictEqual(p.$('tab-advanced').getAttribute('aria-selected'), 'true');
   assert.deepStrictEqual(focused, []);
@@ -414,29 +408,178 @@ test('a link to an Advanced sub-heading opens Advanced, and leaves the focus alo
 
 test('sub-headings go above their field; More in Advanced opens Advanced at its heading and moves the focus there', (t) => {
   const focused = [];
-  const p = open(t, HREF, { setup: withHeadings(focused) });
+  const p = open(t, HREF, { setup: watchFocus(focused) });
   const fields = (id) => p.$(id).children.filter((e) => e.className === 'fields')[0].children;
-  const look = fields('group-look');
-  const i = look.findIndex((e) => e.tagName === 'H3');
-  assert.deepStrictEqual([look[i].className, look[i].textContent, !!look[i].id], ['eyebrow subhead', 'Text', false]);
-  assert.strictEqual(look[i + 1].getAttribute('data-key'), 'size');
-  const adv = fields('group-advanced');
-  assert.deepStrictEqual(adv.map((e) => e.tagName === 'H3' ? 'h3#' + e.id : e.getAttribute('data-key')), ['h3#adv-trouble', 'debug', 'demo']);
-  const heading = adv[0];
-  assert.strictEqual(heading.tabIndex, -1);
-  // The link is the section's foot: an <a> to the heading's anchor.
+  const outline = (id) => fields(id).map((e) => (e.tagName === 'H3' ? e.textContent + (e.id ? '#' + e.id : '') : e.getAttribute('data-key')));
+  fields('group-look').filter((e) => e.tagName === 'H3').forEach((e) => {
+    assert.strictEqual(e.className, 'eyebrow subhead');
+    assert.strictEqual(e.id, undefined, 'only Advanced headings are anchors');
+  });
+  assert.deepStrictEqual(outline('group-look'), ['Layout', 'layout', 'align', 'Text', 'size', 'font', 'text_weight', 'text_color',
+    'shadow', 'Names', 'name_line', 'Box', 'bg', 'bg_color', 'Animation', 'animate']);
+  assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'line_height',
+    'text_case', 'Names#adv-names', 'names', 'name_weight', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing',
+    'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color']);
+  const adv = fields('group-advanced').filter((e) => e.tagName === 'H3');
+  adv.forEach((e) => assert.strictEqual(e.tabIndex, -1, e.id));
+  // The link is the section's foot: an <a> to the heading's anchor. Chat events has one too.
   const foot = p.$('group-look').children[2];
   assert.strictEqual(foot.className, 'section-foot');
   const link = foot.children[0];
-  assert.deepStrictEqual([link.tagName, link.className, link.textContent, link.href], ['A', 'btn ghost', 'More in Advanced', '#adv-trouble']);
+  assert.deepStrictEqual([link.tagName, link.className, link.textContent, link.href], ['A', 'btn ghost', 'More in Advanced', '#adv-text']);
+  assert.strictEqual(p.$('group-events').children[2].children[0].href, '#adv-events');
   // Followed: the hash changes, Advanced opens and its heading scrolls into view and takes the focus.
+  const heading = adv.filter((e) => e.id === 'adv-text')[0];
   let scrolled = false;
   heading.scrollIntoView = () => { scrolled = true; };
   p.doc.activeElement = link;
-  globalThis.location.hash = '#adv-trouble';
+  globalThis.location.hash = '#adv-text';
   p.doc.defaultView.dispatch('hashchange');
   assert.strictEqual(p.$('group-advanced').hidden, false);
   assert.strictEqual(p.$('group-look').hidden, true);
   assert.strictEqual(scrolled, true);
   assert.deepStrictEqual(focused, [heading]);
+});
+
+// A color field's three controls: the picker, the hex box and Default.
+function colorField(p, key) {
+  const row = rowOf(p, key);
+  const [pick, hex, dflt] = row.byClass('text-row')[0].children;
+  return { row, pick, hex, dflt, tag: () => p.$('l-' + key).parentNode.byClass('tag')[0].textContent, err: p.$('e-' + key) };
+}
+const OVERLAY = 'https://masstarvt.github.io/Twitch-Chat-Overlay/overlay.html';
+
+test('a color field: the picker, a typed hex code, a bad one and Default, live in the preview without a reload', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  assert.ok(frame, 'the preview frame');
+  const posted = [];
+  frame.contentWindow = { postMessage: (m) => posted.push(m) };
+  const c = colorField(p, 'text_color');
+  assert.strictEqual(c.row.className, 'field field-color');
+  assert.deepStrictEqual([c.pick.tagName, c.pick.type, c.hex.type, c.hex.id, c.dflt.textContent, c.dflt.type],
+    ['INPUT', 'color', 'text', 'f-text_color', 'Default', 'button']);
+  assert.strictEqual(c.pick.getAttribute('aria-labelledby'), 'l-text_color');
+  // '': the picker shows the built-in white, the box is empty, and there is nothing to reset.
+  assert.deepStrictEqual([c.pick.value, c.hex.value, c.hex.placeholder, c.dflt.disabled], ['#ffffff', '', '#ffffff', true]);
+
+  c.pick.value = '#ff8800';
+  c.pick.dispatch('input');
+  assert.deepStrictEqual([c.hex.value, c.dflt.disabled, c.tag()], ['#ff8800', false, 'text_color=ff8800']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?text_color=ff8800');
+  t.mock.timers.tick(30);
+  assert.strictEqual(posted[posted.length - 1].cfg.text_color, 'ff8800', 'sent to the preview');
+
+  // Typed: 3 digits, no '#', upper case. While typing the box is left alone; on change it reads back.
+  c.hex.value = '0AF';
+  c.hex.dispatch('input');
+  t.mock.timers.tick(600);
+  assert.strictEqual(c.tag(), 'text_color=00aaff');
+  assert.strictEqual(c.hex.value, '0AF');
+  assert.strictEqual(c.pick.value, '#00aaff');
+  c.hex.dispatch('change');
+  assert.strictEqual(c.hex.value, '#00aaff');
+
+  // A bad one: an error under the field, the setting as it was.
+  c.hex.value = 'orange';
+  c.hex.dispatch('change');
+  assert.deepStrictEqual([c.err.hidden, c.hex.getAttribute('aria-invalid'), c.tag()], [false, 'true', 'text_color=00aaff']);
+  assert.match(c.hex.getAttribute('aria-describedby'), /e-text_color/);
+
+  // Default: back to '', the error gone, the button off again. The focus goes to the picker, not the hex box
+  // (which would bring up a phone's keyboard).
+  const focused = [];
+  c.pick.focus = () => focused.push('pick');
+  c.hex.focus = () => focused.push('hex');
+  c.dflt.dispatch('click');
+  assert.deepStrictEqual([c.hex.value, c.pick.value, c.dflt.disabled, c.err.hidden, c.tag()], ['', '#ffffff', true, true, 'text_color']);
+  assert.deepStrictEqual(focused, ['pick']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY);
+  t.mock.timers.tick(30);
+  assert.strictEqual(posted[posted.length - 1].cfg.text_color, '');
+  // Live settings: the frame was never reloaded.
+  t.mock.timers.tick(2000);
+  assert.strictEqual(p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0], frame);
+});
+
+test('a color field\'s Default stays off at the built-in color after other changes, a paste, Reset and a layout switch', (t) => {
+  const p = open(t, HREF);
+  const c = colorField(p, 'text_color'), b = colorField(p, 'bg_color');
+  const bots = p.$('f-bots');
+  bots.checked = true;
+  bots.dispatch('change');
+  assert.strictEqual(c.dflt.disabled, true, 'another setting changed');
+  // bg_color needs a box: everything in its row is off while bg is 0.
+  assert.deepStrictEqual([b.row.classList.contains('disabled'), b.pick.disabled, b.hex.disabled, b.dflt.disabled], [true, true, true, true]);
+  p.$('paste').value = '?bg=40&bg_color=%23123&text_color=fff';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([b.row.classList.contains('disabled'), b.pick.disabled, b.hex.disabled, b.dflt.disabled], [false, false, false, false]);
+  assert.deepStrictEqual([b.hex.value, b.pick.value, c.hex.value, c.dflt.disabled], ['#112233', '#112233', '#ffffff', false]);
+  p.$('paste').value = '?bg=40';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([b.hex.value, b.pick.value, b.dflt.disabled, b.pick.disabled], ['', '#000000', true, false], 'pasted without a color');
+  assert.strictEqual(c.dflt.disabled, true);
+  const pick = (v) => {
+    const r = p.doc.querySelectorAll('input[name="f-layout"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  pick('horizontal');
+  assert.deepStrictEqual([c.dflt.disabled, b.dflt.disabled, b.pick.disabled], [true, true, false]);
+  pick('vertical');
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([c.dflt.disabled, b.dflt.disabled, b.pick.disabled, b.row.classList.contains('disabled')], [true, true, true, true]);
+});
+
+test('the stage-2 dependencies: greyed out while bg, events, first_msg or names is off, or in a row', (t) => {
+  const p = open(t, HREF);
+  const off = (key) => rowOf(p, key).classList.contains('disabled');
+  const keys = ['bg_color', 'bg_shape', 'bg_width', 'name_line', 'notice_color', 'notice_size', 'first_msg_color'];
+  const state = () => keys.filter(off);
+  assert.deepStrictEqual(state(), ['bg_color', 'bg_shape', 'bg_width', 'first_msg_color'], 'defaults: no box, no first-message bar');
+  p.$('paste').value = '?bg=40&first_msg=1';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual(state(), []);
+  const flip = (id, v) => { const e = p.$(id); e.checked = v; e.dispatch('change'); };
+  flip('f-events', false);
+  assert.deepStrictEqual(state(), ['notice_color', 'notice_size']);
+  flip('f-events', true);
+  flip('f-names', false);
+  assert.deepStrictEqual(state(), ['name_line'], 'only the name line goes with the names');
+  assert.strictEqual(off('name_weight'), false);
+  flip('f-names', true);
+  const r = p.doc.querySelectorAll('input[name="f-layout"]').filter((x) => x.value === 'horizontal')[0];
+  r.checked = true;
+  r.dispatch('change');
+  assert.deepStrictEqual(state(), ['bg_width', 'name_line'], 'column only');
+  // The range and stepper of this stage: disabled inputs, enabled again.
+  flip('f-events', false);
+  assert.strictEqual(p.$('f-notice_size').disabled, true);
+  flip('f-events', true);
+  assert.strictEqual(p.$('f-notice_size').disabled, false);
+});
+
+test('the weights are sliders over their six names; the letter case is a segmented field that may wrap', (t) => {
+  const p = open(t, HREF);
+  assert.strictEqual(p.$('l-text_case').parentNode.parentNode.byClass('seg')[0].className, 'seg wrap field-control');
+  const tw = p.$('f-text_weight'), out = tw.parentNode.byClass('range-value')[0];
+  assert.deepStrictEqual([tw.type, tw.min, tw.max, tw.step, tw.value], ['range', '0', '5', '1', '2']);
+  assert.deepStrictEqual([out.textContent, tw.getAttribute('aria-valuetext')], ['Semi-bold', 'Semi-bold']);
+  assert.deepStrictEqual([p.$('f-name_weight').value, p.$('f-name_weight').parentNode.byClass('range-value')[0].textContent], ['4', 'Heavy']);
+  tw.value = '5';
+  tw.dispatch('input');
+  assert.deepStrictEqual([out.textContent, tw.getAttribute('aria-valuetext')], ['Black', 'Black']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?text_weight=black');
+  // A paste moves the slider to the pasted name.
+  p.$('paste').value = '?text_weight=light&name_weight=regular';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([tw.value, out.textContent, p.$('f-name_weight').value], ['0', 'Light', '1']);
+  p.$('paste').value = '?text_weight=black';
+  p.$('paste-load').dispatch('click');
+  const lh = p.$('f-line_height');
+  assert.strictEqual(lh.value, '135%');
+  lh.parentNode.children[2].dispatch('click');
+  assert.strictEqual(lh.value, '140%');
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?text_weight=black&line_height=140');
 });

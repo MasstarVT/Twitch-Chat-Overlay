@@ -65,6 +65,7 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 - **Out-of-range numbers** are clamped to the nearest limit: `max=0` becomes 1, `bg=150` becomes 100.
 - **Other invalid values** fall back to the default.
 - **Option names** are not case-sensitive, in the URL or in settings.js (`Size=large` works).
+- **Colors** are hex codes, 6 digits or 3 (`ff8800` or `f80`), and the `#` is optional. Leave it out in a URL (`text_color=ff8800`): there a `#` starts the page's anchor, and everything after it is lost. An empty value (`text_color=`) means the built-in color.
 - **Builder output** includes only the options you changed. The exception is a `file:///…/overlay.html?…` URL: it lists every setting, so a settings.js in that folder can't override any of them. Such a URL also keeps today's defaults if a later release changes one.
 
 | Option | Default | Values | What it does |
@@ -75,8 +76,19 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `platform_icons` | `1` | bool | With both a Twitch and a Kick channel, start each line with a small Twitch or Kick icon. It shows even with `badges=0`. |
 | `size` | `medium` | `small`, `medium`, `large` | Text size: 18, 24 or 32 px. |
 | `font` | `Inter` | font name | Any Google Font, a stock Windows font (Arial, Segoe UI, Verdana, Calibri, …) or a CSS generic name (`sans-serif`, `monospace`, `system-ui`, …). Windows fonts and generic names are used as installed and never fetched. Any other name is loaded from Google Fonts, with each word capitalized to match Google's spelling (`roboto slab` becomes `Roboto Slab`). |
+| `text_weight` | `semibold` | `light`, `regular`, `semibold`, `bold`, `heavy`, `black` | Weight of the message text: 300, 400, 600, 700, 800 or 900. Names inside sub and raid notices follow it too. A Google Font is requested in weights 400 to 800; `light` and `black` add 300 or 900 to that request. A font without the weight draws the nearest one it has. |
+| `text_color` | none | hex color | Color of the message text (white when unset). Names, `/me` messages and notices keep their own colors. |
+| `line_height` | `135` | `100`–`200` | Line height in percent of the text size. Below about 115 emotes reach into the lines next to them. In the horizontal layout it also sets the row's height. |
+| `text_case` | `none` | `none`, `upper`, `lower`, `smallcaps` | Show names, messages and reply headers in upper case, lower case or small caps. Only the look changes: emotes, filters and the built-in badges see the text as typed. |
 | `shadow` | `2` | `0`–`3` | Drop-shadow strength behind text and emotes. |
-| `bg` | `0` | `0`–`100` | Opacity of a dark background box behind each message. |
+| `names` | `1` | bool | Show the name and colon before each message. Reply headers and sub or raid notices keep their names. |
+| `name_weight` | `heavy` | as `text_weight` | Weight of the names before messages and in reply headers. A name inside a sub or raid notice follows `text_weight`. `light` and `black` add a weight to the font request, as with `text_weight`. |
+| `name_line` | `0` | bool | Start each message on a line of its own under the name. Vertical layout, with `names=1`. |
+| `bg` | `0` | `0`–`100` | Opacity of a box behind each message (black, or `bg_color`). |
+| `bg_color` | none | hex color | Color of the box behind each message (black when unset). Needs `bg` above 0. |
+| `bg_shape` | `round` | `square`, `soft`, `round`, `pill` | Corners of the box. `pill` gives a one-line box round ends (an announcement keeps its bar side less round). Needs `bg` above 0. |
+| `bg_width` | `fit` | `fit`, `full` | `full` makes every box as wide as the column. Vertical layout, with `bg` above 0. |
+| `spacing` | `normal` | `tight`, `normal`, `loose`, `extra` | Space between messages: above and below each one in the vertical layout, the gap between them in the horizontal layout. |
 | `layout` | `vertical` | `vertical`, `horizontal` | `vertical`: messages stack in a column. `horizontal`: messages sit side by side in one row, new ones come in on the right and older ones slide off to the left. In a row, a message longer than the source is cut off with an ellipsis, and GIFs and gigantified emotes are drawn at emote height. |
 | `align` | `bottom` | `bottom`, `top` | `bottom`: newest message at the bottom. `top`: newest message at the top. With `layout=horizontal` the newest message is always on the right, and `align` picks the edge the row lines up on. |
 | `animate` | `1` | bool | Slide and fade in new messages. |
@@ -86,8 +98,11 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `hide_commands` | `0` | bool | Hide messages that start with `!`, including replies whose text after the `@name` starts with `!`. |
 | `block` | none | comma-separated logins | Users whose messages are hidden. A reply to a blocked user still shows, but without the blocked user's message in its header. |
 | `events` | `1` | bool | Show sub, resub, gift, raid and bits-badge notices, and announcements. A resub's own chat message is shown either way. |
+| `notice_color` | none | hex color | Color of the text of sub, gift, raid and bits-badge notices (light purple, `E2D6FF`, when unset). Announcements are chat messages and use `text_color`. |
+| `notice_size` | `85` | `50`–`150` | Size of notice text, in percent of the chat text. Above 100 a notice can be cut off in a short horizontal source. |
 | `replies` | `1` | bool | Show a "↪ @user: message" header on replies. The header is left out when the quoted message was deleted by a mod, or its author was timed out or banned. |
 | `first_msg` | `0` | bool | Highlight first-time chatters. |
+| `first_msg_color` | none | hex color | Color of the bar beside a first-time chatter's message (purple, `9146FF`, when unset). Kick has no first-message flag. |
 | `history` | `5` | `0`–`100` | Load up to this many recent lines on start (from recent-messages.robotty.de). `0` turns it off. Timeouts, deletions, sub and raid notices, deleted messages and hidden bots count toward the limit, so fewer chat messages may appear. |
 | `shared` | `1` | bool | Show messages from other channels during a Shared Chat session. |
 | `gifs` | `1` | bool | Show Twitch chat GIFs. They load as Giphy's 200 px animated WebP instead of the full-size original. |
@@ -111,6 +126,10 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `#chat.layout-horizontal` | the overlay in the horizontal layout |
 | `#chat.align-bottom`, `#chat.align-top` | newest message at the bottom or at the top (`align`); in the horizontal layout, the edge the row runs along |
 | `#chat.has-bg` | the overlay with a box behind each message (`bg` above 0) |
+| `#chat.bg-full` | boxes as wide as the column (`bg_width=full`) |
+| `#chat.no-names` | names hidden (`names=0`) |
+| `#chat.name-line` | each message on a line of its own under the name (`name_line=1`; the vertical layout, with names shown) |
+| `#chat.case-upper`, `#chat.case-lower`, `#chat.case-smallcaps` | the letter case of names, messages and reply headers (`text_case`) |
 | `.lines` | the box that holds the messages |
 | `.line` | one message |
 | `.line.notice` | a sub, raid or other notice |
@@ -140,6 +159,22 @@ For example, `.line { text-transform: uppercase; }`, `.badge { display: none; }`
 A `/me` message is italic and in the name's color. `.line.action .message { font-style: normal; color: inherit !important; }` shows it like any other message (the color is set on the message itself, so it needs `!important`).
 
 Emote height is the `--emote-h` variable (default `1.75em`), so `#chat { --emote-h: 2em; }` makes emotes bigger. Images are fetched at the size they are normally drawn, so emotes or badges enlarged with Custom CSS may look slightly softer.
+
+These options set a variable on `#chat`, and only while they are changed, so Custom CSS can set the same variable instead (`#chat { --text-color: #ffe08a; }`). An option you changed wins over Custom CSS.
+
+| Variable | Option | Default |
+|---|---|---|
+| `--text-weight` | `text_weight` | `600` |
+| `--name-weight` | `name_weight` | `800` |
+| `--text-color` | `text_color` | `#fff` |
+| `--line-height` | `line_height` | `1.35` |
+| `--bg-rgb` | `bg_color`, written `r, g, b` | `0, 0, 0` |
+| `--bg-radius` | `bg_shape` | `.4em` (`.3em` on a highlighted message; an announcement's bar side is never rounder than `.4em`) |
+| `--line-gap` | `spacing`, vertical layout | `.15em` |
+| `--row-gap` | `spacing`, horizontal layout | `1em` (`.4em` with `bg`) |
+| `--notice-color` | `notice_color` | `#E2D6FF` |
+| `--notice-size` | `notice_size` | `.85em` |
+| `--first-color` | `first_msg_color` | `#9146FF` |
 
 ## Services this overlay contacts
 
@@ -171,7 +206,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 
 - **Text stays text.** Messages, names, reply headers, emote names and badge titles are only ever inserted as plain text. Nothing is parsed as HTML, so `<script>`, `<img onerror=…>` and similar just show up as typed. The same goes for Kick chat.
 - **Only https images.** Emote, badge, GIF and paint images must be `https://` URLs. GIFs are limited to Giphy, 7TV paint images to 7TV's CDN, and Twitch badges and the Shared Chat avatar to Twitch's CDN. A Kick emote URL is built from the emote's numeric id only, and Kick sub badge images must be on `files.kick.com`. The platform icons and Kick's role badges are built-in SVG shapes: chat can only pick one by name from a fixed list.
-- **Validated styling.** Name and badge colors must be hex colors. 7TV paints are rebuilt from checked numbers and colors, with limited layers and shadows (up to 8 layers and 10 shadows, and the whole shadow chain shares a 32 px reach on each axis and for blur), so a paint can't escape its own rule or draw far outside the name.
+- **Validated styling.** Name and badge colors must be hex colors, and so must the color options, which are checked again before they reach the page's style. 7TV paints are rebuilt from checked numbers and colors, with limited layers and shadows (up to 8 layers and 10 shadows, and the whole shadow chain shares a 32 px reach on each axis and for blur), so a paint can't escape its own rule or draw far outside the name.
 - **Zalgo text** (piles of combining marks) is cut to 4 marks per letter, even with invisible characters between them, so it can reach at most about one text row into the message above instead of covering the chat. Normal accents and emoji are unaffected.
 - **Size limits.** Message text is cut at 1000 characters (a Kick message at 2000 before its emote codes are read, and a Kick frame over 64 KB is dropped), a message draws at most 300 emote images, and one emote stacks at most 4 zero-width layers. Real Twitch messages (500 characters) never reach these; only crafted history lines can. BTTV's rotate modifiers draw the emote in a square box, so a rotated wide emote stays within its own line.
 - **Content-Security-Policy.** As a second layer, `overlay.html`, the builder and the home page only run their own script files: no inline scripts, no `eval`, nothing from other sites. Only `overlay.html` allows inline styles, because OBS applies a source's Custom CSS that way.
@@ -192,7 +227,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Homies badges:** when a user is in more than one Homies list, their badges show in list order (itzalex badges, badges2, chatterinohomies), whichever list loads first.
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
-- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`.
+- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-trouble` (Troubleshooting), `#adv-text`, `#adv-names`, `#adv-box` and `#adv-events` (Chat events).
 - **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
 

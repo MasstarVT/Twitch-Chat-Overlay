@@ -613,3 +613,78 @@ test('config root classes and variables', (t) => {
   assert.strictEqual(s.root.style['--shadow'], 'none');
   assert.strictEqual(s.root.style['--bg-alpha'], '0.4');
 });
+
+// #chat as {classes beyond the usual, variables beyond --font --shadow --bg-alpha}.
+function rootExtras(s) {
+  const usual = ['align-bottom', 'align-top', 'layout-vertical', 'layout-horizontal', 'size-small', 'size-medium', 'size-large', 'has-bg'];
+  const style = Object.assign({}, s.root.style);
+  ['--font', '--shadow', '--bg-alpha'].forEach((k) => delete style[k]);
+  return { cls: s.root.className.split(' ').filter((c) => c && usual.indexOf(c) < 0).sort(), style: style };
+}
+
+test('text, names and box options: a class or a variable on #chat only while changed, gone again when set back', (t) => {
+  const s = setup(t, {});
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  const all = { bg: 40, text_weight: 'light', name_weight: 'black', text_color: 'ff8800', line_height: 115, text_case: 'smallcaps',
+    names: false, name_line: true, bg_color: '102030', bg_shape: 'pill', bg_width: 'full', spacing: 'extra',
+    notice_color: 'abcdef', notice_size: 120, first_msg_color: '00ff00' };
+  s.r.setConfig(all);
+  assert.deepStrictEqual(rootExtras(s), {
+    cls: ['bg-full', 'case-smallcaps', 'name-line', 'no-names'],
+    style: { '--text-weight': '300', '--name-weight': '900', '--text-color': '#ff8800', '--line-height': '1.15',
+      '--bg-rgb': '16, 32, 48', '--bg-radius': '1em', '--line-gap': '.5em', '--notice-color': '#abcdef',
+      '--notice-size': '1.2em', '--first-color': '#00ff00' }
+  });
+  s.r.setConfig({ bg: 40 });
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  // each value of each enum
+  const one = (k, v) => { s.r.setConfig({ [k]: v }); return rootExtras(s); };
+  assert.deepStrictEqual(['light', 'regular', 'semibold', 'bold', 'heavy', 'black'].map((w) => one('text_weight', w).style['--text-weight']),
+    ['300', '400', undefined, '700', '800', '900']);
+  assert.deepStrictEqual(['light', 'regular', 'semibold', 'bold', 'heavy', 'black'].map((w) => one('name_weight', w).style['--name-weight']),
+    ['300', '400', '600', '700', undefined, '900']);
+  assert.deepStrictEqual(['none', 'upper', 'lower', 'smallcaps'].map((v) => one('text_case', v).cls), [[], ['case-upper'], ['case-lower'], ['case-smallcaps']]);
+  assert.deepStrictEqual(['square', 'soft', 'round', 'pill'].map((v) => one('bg_shape', v).style['--bg-radius']), ['0', '.2em', undefined, '1em']);
+  assert.deepStrictEqual([100, 135, 136, 200].map((v) => one('line_height', v).style['--line-height']), ['1', undefined, '1.36', '2']);
+  assert.deepStrictEqual([50, 85, 150].map((v) => one('notice_size', v).style['--notice-size']), ['0.5em', undefined, '1.5em']);
+});
+
+test('spacing: a column spaces its lines (--line-gap), a row its messages (--row-gap, closer with boxes)', (t) => {
+  const s = setup(t, {});
+  const gaps = (cfg) => { s.r.setConfig(cfg); const st = rootExtras(s).style; return [st['--line-gap'], st['--row-gap']]; };
+  assert.deepStrictEqual(['tight', 'normal', 'loose', 'extra'].map((v) => gaps({ spacing: v })),
+    [['.05em', undefined], [undefined, undefined], ['.3em', undefined], ['.5em', undefined]]);
+  assert.deepStrictEqual(['tight', 'normal', 'loose', 'extra'].map((v) => gaps({ spacing: v, layout: 'horizontal' })),
+    [[undefined, '.5em'], [undefined, undefined], [undefined, '1.5em'], [undefined, '2em']]);
+  assert.deepStrictEqual(['tight', 'normal', 'loose', 'extra'].map((v) => gaps({ spacing: v, layout: 'horizontal', bg: 40 })),
+    [[undefined, '.2em'], [undefined, undefined], [undefined, '.6em'], [undefined, '.8em']]);
+  // A live layout switch moves the gap to the other variable.
+  assert.deepStrictEqual(gaps({ spacing: 'loose', layout: 'horizontal' }), [undefined, '1.5em']);
+  assert.deepStrictEqual(gaps({ spacing: 'loose' }), ['.3em', undefined]);
+  // The lines themselves never change: spacing, like every option here, is CSS on #chat.
+  s.r.push(chat('amy', 'hi'));
+  s.r.flush();
+  const before = JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  gaps({ spacing: 'tight', text_case: 'upper', names: false, bg_color: '123456', bg: 30 });
+  assert.strictEqual(JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent])), before);
+});
+
+test('overlay.css: the stage-2 rules keep today\'s look by default and stay overridable', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  // text_case never reaches the built-in SVG badges (Kick's OG): only names, colons, messages and reply headers.
+  const caseRules = Array.from(css.matchAll(/([^{}]+)\{[^}]*(?:text-transform|font-variant-caps)[^}]*\}/g), (m) => m[1].trim());
+  assert.strictEqual(caseRules.length, 3);
+  caseRules.forEach((sel) => sel.split(',').forEach((one) =>
+    assert.match(one.trim(), /^\.case-(?:upper|lower|smallcaps) \.(?:name|colon|message|reply)$/, one)));
+  assert.doesNotMatch(css, /font-variant:/, 'font-variant-caps, not the shorthand that resets ligatures');
+  // name_line: a column only, never a notice, and the message stays where a left-to-right line puts it.
+  // names=0 cancels it (the builder greys it out then), so badges never sit on a row of their own.
+  assert.match(css, /:where\(\.layout-vertical\.name-line:not\(\.no-names\) \.line:not\(\.notice\)\) \.message \{\s*display: block;\s*text-align: left;\s*text-align: -webkit-match-parent;\s*\}/);
+  assert.match(css, /:where\(\.layout-vertical\.name-line:not\(\.no-names\) \.line:not\(\.notice\)\) \.colon \{ display: none; \}/);
+  Array.from(css.matchAll(/([^{}]*\.name-line[^{}]*)\{/g), (m) => m[1]).forEach((sel) =>
+    assert.match(sel, /\.name-line:not\(\.no-names\)/, sel));
+  assert.match(css, /\.no-names \.name,\s*\.no-names \.colon \{ display: none; \}/);
+  assert.match(css, /:where\(\.layout-vertical\.has-bg\)\.bg-full \.line \{ width: auto; \}/);
+  // No new rule starts with #chat (Custom CSS on the documented selectors keeps winning).
+  ['bg-full', 'no-names', 'name-line', 'case-'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
+});

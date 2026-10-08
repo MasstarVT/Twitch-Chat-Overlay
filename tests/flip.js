@@ -15,6 +15,7 @@ function flip(cfg, k) {
   else if (s.type === 'kick') c[k] = c[k] === 'xqc' ? 'forsen' : 'xqc';
   else if (s.type === 'room') c[k] = c[k] === '668' ? '4598' : '668';
   else if (s.type === 'list') c[k] = (c[k] || []).concat('someone');
+  else if (s.type === 'color') c[k] = c[k] === 'ff8800' ? '336699' : 'ff8800';
   else throw new Error('flip: no case for type ' + s.type);
   return c;
 }

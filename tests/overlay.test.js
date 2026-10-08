@@ -647,6 +647,27 @@ test('a font stylesheet that failed is requested again when the network returns'
   assert.strictEqual(h.links.length, 2, 'a loaded font is not requested again');
 });
 
+test('font weights: Light and Black add 300 and 900 to the Google Fonts request, only while one is chosen', async (t) => {
+  const css2 = (family, w) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@' + w + '&display=swap';
+  const hrefs = (h) => h.links.map((l) => l.href);
+  const a = await boot(t, { search: '?channel=home&text_weight=light&font=Open%20Sans' });
+  assert.deepStrictEqual(hrefs(a), [css2('Open+Sans', '300;400;600;700;800')]);
+  globalThis.parent = {};
+  const send = (h, cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
+  send(a, { text_weight: 'light', name_weight: 'black' });
+  assert.deepStrictEqual(hrefs(a).slice(1), [css2('Open+Sans', '300;400;600;700;800;900')]);
+  send(a, { text_weight: 'bold', name_weight: 'heavy' });
+  assert.deepStrictEqual(hrefs(a).slice(2), [css2('Open+Sans', '400;600;700;800')], 'the usual four');
+  send(a, { text_weight: 'regular', name_weight: 'semibold', font: 'Open Sans' });
+  assert.strictEqual(a.links.length, 3, 'weights it already has ask for nothing');
+  send(a, { name_weight: 'black', font: 'Arial' });
+  assert.strictEqual(a.links.length, 3, 'an installed font is never requested');
+  // A link that failed is asked for again with the weights of the moment, at reconnect or when back online.
+  a.links[2].onerror();
+  send(a, { name_weight: 'heavy', font: 'Open Sans' });
+  assert.deepStrictEqual(hrefs(a).slice(3), [css2('Open+Sans', '400;600;700;800')]);
+});
+
 test('emote precedence: 7TV personal > BTTV personal > channel (7TV, BTTV, FFZ) > global (7TV, BTTV, FFZ)', async (t) => {
   const h = await boot(t);
   join(h);

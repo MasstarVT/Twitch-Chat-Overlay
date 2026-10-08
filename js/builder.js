@@ -36,14 +36,23 @@
   var GOOGLE_FONTS = config.GOOGLE_FONTS;
   var SYSTEM_FONT_NAMES = config.SYSTEM_FONT_NAMES;
 
-  // A badge source only applies while badges are on (META.when).
+  // A badge source only applies while badges are on (META.when), and so on.
   function badgesOn(cfg) { return !!cfg.badges; }
+  function bgOn(cfg) { return cfg.bg > 0; }
+  function namesOn(cfg) { return !!cfg.names; }
+  function eventsOn(cfg) { return !!cfg.events; }
+  function firstMsgOn(cfg) { return !!cfg.first_msg; }
+
+  // text_weight and name_weight: six steps from light to black, on a slider (a row of six choices wraps
+  // unevenly on a phone).
+  var WEIGHT_LABELS = { light: 'Light', regular: 'Regular', semibold: 'Semi-bold', bold: 'Bold', heavy: 'Heavy', black: 'Black' };
 
   // Human labels and help text per config key. Widgets default from SPEC types.
   // logo: a provider logo drawn by css/builder.css (.logo-<name>).
   // when(cfg): the field only applies while this is true; only: 'vertical' or 'horizontal', the one layout it
   // applies to. Either way it is greyed out (syncDisabled) and keeps its value.
   // wrap: a segmented field whose labels may wrap in a narrow panel (like Add to OBS's two routes).
+  // swatch: a color field's built-in color, which its picker shows while the setting is '' (Default).
   var META = {
     kick: { label: 'Kick channel', logo: 'kick', check: true, placeholder: 'yourname or a kick.com link',
       bad: 'That isn’t a valid Kick name. Use letters, numbers, _ and - only.',
@@ -55,9 +64,31 @@
       help: 'Only when both a Twitch and a Kick channel are set. Shows even with badges off.' },
     size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' } },
     font: { label: 'Font', help: 'Any Google Fonts family, or a font installed on the streaming PC (Arial, Segoe UI…).' },
+    text_weight: { label: 'Text weight', widget: 'range', options: WEIGHT_LABELS,
+      help: 'Message and notice text. Light and Black load one more weight of the font; a font without it draws the nearest.' },
+    text_color: { label: 'Text color', swatch: '#ffffff',
+      help: 'Message text, white by default. Names, /me messages and notices keep their own colors.' },
+    line_height: { label: 'Line spacing', widget: 'stepper', step: 5, unit: '%',
+      help: 'Line height as a share of the text size (135% by default). Below about 115% emotes reach into the next line. In a row it sets the row’s height.' },
+    text_case: { label: 'Letter case', options: { none: 'As typed', upper: 'UPPER', lower: 'lower', smallcaps: 'Small caps' },
+      wrap: true, help: 'Names, messages and reply headers. Emotes work either way.' },
     shadow: { label: 'Text shadow', widget: 'seg', names: ['None', 'Light', 'Medium', 'Strong'] },
+    names: { label: 'Show names',
+      help: 'Off hides the name and colon before each message. Reply headers and sub or raid notices keep their names.' },
+    name_weight: { label: 'Name weight', widget: 'range', options: WEIGHT_LABELS,
+      help: 'Names before messages and in reply headers. A name inside a sub or raid notice follows Text weight (Look).' },
+    name_line: { label: 'Name on its own line', only: 'vertical', when: namesOn,
+      help: 'Each message starts on a new line under the name. Vertical layout only, with Show names on (Advanced).' },
     bg: { label: 'Line background', widget: 'range', unit: '%', zero: 'Off',
-      help: 'A dark rounded box behind each message. Helps on bright or busy scenes.' },
+      help: 'A rounded box behind each message, black unless you pick a Box color. Helps on bright or busy scenes.' },
+    bg_color: { label: 'Box color', swatch: '#000000', when: bgOn,
+      help: 'Black by default. A light box needs a dark Text color (and Notice text color, in Advanced). Needs Line background (Look).' },
+    bg_shape: { label: 'Box corners', options: { square: 'Square', soft: 'Soft', round: 'Round', pill: 'Pill' }, when: bgOn,
+      help: 'Pill gives a one-line box round ends. Needs Line background (Look).' },
+    bg_width: { label: 'Box width', options: { fit: 'Fit the text', full: 'Full width' }, when: bgOn, only: 'vertical',
+      help: 'Full width makes every box as wide as the column. Vertical layout only, with Line background on (Look).' },
+    spacing: { label: 'Space between messages', options: { tight: 'Tight', normal: 'Normal', loose: 'Loose', extra: 'Extra' },
+      help: 'In a column, the space above and below each message; in a row, the gap between messages.' },
     layout: { label: 'Layout', options: { vertical: 'Vertical', horizontal: 'Horizontal' },
       help: 'Vertical stacks messages in a column. Horizontal runs them in one row, like a ticker.' },
     align: { label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' },
@@ -73,8 +104,14 @@
     block: { label: 'Hide these users', help: 'Twitch usernames, separated by commas.', placeholder: 'username1, username2' },
     events: { label: 'Show subs, gifts, raids and announcements',
       help: 'Sub, resub, gift sub, raid and bits badge notices, plus /announce messages. When off, all of these are hidden; a resubscriber’s own chat message still shows.' },
+    notice_color: { label: 'Notice text color', swatch: '#e2d6ff', when: eventsOn,
+      help: 'Sub, gift, raid and bits badge notices, light purple by default. Announcements keep Text color. Needs Show subs, gifts, raids and announcements (Chat events).' },
+    notice_size: { label: 'Notice text size', widget: 'range', unit: '%', when: eventsOn,
+      help: 'Next to the chat text (85% by default). Above 100% a notice can be cut off in a short horizontal source. Needs Show subs, gifts, raids and announcements (Chat events).' },
     replies: { label: 'Show what replies are answering', help: 'Adds a small “↪ @user: message” line above a reply.' },
-    first_msg: { label: 'Mark first-time chatters', help: 'A purple bar beside someone’s first message in the channel.' },
+    first_msg: { label: 'Mark first-time chatters', help: 'A colored bar beside someone’s first message in the channel.' },
+    first_msg_color: { label: 'First-message bar color', swatch: '#9146ff', when: firstMsgOn,
+      help: 'Purple by default. Needs Mark first-time chatters (Chat events).' },
     history: { label: 'Recent messages on load', widget: 'stepper', step: 5, zero: 'Off',
       help: 'Shows up to this many recent messages (from recent-messages.robotty.de) when the overlay starts.' },
     shared: { label: 'Include Shared Chat',
@@ -119,15 +156,18 @@
   // field `first`; in Advanced its id is an anchor (builder.html#adv-text opens Advanced there). more: such an
   // id, linked at the foot of the section as "More in Advanced".
   var GROUPS = [
-    { id: 'look', title: 'Look', note: 'Text, layout and how new messages come in.',
-      keys: ['layout', 'size', 'font', 'shadow', 'bg', 'align', 'animate'] },
+    { id: 'look', title: 'Look', note: 'Layout, text, names, boxes and how new messages come in.',
+      keys: ['layout', 'align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'name_line', 'bg', 'bg_color', 'animate'],
+      subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_line' },
+        { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
+      more: 'adv-text' },
     { id: 'platforms', title: 'Kick', note: 'Kick chat alongside Twitch, in one overlay.',
       foot: 'Kick chat shows Kick and 7TV emotes, and Kick badges. It has no recent-message history.',
       keys: ['kick', 'kick_room', 'platform_icons'] },
     { id: 'messages', title: 'Messages', note: 'How many messages show, and for how long.',
       keys: ['fade', 'max', 'history'] },
     { id: 'events', title: 'Chat events', note: 'Subs, raids, replies and first messages.',
-      keys: ['events', 'replies', 'first_msg', 'shared'] },
+      keys: ['events', 'replies', 'first_msg', 'shared'], more: 'adv-events' },
     { id: 'filters', title: 'Filters', note: 'Who and what stays out of the overlay.',
       keys: ['bots', 'hide_commands', 'block'] },
     { id: 'emotes', title: 'Emotes', note: 'Twitch and Kick emotes are always shown.',
@@ -135,8 +175,12 @@
     { id: 'badges', title: 'Badges & paints', note: 'Each badge source has its own switch.',
       foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
       keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable']) },
-    { id: 'advanced', title: 'Advanced', note: 'For positioning the source and finding problems.',
-      keys: ['debug', 'demo'] }
+    { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then finer settings for the other sections.',
+      keys: ['debug', 'demo', 'line_height', 'text_case', 'names', 'name_weight', 'bg_shape', 'bg_width', 'spacing',
+        'notice_color', 'notice_size', 'first_msg_color'],
+      subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'line_height' },
+        { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
+        { id: 'adv-events', title: 'Chat events', first: 'notice_color' }] }
   ];
 
   // ---------- pure helpers (unit tested) ----------
@@ -457,8 +501,10 @@
   }
 
   // A number setting as the form shows it: a name (shadow), a word for zero (fade: Never), or with its unit.
+  // A choice on a slider (text_weight) shows its label.
   function valueText(key, v) {
     var m = META[key] || {}, s = config.SPEC[key];
+    if (s && s.type === 'enum') return (m.options && m.options[v]) || String(v);
     if (m.names && s) return m.names[v - s.min] || String(v);
     if (v === 0 && m.zero) return m.zero;
     return String(v) + (m.unit === '%' ? '%' : m.unit ? ' ' + m.unit : '');
@@ -606,6 +652,7 @@
     if (s.type === 'enum') return 'seg';
     if (s.type === 'int') return 'stepper';
     if (s.type === 'font') return 'font';
+    if (s.type === 'color') return 'color';
     return 'text'; // list, kick, room
   }
 
@@ -685,14 +732,16 @@
       }
       case 'range': {
         addLabel(true);
+        // A number, or a choice (text_weight): then the slider moves along its values, in order, by index.
+        var steps = spec.type === 'enum' ? spec.values : null;
         var wrap = control(h('div', 'range'));
         var rg = h('input');
         rg.type = 'range';
         rg.id = id;
-        rg.min = String(spec.min);
-        rg.max = String(spec.max);
+        rg.min = steps ? '0' : String(spec.min);
+        rg.max = steps ? String(steps.length - 1) : String(spec.max);
         rg.step = '1';
-        var out = h('output', 'range-value');
+        var out = h('output', steps ? 'range-value names' : 'range-value');
         out.htmlFor = id;
         // An <output> is a live region by default, and the slider already says its own value.
         out.setAttribute('aria-live', 'off');
@@ -703,9 +752,10 @@
           out.textContent = valueText(key, v);
           rg.setAttribute('aria-valuetext', valueText(key, v));
         };
-        rg.addEventListener('input', function () { showRange(Number(rg.value)); update(key, Number(rg.value)); });
+        var rangeValue = function () { return steps ? steps[Number(rg.value)] : Number(rg.value); };
+        rg.addEventListener('input', function () { showRange(rangeValue()); update(key, rangeValue()); });
         field.inputs.push(rg);
-        field.set = function (v) { rg.value = String(v); showRange(v); };
+        field.set = function (v) { rg.value = String(steps ? steps.indexOf(v) : v); showRange(v); };
         break;
       }
       case 'stepper': {
@@ -814,6 +864,83 @@
         field.set = function (v) { fi.value = v; bad.hidden = true; fi.setAttribute('aria-invalid', 'false'); };
         break;
       }
+      case 'color': {
+        // The browser's color picker as a swatch, the hex code to type or paste, and Default (the setting's '').
+        addLabel(true);
+        var crow = control(h('div', 'text-row'));
+        var pick = h('input');
+        pick.type = 'color';
+        pick.setAttribute('aria-labelledby', 'l-' + key);
+        var hex = h('input', 'text');
+        hex.type = 'text';
+        hex.id = id;
+        hex.autocomplete = 'off';
+        hex.spellcheck = false;
+        hex.placeholder = m.swatch;
+        var dflt = h('button', 'btn ghost', 'Default');
+        dflt.type = 'button';
+        dflt.setAttribute('aria-label', 'Default ' + labelFor(key).toLowerCase());
+        crow.appendChild(pick);
+        crow.appendChild(hex);
+        crow.appendChild(dflt);
+        var ch = addHelp(row, key, hex);
+        field.helpEl = ch;
+        var cbad = h('p', 'status err', 'Use a hex color: 6 digits such as ff8800 (or 3, such as f80), with or without #.');
+        cbad.id = 'e-' + key;
+        cbad.hidden = true;
+        row.appendChild(cbad);
+        var cOff = false, ct = null;
+        var showBadColor = function (ok) {
+          if (!ok && cbad.hidden) announce(cbad.textContent);
+          cbad.hidden = ok;
+          hex.setAttribute('aria-invalid', ok ? 'false' : 'true');
+          hex.setAttribute('aria-describedby', (ch ? ch.id : '') + (ok ? '' : ' ' + cbad.id));
+        };
+        // skip: the input the value came from, which keeps what it shows (a hex code half typed, the picker's own).
+        var showColor = function (v, skip) {
+          if (skip !== hex) hex.value = v ? '#' + v : '';
+          if (skip !== pick) pick.value = v ? '#' + v : m.swatch;
+          dflt.disabled = cOff || !v;
+        };
+        var commitColor = function (final) {
+          clearTimeout(ct);
+          var ok = update(key, hex.value);
+          showBadColor(ok);
+          if (ok) showColor(B.cfg[key], final ? null : hex);
+        };
+        pick.addEventListener('input', function () {
+          clearTimeout(ct);
+          update(key, pick.value);
+          showBadColor(true);
+          showColor(B.cfg[key], pick);
+        });
+        hex.addEventListener('input', function () {
+          clearTimeout(ct);
+          ct = setTimeout(function () { commitColor(false); }, 600);
+        });
+        hex.addEventListener('change', function () { commitColor(true); });
+        hex.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); commitColor(true); } });
+        dflt.addEventListener('click', function () {
+          clearTimeout(ct);
+          update(key, '');
+          showBadColor(true);
+          showColor(B.cfg[key]);
+          // The button that had the focus is disabled now. The picker takes it (the hex box would bring up a
+          // phone's keyboard).
+          if (pick.focus) pick.focus();
+        });
+        field.inputs.push(pick, hex, dflt);
+        field.set = function (v) { clearTimeout(ct); showColor(v); showBadColor(true); };
+        // Greyed out like any field, except that Default also stays off while there is nothing to reset.
+        field.setDisabled = function (off) {
+          cOff = off;
+          pick.disabled = off;
+          hex.disabled = off;
+          dflt.disabled = off || !B.cfg[key];
+          if (off) row.classList.add('disabled'); else row.classList.remove('disabled');
+        };
+        break;
+      }
       default: { // text: a list of names (block), or one value (kick, kick_room)
         addLabel(true);
         var isList = spec.type === 'list';
@@ -892,10 +1019,12 @@
       }
     }
     // Greyed out while the field doesn't apply (syncDisabled): every input off, the row dimmed.
-    field.setDisabled = function (off) {
-      field.inputs.forEach(function (i) { i.disabled = off; });
-      if (off) row.classList.add('disabled'); else row.classList.remove('disabled');
-    };
+    if (!field.setDisabled) {
+      field.setDisabled = function (off) {
+        field.inputs.forEach(function (i) { i.disabled = off; });
+        if (off) row.classList.add('disabled'); else row.classList.remove('disabled');
+      };
+    }
     return field;
   }
 

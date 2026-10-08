@@ -116,8 +116,26 @@ test('hexRgb: a config color as r, g, b, and nothing for anything that is not si
   assert.strictEqual(R.hexRgb('9146ff'), '145, 70, 255');
   assert.strictEqual(R.hexRgb('000000'), '0, 0, 0');
   assert.strictEqual(R.hexRgb('ffffff'), '255, 255, 255');
-  ['', '#9146ff', '9146FF', 'fff', '9146ff00', 'red', '12345g', ' 9146ff', '9146ff;x:y', null, undefined, 9146, true]
-    .forEach((v) => assert.strictEqual(R.hexRgb(v), null, JSON.stringify(v)));
+  ['', '#9146ff', '9146FF', 'fff', '9146ff00', 'red', '12345g', ' 9146ff', '9146ff;x:y', null, undefined, 9146, 123456, true]
+    .forEach((v) => {
+      assert.strictEqual(R.hexRgb(v), null, JSON.stringify(v));
+      assert.strictEqual(R.hexColor(v), null, JSON.stringify(v));
+    });
+  assert.strictEqual(R.hexColor('9146ff'), '#9146ff');
+});
+
+test('normalizeCfg: the stage-2 look options fall back to their defaults', () => {
+  const d = R.normalizeCfg({});
+  assert.deepStrictEqual([d.text_weight, d.name_weight, d.text_color, d.line_height, d.text_case, d.names, d.name_line,
+    d.bg_color, d.bg_shape, d.bg_width, d.spacing, d.notice_color, d.notice_size, d.first_msg_color],
+  ['semibold', 'heavy', '', 135, 'none', true, false, '', 'round', 'fit', 'normal', '', 85, '']);
+  const bad = R.normalizeCfg({ text_weight: 'thin', name_weight: 800, text_color: '#ff0000', line_height: 999, text_case: 'title',
+    names: 0, name_line: 1, bg_color: 'ff0000;}', bg_shape: 'blob', bg_width: 'wide', spacing: 'huge', notice_color: 123456,
+    notice_size: 'NaN', first_msg_color: 'FF0000' });
+  assert.deepStrictEqual([bad.text_weight, bad.name_weight, bad.text_color, bad.line_height, bad.text_case, bad.names,
+    bad.name_line, bad.bg_color, bad.bg_shape, bad.bg_width, bad.spacing, bad.notice_color, bad.notice_size, bad.first_msg_color],
+  ['semibold', 'heavy', '', 200, 'none', false, true, '', 'round', 'fit', 'normal', '', 85, '']);
+  assert.deepStrictEqual(R.WEIGHTS, { light: 300, regular: 400, semibold: 600, bold: 700, heavy: 800, black: 900 });
 });
 
 test('changedAny compares arrays by value', () => {
@@ -551,7 +569,9 @@ test('every live config key is handled by the renderer', () => {
   // setConfig handles these itself: applyRoot, reordering, fade re-timing, capping. Written out here, not read
   // from the renderer, so a key added to R.ROOT_KEYS is a decision this list records (tests/parity.test.js
   // checks that each one changes what is drawn).
-  const ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max'];
+  const ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
+    'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
+    'spacing', 'notice_color', 'notice_size', 'first_msg_color'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
   const LIVE_KEYS = require('../js/config.js').LIVE_KEYS;
   assert.ok(Array.isArray(LIVE_KEYS) && LIVE_KEYS.length > 0);

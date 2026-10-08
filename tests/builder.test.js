@@ -101,16 +101,27 @@ test('every id, class and element builder.js looks up exists in builder.html or 
   }
 });
 
-test('widgets: switches, segmented choices, steppers, one slider', () => {
+test('widgets: switches, segmented choices, steppers, sliders, color pickers', () => {
   const kinds = {};
   config.KEYS.filter((k) => k !== 'channel').forEach((k) => { kinds[k] = builder.widgetFor(k); });
+  // The six weights are a slider: six choices in a row wrap unevenly on a phone.
+  const SLIDERS = ['text_weight', 'name_weight'];
   Object.keys(config.SPEC).forEach((k) => {
     if (config.SPEC[k].type === 'bool') assert.strictEqual(kinds[k], 'check', k);
-    if (config.SPEC[k].type === 'enum') assert.strictEqual(kinds[k], 'seg', k);
+    if (config.SPEC[k].type === 'enum') assert.strictEqual(kinds[k], SLIDERS.indexOf(k) >= 0 ? 'range' : 'seg', k);
+    if (config.SPEC[k].type === 'color') {
+      assert.strictEqual(kinds[k], 'color', k);
+      // the picker shows it while the setting is '' (an <input type=color> needs a #rrggbb value)
+      assert.match(builder.META[k].swatch, /^#[0-9a-f]{6}$/, k);
+    }
   });
   assert.strictEqual(kinds.shadow, 'seg');
-  assert.strictEqual(kinds.bg, 'range');
-  ['fade', 'max', 'history'].forEach((k) => assert.strictEqual(kinds[k], 'stepper', k));
+  assert.deepStrictEqual(Object.keys(kinds).filter((k) => kinds[k] === 'range').sort(), ['bg', 'name_weight', 'notice_size', 'text_weight']);
+  ['fade', 'max', 'history', 'line_height'].forEach((k) => assert.strictEqual(kinds[k], 'stepper', k));
+  assert.deepStrictEqual(config.SPEC.text_weight.values.map((v) => builder.valueText('text_weight', v)),
+    ['Light', 'Regular', 'Semi-bold', 'Bold', 'Heavy', 'Black']);
+  assert.strictEqual(builder.valueText('name_weight', 'heavy'), 'Heavy');
+  assert.strictEqual(builder.META.text_case.wrap, true);
   assert.strictEqual(kinds.font, 'font');
   assert.strictEqual(kinds.block, 'text');
   assert.strictEqual(kinds.kick, 'text');
@@ -133,6 +144,11 @@ test('valueText and parseStep: what a stepper shows is what it reads back', () =
   assert.strictEqual(builder.valueText('bg', 0), 'Off');
   assert.strictEqual(builder.valueText('bg', 60), '60%');
   assert.strictEqual(builder.valueText('shadow', 3), 'Strong');
+  assert.strictEqual(builder.valueText('line_height', 135), '135%');
+  assert.strictEqual(builder.valueText('notice_size', 85), '85%');
+  assert.strictEqual(builder.parseStep('line_height', '120%'), 120);
+  assert.strictEqual(builder.parseStep('line_height', '90'), 100);
+  [100, 101, 135, 200].forEach((v) => assert.strictEqual(builder.parseStep('line_height', builder.valueText('line_height', v)), v));
   ['fade', 'max', 'history'].forEach((k) => {
     const s = config.SPEC[k];
     [s.min, s.min + 1, 7, s.def, s.max].forEach((v) =>
@@ -175,7 +191,7 @@ test('stepValue moves to the next multiple of the step and stays in range', () =
   assert.strictEqual(up(7, 1, 0, 100), 8);
   assert.strictEqual(down(7, 1, 0, 100), 6);
   // Every press lands on a value the setting takes.
-  ['fade', 'max', 'history'].forEach((k) => {
+  ['fade', 'max', 'history', 'line_height'].forEach((k) => {
     const s = config.SPEC[k], step = builder.META[k].step;
     assert.ok(step >= 1, k);
     for (let v = s.min, n = 0; n < 1000 && v < s.max; n++) {
@@ -406,12 +422,14 @@ test('parsePasted reads settings.example.js as shipped and once edited by hand',
     .replace("'YOUR CHANNEL NAME'", "'xQc'")
     .replace(/^ {2}\/\/ /gm, '  ')
     .replace("size: 'medium'", "size: 'large'")
+    .replace("text_color: ''", "text_color: '#FFE08A'")
     .replace('shadow: 2', 'shadow: 0')
     .replace("layout: 'vertical'", "layout: 'horizontal'")
     .replace('bots: false', 'bots: true');
   const r2 = builder.parsePasted(edited);
   assert.ok(r2, 'edited settings.js parses');
-  assert.strictEqual(r2.count, 11);
+  assert.strictEqual(r2.count, 12);
+  assert.strictEqual(r2.cfg.text_color, 'ffe08a');
   assert.strictEqual(r2.cfg.layout, 'horizontal');
   assert.strictEqual(r2.cfg.channel, 'xqc');
   assert.strictEqual(r2.cfg.size, 'large');
@@ -435,6 +453,8 @@ test('settings.example.js runs with any of its options uncommented', () => {
   assert.deepStrictEqual(Object.keys(run([])), ['channel']);
   optional.forEach((i) => assert.strictEqual(Object.keys(run([i])).length, 2, lines[i]));
   assert.strictEqual(Object.keys(run(optional)).length, optional.length + 1);
+  // Each optional line shows its default, so uncommenting them unedited changes nothing.
+  assert.deepStrictEqual(config.toObject(config.parse('', run(optional))), {});
 });
 
 test('parsePasted counts only the settings it applies, and ignores a paste with none', () => {
@@ -598,6 +618,70 @@ test('sub-headings: each above a field of its own section, in order; Advanced\'s
   builder.groupLayout().forEach((g) => {
     if (g.more) assert.ok(ids.indexOf(g.more) >= 0, g.id + ': More in Advanced goes to a heading of Advanced');
   });
+  // README names every heading's link, and no other.
+  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+  assert.deepStrictEqual(Array.from(new Set(Array.from(readme.matchAll(/`#(adv-[a-z0-9-]+)`/g), (m) => m[1]))), ids);
+});
+
+test('Look and Advanced: the headings and what is under each; Troubleshooting stays first', () => {
+  const g = (id) => builder.groupLayout().filter((x) => x.id === id)[0];
+  // Each heading with the fields under it, up to the next heading.
+  const outline = (grp) => {
+    const out = [];
+    grp.keys.forEach((k) => {
+      const s = grp.subs.filter((x) => x.first === k)[0];
+      if (s) out.push([s.id ? s.title + ' #' + s.id : s.title]);
+      out[out.length - 1].push(k);
+    });
+    return out;
+  };
+  assert.deepStrictEqual(outline(g('look')), [
+    ['Layout', 'layout', 'align'],
+    ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow'],
+    ['Names', 'name_line'],
+    ['Box', 'bg', 'bg_color'],
+    ['Animation', 'animate']
+  ]);
+  assert.deepStrictEqual(outline(g('advanced')), [
+    ['Troubleshooting #adv-trouble', 'debug', 'demo'],
+    ['Text #adv-text', 'line_height', 'text_case'],
+    ['Names #adv-names', 'names', 'name_weight'],
+    ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
+    ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color']
+  ]);
+  assert.strictEqual(g('look').more, 'adv-text');
+  assert.strictEqual(g('events').more, 'adv-events');
+  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events']);
+});
+
+test('the look options grey out while the setting they need is off, and their help names it', () => {
+  const d = config.defaults();
+  const off = (k, over) => builder.fieldOff(k, Object.assign({}, d, over || {}));
+  const needs = {
+    bg_color: [{ bg: 0 }, { bg: 1 }, 'Line background'],
+    bg_shape: [{ bg: 0 }, { bg: 40 }, 'Line background'],
+    bg_width: [{ bg: 0 }, { bg: 40 }, 'Line background'],
+    name_line: [{ names: false }, {}, 'Show names'],
+    notice_color: [{ events: false }, {}, 'Show subs'],
+    notice_size: [{ events: false }, {}, 'Show subs'],
+    first_msg_color: [{ first_msg: false }, { first_msg: true }, 'Mark first-time chatters']
+  };
+  Object.keys(needs).forEach((k) => {
+    assert.strictEqual(off(k, needs[k][0]), true, k + ' off');
+    assert.strictEqual(off(k, needs[k][1]), false, k + ' on');
+    assert.ok(builder.META[k].help.indexOf(needs[k][2]) >= 0, k + ' help names ' + needs[k][2]);
+  });
+  // Column only: off in a row whatever else is set.
+  ['bg_width', 'name_line'].forEach((k) => {
+    assert.strictEqual(builder.META[k].only, 'vertical', k);
+    assert.strictEqual(off(k, { bg: 40, layout: 'horizontal' }), true, k);
+    assert.match(builder.META[k].help, /Vertical layout only/, k);
+  });
+  // Names off greys out only what draws a name line: name_weight still styles reply headers.
+  const namesOff = Object.keys(builder.META).filter((k) => !off(k) && off(k, { names: false }));
+  assert.deepStrictEqual(namesOff, ['name_line']);
+  ['text_weight', 'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'spacing']
+    .forEach((k) => assert.strictEqual(off(k, { bg: 0, events: false, first_msg: false, layout: 'horizontal' }), false, k));
 });
 
 test('sectionFromHash: an Advanced sub-heading id opens Advanced; every other hash as before', () => {

@@ -199,7 +199,14 @@ const PREREQ = {
   badges_ffzap: { badges: true },
   badges_chatterino: { badges: true },
   badges_homies: { badges: true },
-  platform_icons: { channel: 'home', kick: 'kickname' }
+  platform_icons: { channel: 'home', kick: 'kickname' },
+  name_line: { names: true, layout: 'vertical' },
+  bg_color: { bg: 40 },
+  bg_shape: { bg: 40 },
+  bg_width: { bg: 40, layout: 'vertical' },
+  notice_color: { events: true },
+  notice_size: { events: true },
+  first_msg_color: { first_msg: true }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 
@@ -309,10 +316,11 @@ test('(h) the renderer\'s defaults for a partial config are config.js\'s', () =>
     const s = config.SPEC[k], n = R.NORM[k];
     assert.ok(own(config.SPEC, k), k + ' is a setting');
     assert.deepStrictEqual(R.NORM_DEFAULTS[k], s.def, k);
-    assert.strictEqual([n.values, n.min, n.bool, n.str].filter((x) => x !== undefined).length, 1, k + ': one kind');
+    assert.strictEqual([n.values, n.min, n.bool, n.str, n.hex].filter((x) => x !== undefined).length, 1, k + ': one kind');
     if (n.values) assert.deepStrictEqual(n.values, s.values, k);
     if (n.min !== undefined) assert.deepStrictEqual([n.min, n.max], [s.min, s.max], k);
     if (n.bool) assert.strictEqual(s.type, 'bool', k);
+    if (n.hex) assert.strictEqual(s.type, 'color', k);
   });
   // Every key setConfig handles itself is made safe, so a partial or hand-made cfg reads as the default.
   R.ROOT_KEYS.forEach((k) => assert.ok(own(R.NORM, k), k));
@@ -372,6 +380,9 @@ const LITERALS = [
   ['.has-bg .line', 'border-radius', '.4em'],
   ['.has-bg .line', 'width', 'fit-content'],
   ['.has-bg .line', 'background-color', 'rgba(0, 0, 0, var(--bg-alpha, 0))'],
+  [':where(.has-bg) .line.highlight', 'background-color', 'rgba(0, 0, 0, var(--bg-alpha, 0))'],
+  // Not in 1.5.2's rule, where `.line.highlight`'s .3em won: bg_shape sets both, and round keeps that .3em.
+  [':where(.has-bg) .line.highlight', 'border-radius', '.3em'],
   ['.name', 'font-weight', '800'],
   ['.line.action .message', 'font-style', 'italic'],
   ['.line.first-msg', 'box-shadow', 'inset .2em 0 0 #9146FF'],
@@ -381,6 +392,9 @@ const LITERALS = [
   [':where(.has-bg) .line.highlight', 'background-image', 'linear-gradient(rgba(145, 70, 255, .35), rgba(145, 70, 255, .35))'],
   ['.line.announcement', 'padding-left', '.5em'],
   ['.line.announcement', 'background-size', '.25em 100%'],
+  // Not in 1.5.2: the bar's corners in a box, which at round are `.has-bg .line`'s .4em.
+  [':where(.has-bg) .line.announcement', 'border-top-left-radius', 'min(.4em, .4em)'],
+  [':where(.has-bg) .line.announcement', 'border-bottom-left-radius', 'min(.4em, .4em)'],
   ['.line.notice', 'font-size', '.85em'],
   ['.line.notice .message', 'color', '#E2D6FF'],
   ['.reply', 'font-size', '.75em'],
@@ -399,11 +413,31 @@ const LITERALS = [
   ['@keyframes tco-in-x > from', 'transform', 'translateX(.6em)']
 ];
 
-// v is lit, or var(--x, v') with v' passing the same test.
+// v with every var(--x, fallback) whose --x isn't in keep replaced by its fallback (and the same inside that).
+function withFallbacks(v, keep) {
+  let out = '', i = 0;
+  for (;;) {
+    const at = v.indexOf('var(', i);
+    if (at < 0) return out + v.slice(i);
+    out += v.slice(i, at);
+    let depth = 0, j = at + 3, comma = -1;
+    for (; j < v.length; j++) {
+      if (v[j] === '(') depth++;
+      else if (v[j] === ')' && --depth === 0) break;
+      else if (v[j] === ',' && depth === 1 && comma < 0) comma = j;
+    }
+    const name = v.slice(at + 4, comma < 0 ? j : comma).trim();
+    out += keep.has(name) || comma < 0 ? v.slice(at, j + 1) : withFallbacks(v.slice(comma + 1, j).trim(), keep);
+    i = j + 1;
+  }
+}
+
+// v draws lit when the variables 1.5.2 didn't have are unset: lit itself, or lit with parts of it written as
+// var(--x, <that part>) (rgba(var(--bg-rgb, 0, 0, 0), …) for rgba(0, 0, 0, …)).
 function keepsLiteral(v, lit) {
-  if (v === lit) return true;
-  const m = /^var\(--[\w-]+, ([\s\S]*)\)$/.exec(v || '');
-  return !!m && keepsLiteral(m[1], lit);
+  if (typeof v !== 'string') return false;
+  const keep = new Set(Array.from(lit.matchAll(/var\((--[\w-]+)/g), (m) => m[1]));
+  return withFallbacks(v, keep) === lit;
 }
 
 test('(i) overlay.css: the values the options stand in for are still 1.5.2\'s (or that value as a var() fallback)', () => {
@@ -411,6 +445,9 @@ test('(i) overlay.css: the values the options stand in for are still 1.5.2\'s (o
   const rules = cssRules(css);
   assert.ok(rules.length > 40, 'the scan finds the rules');
   assert.ok(keepsLiteral('var(--x, var(--y, 1em))', '1em') && !keepsLiteral('var(--x, 2em)', '1em') && !keepsLiteral(undefined, '1em'));
+  assert.ok(keepsLiteral('rgba(var(--x, 0, 0, 0), var(--a, 0))', 'rgba(0, 0, 0, var(--a, 0))'));
+  assert.ok(!keepsLiteral('rgba(var(--x, 0, 0, 0), var(--b, 0))', 'rgba(0, 0, 0, var(--a, 0))'), 'a 1.5.2 variable stays');
+  assert.ok(keepsLiteral('var(--x, .15em) 0', '.15em 0') && !keepsLiteral('var(--x) 0', '.15em 0'));
   LITERALS.forEach(([sel, prop, lit]) => {
     const r = rules.filter((x) => x.sel === sel && own(x.decls, prop))[0];
     assert.ok(r, sel + ' { ' + prop + ' } is in overlay.css');

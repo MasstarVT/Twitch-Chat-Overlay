@@ -3,7 +3,11 @@
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .badges .badge .name .colon .message
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
    .platform-kick, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel),
-   #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg */
+   #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg .bg-full .no-names .name-line
+   .case-upper .case-lower .case-smallcaps.
+   Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
+   --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
+   --first-color */
 
 html,
 body {
@@ -24,9 +28,9 @@ body {
   padding: 0 8px;
   font-family: var(--font, 'Inter'), 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
   font-size: 24px;
-  line-height: 1.35;
-  color: #fff;
-  font-weight: 600;
+  line-height: var(--line-height, 1.35);
+  color: var(--text-color, #fff);
+  font-weight: var(--text-weight, 600);
 }
 #chat.size-small { font-size: 18px; }
 #chat.size-medium { font-size: 24px; }
@@ -50,7 +54,7 @@ body {
 
 /* ---------- lines ---------- */
 .line {
-  padding: .15em 0;
+  padding: var(--line-gap, .15em) 0;
   filter: var(--shadow, drop-shadow(0 0 1px rgba(0,0,0,.9)) drop-shadow(1px 2px 2px rgba(0,0,0,.75)));
 }
 
@@ -60,13 +64,15 @@ body {
   width: fit-content;
   max-width: 100%;
   box-sizing: border-box;
-  margin: .15em 0;
+  margin: var(--line-gap, .15em) 0;
   padding: .2em .4em;
-  border-radius: .4em;
-  background-color: rgba(0, 0, 0, var(--bg-alpha, 0));
+  border-radius: var(--bg-radius, .4em);
+  background-color: rgba(var(--bg-rgb, 0, 0, 0), var(--bg-alpha, 0));
 }
+/* bg_width=full: every box as wide as the column */
+:where(.layout-vertical.has-bg).bg-full .line { width: auto; }
 
-.name { font-weight: 800; }
+.name { font-weight: var(--name-weight, 800); }
 .message { overflow-wrap: anywhere; }
 /* Right-to-left text: a name is its own bidi run (an Arabic name can't swap places with the start of the
    message), and a chat message takes its direction from its own first letter. Notices stay LTR: their
@@ -79,9 +85,26 @@ body {
 /* /me: italic in the name color (color set inline) */
 .line.action .message { font-style: italic; }
 
+/* names=0: no names. Reply headers and notices keep theirs. */
+.no-names .name,
+.no-names .colon { display: none; }
+/* name_line=1, in a column with names shown: the message starts on a line of its own under the name. It stays
+   at the left like a whole line does (a right-to-left message too), where the line itself is aligned. */
+:where(.layout-vertical.name-line:not(.no-names) .line:not(.notice)) .message {
+  display: block;
+  text-align: left;
+  text-align: -webkit-match-parent;
+}
+:where(.layout-vertical.name-line:not(.no-names) .line:not(.notice)) .colon { display: none; }
+
+/* text_case: the chat text only. The letters in the built-in SVG badges (Kick's OG) keep their case. */
+.case-upper .name, .case-upper .colon, .case-upper .message, .case-upper .reply { text-transform: uppercase; }
+.case-lower .name, .case-lower .colon, .case-lower .message, .case-lower .reply { text-transform: lowercase; }
+.case-smallcaps .name, .case-smallcaps .colon, .case-smallcaps .message, .case-smallcaps .reply { font-variant-caps: small-caps; }
+
 /* first-msg=1 (only when first_msg is enabled) */
 .line.first-msg {
-  box-shadow: inset .2em 0 0 #9146FF;
+  box-shadow: inset .2em 0 0 var(--first-color, #9146FF);
   padding-left: .4em;
 }
 
@@ -95,8 +118,9 @@ body {
 /* With bg set, the tint goes over the dark box instead of replacing it. :where keeps this at the
    specificity of .line.highlight, so Custom CSS written as `.line.highlight { ... }` still wins. */
 :where(.has-bg) .line.highlight {
-  background-color: rgba(0, 0, 0, var(--bg-alpha, 0));
+  background-color: rgba(var(--bg-rgb, 0, 0, 0), var(--bg-alpha, 0));
   background-image: linear-gradient(rgba(145, 70, 255, .35), rgba(145, 70, 255, .35));
+  border-radius: var(--bg-radius, .3em);
 }
 
 /* /announce: a colored bar on the left (longhands only, so the bg/highlight color stays) */
@@ -107,6 +131,11 @@ body {
   background-repeat: no-repeat;
   background-position: left top;
 }
+/* In a box, the bar's corners are never rounder than round's .4em, so bg_shape=pill can't hide most of it */
+:where(.has-bg) .line.announcement {
+  border-top-left-radius: min(var(--bg-radius, .4em), .4em);
+  border-bottom-left-radius: min(var(--bg-radius, .4em), .4em);
+}
 .ann-primary { --ann1: #9146FF; --ann2: #9146FF; }
 .ann-blue { --ann1: #00D6D6; --ann2: #9146FF; }
 .ann-green { --ann1: #00DB84; --ann2: #57BEE6; }
@@ -114,8 +143,8 @@ body {
 .ann-purple { --ann1: #9146FF; --ann2: #FF75E6; }
 
 /* sub / resub / gift / raid notices */
-.line.notice { font-size: .85em; }
-.line.notice .message { color: #E2D6FF; }
+.line.notice { font-size: var(--notice-size, .85em); }
+.line.notice .message { color: var(--notice-color, #E2D6FF); }
 
 /* ---------- reply header ---------- */
 .reply {
@@ -126,7 +155,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.reply-name { font-weight: 800; }
+.reply-name { font-weight: var(--name-weight, 800); }
 
 /* ---------- badges ---------- */
 .badges:empty { display: none; }
@@ -222,10 +251,10 @@ body {
   flex-wrap: nowrap;
   justify-content: flex-end;
   align-items: flex-end;
-  gap: 0 1em;
+  gap: 0 var(--row-gap, 1em);
 }
 #chat.layout-horizontal.align-top .lines { align-items: flex-start; }
-#chat.layout-horizontal.has-bg .lines { gap: 0 .4em; }
+#chat.layout-horizontal.has-bg .lines { gap: 0 var(--row-gap, .4em); }
 .layout-horizontal .line {
   flex: none;
   max-width: 100%;
