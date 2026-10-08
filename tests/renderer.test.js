@@ -100,6 +100,26 @@ test('bgAlpha and normalizeCfg clamp values', () => {
   assert.deepStrictEqual(src.block, ['a'], 'arrays are copied');
 });
 
+test('setVar sets a #chat variable, and removes it for null (the stylesheet value and Custom CSS apply)', () => {
+  const st = require('./fake-dom.js').createDocument().createElement('div').style;
+  R.setVar(st, '--x', 0.4);
+  assert.strictEqual(st['--x'], '0.4', 'as a string');
+  R.setVar(st, '--x', '"Inter"');
+  assert.strictEqual(st.getPropertyValue('--x'), '"Inter"');
+  R.setVar(st, '--x', null);
+  assert.deepStrictEqual(Object.keys(st), []);
+  R.setVar(st, '--y', undefined);
+  assert.deepStrictEqual(Object.keys(st), [], 'nothing set for undefined either');
+});
+
+test('hexRgb: a config color as r, g, b, and nothing for anything that is not six lowercase hex digits', () => {
+  assert.strictEqual(R.hexRgb('9146ff'), '145, 70, 255');
+  assert.strictEqual(R.hexRgb('000000'), '0, 0, 0');
+  assert.strictEqual(R.hexRgb('ffffff'), '255, 255, 255');
+  ['', '#9146ff', '9146FF', 'fff', '9146ff00', 'red', '12345g', ' 9146ff', '9146ff;x:y', null, undefined, 9146, true]
+    .forEach((v) => assert.strictEqual(R.hexRgb(v), null, JSON.stringify(v)));
+});
+
 test('changedAny compares arrays by value', () => {
   assert.strictEqual(R.changedAny({ block: ['a'] }, { block: ['a'] }, ['block']), false);
   assert.strictEqual(R.changedAny({ block: ['a'] }, { block: ['a', 'b'] }, ['block']), true);
@@ -528,8 +548,11 @@ test('config keys that trigger a re-render or a filter sweep', () => {
 });
 
 test('every live config key is handled by the renderer', () => {
-  // setConfig handles these itself: applyRoot, reordering, fade re-timing, capping
+  // setConfig handles these itself: applyRoot, reordering, fade re-timing, capping. Written out here, not read
+  // from the renderer, so a key added to R.ROOT_KEYS is a decision this list records (tests/parity.test.js
+  // checks that each one changes what is drawn).
   const ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max'];
+  assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
   const LIVE_KEYS = require('../js/config.js').LIVE_KEYS;
   assert.ok(Array.isArray(LIVE_KEYS) && LIVE_KEYS.length > 0);
   for (const k of LIVE_KEYS) {

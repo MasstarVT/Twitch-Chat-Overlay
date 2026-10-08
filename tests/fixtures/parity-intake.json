@@ -1,0 +1,5211 @@
+{
+  "defaults": {
+    "loaders": [
+      "7tv-catalog()",
+      "7tv-channel(100)",
+      "7tv-channel(200)",
+      "7tv-global()",
+      "bttv-badges()",
+      "bttv-channel(100)",
+      "bttv-channel(200)",
+      "bttv-global()",
+      "chatterino()",
+      "ffz-badges()",
+      "ffz-global()",
+      "ffz-room(100)",
+      "ffz-room(200)",
+      "ffzap()",
+      "history(home,5)",
+      "homies(0)",
+      "homies(1)",
+      "homies(2)",
+      "kick-lookup(kickname)",
+      "lookupUser(home)",
+      "lookupUserById(200)",
+      "twitch-channel(100)",
+      "twitch-channel(200)",
+      "twitch-global()"
+    ],
+    "records": [
+      {
+        "msg": {
+          "id": "h-1",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1002",
+          "login": "waver",
+          "displayName": "Waver",
+          "color": "#FF7F50",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270780000,
+          "historical": true,
+          "kind": "chat",
+          "text": "an older line from history",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Waver","color":"#ff7f50","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"an older line from history","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "h-2",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270810000,
+          "historical": true,
+          "kind": "chat",
+          "text": "history Kappa",
+          "action": false,
+          "emotes": "25:8-12",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"history","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-chat",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "hello chat Kappa how are you",
+          "action": false,
+          "emotes": "25:11-15",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"hello chat","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          },
+          {"type":"text","text":"how are you","sp":true}
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-action",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1002",
+          "login": "waver",
+          "displayName": "Waver",
+          "color": "#FF7F50",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "waves at everyone",
+          "action": true,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Waver","color":"#ff7f50","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"waves at everyone","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-reply",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1003",
+          "login": "replier",
+          "displayName": "Replier",
+          "color": "#00FF7F",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@SubFan thanks for that",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": {"id":"m-chat","userId":"1001","login":"subfan","name":"SubFan","body":"hello chat Kappa how are you"}
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Replier","color":"#00ff7f","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"thanks for that","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-reply-gone",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1003",
+          "login": "replier",
+          "displayName": "Replier",
+          "color": "#00FF7F",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@Troll what did you say",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": {"id":"m-gone","userId":"1017","login":"troll","name":"Troll","body":"deleted words"}
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Replier","color":"#00ff7f","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"what did you say","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-first",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "hi everyone, first time here!",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": true,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"hi everyone, first time here!","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-points",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1005",
+          "login": "pointspender",
+          "displayName": "PointSpender",
+          "color": "#B22222",
+          "badges": [{"set":"subscriber","version":"3"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "look at my highlighted message",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "highlighted-message",
+          "firstMsg": false,
+          "reply": null,
+          "highlight": true
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PointSpender","color":"#c35454","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "3-Month Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"look at my highlighted message","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "n-ann",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1006",
+          "login": "helpfulmod",
+          "displayName": "HelpfulMod",
+          "color": "#00AD03",
+          "badges": [{"set":"moderator","version":"1"},{"set":"subscriber","version":"24"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "type": "announcement",
+          "systemMsg": "",
+          "text": "Stream starts in 5 minutes PogChamp",
+          "action": false,
+          "emotes": "305954156:27-34",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "announcement",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"color":"BLUE"},
+          "communityGiftId": "",
+          "announceColor": "BLUE",
+          "announcement": "BLUE"
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"HelpfulMod","color":"#00ad03","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"Stream starts in 5 minutes","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "305954156",
+              "name": "PogChamp",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "n-resub",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "notice",
+          "type": "resub",
+          "systemMsg": "SubFan subscribed at Tier 1. They've subscribed for 12 months!",
+          "text": "still here Kappa",
+          "action": false,
+          "emotes": "25:11-15",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "resub",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"cumulative-months":"12","sub-plan":"1000"},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}]
+      },
+      {
+        "msg": {
+          "id": "n-sub",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "notice",
+          "type": "sub",
+          "systemMsg": "Newbie subscribed with Prime.",
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "sub",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"sub-plan":"Prime"},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}]
+      },
+      {
+        "msg": {
+          "id": "n-raid",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1019",
+          "login": "raider",
+          "displayName": "Raider",
+          "color": "#4169E1",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "notice",
+          "type": "raid",
+          "systemMsg": "15 raiders from Raider have joined!",
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "raid",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"viewerCount":"15"},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Raider","color":"#587be5","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "kick:a1b2c3d4-0001",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "kick:9000001",
+          "login": "kickfan",
+          "displayName": "KickFan",
+          "color": "#53FC19",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [{"type":"moderator","text":"Moderator","count":0},{"type":"subscriber","text":"Subscriber","count":2}],
+          "ts": 1767270840000,
+          "historical": false,
+          "text": "hi from kick KEKW PepeLaugh",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "37226:13-16",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "chat"
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"KickFan","color":"#53fc19","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"kick","title":"Kick"},
+          {"provider":"kick","icon":"kick-moderator","title":"Moderator"},
+          {"provider":"kick","icon":"kick-subscriber","title":"Subscriber (2 months)"}
+        ],
+        "tokens": [
+          {"type":"text","text":"hi from kick","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "kick",
+              "id": "37226",
+              "name": "KEKW",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://files.kick.com/emotes/37226/fullsize",
+                "2": "https://files.kick.com/emotes/37226/fullsize",
+                "4": "https://files.kick.com/emotes/37226/fullsize"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickfan",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270846000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "resub",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "resub",
+          "systemMsg": "KickFan subscribed for 5 months!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"kickfan","color":"#ff0000","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "kick:a1b2c3d4-0002",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "kick:9000002",
+          "login": "kickplain",
+          "displayName": "KickPlain",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "text": "no colour on kick",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "chat"
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"KickPlain","color":"#d2691e","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}],
+        "tokens": [{"type":"text","text":"no colour on kick","sp":false}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "kick:a1b2c3d4-0003",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "kick:9000003",
+          "login": "kickog",
+          "displayName": "KickOG",
+          "color": "#E9113C",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [{"type":"og","text":"OG","count":0},{"type":"vip","text":"VIP","count":0}],
+          "ts": 1767270840000,
+          "historical": false,
+          "text": "yes indeed",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": {
+            "id": "kick:a1b2c3d4-0001",
+            "userId": "kick:9000001",
+            "login": "kickfan",
+            "name": "KickFan",
+            "body": "hi from kick KEKW PepeLaugh"
+          },
+          "kind": "chat"
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"KickOG","color":"#e9113c","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"kick","title":"Kick"},
+          {"provider":"kick","icon":"kick-og","title":"OG"},
+          {"provider":"kick","icon":"kick-vip","title":"VIP"}
+        ],
+        "tokens": [{"type":"text","text":"yes indeed","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-mirror",
+          "sourceId": "src-mirror",
+          "roomId": "100",
+          "sourceRoomId": "200",
+          "mirrored": true,
+          "userId": "2001",
+          "login": "partnerfan",
+          "displayName": "PartnerFan",
+          "color": "#2E8B57",
+          "badges": [],
+          "sourceBadges": [{"set":"subscriber","version":"6"}],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "hello from the other channel PepeLaugh",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PartnerFan","color":"#2e8b57","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "avatar",
+            "title": "Partner",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png",
+              "2": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png",
+              "4": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "3-Month Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"hello from the other channel","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-homeshared",
+          "sourceId": "src-home",
+          "roomId": "100",
+          "sourceRoomId": "100",
+          "mirrored": false,
+          "userId": "1006",
+          "login": "helpfulmod",
+          "displayName": "HelpfulMod",
+          "color": "#00AD03",
+          "badges": [{"set":"moderator","version":"1"},{"set":"subscriber","version":"24"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "welcome partner chat",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"HelpfulMod","color":"#00ad03","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "avatar",
+            "title": "Home",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/jtv_user_pictures/home-profile_image-300x300.png",
+              "2": "https://static-cdn.jtvnw.net/jtv_user_pictures/home-profile_image-300x300.png",
+              "4": "https://static-cdn.jtvnw.net/jtv_user_pictures/home-profile_image-300x300.png"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"welcome partner chat","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-zw",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "PepeLaugh RainTime w! catJAM OMEGALUL ffzX r! catJAM z! PepeLaugh WideHype",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [
+              {
+                "provider": "7tv",
+                "id": "01GAXSFBAR0003RH7M52VJT1D3",
+                "name": "RainTime",
+                "w": 32,
+                "h": 32,
+                "urls": {
+                  "1": "https://cdn.7tv.app/emote/01GAXSFBAR0003RH7M52VJT1D3/1x.webp",
+                  "2": "https://cdn.7tv.app/emote/01GAXSFBAR0003RH7M52VJT1D3/2x.webp",
+                  "3": "https://cdn.7tv.app/emote/01GAXSFBAR0003RH7M52VJT1D3/3x.webp",
+                  "4": "https://cdn.7tv.app/emote/01GAXSFBAR0003RH7M52VJT1D3/4x.webp"
+                },
+                "zw": true
+              }
+            ],
+            "fx": null,
+            "big": false,
+            "sp": false
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "bttv",
+              "id": "5f1b0186cf6d2144653d2970",
+              "name": "catJAM",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/1x.webp",
+                "2": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/2x.webp",
+                "4": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/3x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": {"sx":1,"sy":1,"rot":0,"grow":true,"cursed":false,"zs":false},
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "ffz",
+              "id": "128054",
+              "name": "OMEGALUL",
+              "w": 32,
+              "h": 30,
+              "urls": {
+                "1": "https://cdn.frankerfacez.com/emote/128054/1",
+                "2": "https://cdn.frankerfacez.com/emote/128054/2",
+                "4": "https://cdn.frankerfacez.com/emote/128054/4"
+              }
+            },
+            "overlays": [],
+            "fx": {"sx":-1,"sy":1,"rot":0,"grow":false,"cursed":false,"zs":false},
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "bttv",
+              "id": "5f1b0186cf6d2144653d2970",
+              "name": "catJAM",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/1x.webp",
+                "2": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/2x.webp",
+                "4": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/3x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": {"sx":1,"sy":1,"rot":90,"grow":false,"cursed":false,"zs":false},
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": {"sx":1,"sy":1,"rot":0,"grow":false,"cursed":false,"zs":true},
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GCQ7DMPR000BE8PJZ06EK2ST",
+              "name": "WideHype",
+              "w": 96,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GCQ7DMPR000BE8PJZ06EK2ST/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GCQ7DMPR000BE8PJZ06EK2ST/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GCQ7DMPR000BE8PJZ06EK2ST/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GCQ7DMPR000BE8PJZ06EK2ST/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-giant",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "so big Kappa",
+          "action": false,
+          "emotes": "25:7-11",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "gigantified-emote-message",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"so big","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": true,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-cheer",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1016",
+          "login": "collector",
+          "displayName": "Collector",
+          "color": "#C71585",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "Cheer100 great stream Kappa",
+          "action": false,
+          "emotes": "25:22-26",
+          "gifs": "",
+          "bits": 100,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Collector","color":"#d44aa1","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          },
+          {
+            "provider": "chatterino",
+            "title": "Chatterino Top Donator",
+            "urls": {"1":"https://fourtf.com/chatterino/badges/top-donator.png"}
+          },
+          {"provider":"ffzap","title":"FFZ:AP Supporter","urls":{"1":"https://api.ffzap.com/v1/user/badge/1016/1"}},
+          {"provider":"bttv","title":"BTTV Staff","urls":{"1":"https://cdn.betterttv.net/badges/staff.svg"}}
+        ],
+        "tokens": [
+          {
+            "type": "cheer",
+            "prefix": "Cheer",
+            "amount": 100,
+            "tier": 100,
+            "color": "#9C3EE8",
+            "urls": {
+              "1": "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/100/1.gif",
+              "2": "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/100/2.gif",
+              "3": "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/100/3.gif",
+              "4": "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/100/4.gif"
+            },
+            "text": "Cheer100",
+            "sp": false
+          },
+          {"type":"text","text":"great stream","sp":true},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-gif",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "look [GIF] nice",
+          "action": false,
+          "emotes": "",
+          "gifs": "5-9|3oFzm0o2jMKftsaBoc|https://media.giphy.com/media/3oFzm0o2jMKftsaBoc/giphy.gif",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [
+          {"type":"text","text":"look","sp":false},
+          {
+            "type": "gif",
+            "url": "https://media.giphy.com/media/3oFzm0o2jMKftsaBoc/200.webp",
+            "orig": "https://media.giphy.com/media/3oFzm0o2jMKftsaBoc/giphy.gif",
+            "title": "[GIF]",
+            "sp": true
+          },
+          {"type":"text","text":"nice","sp":true}
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-intl",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1009",
+          "login": "sekai",
+          "displayName": "セカイ",
+          "color": "#FF69B4",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "こんにちは 世界 مرحبا بالجميع שלום 👋🏽 Z̴̡a̶l̷g̸o",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"セカイ","color":"#ff69b4","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"こんにちは 世界 مرحبا بالجميع שלום 👋🏽 Z̴̡a̶l̷g̸o","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-plain",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1007",
+          "login": "plainviewer",
+          "displayName": "PlainViewer",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "i have no colour set",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PlainViewer","color":"#1f8f1f","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"i have no colour set","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-dark",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1008",
+          "login": "darkname",
+          "displayName": "DarkName",
+          "color": "#0000FF",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "my name is dark blue",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"DarkName","color":"#6666ff","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"my name is dark blue","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-mention",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@home you rock, and @SubFan too",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"@home you rock, and @SubFan too","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-link",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1002",
+          "login": "waver",
+          "displayName": "Waver",
+          "color": "#FF7F50",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "check https://example.com/page?x=1 and www.test.org/a",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Waver","color":"#ff7f50","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"check https://example.com/page?x=1 and www.test.org/a","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-cmd",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "!points",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"!points","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-emoteonly",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "Kappa PogChamp PepeLaugh",
+          "action": false,
+          "emotes": "25:0-4/305954156:6-13",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": false
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "305954156",
+              "name": "PogChamp",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-caster",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "100",
+          "login": "home",
+          "displayName": "Home",
+          "color": "#9146FF",
+          "badges": [{"set":"broadcaster","version":"1"},{"set":"subscriber","version":"0"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "thanks for watching!",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Home","color":"#9146ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Broadcaster",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/broadcaster-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/broadcaster-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/broadcaster-1/3"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-0/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-0/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-0/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"thanks for watching!","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-mod",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1006",
+          "login": "helpfulmod",
+          "displayName": "HelpfulMod",
+          "color": "#00AD03",
+          "badges": [{"set":"moderator","version":"1"},{"set":"subscriber","version":"24"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "please be nice",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"HelpfulMod","color":"#00ad03","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"please be nice","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-painted",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1011",
+          "login": "paintedpal",
+          "displayName": "PaintedPal",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"3"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "my name has a paint",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PaintedPal","color":"#1e90ff","paintId":"01HQ7Y8Z9A0B1C2D3E4F5G6H7J"},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "3-Month Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/3"
+            }
+          },
+          {
+            "provider": "7tv",
+            "title": "7TV Subscriber",
+            "urls": {
+              "1": "https://cdn.7tv.app/badge/01HQ7Y8Z9A0B1C2D3E4F5G6H7M/1x.webp",
+              "2": "https://cdn.7tv.app/badge/01HQ7Y8Z9A0B1C2D3E4F5G6H7M/2x.webp",
+              "3": "https://cdn.7tv.app/badge/01HQ7Y8Z9A0B1C2D3E4F5G6H7M/3x.webp",
+              "4": "https://cdn.7tv.app/badge/01HQ7Y8Z9A0B1C2D3E4F5G6H7M/4x.webp"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"my name has a paint","sp":false}],
+        "paintRule": ".painted.p-01HQ7Y8Z9A0B1C2D3E4F5G6H7J{background-image:linear-gradient(90deg, rgba(255,0,0,1) 0%, rgba(0,255,0,1) 100%);filter:drop-shadow(0px 0px 2px rgba(0,0,0,1))}"
+      },
+      {
+        "msg": {
+          "id": "m-painted2",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1014",
+          "login": "ffzdev",
+          "displayName": "FfzDev",
+          "color": "#E0B726",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "my paint is an image",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"FfzDev","color":"#e0b726","paintId":"01HQ7Y8Z9A0B1C2D3E4F5G6H7K"},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "ffz",
+            "title": "FFZ Developer",
+            "urls": {
+              "1": "https://cdn.frankerfacez.com/badge/2/1",
+              "2": "https://cdn.frankerfacez.com/badge/2/2",
+              "4": "https://cdn.frankerfacez.com/badge/2/4"
+            },
+            "bg": "#E0B726",
+            "replaces": null,
+            "id": 2
+          }
+        ],
+        "tokens": [{"type":"text","text":"my paint is an image","sp":false}],
+        "paintRule": ".painted.p-01HQ7Y8Z9A0B1C2D3E4F5G6H7K{background-image:url(\"https://cdn.7tv.app/paint/01HQ7Y8Z9A0B1C2D3E4F5G6H7K/layer/1/1x.webp\")}"
+      },
+      {
+        "msg": {
+          "id": "m-dev",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1010",
+          "login": "masstarvt",
+          "displayName": "MasstarVT",
+          "color": "#8A2BE2",
+          "badges": [{"set":"moderator","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "hello from the dev",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"MasstarVT","color":"#a45be9","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "developer",
+            "title": "MasstarVT developer",
+            "urls": {"1":"img/logos/Badge.svg","2":"img/logos/Badge.svg","4":"img/logos/Badge.svg"}
+          },
+          {
+            "provider": "beta-tester",
+            "title": "Beta Tester",
+            "urls": {"1":"img/logos/Beta.svg","2":"img/logos/Beta.svg","4":"img/logos/Beta.svg"}
+          },
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"hello from the dev","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-noname",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1007",
+          "login": "plainviewer",
+          "displayName": "plainviewer",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "nameFor gave nothing",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"plainviewer","color":"#1f8f1f","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"nameFor gave nothing","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-bot",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1012",
+          "login": "nightbot",
+          "displayName": "Nightbot",
+          "color": "#7C7CE1",
+          "badges": [{"set":"moderator","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "Nightbot says hi",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"Nightbot","color":"#7c7ce1","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"Nightbot says hi","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-chanbot",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1013",
+          "login": "channelbot",
+          "displayName": "ChannelBot",
+          "color": "#5F9EA0",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "channel bot line",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"ChannelBot","color":"#5f9ea0","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"channel bot line","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-troll",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1017",
+          "login": "troll",
+          "displayName": "Troll",
+          "color": "#696969",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "troll line",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Troll","color":"#7b7b7b","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"troll line","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-reply-troll",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1003",
+          "login": "replier",
+          "displayName": "Replier",
+          "color": "#00FF7F",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@Troll no u",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": {"id":"x-troll","userId":"1017","login":"troll","name":"Troll","body":"troll line"}
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Replier","color":"#00ff7f","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"no u","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-reply-cmd",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1003",
+          "login": "replier",
+          "displayName": "Replier",
+          "color": "#00FF7F",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@Nightbot !discord",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": {"id":"x-bot","userId":"","login":"nightbot","name":"Nightbot","body":""}
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Replier","color":"#00ff7f","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"!discord","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-ffzbot",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1015",
+          "login": "ffzbot",
+          "displayName": "FfzBot",
+          "color": "#808080",
+          "badges": [{"set":"moderator","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "ffz bot badge replaces mod",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"FfzBot","color":"#808080","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "ffz",
+            "title": "Bot",
+            "urls": {"1":"https://cdn.frankerfacez.com/badge/3/1"},
+            "replaces": "moderator",
+            "id": 3
+          }
+        ],
+        "tokens": [{"type":"text","text":"ffz bot badge replaces mod","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-extras",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1016",
+          "login": "collector",
+          "displayName": "Collector",
+          "color": "#C71585",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "chatterino, ffzap and bttv badges",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Collector","color":"#d44aa1","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          },
+          {
+            "provider": "chatterino",
+            "title": "Chatterino Top Donator",
+            "urls": {"1":"https://fourtf.com/chatterino/badges/top-donator.png"}
+          },
+          {"provider":"ffzap","title":"FFZ:AP Supporter","urls":{"1":"https://api.ffzap.com/v1/user/badge/1016/1"}},
+          {"provider":"bttv","title":"BTTV Staff","urls":{"1":"https://cdn.betterttv.net/badges/staff.svg"}}
+        ],
+        "tokens": [{"type":"text","text":"chatterino, ffzap and bttv badges","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-beta",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1020",
+          "login": "musicalfox30",
+          "displayName": "Musicalfox30",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "beta tester here",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Musicalfox30","color":"#ff0000","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "beta-tester",
+            "title": "Beta Tester",
+            "urls": {"1":"img/logos/Beta.svg","2":"img/logos/Beta.svg","4":"img/logos/Beta.svg"}
+          }
+        ],
+        "tokens": [{"type":"text","text":"beta tester here","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-mystery",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1018",
+          "login": "gifter",
+          "displayName": "Gifter",
+          "color": "#FFD700",
+          "badges": [{"set":"subscriber","version":"6"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "notice",
+          "type": "submysterygift",
+          "systemMsg": "Gifter is gifting 2 Tier 1 Subs!",
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "submysterygift",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"community-gift-id":"G1","mass-gift-count":"2"},
+          "communityGiftId": "G1",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Gifter","color":"#ffd700","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}]
+      },
+      {
+        "msg": {
+          "id": "x-gift3",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1018",
+          "login": "gifter",
+          "displayName": "Gifter",
+          "color": "#FFD700",
+          "badges": [{"set":"subscriber","version":"6"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "notice",
+          "type": "subgift",
+          "systemMsg": "Gifter gifted a sub to C!",
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "subgift",
+          "firstMsg": false,
+          "reply": null,
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Gifter","color":"#ffd700","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}]
+      },
+      {
+        "msg": {
+          "id": "x-upgrade",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "notice",
+          "type": "giftpaidupgrade",
+          "systemMsg": "Newbie is continuing the Gift Sub they got from Gifter!",
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "giftpaidupgrade",
+          "firstMsg": false,
+          "reply": null,
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}]
+      },
+      {
+        "msg": {
+          "id": "x-bitsbadge",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1016",
+          "login": "collector",
+          "displayName": "Collector",
+          "color": "#C71585",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "notice",
+          "type": "bitsbadgetier",
+          "systemMsg": "Collector just earned a new 1K Bits badge!",
+          "text": "wow",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "bitsbadgetier",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"threshold":"1000"},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Collector","color":"#d44aa1","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}]
+      },
+      {
+        "msg": {
+          "id": "x-ritual",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "type": "ritual",
+          "systemMsg": "Newbie is new to chat! Say hello!",
+          "text": "HeyGuys I am new",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "ritual",
+          "firstMsg": false,
+          "reply": null,
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"HeyGuys I am new","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-shared-resub",
+          "sourceId": "src-resub",
+          "roomId": "100",
+          "sourceRoomId": "200",
+          "mirrored": true,
+          "userId": "2001",
+          "login": "partnerfan",
+          "displayName": "PartnerFan",
+          "color": "#2E8B57",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "type": "resub",
+          "systemMsg": "PartnerFan subscribed at Tier 1.",
+          "text": "partner resub text",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "sharedchatnotice",
+          "firstMsg": false,
+          "reply": null,
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PartnerFan","color":"#2e8b57","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "avatar",
+            "title": "Partner",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png",
+              "2": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png",
+              "4": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"partner resub text","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-shared-ann",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "200",
+          "mirrored": true,
+          "userId": "2001",
+          "login": "partnerfan",
+          "displayName": "PartnerFan",
+          "color": "#2E8B57",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "type": "announcement",
+          "systemMsg": "",
+          "text": "partner announcement",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "sharedchatnotice",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"color":"GREEN"},
+          "communityGiftId": "",
+          "announceColor": "GREEN",
+          "announcement": "GREEN"
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PartnerFan","color":"#2e8b57","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "avatar",
+            "title": "Partner",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png",
+              "2": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png",
+              "4": "https://static-cdn.jtvnw.net/jtv_user_pictures/partner-profile_image-70x70.png"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"partner announcement","sp":false}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "kick:a1b2c3d4-0004",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "kick:9000004",
+          "login": "botrix",
+          "displayName": "BotRix",
+          "color": "#00FF00",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "text": "kick bot line",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "chat"
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"BotRix","color":"#00ff00","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}],
+        "tokens": [{"type":"text","text":"kick bot line","sp":false}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickfan",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270846000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "submysterygift",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "submysterygift",
+          "systemMsg": "KickFan gifted 3 subs!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"kickfan","color":"#ff0000","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickfan",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270846000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "subgift",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "subgift",
+          "systemMsg": "KickFan gifted a sub to KickPlain!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"kickfan","color":"#ff0000","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickhost",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270846000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "raid",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "raid",
+          "systemMsg": "KickHost is hosting with 12 viewers!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"kickhost","color":"#2e8b57","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickplain",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270846000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "sub",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "sub",
+          "systemMsg": "KickPlain subscribed!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"kickplain","color":"#d2691e","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      }
+    ],
+    "cleared": ["msg:h-gone","msg:kick:a1b2c3d4-0002","user:kick:9000004","msg:x-troll","user:1017","some","some"],
+    "clearAllPicks": [
+      [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    ],
+    "lookupWants": [
+      "1002",
+      "1001",
+      "1001",
+      "1002",
+      "1003",
+      "1003",
+      "1004",
+      "1005",
+      "1006",
+      "1001",
+      "1004",
+      "1019",
+      "2001",
+      "1006",
+      "1001",
+      "1001",
+      "1016",
+      "1004",
+      "1009",
+      "1007",
+      "1008",
+      "1001",
+      "1002",
+      "1004",
+      "1001",
+      "100",
+      "1006",
+      "1011",
+      "1014",
+      "1010",
+      "1007",
+      "1017",
+      "1003",
+      "1003",
+      "1015",
+      "1016",
+      "1020",
+      "1018",
+      "1018",
+      "1004",
+      "1016",
+      "1004",
+      "2001",
+      "2001"
+    ],
+    "hint": null
+  },
+  "filtered": {
+    "loaders": [
+      "7tv-catalog()",
+      "7tv-channel(100)",
+      "7tv-global()",
+      "bttv-badges()",
+      "bttv-channel(100)",
+      "bttv-global()",
+      "chatterino()",
+      "ffz-badges()",
+      "ffz-global()",
+      "ffz-room(100)",
+      "ffzap()",
+      "history(home,5)",
+      "homies(0)",
+      "homies(1)",
+      "homies(2)",
+      "kick-lookup(kickname)",
+      "lookupUser(home)",
+      "twitch-channel(100)",
+      "twitch-global()"
+    ],
+    "records": [
+      {
+        "msg": {
+          "id": "h-1",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1002",
+          "login": "waver",
+          "displayName": "Waver",
+          "color": "#FF7F50",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270780000,
+          "historical": true,
+          "kind": "chat",
+          "text": "an older line from history",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Waver","color":"#ff7f50","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"an older line from history","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "h-2",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270810000,
+          "historical": true,
+          "kind": "chat",
+          "text": "history Kappa",
+          "action": false,
+          "emotes": "25:8-12",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"history","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-chat",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "hello chat Kappa how are you",
+          "action": false,
+          "emotes": "25:11-15",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"hello chat","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          },
+          {"type":"text","text":"how are you","sp":true}
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-action",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1002",
+          "login": "waver",
+          "displayName": "Waver",
+          "color": "#FF7F50",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "waves at everyone",
+          "action": true,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Waver","color":"#ff7f50","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"waves at everyone","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-reply",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1003",
+          "login": "replier",
+          "displayName": "Replier",
+          "color": "#00FF7F",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@SubFan thanks for that",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": {"id":"m-chat","userId":"1001","login":"subfan","name":"SubFan","body":"hello chat Kappa how are you"}
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Replier","color":"#00ff7f","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"thanks for that","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-reply-gone",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1003",
+          "login": "replier",
+          "displayName": "Replier",
+          "color": "#00FF7F",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@Troll what did you say",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Replier","color":"#00ff7f","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"@Troll what did you say","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-first",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "hi everyone, first time here!",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": true,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"hi everyone, first time here!","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-points",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1005",
+          "login": "pointspender",
+          "displayName": "PointSpender",
+          "color": "#B22222",
+          "badges": [{"set":"subscriber","version":"3"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "look at my highlighted message",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "highlighted-message",
+          "firstMsg": false,
+          "reply": null,
+          "highlight": true
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PointSpender","color":"#c35454","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "3-Month Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"look at my highlighted message","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "n-ann",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1006",
+          "login": "helpfulmod",
+          "displayName": "HelpfulMod",
+          "color": "#00AD03",
+          "badges": [{"set":"moderator","version":"1"},{"set":"subscriber","version":"24"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "type": "announcement",
+          "systemMsg": "",
+          "text": "Stream starts in 5 minutes PogChamp",
+          "action": false,
+          "emotes": "305954156:27-34",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "announcement",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"color":"BLUE"},
+          "communityGiftId": "",
+          "announceColor": "BLUE",
+          "announcement": "BLUE"
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"HelpfulMod","color":"#00ad03","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"Stream starts in 5 minutes","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "305954156",
+              "name": "PogChamp",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "n-resub",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "type": "resub",
+          "systemMsg": "SubFan subscribed at Tier 1. They've subscribed for 12 months!",
+          "text": "still here Kappa",
+          "action": false,
+          "emotes": "25:11-15",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "resub",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"cumulative-months":"12","sub-plan":"1000"},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"still here","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "kick:a1b2c3d4-0001",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "kick:9000001",
+          "login": "kickfan",
+          "displayName": "KickFan",
+          "color": "#53FC19",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [{"type":"moderator","text":"Moderator","count":0},{"type":"subscriber","text":"Subscriber","count":2}],
+          "ts": 1767270840000,
+          "historical": false,
+          "text": "hi from kick KEKW PepeLaugh",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "37226:13-16",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "chat"
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"KickFan","color":"#53fc19","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"kick","title":"Kick"},
+          {"provider":"kick","icon":"kick-moderator","title":"Moderator"},
+          {"provider":"kick","icon":"kick-subscriber","title":"Subscriber (2 months)"}
+        ],
+        "tokens": [
+          {"type":"text","text":"hi from kick","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "kick",
+              "id": "37226",
+              "name": "KEKW",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://files.kick.com/emotes/37226/fullsize",
+                "2": "https://files.kick.com/emotes/37226/fullsize",
+                "4": "https://files.kick.com/emotes/37226/fullsize"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickfan",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270853000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "resub",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "resub",
+          "systemMsg": "KickFan subscribed for 5 months!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"kickfan","color":"#ff0000","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "kick:a1b2c3d4-0002",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "kick:9000002",
+          "login": "kickplain",
+          "displayName": "KickPlain",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "text": "no colour on kick",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "chat"
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"KickPlain","color":"#d2691e","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}],
+        "tokens": [{"type":"text","text":"no colour on kick","sp":false}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "kick:a1b2c3d4-0003",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "kick:9000003",
+          "login": "kickog",
+          "displayName": "KickOG",
+          "color": "#E9113C",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [{"type":"og","text":"OG","count":0},{"type":"vip","text":"VIP","count":0}],
+          "ts": 1767270840000,
+          "historical": false,
+          "text": "yes indeed",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": {
+            "id": "kick:a1b2c3d4-0001",
+            "userId": "kick:9000001",
+            "login": "kickfan",
+            "name": "KickFan",
+            "body": "hi from kick KEKW PepeLaugh"
+          },
+          "kind": "chat"
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"KickOG","color":"#e9113c","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"kick","title":"Kick"},
+          {"provider":"kick","icon":"kick-og","title":"OG"},
+          {"provider":"kick","icon":"kick-vip","title":"VIP"}
+        ],
+        "tokens": [{"type":"text","text":"yes indeed","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-homeshared",
+          "sourceId": "src-home",
+          "roomId": "100",
+          "sourceRoomId": "100",
+          "mirrored": false,
+          "userId": "1006",
+          "login": "helpfulmod",
+          "displayName": "HelpfulMod",
+          "color": "#00AD03",
+          "badges": [{"set":"moderator","version":"1"},{"set":"subscriber","version":"24"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "welcome partner chat",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"HelpfulMod","color":"#00ad03","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"welcome partner chat","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-zw",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "PepeLaugh RainTime w! catJAM OMEGALUL ffzX r! catJAM z! PepeLaugh WideHype",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [
+              {
+                "provider": "7tv",
+                "id": "01GAXSFBAR0003RH7M52VJT1D3",
+                "name": "RainTime",
+                "w": 32,
+                "h": 32,
+                "urls": {
+                  "1": "https://cdn.7tv.app/emote/01GAXSFBAR0003RH7M52VJT1D3/1x.webp",
+                  "2": "https://cdn.7tv.app/emote/01GAXSFBAR0003RH7M52VJT1D3/2x.webp",
+                  "3": "https://cdn.7tv.app/emote/01GAXSFBAR0003RH7M52VJT1D3/3x.webp",
+                  "4": "https://cdn.7tv.app/emote/01GAXSFBAR0003RH7M52VJT1D3/4x.webp"
+                },
+                "zw": true
+              }
+            ],
+            "fx": null,
+            "big": false,
+            "sp": false
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "bttv",
+              "id": "5f1b0186cf6d2144653d2970",
+              "name": "catJAM",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/1x.webp",
+                "2": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/2x.webp",
+                "4": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/3x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": {"sx":1,"sy":1,"rot":0,"grow":true,"cursed":false,"zs":false},
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "ffz",
+              "id": "128054",
+              "name": "OMEGALUL",
+              "w": 32,
+              "h": 30,
+              "urls": {
+                "1": "https://cdn.frankerfacez.com/emote/128054/1",
+                "2": "https://cdn.frankerfacez.com/emote/128054/2",
+                "4": "https://cdn.frankerfacez.com/emote/128054/4"
+              }
+            },
+            "overlays": [],
+            "fx": {"sx":-1,"sy":1,"rot":0,"grow":false,"cursed":false,"zs":false},
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "bttv",
+              "id": "5f1b0186cf6d2144653d2970",
+              "name": "catJAM",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/1x.webp",
+                "2": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/2x.webp",
+                "4": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/3x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": {"sx":1,"sy":1,"rot":90,"grow":false,"cursed":false,"zs":false},
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": {"sx":1,"sy":1,"rot":0,"grow":false,"cursed":false,"zs":true},
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GCQ7DMPR000BE8PJZ06EK2ST",
+              "name": "WideHype",
+              "w": 96,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GCQ7DMPR000BE8PJZ06EK2ST/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GCQ7DMPR000BE8PJZ06EK2ST/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GCQ7DMPR000BE8PJZ06EK2ST/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GCQ7DMPR000BE8PJZ06EK2ST/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-giant",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "so big Kappa",
+          "action": false,
+          "emotes": "25:7-11",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "gigantified-emote-message",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {"type":"text","text":"so big","sp":false},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": true,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-cheer",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1016",
+          "login": "collector",
+          "displayName": "Collector",
+          "color": "#C71585",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "Cheer100 great stream Kappa",
+          "action": false,
+          "emotes": "25:22-26",
+          "gifs": "",
+          "bits": 100,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Collector","color":"#d44aa1","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          },
+          {
+            "provider": "chatterino",
+            "title": "Chatterino Top Donator",
+            "urls": {"1":"https://fourtf.com/chatterino/badges/top-donator.png"}
+          },
+          {"provider":"ffzap","title":"FFZ:AP Supporter","urls":{"1":"https://api.ffzap.com/v1/user/badge/1016/1"}},
+          {"provider":"bttv","title":"BTTV Staff","urls":{"1":"https://cdn.betterttv.net/badges/staff.svg"}}
+        ],
+        "tokens": [
+          {
+            "type": "cheer",
+            "prefix": "Cheer",
+            "amount": 100,
+            "tier": 100,
+            "color": "#9C3EE8",
+            "urls": {
+              "1": "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/100/1.gif",
+              "2": "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/100/2.gif",
+              "3": "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/100/3.gif",
+              "4": "https://d3aqoihi2n8ty8.cloudfront.net/actions/cheer/dark/animated/100/4.gif"
+            },
+            "text": "Cheer100",
+            "sp": false
+          },
+          {"type":"text","text":"great stream","sp":true},
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-gif",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "look [GIF] nice",
+          "action": false,
+          "emotes": "",
+          "gifs": "5-9|3oFzm0o2jMKftsaBoc|https://media.giphy.com/media/3oFzm0o2jMKftsaBoc/giphy.gif",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [
+          {"type":"text","text":"look","sp":false},
+          {
+            "type": "gif",
+            "url": "https://media.giphy.com/media/3oFzm0o2jMKftsaBoc/200.webp",
+            "orig": "https://media.giphy.com/media/3oFzm0o2jMKftsaBoc/giphy.gif",
+            "title": "[GIF]",
+            "sp": true
+          },
+          {"type":"text","text":"nice","sp":true}
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-intl",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1009",
+          "login": "sekai",
+          "displayName": "セカイ",
+          "color": "#FF69B4",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "こんにちは 世界 مرحبا بالجميع שלום 👋🏽 Z̴̡a̶l̷g̸o",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"セカイ","color":"#ff69b4","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"こんにちは 世界 مرحبا بالجميع שלום 👋🏽 Z̴̡a̶l̷g̸o","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-plain",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1007",
+          "login": "plainviewer",
+          "displayName": "PlainViewer",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "i have no colour set",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PlainViewer","color":"#1f8f1f","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"i have no colour set","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-dark",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1008",
+          "login": "darkname",
+          "displayName": "DarkName",
+          "color": "#0000FF",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "my name is dark blue",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"DarkName","color":"#6666ff","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"my name is dark blue","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-mention",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@home you rock, and @SubFan too",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"@home you rock, and @SubFan too","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-link",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1002",
+          "login": "waver",
+          "displayName": "Waver",
+          "color": "#FF7F50",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "check https://example.com/page?x=1 and www.test.org/a",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Waver","color":"#ff7f50","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"check https://example.com/page?x=1 and www.test.org/a","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-cmd",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "!points",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"!points","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-emoteonly",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1001",
+          "login": "subfan",
+          "displayName": "SubFan",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"12"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "Kappa PogChamp PepeLaugh",
+          "action": false,
+          "emotes": "25:0-4/305954156:6-13",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"SubFan","color":"#1e90ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "25",
+              "name": "Kappa",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": false
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "twitch",
+              "id": "305954156",
+              "name": "PogChamp",
+              "w": 28,
+              "h": 28,
+              "urls": {
+                "1": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/1.0",
+                "2": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/2.0",
+                "4": "https://static-cdn.jtvnw.net/emoticons/v2/305954156/default/dark/3.0"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          },
+          {
+            "type": "emote",
+            "emote": {
+              "provider": "7tv",
+              "id": "01GB2V1V7G000F4PJQ6HYRSV2R",
+              "name": "PepeLaugh",
+              "w": 32,
+              "h": 32,
+              "urls": {
+                "1": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/1x.webp",
+                "2": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/2x.webp",
+                "3": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/3x.webp",
+                "4": "https://cdn.7tv.app/emote/01GB2V1V7G000F4PJQ6HYRSV2R/4x.webp"
+              }
+            },
+            "overlays": [],
+            "fx": null,
+            "big": false,
+            "sp": true
+          }
+        ]
+      },
+      {
+        "msg": {
+          "id": "m-caster",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "100",
+          "login": "home",
+          "displayName": "Home",
+          "color": "#9146FF",
+          "badges": [{"set":"broadcaster","version":"1"},{"set":"subscriber","version":"0"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "thanks for watching!",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Home","color":"#9146ff","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Broadcaster",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/broadcaster-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/broadcaster-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/broadcaster-1/3"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-0/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-0/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-0/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"thanks for watching!","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-mod",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1006",
+          "login": "helpfulmod",
+          "displayName": "HelpfulMod",
+          "color": "#00AD03",
+          "badges": [{"set":"moderator","version":"1"},{"set":"subscriber","version":"24"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "please be nice",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"HelpfulMod","color":"#00ad03","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          },
+          {
+            "provider": "twitch",
+            "title": "1-Year Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-12/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"please be nice","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-painted",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1011",
+          "login": "paintedpal",
+          "displayName": "PaintedPal",
+          "color": "#1E90FF",
+          "badges": [{"set":"subscriber","version":"3"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "my name has a paint",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"PaintedPal","color":"#1e90ff","paintId":"01HQ7Y8Z9A0B1C2D3E4F5G6H7J"},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "3-Month Subscriber",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/subscriber-3/3"
+            }
+          },
+          {
+            "provider": "7tv",
+            "title": "7TV Subscriber",
+            "urls": {
+              "1": "https://cdn.7tv.app/badge/01HQ7Y8Z9A0B1C2D3E4F5G6H7M/1x.webp",
+              "2": "https://cdn.7tv.app/badge/01HQ7Y8Z9A0B1C2D3E4F5G6H7M/2x.webp",
+              "3": "https://cdn.7tv.app/badge/01HQ7Y8Z9A0B1C2D3E4F5G6H7M/3x.webp",
+              "4": "https://cdn.7tv.app/badge/01HQ7Y8Z9A0B1C2D3E4F5G6H7M/4x.webp"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"my name has a paint","sp":false}],
+        "paintRule": ".painted.p-01HQ7Y8Z9A0B1C2D3E4F5G6H7J{background-image:linear-gradient(90deg, rgba(255,0,0,1) 0%, rgba(0,255,0,1) 100%);filter:drop-shadow(0px 0px 2px rgba(0,0,0,1))}"
+      },
+      {
+        "msg": {
+          "id": "m-painted2",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1014",
+          "login": "ffzdev",
+          "displayName": "FfzDev",
+          "color": "#E0B726",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "my paint is an image",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"FfzDev","color":"#e0b726","paintId":"01HQ7Y8Z9A0B1C2D3E4F5G6H7K"},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "ffz",
+            "title": "FFZ Developer",
+            "urls": {
+              "1": "https://cdn.frankerfacez.com/badge/2/1",
+              "2": "https://cdn.frankerfacez.com/badge/2/2",
+              "4": "https://cdn.frankerfacez.com/badge/2/4"
+            },
+            "bg": "#E0B726",
+            "replaces": null,
+            "id": 2
+          }
+        ],
+        "tokens": [{"type":"text","text":"my paint is an image","sp":false}],
+        "paintRule": ".painted.p-01HQ7Y8Z9A0B1C2D3E4F5G6H7K{background-image:url(\"https://cdn.7tv.app/paint/01HQ7Y8Z9A0B1C2D3E4F5G6H7K/layer/1/1x.webp\")}"
+      },
+      {
+        "msg": {
+          "id": "m-dev",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1010",
+          "login": "masstarvt",
+          "displayName": "MasstarVT",
+          "color": "#8A2BE2",
+          "badges": [{"set":"moderator","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "hello from the dev",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"MasstarVT","color":"#a45be9","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "developer",
+            "title": "MasstarVT developer",
+            "urls": {"1":"img/logos/Badge.svg","2":"img/logos/Badge.svg","4":"img/logos/Badge.svg"}
+          },
+          {
+            "provider": "beta-tester",
+            "title": "Beta Tester",
+            "urls": {"1":"img/logos/Beta.svg","2":"img/logos/Beta.svg","4":"img/logos/Beta.svg"}
+          },
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"hello from the dev","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "m-noname",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1007",
+          "login": "plainviewer",
+          "displayName": "plainviewer",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "nameFor gave nothing",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"plainviewer","color":"#1f8f1f","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"nameFor gave nothing","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-bot",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1012",
+          "login": "nightbot",
+          "displayName": "Nightbot",
+          "color": "#7C7CE1",
+          "badges": [{"set":"moderator","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "Nightbot says hi",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Nightbot","color":"#7c7ce1","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "Moderator",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/moderator-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"Nightbot says hi","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-chanbot",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1013",
+          "login": "channelbot",
+          "displayName": "ChannelBot",
+          "color": "#5F9EA0",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "channel bot line",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"ChannelBot","color":"#5f9ea0","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"channel bot line","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-troll",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1017",
+          "login": "troll",
+          "displayName": "Troll",
+          "color": "#696969",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "troll line",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"Troll","color":"#7b7b7b","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"troll line","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-reply-troll",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1003",
+          "login": "replier",
+          "displayName": "Replier",
+          "color": "#00FF7F",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@Troll no u",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Replier","color":"#00ff7f","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"@Troll no u","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-reply-cmd",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1003",
+          "login": "replier",
+          "displayName": "Replier",
+          "color": "#00FF7F",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "@Nightbot !discord",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": {"id":"x-bot","userId":"","login":"nightbot","name":"Nightbot","body":""}
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"Replier","color":"#00ff7f","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          }
+        ],
+        "tokens": [{"type":"text","text":"!discord","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-ffzbot",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1015",
+          "login": "ffzbot",
+          "displayName": "FfzBot",
+          "color": "#808080",
+          "badges": [{"set":"moderator","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "ffz bot badge replaces mod",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"FfzBot","color":"#808080","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "ffz",
+            "title": "Bot",
+            "urls": {"1":"https://cdn.frankerfacez.com/badge/3/1"},
+            "replaces": "moderator",
+            "id": 3
+          }
+        ],
+        "tokens": [{"type":"text","text":"ffz bot badge replaces mod","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-extras",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1016",
+          "login": "collector",
+          "displayName": "Collector",
+          "color": "#C71585",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "chatterino, ffzap and bttv badges",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Collector","color":"#d44aa1","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          },
+          {
+            "provider": "chatterino",
+            "title": "Chatterino Top Donator",
+            "urls": {"1":"https://fourtf.com/chatterino/badges/top-donator.png"}
+          },
+          {"provider":"ffzap","title":"FFZ:AP Supporter","urls":{"1":"https://api.ffzap.com/v1/user/badge/1016/1"}},
+          {"provider":"bttv","title":"BTTV Staff","urls":{"1":"https://cdn.betterttv.net/badges/staff.svg"}}
+        ],
+        "tokens": [{"type":"text","text":"chatterino, ffzap and bttv badges","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-beta",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1020",
+          "login": "musicalfox30",
+          "displayName": "Musicalfox30",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "text": "beta tester here",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Musicalfox30","color":"#ff0000","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "beta-tester",
+            "title": "Beta Tester",
+            "urls": {"1":"img/logos/Beta.svg","2":"img/logos/Beta.svg","4":"img/logos/Beta.svg"}
+          }
+        ],
+        "tokens": [{"type":"text","text":"beta tester here","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-bitsbadge",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1016",
+          "login": "collector",
+          "displayName": "Collector",
+          "color": "#C71585",
+          "badges": [{"set":"vip","version":"1"}],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "type": "bitsbadgetier",
+          "systemMsg": "Collector just earned a new 1K Bits badge!",
+          "text": "wow",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "bitsbadgetier",
+          "firstMsg": false,
+          "reply": null,
+          "params": {"threshold":"1000"},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Collector","color":"#d44aa1","paintId":null},
+        "badges": [
+          {"provider":"platform","icon":"twitch","title":"Twitch"},
+          {
+            "provider": "twitch",
+            "title": "VIP",
+            "urls": {
+              "1": "https://static-cdn.jtvnw.net/badges/v1/vip-1/1",
+              "2": "https://static-cdn.jtvnw.net/badges/v1/vip-1/2",
+              "4": "https://static-cdn.jtvnw.net/badges/v1/vip-1/3"
+            }
+          },
+          {
+            "provider": "chatterino",
+            "title": "Chatterino Top Donator",
+            "urls": {"1":"https://fourtf.com/chatterino/badges/top-donator.png"}
+          },
+          {"provider":"ffzap","title":"FFZ:AP Supporter","urls":{"1":"https://api.ffzap.com/v1/user/badge/1016/1"}},
+          {"provider":"bttv","title":"BTTV Staff","urls":{"1":"https://cdn.betterttv.net/badges/staff.svg"}}
+        ],
+        "tokens": [{"type":"text","text":"wow","sp":false}]
+      },
+      {
+        "msg": {
+          "id": "x-ritual",
+          "sourceId": "",
+          "roomId": "100",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "1004",
+          "login": "newbie",
+          "displayName": "Newbie",
+          "color": "#DAA520",
+          "badges": [],
+          "sourceBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "kind": "chat",
+          "type": "ritual",
+          "systemMsg": "Newbie is new to chat! Say hello!",
+          "text": "HeyGuys I am new",
+          "action": false,
+          "emotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "ritual",
+          "firstMsg": false,
+          "reply": null,
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": true,
+        "showNow": true,
+        "name": {"text":"Newbie","color":"#daa520","paintId":null},
+        "badges": [{"provider":"platform","icon":"twitch","title":"Twitch"}],
+        "tokens": [{"type":"text","text":"HeyGuys I am new","sp":false}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "kick:a1b2c3d4-0004",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "kick:9000004",
+          "login": "botrix",
+          "displayName": "BotRix",
+          "color": "#00FF00",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270840000,
+          "historical": false,
+          "text": "kick bot line",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "chat"
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"BotRix","color":"#00ff00","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}],
+        "tokens": [{"type":"text","text":"kick bot line","sp":false}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickfan",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270853000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "submysterygift",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "submysterygift",
+          "systemMsg": "KickFan gifted 3 subs!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"kickfan","color":"#ff0000","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickfan",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270853000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "subgift",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "subgift",
+          "systemMsg": "KickFan gifted a sub to KickPlain!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"kickfan","color":"#ff0000","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickhost",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270853000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "raid",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "raid",
+          "systemMsg": "KickHost is hosting with 12 viewers!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"kickhost","color":"#2e8b57","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      },
+      {
+        "msg": {
+          "platform": "kick",
+          "id": "",
+          "sourceId": "",
+          "roomId": "kick:668",
+          "sourceRoomId": "",
+          "mirrored": false,
+          "userId": "",
+          "login": "kickplain",
+          "displayName": "",
+          "color": "",
+          "badges": [],
+          "sourceBadges": [],
+          "kickBadges": [],
+          "ts": 1767270853000,
+          "historical": false,
+          "text": "",
+          "action": false,
+          "emotes": "",
+          "kickEmotes": "",
+          "gifs": "",
+          "bits": 0,
+          "msgId": "sub",
+          "firstMsg": false,
+          "reply": null,
+          "kind": "notice",
+          "type": "sub",
+          "systemMsg": "KickPlain subscribed!",
+          "params": {},
+          "communityGiftId": "",
+          "announceColor": ""
+        },
+        "shown": false,
+        "showNow": false,
+        "name": {"text":"kickplain","color":"#d2691e","paintId":null},
+        "badges": [{"provider":"platform","icon":"kick","title":"Kick"}]
+      }
+    ],
+    "cleared": ["msg:h-gone","msg:kick:a1b2c3d4-0002","user:kick:9000004","msg:x-troll","user:1017","some","some"],
+    "clearAllPicks": [
+      [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    ],
+    "lookupWants": [
+      "1002",
+      "1001",
+      "1001",
+      "1002",
+      "1003",
+      "1003",
+      "1004",
+      "1005",
+      "1001",
+      "1006",
+      "1001",
+      "1001",
+      "1016",
+      "1004",
+      "1009",
+      "1007",
+      "1008",
+      "1001",
+      "1002",
+      "1001",
+      "100",
+      "1006",
+      "1011",
+      "1014",
+      "1010",
+      "1007",
+      "1012",
+      "1013",
+      "1003",
+      "1015",
+      "1016",
+      "1020",
+      "1016",
+      "1004"
+    ],
+    "hint": null
+  }
+}

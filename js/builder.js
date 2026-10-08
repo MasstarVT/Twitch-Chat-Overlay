@@ -36,8 +36,14 @@
   var GOOGLE_FONTS = config.GOOGLE_FONTS;
   var SYSTEM_FONT_NAMES = config.SYSTEM_FONT_NAMES;
 
+  // A badge source only applies while badges are on (META.when).
+  function badgesOn(cfg) { return !!cfg.badges; }
+
   // Human labels and help text per config key. Widgets default from SPEC types.
   // logo: a provider logo drawn by css/builder.css (.logo-<name>).
+  // when(cfg): the field only applies while this is true; only: 'vertical' or 'horizontal', the one layout it
+  // applies to. Either way it is greyed out (syncDisabled) and keeps its value.
+  // wrap: a segmented field whose labels may wrap in a narrow panel (like Add to OBS's two routes).
   var META = {
     kick: { label: 'Kick channel', logo: 'kick', check: true, placeholder: 'yourname or a kick.com link',
       bad: 'That isn’t a valid Kick name. Use letters, numbers, _ and - only.',
@@ -78,14 +84,14 @@
     emotes_bttv: { label: 'BetterTTV', logo: 'bttv' },
     emotes_ffz: { label: 'FrankerFaceZ', logo: 'ffz' },
     badges: { label: 'Show badges', help: 'Master switch for every badge source below.' },
-    badges_twitch: { label: 'Twitch', logo: 'twitch' },
-    badges_kick: { label: 'Kick', logo: 'kick' },
-    badges_7tv: { label: '7TV', logo: '7tv' },
-    badges_bttv: { label: 'BetterTTV', logo: 'bttv' },
-    badges_ffz: { label: 'FrankerFaceZ', logo: 'ffz' },
-    badges_ffzap: { label: 'FFZ:AP', logo: 'ffzap' },
-    badges_chatterino: { label: 'Chatterino', logo: 'chatterino' },
-    badges_homies: { label: 'Chatterino Homies', logo: 'homies' },
+    badges_twitch: { label: 'Twitch', logo: 'twitch', when: badgesOn },
+    badges_kick: { label: 'Kick', logo: 'kick', when: badgesOn },
+    badges_7tv: { label: '7TV', logo: '7tv', when: badgesOn },
+    badges_bttv: { label: 'BetterTTV', logo: 'bttv', when: badgesOn },
+    badges_ffz: { label: 'FrankerFaceZ', logo: 'ffz', when: badgesOn },
+    badges_ffzap: { label: 'FFZ:AP', logo: 'ffzap', when: badgesOn },
+    badges_chatterino: { label: 'Chatterino', logo: 'chatterino', when: badgesOn },
+    badges_homies: { label: 'Chatterino Homies', logo: 'homies', when: badgesOn },
     paints: { label: '7TV name paints', help: 'Gradient and image name colors from 7TV.' },
     stv_lookup: { label: 'Look up 7TV cosmetics for every chatter',
       help: '7TV only announces paints and badges for people running a 7TV extension. This asks 7TV about everyone else, in small rate-limited batches. The answer isn’t checked against subscriptions, so it can show paints for lapsed 7TV subs.' },
@@ -102,7 +108,16 @@
     'verified, staff, sub and gifter badges. BetterTTV covers Pro and staff. FrankerFaceZ includes custom mod and VIP ' +
     'badges. FFZ:AP covers its supporters.';
 
+  // Switches drawn as one grid under the switch that rules them (keyed by it): label names the grid for
+  // assistive tech, help goes under it.
+  var SUBGRIDS = {
+    badges: { keys: BADGE_SUBS, label: 'Badge sources', help: BADGE_SUBS_HELP }
+  };
+
   // One section of the settings panel each; the rail lists them in this order, then "Add to OBS".
+  // keys: every field of the section, in order. subs: [{id, title, first}] sub-headings, each drawn above the
+  // field `first`; in Advanced its id is an anchor (builder.html#adv-text opens Advanced there). more: such an
+  // id, linked at the foot of the section as "More in Advanced".
   var GROUPS = [
     { id: 'look', title: 'Look', note: 'Text, layout and how new messages come in.',
       keys: ['layout', 'size', 'font', 'shadow', 'bg', 'align', 'animate'] },
@@ -137,7 +152,7 @@
   // Live keys reach the frame by postMessage, so only reload keys decide whether to reload.
   function reloadSignature(pc) {
     return RELOAD_KEYS.map(function (k) {
-      return pc.demo && DEMO_INERT.indexOf(k) >= 0 ? '-' : serialize(k, pc[k]);
+      return pc.demo && DEMO_INERT.indexOf(k) >= 0 ? '-' : config.serialize(k, pc[k]);
     }).join('|');
   }
 
@@ -147,18 +162,17 @@
     var out = GROUPS.map(function (g) {
       g.keys.forEach(function (k) { seen[k] = true; });
       return { id: g.id, title: g.title, keys: g.keys.filter(function (k) { return !!config.SPEC[k]; }),
-        note: g.note, foot: g.foot };
+        note: g.note, foot: g.foot, subs: g.subs || [], more: g.more || '' };
     });
     var extra = config.KEYS.filter(function (k) { return k !== 'channel' && !seen[k]; });
     if (extra.length) out[out.length - 1].keys = out[out.length - 1].keys.concat(extra);
     return out;
   }
 
-  function serialize(key, v) {
-    var t = config.SPEC[key].type;
-    if (t === 'bool') return v ? '1' : '0';
-    if (t === 'list') return (v || []).join(',');
-    return String(v);
+  // The SUBGRIDS grid a field is drawn in, or null.
+  function subgridOf(key) {
+    for (var k in SUBGRIDS) if (SUBGRIDS[k].keys.indexOf(key) >= 0) return k;
+    return null;
   }
 
   // Commas are legal in a query string; keep block lists readable.
@@ -185,7 +199,7 @@
       var k = config.KEYS[i], v = cfg[k];
       if (k === 'channel') { p.set(k, v ? String(v) : ''); continue; }
       if (v === undefined || v === null) continue;
-      p.set(k, serialize(k, v));
+      p.set(k, config.serialize(k, v));
     }
     u.search = '?' + tidyQuery(p.toString());
     u.hash = '';
@@ -394,7 +408,7 @@
 
   // A field's tag: the setting's name in the URL, with its value once it is off the default.
   function tagText(key, cfg, changed) {
-    return (changed || changedKeys(cfg))[key] === true ? key + '=' + serialize(key, cfg[key]) : key;
+    return (changed || changedKeys(cfg))[key] === true ? key + '=' + config.serialize(key, cfg[key]) : key;
   }
 
   // Changed settings per section, for the counts in the rail.
@@ -480,10 +494,29 @@
 
   function sectionIds() { return groupLayout().map(function (g) { return g.id; }).concat(OBS_SECTION); }
 
-  // builder.html#obs, #badges, #group-badges: the section a link opens. '' for any other hash.
-  function sectionFromHash(hash, ids) {
-    var s = String(hash || '').replace(/^#/, '').replace(/^group-/, '').toLowerCase();
+  // The ids of Advanced's sub-headings (GROUPS subs), each an anchor a link can open.
+  function advIds() {
+    var out = [];
+    groupLayout().forEach(function (g) {
+      if (g.id === 'advanced') g.subs.forEach(function (s) { if (s.id) out.push(String(s.id)); });
+    });
+    return out;
+  }
+
+  // builder.html#obs, #badges, #group-badges: the section a link opens; #adv-text and the other Advanced
+  // sub-heading ids open Advanced. '' for any other hash.
+  function sectionFromHash(hash, ids, adv) {
+    var raw = String(hash || '').replace(/^#/, '');
+    if (raw && (adv || advIds()).indexOf(raw.toLowerCase()) >= 0) return 'advanced';
+    var s = raw.replace(/^group-/, '').toLowerCase();
     return s && (ids || sectionIds()).indexOf(s) >= 0 ? s : '';
+  }
+
+  // Whether a field is greyed out under cfg: its META.when is false, or its META.only is the other layout.
+  function fieldOff(key, cfg) {
+    var m = META[key] || {};
+    if (m.only && m.only !== (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical')) return true;
+    return typeof m.when === 'function' && !m.when(cfg);
   }
 
   function clampInt(v, min, max, def) {
@@ -629,7 +662,7 @@
       }
       case 'seg': {
         addLabel(false);
-        var seg = control(h('div', 'seg'));
+        var seg = control(h('div', m.wrap ? 'seg wrap' : 'seg'));
         seg.setAttribute('role', 'radiogroup');
         seg.setAttribute('aria-labelledby', 'l-' + key);
         var radios = [];
@@ -858,13 +891,41 @@
         }
       }
     }
+    // Greyed out while the field doesn't apply (syncDisabled): every input off, the row dimmed.
+    field.setDisabled = function (off) {
+      field.inputs.forEach(function (i) { i.disabled = off; });
+      if (off) row.classList.add('disabled'); else row.classList.remove('disabled');
+    };
     return field;
+  }
+
+  // A sub-heading in a section's fields. Advanced's carry their id, so a link can open them and move the
+  // focus there (showSubhead).
+  function subhead(g, s) {
+    var e = h('h3', 'eyebrow subhead', s.title);
+    if (g.id === 'advanced' && s.id) {
+      e.id = s.id;
+      e.tabIndex = -1;
+      B.subheads[s.id] = e;
+    }
+    return e;
+  }
+
+  // The foot of a section whose finer settings are under an Advanced sub-heading.
+  function moreLink(id) {
+    var p = h('p', 'section-foot');
+    var a = h('a', 'btn ghost', 'More in Advanced');
+    var href = '#' + id;
+    a.href = href;
+    p.appendChild(a);
+    return p;
   }
 
   // One tab in the rail and one section in the panel per group. "Add to OBS" is in builder.html already.
   function buildGroups() {
     var host = $('groups'), tabs = $('tabs'), rule = $('tab-rule');
     clear(host);
+    B.subheads = Object.create(null);
     groupLayout().forEach(function (g) {
       var old = $('tab-' + g.id);
       if (old) old.parentNode.removeChild(old);
@@ -893,25 +954,31 @@
       if (g.note) head.appendChild(h('p', 'section-note', g.note));
       sec.appendChild(head);
       var body = h('div', 'fields');
-      var subs = null;
+      var heads = Object.create(null), grids = Object.create(null);
+      g.subs.forEach(function (s) { heads[s.first] = s; });
       g.keys.forEach(function (key) {
+        if (heads[key]) body.appendChild(subhead(g, heads[key]));
         var f = buildField(key);
         B.fields[key] = f;
-        if (BADGE_SUBS.indexOf(key) >= 0) {
-          if (!subs) {
-            subs = h('div', 'subgrid');
-            subs.setAttribute('role', 'group');
-            subs.setAttribute('aria-label', 'Badge sources');
-            body.appendChild(subs);
+        var sg = subgridOf(key);
+        if (sg) {
+          if (!grids[sg]) {
+            grids[sg] = h('div', 'subgrid');
+            grids[sg].setAttribute('role', 'group');
+            grids[sg].setAttribute('aria-label', SUBGRIDS[sg].label);
+            body.appendChild(grids[sg]);
           }
           f.row.className += ' sub';
-          subs.appendChild(f.row);
+          grids[sg].appendChild(f.row);
         } else {
           body.appendChild(f.row);
         }
       });
-      if (subs) subs.appendChild(h('p', 'help', BADGE_SUBS_HELP));
+      Object.keys(grids).forEach(function (sg) {
+        if (SUBGRIDS[sg].help) grids[sg].appendChild(h('p', 'help', SUBGRIDS[sg].help));
+      });
       sec.appendChild(body);
+      if (g.more) sec.appendChild(moreLink(g.more));
       if (g.foot) sec.appendChild(h('p', 'help section-foot', g.foot));
       host.appendChild(sec);
     });
@@ -985,7 +1052,20 @@
     selectSection(s, false);
     var main = $('settings');
     if (!isAppLayout() && main && main.scrollIntoView) main.scrollIntoView();
+    showSubhead(root.location.hash);
     return true;
+  }
+
+  // builder.html#adv-text and the like: the Advanced sub-heading is scrolled into view. Reached from the page
+  // ("More in Advanced", or a hash typed into the address bar) it takes the focus too, so the keyboard goes on
+  // from there; on page load the focus stays where the browser put it.
+  function showSubhead(hash) {
+    var e = B.subheads[String(hash || '').replace(/^#/, '').toLowerCase()];
+    if (!e) return;
+    if (e.scrollIntoView) e.scrollIntoView();
+    if (!B.started || !e.focus) return;
+    var a = document.activeElement, body = $('panel-body');
+    if (!a || a === document.body || (body && body.contains(a))) e.focus({ preventScroll: true });
   }
 
   // The tab the user picks replaces the one a link asked for: a section hash left in the address bar
@@ -1041,14 +1121,12 @@
     orient();
   }
 
+  // Fields that only apply while another setting allows it (META.when, META.only): after every change.
   function syncDisabled() {
-    var off = !B.cfg.badges;
-    BADGE_SUBS.forEach(function (k) {
-      var f = B.fields[k];
-      if (!f) return;
-      f.inputs.forEach(function (i) { i.disabled = off; });
-      if (off) f.row.classList.add('disabled'); else f.row.classList.remove('disabled');
-    });
+    for (var k in B.fields) {
+      var m = META[k];
+      if (m && (m.when || m.only)) B.fields[k].setDisabled(fieldOff(k, B.cfg));
+    }
   }
 
   // Fields whose wording depends on the layout (META `horizontal`).
@@ -1093,6 +1171,7 @@
     // until both have landed (renderer LAYOUT_SETTLE_MS) instead of trimming for the wrong one.
     postNow();
     syncLabels();
+    syncDisabled();
     var s = layoutPreviewSize(B.ui, prevLayout, nextLayout);
     if (s) {
       B.ui.w = s.w;
@@ -1119,7 +1198,7 @@
 
   function onChanged(key) {
     B.fileNote = '';
-    if (key === 'badges') syncDisabled();
+    syncDisabled();
     renderOutputs();
     saveCfg();
     if (isLiveKey(key)) postLive();
@@ -1944,7 +2023,9 @@
       tabsW: null,
       sayTimer: null,
       paused: false,
-      storage: undefined
+      storage: undefined,
+      subheads: Object.create(null), // Advanced sub-heading id -> its <h3> (buildGroups)
+      started: false // start() is done: a hash from now on comes from the user
     };
     var u = loadStored(STORE_UI);
     if (u && typeof u === 'object') {
@@ -1976,6 +2057,7 @@
     scheduleReload(0);
     setupLocalFile(init.fromQuery, ownStore);
     fit();
+    B.started = true;
   }
 
   return {
@@ -1983,6 +2065,7 @@
     META: META,
     GROUPS: GROUPS,
     BADGE_SUBS: BADGE_SUBS,
+    SUBGRIDS: SUBGRIDS,
     DEMO_INERT: DEMO_INERT,
     LAYOUT_SIZES: LAYOUT_SIZES,
     RELOAD_KEYS: RELOAD_KEYS,
@@ -2019,6 +2102,9 @@
     segValues: segValues,
     sectionIds: sectionIds,
     sectionFromHash: sectionFromHash,
+    advIds: advIds,
+    fieldOff: fieldOff,
+    subgridOf: subgridOf,
     widgetFor: widgetFor
   };
 });

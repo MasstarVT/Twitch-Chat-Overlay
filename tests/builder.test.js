@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const config = require('../js/config.js');
 const builder = require('../js/builder.js');
+// A different valid value for any key (shared with parity.test.js; a new SPEC type gets its case there).
+const { flip } = require('./flip.js');
 
 const BASE = 'https://masstarvt.github.io/Twitch-Chat-Overlay/builder.html?x=1#top';
 
@@ -59,6 +61,15 @@ test('the app layout query is the same in builder.js and builder.css', () => {
   const within = css.match(/@media [^{]*min-height[^{]*\{/g) || [];
   assert.ok(within.length > 1, 'the scan finds the refinements');
   within.forEach((q) => parts.forEach((p) => assert.ok(q.indexOf(p) >= 0, q + ' lacks ' + p)));
+});
+
+test('a greyed-out field keeps its chosen option white, dims its buttons once, and a .wrap seg wraps', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'builder.css'), 'utf8');
+  // a hover rule on every span of a disabled seg would outrank .seg input:checked + span's #fff
+  assert.ok(!/\.field\.disabled \.seg label:hover span\s*[{,]/.test(css));
+  assert.ok(css.indexOf('.field.disabled .seg label:hover input:not(:checked) + span {') >= 0);
+  assert.ok(/\.field\.disabled \.btn:disabled \{ opacity: 1; \}/.test(css));
+  assert.ok(/^\.seg\.wrap \{ flex-wrap: wrap; \}/m.test(css), 'outside the media queries, so it wraps at every width');
 });
 
 test('every id, class and element builder.js looks up exists in builder.html or is one it creates', () => {
@@ -520,22 +531,6 @@ test('badge and paint switches are live keys, so turning one on needs no preview
   ['badges', 'paints'].concat(builder.BADGE_SUBS).forEach((k) => assert.ok(builder.isLiveKey(k), k));
 });
 
-// A different valid value for any key.
-function flip(cfg, k) {
-  const c = Object.assign({}, cfg);
-  const s = config.SPEC[k];
-  if (s.type === 'bool') c[k] = !c[k];
-  else if (s.type === 'int') c[k] = c[k] === s.max ? s.min : c[k] + 1;
-  else if (s.type === 'enum') c[k] = s.values.filter((v) => v !== c[k])[0];
-  else if (s.type === 'channel') c[k] = c[k] === 'xqc' ? 'forsen' : 'xqc';
-  else if (s.type === 'font') c[k] = c[k] === 'Roboto' ? 'Inter' : 'Roboto';
-  else if (s.type === 'kick') c[k] = c[k] === 'xqc' ? 'forsen' : 'xqc';
-  else if (s.type === 'room') c[k] = c[k] === '668' ? '4598' : '668';
-  else if (s.type === 'list') c[k] = (c[k] || []).concat('someone');
-  else throw new Error('flip: no case for type ' + s.type);
-  return c;
-}
-
 test('reloadSignature: live keys never reload the preview; reload keys do, except those a demo ignores', () => {
   const live = Object.assign(config.defaults(), { channel: 'forsen' });
   const sig = builder.reloadSignature(live);
@@ -576,6 +571,98 @@ test('lastSnapshot: the snapshot saved as index.html counts only until the folde
   assert.strictEqual(builder.lastSnapshot('{}', '{"size":"large"}'), '{}');
   assert.strictEqual(builder.lastSnapshot(null, null), null);
   assert.strictEqual(builder.lastSnapshot(undefined, null), null);
+});
+
+test('sub-headings: each above a field of its own section, in order; Advanced\'s have ids a link can open', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'builder.html'), 'utf8');
+  const sections = builder.sectionIds();
+  const ids = [];
+  builder.groupLayout().forEach((g) => {
+    assert.ok(Array.isArray(g.subs) && typeof g.more === 'string', g.id + ': groupLayout passes subs and more on');
+    let at = -1;
+    g.subs.forEach((s) => {
+      assert.ok(s.title, g.id + ': a heading has a title');
+      const i = g.keys.indexOf(s.first);
+      assert.ok(i > at, g.id + ': ' + s.first + ' is a field of the section, after the heading before');
+      at = i;
+      if (g.id !== 'advanced') return;
+      assert.match(s.id, /^adv-[a-z0-9-]+$/, s.id);
+      assert.ok(ids.indexOf(s.id) < 0, s.id + ' twice');
+      ids.push(s.id);
+      assert.ok(sections.indexOf(s.id) < 0, s.id + ' is a section id');
+      assert.ok(html.indexOf('id="' + s.id + '"') < 0, s.id + ' is an id in builder.html');
+      assert.strictEqual(builder.sectionFromHash('#' + s.id), 'advanced', s.id);
+    });
+  });
+  assert.deepStrictEqual(builder.advIds(), ids);
+  builder.groupLayout().forEach((g) => {
+    if (g.more) assert.ok(ids.indexOf(g.more) >= 0, g.id + ': More in Advanced goes to a heading of Advanced');
+  });
+});
+
+test('sectionFromHash: an Advanced sub-heading id opens Advanced; every other hash as before', () => {
+  const adv = ['adv-trouble', 'adv-lighter'];
+  assert.strictEqual(builder.sectionFromHash('#adv-lighter', null, adv), 'advanced');
+  assert.strictEqual(builder.sectionFromHash('#ADV-Trouble', null, adv), 'advanced');
+  assert.strictEqual(builder.sectionFromHash('adv-trouble', null, adv), 'advanced');
+  ['#adv-nope', '#adv-', '#group-adv-trouble', '#advanced-trouble'].forEach((h) =>
+    assert.strictEqual(builder.sectionFromHash(h, null, adv), '', h));
+  assert.strictEqual(builder.sectionFromHash('#adv-nope'), '', 'only the headings GROUPS has');
+  assert.strictEqual(builder.sectionFromHash('#obs', null, adv), 'obs');
+  assert.strictEqual(builder.sectionFromHash('#group-filters', null, adv), 'filters');
+  assert.strictEqual(builder.sectionFromHash('#advanced', null, adv), 'advanced');
+});
+
+test('subgrids: a block of switches in the section of the switch that rules them, greyed out while it is off', () => {
+  const groups = builder.groupLayout();
+  assert.strictEqual(builder.SUBGRIDS.badges.keys, builder.BADGE_SUBS);
+  assert.strictEqual(builder.SUBGRIDS.badges.label, 'Badge sources');
+  Object.keys(builder.SUBGRIDS).forEach((master) => {
+    const sg = builder.SUBGRIDS[master];
+    assert.strictEqual(config.SPEC[master].type, 'bool', master);
+    assert.ok(sg.label, master + ': the grid has a name for assistive tech');
+    const g = groups.filter((x) => x.keys.indexOf(master) >= 0)[0];
+    const at = sg.keys.map((k) => g.keys.indexOf(k));
+    assert.ok(at[0] > g.keys.indexOf(master), master + ': the grid comes after its switch');
+    assert.deepStrictEqual(at, at.map((_, i) => at[0] + i), master + ': one block of fields');
+    const off = Object.assign(config.defaults(), { [master]: false });
+    sg.keys.forEach((k) => {
+      assert.strictEqual(config.SPEC[k].type, 'bool', k);
+      assert.strictEqual(builder.subgridOf(k), master, k);
+      assert.strictEqual(builder.fieldOff(k, config.defaults()), false, k);
+      assert.strictEqual(builder.fieldOff(k, off), true, k + ' with ' + master + ' off');
+    });
+  });
+  assert.strictEqual(builder.subgridOf('paints'), null);
+  assert.strictEqual(builder.subgridOf('constructor'), null);
+});
+
+test('META.when reads settings only, and META.only names a layout', () => {
+  let n = 0;
+  Object.keys(builder.META).forEach((k) => {
+    const m = builder.META[k];
+    if (m.only !== undefined) assert.ok(['vertical', 'horizontal'].indexOf(m.only) >= 0, k);
+    if (m.when === undefined) return;
+    n++;
+    assert.strictEqual(typeof m.when, 'function', k);
+    const read = new Set();
+    const cfg = new Proxy(config.defaults(), { get(o, p) { read.add(p); return o[p]; } });
+    assert.strictEqual(typeof m.when(cfg), 'boolean', k);
+    assert.ok(read.size > 0, k + ' depends on a setting');
+    read.forEach((p) => assert.ok(Object.prototype.hasOwnProperty.call(config.SPEC, p), k + ' reads ' + String(p)));
+    assert.ok(!read.has(k), k + ' does not depend on itself');
+  });
+  assert.ok(n >= builder.BADGE_SUBS.length, 'the badge sources depend on badges');
+  // META.only: off in the other layout, and only there.
+  const m = builder.META.first_msg;
+  m.only = 'vertical';
+  try {
+    assert.strictEqual(builder.fieldOff('first_msg', config.defaults()), false);
+    assert.strictEqual(builder.fieldOff('first_msg', Object.assign(config.defaults(), { layout: 'horizontal' })), true);
+  } finally {
+    delete m.only;
+  }
+  assert.strictEqual(builder.fieldOff('first_msg', Object.assign(config.defaults(), { layout: 'horizontal' })), false);
 });
 
 test('every GROUPS key is a SPEC key, listed once, and together they are every setting but channel', () => {

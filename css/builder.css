@@ -89,6 +89,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .btn.primary:hover { border-color: #7d37f0; background: #7d37f0; }
 .btn.ghost { background: transparent; }
 .btn.flash, .btn.flash:hover, .cta.flash, .cta.flash:hover { border-color: #1f6e4f; background: #1f6e4f; color: #fff; }
+.btn:disabled, .btn:disabled:hover { opacity: .45; border-color: var(--border-strong); cursor: not-allowed; }
 .btns { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* the two actions in the URL bar, sized like the home page's call to action */
@@ -401,6 +402,9 @@ textarea.text { display: block; padding: 10px 12px; line-height: 20px; }
 .obs .section-head { padding-bottom: 16px; }
 
 .fields { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 48px; }
+/* a sub-heading among a section's fields, and a row that takes the whole width: both span the wide preview's two columns */
+.subhead { grid-column: 1 / -1; padding: 20px 0 8px; border-top: 1px solid var(--border); }
+.fields > .span-all { grid-column: 1 / -1; }
 .field { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 0 14px; border-top: 1px solid var(--border); }
 .field-head { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .field-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -410,7 +414,14 @@ label.field-label { cursor: pointer; }
 .tag { font: 12px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
 .tag.changed { color: var(--accent-hi); }
 .field.disabled { opacity: .45; }
-.field.disabled .field-label, .field.disabled .switch { cursor: not-allowed; }
+.field.disabled .field-label, .field.disabled .switch,
+.field.disabled label, .field.disabled button, .field.disabled input { cursor: not-allowed; }
+/* and no hover feedback from a control that does nothing; the chosen option keeps its white on the fill */
+.field.disabled .seg label:hover input:not(:checked) + span { color: var(--muted); }
+.field.disabled .step:hover { background: transparent; }
+.field.disabled .text:hover, .field.disabled .stepper:hover { border-color: var(--field-edge); }
+/* the row is dimmed already, so a disabled button in it is not dimmed twice */
+.field.disabled .btn:disabled { opacity: 1; }
 /* a switch sits beside its label at every width */
 .field-check .field-head { flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; min-height: 46px; }
 .field-check .field-name { flex: 1 1 auto; }
@@ -467,6 +478,8 @@ label.field-label { cursor: pointer; }
 .seg-small { display: inline-flex; }
 .seg-small label { flex: none; }
 .seg-small span { padding: 0 12px; font-size: 13px; white-space: nowrap; }
+/* many short choices: they flow onto a second row where the panel is narrower than all of them */
+.seg.wrap { flex-wrap: wrap; }
 
 /* switch: a checkbox drawn as a track and a knob */
 .switch {
@@ -653,10 +666,11 @@ label.field-label { cursor: pointer; }
   .seg label { flex: none; }
   .seg span { padding: 0 13px; white-space: nowrap; }
   .seg-small span { padding: 0 12px; }
-  /* two long choices: compact like the others, and they wrap inside the row where the panel is narrower than both */
-  .seg.route { align-self: flex-start; max-width: 100%; }
-  .seg.route label { flex: 0 1 auto; }
-  .seg.route span { height: 100%; white-space: normal; }
+  /* two long choices (and a .wrap field's): compact like the others, and they wrap inside the row where the
+     panel is narrower than all of them */
+  .seg.route, .seg.wrap { align-self: flex-start; max-width: 100%; }
+  .seg.route label, .seg.wrap label { flex: 0 1 auto; }
+  .seg.route span, .seg.wrap span { height: 100%; white-space: normal; }
   .stepper { align-self: auto; }
   /* two columns where each has room for a logo, the longest tag (badges_chatterino=0) and a switch */
   .subgrid { grid-template-columns: repeat(auto-fill, minmax(max(226px, 40%), 1fr)); }

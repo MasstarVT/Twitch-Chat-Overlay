@@ -342,6 +342,26 @@ describe('toParams / toObject', () => {
     assert.deepEqual(config.toObject(config.defaults()), {});
   });
 
+  test('serialize writes a value as the URL does, and isDefault tells a default apart', () => {
+    assert.equal(config.serialize('bots', true), '1');
+    assert.equal(config.serialize('bots', false), '0');
+    assert.equal(config.serialize('block', ['a', 'b']), 'a,b');
+    assert.equal(config.serialize('block', undefined), '', 'a missing list is an empty one');
+    assert.equal(config.serialize('shadow', 0), '0');
+    assert.equal(config.serialize('font', 'Open Sans'), 'Open Sans');
+    assert.equal(config.serialize('kick_room', ''), '');
+    assert.equal(config.isDefault('block', []), true);
+    assert.equal(config.isDefault('block', undefined), true);
+    assert.equal(config.isDefault('block', ['a']), false);
+    assert.equal(config.isDefault('history', 5), true);
+    assert.equal(config.isDefault('history', 0), false);
+    assert.equal(config.isDefault('size', 'medium'), true);
+    // What toParams writes for each changed key is serialize's value.
+    const cfg = custom();
+    const p = config.toParams(cfg);
+    config.KEYS.filter((k) => k !== 'channel' && !config.isDefault(k, cfg[k])).forEach((k) => assert.equal(p.get(k), config.serialize(k, cfg[k]), k));
+  });
+
   test('history is on by default: 5 is left out, 0 (off) is written and read back', () => {
     assert.equal(config.parse('?channel=xqc').history, 5);
     assert.equal(config.parse('?channel=xqc&history=0').history, 0);

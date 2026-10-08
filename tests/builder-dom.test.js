@@ -46,7 +46,8 @@ function readPage(doc) {
 }
 
 // A page with builder.js started on it. Timers are the test's (t.mock), so no preview reload runs by itself.
-// opts.app: the window is one that gets the app layout.
+// opts.app: the window is one that gets the app layout. opts.setup(builder, doc): runs before start(), on this
+// page's own copy of builder.js (to try GROUPS or META entries no release has yet).
 function open(t, href, opts) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const doc = createDocument();
@@ -85,6 +86,7 @@ function open(t, href, opts) {
   const file = require.resolve('../js/builder.js');
   delete require.cache[file];
   const builder = require(file);
+  if (opts && opts.setup) opts.setup(builder, doc);
   builder.start();
   const $ = (id) => doc.getElementById(id);
   return { doc, $, builder, text: (id) => $(id).textContent, kids: (id, cls) => $(id).byClass(cls).map((e) => e.textContent) };
@@ -324,4 +326,117 @@ test('Kick field: Check fills in the chatroom id; when Kick refuses, it links th
   room.dispatch('change');
   assert.strictEqual(room.getAttribute('aria-invalid'), 'true');
   assert.match(p.text('bar-url'), /kick=someone_else&kick_room=4598$/);
+});
+
+// A field's row, from its label (label < .field-name < .field-head < .field).
+const rowOf = (p, key) => p.$('l-' + key).parentNode.parentNode.parentNode;
+
+test('Badges & paints: the sources are one labelled grid under Show badges, with their help last', (t) => {
+  const p = open(t, HREF);
+  const body = p.$('group-badges').children.filter((e) => e.className === 'fields')[0];
+  assert.deepStrictEqual(body.children.map((e) => e.className + (e.getAttribute('data-key') ? ' ' + e.getAttribute('data-key') : '')),
+    ['field field-check badges', 'subgrid', 'field field-check paints', 'field field-check stv_lookup', 'field field-check readable']);
+  const grid = body.children[1];
+  assert.deepStrictEqual([grid.tagName, grid.getAttribute('role'), grid.getAttribute('aria-label')], ['DIV', 'group', 'Badge sources']);
+  const rows = grid.children.slice(0, -1), help = grid.children[grid.children.length - 1];
+  assert.deepStrictEqual(rows.map((e) => e.getAttribute('data-key')), p.builder.BADGE_SUBS);
+  rows.forEach((e) => assert.strictEqual(e.className, 'field field-check sub'));
+  assert.deepStrictEqual([help.tagName, help.className], ['P', 'help']);
+  assert.match(help.textContent, /^Twitch covers sub, mod, VIP and bits badges\./);
+  // No sub-heading or "More in Advanced" anywhere until a section has one.
+  ['group-look', 'group-badges', 'group-advanced'].forEach((id) => {
+    assert.deepStrictEqual(p.$(id).byClass('subhead'), [], id);
+    assert.deepStrictEqual(p.$(id).children.map((e) => e.className), ['section-head', 'fields'].concat(id === 'group-badges' ? ['help section-foot'] : []), id);
+  });
+});
+
+test('a field that only applies while another setting allows it is greyed out and back, after every kind of change', (t) => {
+  const p = open(t, HREF, { setup: (b) => { b.META.first_msg.only = 'vertical'; b.META.shadow.wrap = true; } });
+  const state = (key) => {
+    const row = rowOf(p, key);
+    return [row.classList.contains('disabled'), row.byClass('switch').every((i) => i.disabled === true)];
+  };
+  const subs = p.builder.BADGE_SUBS;
+  subs.forEach((k) => assert.deepStrictEqual(state(k), [false, false], k));
+  const master = p.$('f-badges');
+  master.checked = false;
+  master.dispatch('change');
+  subs.forEach((k) => assert.deepStrictEqual(state(k), [true, true], k + ' with badges off'));
+  assert.deepStrictEqual(state('paints'), [false, false], 'other fields are not touched');
+  master.checked = true;
+  master.dispatch('change');
+  subs.forEach((k) => assert.deepStrictEqual(state(k), [false, false], k + ' with badges on again'));
+  // A paste, and Reset
+  p.$('paste').value = '?badges=0';
+  p.$('paste-load').dispatch('click');
+  subs.forEach((k) => assert.deepStrictEqual(state(k), [true, true], k + ' after a paste'));
+  p.$('reset').dispatch('click');
+  subs.forEach((k) => assert.deepStrictEqual(state(k), [false, false], k + ' after Reset'));
+  // META.only follows the layout.
+  assert.deepStrictEqual(state('first_msg'), [false, false]);
+  const pick = (v) => {
+    const r = p.doc.querySelectorAll('input[name="f-layout"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  pick('horizontal');
+  assert.deepStrictEqual(state('first_msg'), [true, true], 'vertical only: off in a row');
+  pick('vertical');
+  assert.deepStrictEqual(state('first_msg'), [false, false]);
+  // META.wrap: a segmented field that may wrap, like Add to OBS's routes.
+  assert.strictEqual(p.$('l-shadow').parentNode.parentNode.byClass('seg')[0].className, 'seg wrap field-control');
+  assert.strictEqual(p.$('l-size').parentNode.parentNode.byClass('seg')[0].className, 'seg field-control');
+});
+
+// Look with a sub-heading and a More in Advanced link, Advanced with a heading. focused: what a heading's
+// focus() was called on.
+function withHeadings(focused) {
+  return (b, doc) => {
+    b.GROUPS[0].subs = [{ title: 'Text', first: 'size' }];
+    b.GROUPS[0].more = 'adv-trouble';
+    b.GROUPS[b.GROUPS.length - 1].subs = [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }];
+    const make = doc.createElement;
+    doc.createElement = (tag) => {
+      const e = make(tag);
+      if (tag === 'h3') e.focus = () => focused.push(e);
+      return e;
+    };
+  };
+}
+
+test('a link to an Advanced sub-heading opens Advanced, and leaves the focus alone while the page loads', (t) => {
+  const focused = [];
+  const p = open(t, HREF + '#adv-trouble', { setup: withHeadings(focused) });
+  assert.strictEqual(p.$('group-advanced').hidden, false);
+  assert.strictEqual(p.$('tab-advanced').getAttribute('aria-selected'), 'true');
+  assert.deepStrictEqual(focused, []);
+});
+
+test('sub-headings go above their field; More in Advanced opens Advanced at its heading and moves the focus there', (t) => {
+  const focused = [];
+  const p = open(t, HREF, { setup: withHeadings(focused) });
+  const fields = (id) => p.$(id).children.filter((e) => e.className === 'fields')[0].children;
+  const look = fields('group-look');
+  const i = look.findIndex((e) => e.tagName === 'H3');
+  assert.deepStrictEqual([look[i].className, look[i].textContent, !!look[i].id], ['eyebrow subhead', 'Text', false]);
+  assert.strictEqual(look[i + 1].getAttribute('data-key'), 'size');
+  const adv = fields('group-advanced');
+  assert.deepStrictEqual(adv.map((e) => e.tagName === 'H3' ? 'h3#' + e.id : e.getAttribute('data-key')), ['h3#adv-trouble', 'debug', 'demo']);
+  const heading = adv[0];
+  assert.strictEqual(heading.tabIndex, -1);
+  // The link is the section's foot: an <a> to the heading's anchor.
+  const foot = p.$('group-look').children[2];
+  assert.strictEqual(foot.className, 'section-foot');
+  const link = foot.children[0];
+  assert.deepStrictEqual([link.tagName, link.className, link.textContent, link.href], ['A', 'btn ghost', 'More in Advanced', '#adv-trouble']);
+  // Followed: the hash changes, Advanced opens and its heading scrolls into view and takes the focus.
+  let scrolled = false;
+  heading.scrollIntoView = () => { scrolled = true; };
+  p.doc.activeElement = link;
+  globalThis.location.hash = '#adv-trouble';
+  p.doc.defaultView.dispatch('hashchange');
+  assert.strictEqual(p.$('group-advanced').hidden, false);
+  assert.strictEqual(p.$('group-look').hidden, true);
+  assert.strictEqual(scrolled, true);
+  assert.deepStrictEqual(focused, [heading]);
 });

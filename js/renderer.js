@@ -45,6 +45,26 @@
     'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs',
     'first_msg', 'shared', 'layout']; // layout: a row draws gigantified emotes at emote height, so it picks smaller files
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
+  // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
+  var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max'];
+
+  // The values normalizeCfg makes safe, each with its config.js default (tests/parity.test.js checks they
+  // match SPEC): values = the enum's choices, min/max = an int's range, bool = missing means the default,
+  // str = a string or the default. Tests and older callers pass partial cfgs, so a missing key reads as today.
+  var NORM = {
+    size: { values: ['small', 'medium', 'large'], def: 'medium' },
+    layout: { values: ['vertical', 'horizontal'], def: 'vertical' },
+    align: { values: ['bottom', 'top'], def: 'bottom' },
+    shadow: { min: 0, max: 3, def: DEFAULT_SHADOW },
+    bg: { min: 0, max: 100, def: 0 },
+    fade: { min: 0, max: 3600, def: 0 },
+    max: { min: 1, max: 200, def: 50 },
+    animate: { bool: true, def: true },
+    font: { str: true, def: 'Inter' }
+  };
+  var NORM_KEYS = Object.keys(NORM);
+  var NORM_DEFAULTS = {};
+  for (var nk = 0; nk < NORM_KEYS.length; nk++) NORM_DEFAULTS[NORM_KEYS[nk]] = NORM[NORM_KEYS[nk]].def;
 
   // ---------- pure helpers (exported as _internal for tests) ----------
   function clampInt(v, min, max, def) {
@@ -54,7 +74,14 @@
     return n < min ? min : n > max ? max : n;
   }
 
-  // Snapshot of the config with the values the renderer relies on made safe.
+  function normValue(n, v) {
+    if (n.values) return n.values.indexOf(v) >= 0 ? v : n.def;
+    if (n.bool) return v === undefined ? n.def : !!v;
+    if (n.str) return typeof v === 'string' ? v : n.def;
+    return clampInt(v, n.min, n.max, n.def);
+  }
+
+  // Snapshot of the config with the values the renderer relies on made safe (NORM).
   function normalizeCfg(c) {
     var o = {};
     if (c && typeof c === 'object') {
@@ -62,16 +89,23 @@
         if (Object.prototype.hasOwnProperty.call(c, k)) o[k] = Array.isArray(c[k]) ? c[k].slice() : c[k];
       }
     }
-    o.size = FONT_PX[o.size] ? o.size : 'medium';
-    o.layout = o.layout === 'horizontal' ? 'horizontal' : 'vertical';
-    o.align = o.align === 'top' ? 'top' : 'bottom';
-    o.shadow = clampInt(o.shadow, 0, 3, DEFAULT_SHADOW);
-    o.bg = clampInt(o.bg, 0, 100, 0);
-    o.fade = clampInt(o.fade, 0, 3600, 0);
-    o.max = clampInt(o.max, 1, 200, 50);
-    o.animate = o.animate === undefined ? true : !!o.animate;
-    o.font = typeof o.font === 'string' ? o.font : 'Inter';
+    for (var i = 0; i < NORM_KEYS.length; i++) o[NORM_KEYS[i]] = normValue(NORM[NORM_KEYS[i]], o[NORM_KEYS[i]]);
     return o;
+  }
+
+  // A #chat custom property: set, or removed when value is null (an option at its default leaves the
+  // stylesheet's own value, and OBS Custom CSS, in charge).
+  function setVar(st, name, value) {
+    if (value === null || value === undefined) st.removeProperty(name);
+    else st.setProperty(name, String(value));
+  }
+
+  // A config color (bare lowercase rrggbb, config.js) as 'r, g, b' for rgba(); null for anything else, so
+  // only checked digits ever reach a CSS value.
+  function hexRgb(hex) {
+    var s = String(hex === undefined || hex === null ? '' : hex);
+    if (!/^[0-9a-f]{6}$/.test(s)) return null;
+    return parseInt(s.slice(0, 2), 16) + ', ' + parseInt(s.slice(2, 4), 16) + ', ' + parseInt(s.slice(4, 6), 16);
   }
 
   function sameValue(a, b) {
@@ -1174,9 +1208,9 @@
       cl.toggle('align-bottom', c.align !== 'top');
       cl.toggle('has-bg', c.bg > 0);
       var st = rootEl.style;
-      st.setProperty('--font', fontVar(c.font));
-      st.setProperty('--shadow', shadowCss(c.shadow));
-      st.setProperty('--bg-alpha', String(bgAlpha(c.bg)));
+      setVar(st, '--font', fontVar(c.font));
+      setVar(st, '--shadow', shadowCss(c.shadow));
+      setVar(st, '--bg-alpha', bgAlpha(c.bg));
       // --emote-h is left to the stylesheet (1.75em = EMOTE_EM), so OBS Custom CSS can change it.
     }
 
@@ -1396,9 +1430,14 @@
       MAX_IMAGES: MAX_IMAGES,
       RERENDER_KEYS: RERENDER_KEYS,
       FILTER_KEYS: FILTER_KEYS,
+      ROOT_KEYS: ROOT_KEYS,
+      NORM: NORM,
+      NORM_DEFAULTS: NORM_DEFAULTS,
       GENERIC_FONTS: GENERIC_FONTS,
       clampInt: clampInt,
       normalizeCfg: normalizeCfg,
+      setVar: setVar,
+      hexRgb: hexRgb,
       changedAny: changedAny,
       fontPx: fontPx,
       wantEmote: wantEmote,

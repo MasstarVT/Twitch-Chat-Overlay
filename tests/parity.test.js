@@ -1,0 +1,424 @@
+'use strict';
+// Default parity. Every option added after 1.5.2 must leave the overlay, the builder's URLs and settings.js
+// exactly as 1.5.2 had them while the option is at its default. tests/fixtures/parity-*.json hold what the
+// untouched 1.5.2 tree (607c343) computed, captured by tests/parity-capture.js; the same capture runs here on
+// the current code. The generic tests after them keep every setting honest: it round-trips, it is left out of
+// the URL at its default, it changes what is drawn when set, and setting it back undoes the change.
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
+const cap = require('./parity-capture.js');
+const { createDocument } = require('./fake-dom.js');
+const { flip } = require('./flip.js');
+const config = require('../js/config.js');
+const renderer = require('../js/renderer.js');
+
+const R = renderer._internal;
+const ROOT = path.join(__dirname, '..');
+// A fixture file as written (toJson + a newline); a checkout may have given it CRLF line ends.
+const fixtureText = (name) => fs.readFileSync(path.join(__dirname, 'fixtures', 'parity-' + name + '.json'), 'utf8').replace(/\r\n/g, '\n');
+const fixture = (name) => JSON.parse(fixtureText(name));
+const plain = (v) => JSON.parse(JSON.stringify(v));
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+// ---------- the 1.5.2 fixtures ----------
+
+// The same JSON, and the same text (so key order too, which the renderer's line signatures depend on).
+function sameAsFixture(name, now) {
+  assert.deepStrictEqual(plain(now), fixture(name));
+  assert.strictEqual(cap.toJson(now) + '\n', fixtureText(name), 'parity-' + name + '.json: same key order');
+}
+
+test('parity: the renderer builds the 1.5.2 line models (full and partial configs, DPR 1 and 2)', async () => {
+  sameAsFixture('models', await cap.captureModels());
+});
+
+test('parity: the real renderer draws the 1.5.2 DOM (every element, attribute, style key and paint rule)', async () => {
+  sameAsFixture('dom', await cap.captureDom());
+});
+
+test('parity: overlay.js takes in the 1.5.2 transcript the same way (pushes, names, badges, tokens, filters)', async () => {
+  // Includes shouldShow at push and at the end for every message, at the defaults and with today's filters on.
+  sameAsFixture('intake', await cap.captureIntake());
+});
+
+// The preview and file:// URLs and the home page's demo frames list every key, so they grow with each new
+// key: there the 1.5.2 keys keep their values and order, and a key 1.5.2 didn't have is at its default.
+function sameGrowing(now, old, where) {
+  const oldKeys = new Set(old.params.map((p) => p[0]));
+  assert.deepStrictEqual(now.params.filter((p) => oldKeys.has(p[0])), old.params, where + ': the 1.5.2 keys');
+  now.params.filter((p) => !oldKeys.has(p[0])).forEach((p) => {
+    assert.ok(own(config.SPEC, p[0]), where + ': ' + p[0] + ' is a setting');
+    assert.strictEqual(p[1], config.serialize(p[0], config.SPEC[p[0]].def), where + ': ' + p[0] + ' at its default');
+  });
+  assert.strictEqual(now.url.split('?')[0], old.url.split('?')[0], where);
+}
+
+test('parity: hosted overlay URLs and settings.js are byte for byte 1.5.2\'s; the long URLs only grow', async () => {
+  const now = await cap.captureUrls();
+  const old = fixture('urls');
+  assert.deepStrictEqual(Object.keys(now.samples), Object.keys(old.samples));
+  Object.keys(old.samples).forEach((k) => {
+    const a = now.samples[k], b = old.samples[k];
+    assert.deepStrictEqual(a.hosted, b.hosted, k + ': overlay URL');
+    assert.strictEqual(a.toParams, b.toParams, k + ': toParams');
+    assert.deepStrictEqual(plain(a.toObject), b.toObject, k + ': toObject');
+    assert.strictEqual(a.settings, b.settings, k + ': settings.js');
+    sameGrowing(a.preview, b.preview, k + ' preview');
+    sameGrowing(a.file, b.file, k + ' file://');
+  });
+  assert.strictEqual(now.demoSrc.length, old.demoSrc.length);
+  now.demoSrc.forEach((d, i) => {
+    assert.strictEqual(d.src, old.demoSrc[i].src);
+    sameGrowing(d, old.demoSrc[i], 'demo ' + d.src);
+  });
+});
+
+test('parity: the Google Fonts requests at boot and for live font changes are 1.5.2\'s', async () => {
+  const now = await cap.captureFonts();
+  assert.deepStrictEqual(plain(now), fixture('urls').fonts);
+  // (j) pinned outright as well: a weight added to the list would re-download every font for every streamer.
+  assert.strictEqual(now.inter, 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+  assert.deepStrictEqual(now.boot, [{ rel: 'stylesheet', href: now.inter }]);
+});
+
+// ---------- generic tests over every setting ----------
+
+test('(a) every setting but channel round-trips through the URL, at its default and changed', () => {
+  const d = config.defaults();
+  config.KEYS.filter((k) => k !== 'channel').forEach((k) => {
+    const def = config.SPEC[k].def;
+    assert.deepStrictEqual(config.coerce(k, config.serialize(k, def)), def, k);
+    assert.ok(config.isDefault(k, def), k);
+    // flip() (tests/flip.js) has a case for the key's type: it throws on one it doesn't know.
+    const c = flip(d, k);
+    assert.notDeepStrictEqual(c[k], def, k + ': flip changes it');
+    assert.deepStrictEqual(config.coerce(k, config.serialize(k, c[k])), c[k], k + ': changed');
+    assert.ok(!config.isDefault(k, c[k]), k);
+    assert.deepStrictEqual(config.parse(config.toParams(c)), c, k + ': through toParams');
+    assert.deepStrictEqual(config.parse('', config.toObject(c)), c, k + ': through toObject');
+  });
+  // channel: '' is "no channel", which coerce refuses as a value; an explicit empty channel= reads as ''.
+  assert.strictEqual(config.parse('channel=').channel, '');
+  assert.strictEqual(config.parse('channel=', { channel: 'x' }).channel, '');
+});
+
+test('(b) at the defaults a config puts nothing in the URL or in settings.js', () => {
+  assert.strictEqual(config.toParams(config.defaults()).toString(), '');
+  assert.deepStrictEqual(config.toObject(config.defaults()), {});
+  const d = config.defaults();
+  config.KEYS.forEach((k) => assert.ok(config.isDefault(k, d[k]), k));
+});
+
+test('(c) #chat at the defaults: three classes and three variables, as in 1.5.2', async () => {
+  await cap.isolated(() => {
+    const M = cap.modules();
+    const x = cap.renderSamples(M, M.config.defaults(), 1);
+    assert.deepStrictEqual(x.root.className.split(' ').sort(), ['align-bottom', 'layout-vertical', 'size-medium']);
+    assert.deepStrictEqual(Object.assign({}, x.root.style),
+      { '--font': '"Inter"', '--shadow': M.renderer._internal.SHADOWS[2], '--bg-alpha': '0' });
+    x.r.destroy();
+  });
+});
+
+// ---------- the overlay's own deps on the real renderer ----------
+
+// overlay.js booted at the defaults with a Twitch and a Kick channel, and the capture's whole transcript fed
+// through its handlers (parity-capture intakeWorld). drive() pushes every message that reached the renderer
+// into a real renderer on a fake document, with the overlay's own deps: nameFor, badgesFor, tokensFor,
+// shouldShow and paintRule read the overlay's S.cfg, which drive() sets along with the renderer's.
+function inWorld(fn) {
+  return cap.isolated(async () => {
+    const h = await cap.intakeWorld(cap.INTAKE_BOOTS.defaults);
+    const T = globalThis.TCO;
+    const S = T.overlay.state();
+    // bootOverlay stubbed createRenderer on the renderer module the overlay booted with: a fresh copy.
+    const file = require.resolve('../js/renderer.js');
+    delete require.cache[file];
+    const Rm = require(file);
+    const msgs = h.pushed.map((p) => p.m);
+    // The capture's Homies lists are empty: one Homies badge, so badges_homies has something to hide.
+    const fan = msgs.filter((m) => m.login === 'subfan')[0];
+    S.homies = new Map([[fan.userId, [{ provider: 'homies', title: 'Homie', urls: { 1: 'https://cdn.chatterinohomies.com/badges/1x.png' } }]]]);
+    // A chat line that arrives after a change (an entrance animation shows only on a new line).
+    const chat = cap.sampleSet().filter((s) => s.key === 'chat')[0].irc;
+    const extra = T.ircParse.toChatMessage(T.ircParse.parseLine(chat.replace(';id=m-chat;', ';id=m-extra;')));
+    return fn({ S: S, deps: h.deps, Rm: Rm, msgs: msgs, extra: extra, cfg0: Object.assign({}, S.cfg) });
+  });
+}
+
+// #chat (class set and inline style), each line (whole subtree, its animation aside), the lines' animations,
+// and the paint rules.
+function snapshot(root, doc) {
+  const kids = root.firstElementChild.children;
+  return {
+    root: { cls: root.className.split(/\s+/).filter(Boolean).sort(), style: Object.assign({}, root.style) },
+    lines: kids.map((l) => {
+      const s = cap.serialize(l);
+      if (s.style) {
+        delete s.style.animation; // restartFades rewrites it
+        if (!Object.keys(s.style).length) delete s.style;
+      }
+      return s;
+    }),
+    anim: kids.map((l) => l.style.animation || ''),
+    rules: doc.head.children.map((e) => (e.sheet ? e.sheet.cssRules.slice() : []))
+  };
+}
+
+// A renderer at cfgs[0] with every message pushed, then each later config in turn (as the builder's live
+// updates arrive), then (extra) one more message. The snapshot's msgs (not enumerable, so not compared with
+// it) are the lines' own messages in DOM order, which rerender's predicate is handed.
+function drive(w, cfgs, extra) {
+  const doc = createDocument();
+  const root = doc.createElement('div');
+  doc.body.appendChild(root);
+  w.S.cfg = cfgs[0];
+  const r = w.Rm.createRenderer({ root: root, cfg: cfgs[0], deps: w.deps });
+  w.msgs.forEach((m) => r.push(m));
+  r.flush();
+  cfgs.slice(1).forEach((c) => { w.S.cfg = c; r.setConfig(c); });
+  if (extra) { r.push(w.extra); r.flush(); }
+  const out = snapshot(root, doc);
+  const msgs = [];
+  r.rerender((m) => { msgs.push(m); return false; });
+  Object.defineProperty(out, 'msgs', { value: msgs, enumerable: false });
+  r.destroy();
+  return out;
+}
+
+// What a key needs set first before it can show anything (the builder's META.when): a badge source needs
+// badges on, the platform icons need both a Twitch and a Kick channel. A key that isn't listed needs nothing.
+const PREREQ = {
+  badges_twitch: { badges: true },
+  badges_kick: { badges: true },
+  badges_7tv: { badges: true },
+  badges_bttv: { badges: true },
+  badges_ffz: { badges: true },
+  badges_ffzap: { badges: true },
+  badges_chatterino: { badges: true },
+  badges_homies: { badges: true },
+  platform_icons: { channel: 'home', kick: 'kickname' }
+};
+function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
+
+// flip()'s value, except where that changes nothing on the transcript: max 51 caps nothing, and nobody in it
+// is called "someone".
+const SHOWS = { max: 5, block: ['waver'] };
+function changed(cfg, k) {
+  if (!own(SHOWS, k)) return flip(cfg, k);
+  const c = Object.assign({}, cfg);
+  c[k] = SHOWS[k];
+  return c;
+}
+
+// Keys that reorder, re-time or cap the lines rather than draw them (each has its own tests in
+// renderer-dom.test.js); listed ahead for the options that will join them.
+const LIFECYCLE = ['layout', 'align', 'fade', 'max', 'animate', 'enter_style', 'enter_ms', 'exit_style', 'fade_out_ms', 'smooth_scroll'];
+
+test('PREREQ and SHOWS name settings and valid values', () => {
+  Object.keys(PREREQ).forEach((k) => {
+    assert.ok(own(config.SPEC, k), k);
+    Object.keys(PREREQ[k]).forEach((p) => assert.deepStrictEqual(config.coerce(p, PREREQ[k][p]), PREREQ[k][p], k + ' needs ' + p));
+  });
+  Object.keys(SHOWS).forEach((k) => assert.deepStrictEqual(config.coerce(k, SHOWS[k]), SHOWS[k], k));
+});
+
+test('(d) a live setting set and set back leaves #chat as it was, and every line too unless it filters or re-times them', async () => {
+  await inWorld((w) => {
+    config.LIVE_KEYS.forEach((k) => {
+      const base = withPrereq(w.cfg0, k);
+      const before = drive(w, [base]);
+      const after = drive(w, [base, changed(base, k), base]);
+      // Class SET: classList.toggle appends, so a class switched off and on again moves to the end.
+      assert.deepStrictEqual(after.root, before.root, k + ': #chat');
+      const drawn = R.ROOT_KEYS.indexOf(k) >= 0 || R.RERENDER_KEYS.indexOf(k) >= 0;
+      if (drawn && R.FILTER_KEYS.indexOf(k) < 0 && LIFECYCLE.indexOf(k) < 0) {
+        assert.deepStrictEqual(after.lines, before.lines, k + ': the lines');
+      }
+    });
+  });
+});
+
+test('(e) every key the renderer handles changes what is drawn (a key listed but never used fails here)', async () => {
+  await inWorld((w) => {
+    const keys = R.ROOT_KEYS.concat(R.RERENDER_KEYS.filter((k) => R.ROOT_KEYS.indexOf(k) < 0))
+      .filter((k) => R.FILTER_KEYS.indexOf(k) < 0);
+    assert.ok(keys.length >= 20, 'the keys are found');
+    keys.forEach((k) => {
+      const base = withPrereq(w.cfg0, k);
+      const a = drive(w, [base, base], true);
+      const b = drive(w, [base, changed(base, k)], true);
+      if (R.ROOT_KEYS.indexOf(k) >= 0 && LIFECYCLE.indexOf(k) < 0) assert.notDeepStrictEqual(b.root, a.root, k + ' changes #chat');
+      if (R.RERENDER_KEYS.indexOf(k) >= 0) assert.notDeepStrictEqual(b.lines, a.lines, k + ' changes a line');
+      assert.notDeepStrictEqual(b, a, k + ' changes what is drawn');
+    });
+  });
+});
+
+// Each filter: a value that hides less, then one that hides some of the transcript.
+const FILTERS = {
+  bots: [true, false],
+  hide_commands: [false, true],
+  block: [[], ['waver']],
+  events: [true, false],
+  shared: [true, false]
+};
+
+// Each line goes by its own message: a resub's text line is a chat message, so events=0 keeps it.
+test('(f) a filter sweeps exactly the lines it now hides, and nothing else', async () => {
+  assert.deepStrictEqual(Object.keys(FILTERS).sort(), R.FILTER_KEYS.slice().sort(), 'a case for every filter key');
+  // A line by its message: the id, or (Kick notices have none) the notice text.
+  const ids = (list) => list.map((m) => m.id || m.kind + ': ' + m.systemMsg);
+  await inWorld((w) => {
+    Object.keys(FILTERS).forEach((k) => {
+      const from = Object.assign({}, w.cfg0, { max: 200 }); // nothing capped, so a line that goes is the filter's doing
+      from[k] = FILTERS[k][0];
+      const to = Object.assign({}, from);
+      to[k] = FILTERS[k][1];
+      const shown = drive(w, [from]);
+      const swept = drive(w, [from, to]);
+      w.S.cfg = to;
+      const want = shown.msgs.filter((m) => w.deps.shouldShow(m));
+      assert.ok(want.length < shown.msgs.length, k + ': the transcript has lines it hides');
+      // They tell the lines apart: each line has its own (a resub's text line is <notice id>:m).
+      assert.strictEqual(new Set(ids(shown.msgs)).size, shown.msgs.length, k + ': one per line');
+      assert.deepStrictEqual(ids(swept.msgs), ids(want), k);
+    });
+  });
+});
+
+test('(g) the line animations at the defaults', () => {
+  assert.deepStrictEqual([R.IN_MS, R.FADE_OUT_MS, R.SLIDE_MS], [180, 1000, 250]);
+  assert.strictEqual(R.animString(true, true, null, 'vertical'), 'tco-in 180ms ease-out');
+  assert.strictEqual(R.animString(true, true, null, 'horizontal'), 'tco-in-x 180ms ease-out');
+  assert.strictEqual(R.animString(true, false, null, 'vertical'), '');
+  const t = R.fadeTiming(30, 0);
+  assert.deepStrictEqual(t, { expired: false, delay: 29000, duration: 1000 });
+  assert.strictEqual(R.animString(false, false, t), 'tco-fade 1000ms linear 29000ms forwards');
+  assert.strictEqual(R.animString(true, true, t, 'vertical'), 'tco-in 180ms ease-out, tco-fade 1000ms linear 29000ms forwards');
+  const css = fs.readFileSync(path.join(ROOT, 'css', 'overlay.css'), 'utf8');
+  ['tco-in', 'tco-in-x', 'tco-fade'].forEach((n) => assert.ok(css.indexOf('@keyframes ' + n + ' {') >= 0, n));
+});
+
+test('(h) the renderer\'s defaults for a partial config are config.js\'s', () => {
+  const names = Object.keys(R.NORM);
+  assert.deepStrictEqual(Object.keys(R.NORM_DEFAULTS), names);
+  names.forEach((k) => {
+    const s = config.SPEC[k], n = R.NORM[k];
+    assert.ok(own(config.SPEC, k), k + ' is a setting');
+    assert.deepStrictEqual(R.NORM_DEFAULTS[k], s.def, k);
+    assert.strictEqual([n.values, n.min, n.bool, n.str].filter((x) => x !== undefined).length, 1, k + ': one kind');
+    if (n.values) assert.deepStrictEqual(n.values, s.values, k);
+    if (n.min !== undefined) assert.deepStrictEqual([n.min, n.max], [s.min, s.max], k);
+    if (n.bool) assert.strictEqual(s.type, 'bool', k);
+  });
+  // Every key setConfig handles itself is made safe, so a partial or hand-made cfg reads as the default.
+  R.ROOT_KEYS.forEach((k) => assert.ok(own(R.NORM, k), k));
+  const empty = R.normalizeCfg({});
+  names.forEach((k) => assert.deepStrictEqual(empty[k], R.NORM_DEFAULTS[k], k));
+  const d = config.defaults();
+  const full = R.normalizeCfg(d);
+  config.KEYS.forEach((k) => assert.deepStrictEqual(full[k], d[k], k + ': the defaults pass through'));
+  const bad = R.normalizeCfg({ size: 'huge', layout: 'diagonal', align: 'middle', shadow: 9, bg: -5, fade: 'soon', max: 0,
+    animate: null, font: 5, extra: 'kept' });
+  assert.deepStrictEqual([bad.size, bad.layout, bad.align, bad.shadow, bad.bg, bad.fade, bad.max, bad.animate, bad.font, bad.extra],
+    ['medium', 'vertical', 'bottom', 3, 0, 0, 1, false, 'Inter', 'kept']);
+  assert.strictEqual(R.normalizeCfg({ size: 'toString' }).size, 'medium', 'only the listed choices');
+});
+
+// ---------- css/overlay.css: today's values stay today's ----------
+
+// Every rule (selector, nested under its @media/@keyframes as 'outer > inner') with its declarations.
+function cssRules(css) {
+  const out = [], stack = [];
+  let buf = '';
+  for (const ch of css.replace(/\/\*[\s\S]*?\*\//g, '')) {
+    if (ch === '{') {
+      stack.push(buf.trim().replace(/\s+/g, ' '));
+      buf = '';
+    } else if (ch === '}') {
+      const sel = stack.pop();
+      if (buf.trim()) {
+        const decls = {};
+        buf.split(';').forEach((d) => {
+          const i = d.indexOf(':');
+          if (i > 0) decls[d.slice(0, i).trim()] = d.slice(i + 1).trim().replace(/\s+/g, ' ');
+        });
+        out.push({ sel: stack.concat(sel).join(' > '), decls: decls });
+      }
+      buf = '';
+    } else buf += ch;
+  }
+  return out;
+}
+
+// [selector, property, its value in 1.5.2]. An option may turn a value into var(--x, <that value>), so OBS
+// Custom CSS keeps working and the default draws the same; the value itself never changes.
+const LITERALS = [
+  ['#chat', 'padding', '0 8px'],
+  ['#chat', 'font-size', '24px'],
+  ['#chat', 'line-height', '1.35'],
+  ['#chat', 'color', '#fff'],
+  ['#chat', 'font-weight', '600'],
+  ['#chat.size-small', 'font-size', '18px'],
+  ['#chat.size-medium', 'font-size', '24px'],
+  ['#chat.size-large', 'font-size', '32px'],
+  ['.line', 'padding', '.15em 0'],
+  ['.line', 'filter', 'var(--shadow, drop-shadow(0 0 1px rgba(0,0,0,.9)) drop-shadow(1px 2px 2px rgba(0,0,0,.75)))'],
+  ['.has-bg .line', 'margin', '.15em 0'],
+  ['.has-bg .line', 'padding', '.2em .4em'],
+  ['.has-bg .line', 'border-radius', '.4em'],
+  ['.has-bg .line', 'width', 'fit-content'],
+  ['.has-bg .line', 'background-color', 'rgba(0, 0, 0, var(--bg-alpha, 0))'],
+  ['.name', 'font-weight', '800'],
+  ['.line.action .message', 'font-style', 'italic'],
+  ['.line.first-msg', 'box-shadow', 'inset .2em 0 0 #9146FF'],
+  ['.line.first-msg', 'padding-left', '.4em'],
+  ['.line.highlight', 'background-color', 'rgba(145, 70, 255, .35)'],
+  ['.line.highlight', 'border-radius', '.3em'],
+  [':where(.has-bg) .line.highlight', 'background-image', 'linear-gradient(rgba(145, 70, 255, .35), rgba(145, 70, 255, .35))'],
+  ['.line.announcement', 'padding-left', '.5em'],
+  ['.line.announcement', 'background-size', '.25em 100%'],
+  ['.line.notice', 'font-size', '.85em'],
+  ['.line.notice .message', 'color', '#E2D6FF'],
+  ['.reply', 'font-size', '.75em'],
+  ['.reply', 'opacity', '.7'],
+  ['.reply-name', 'font-weight', '800'],
+  ['.badge', 'height', '1em'],
+  ['.badge', 'margin-right', '.25em'],
+  ['.emote-stack', '--eh', 'var(--emote-h, 1.75em)'],
+  ['.emote-stack', 'margin', '-.3em .05em'],
+  ['.emote-stack.big', '--eh', 'calc(var(--emote-h, 1.75em) * 3)'],
+  ['.cheer-amount', 'font-weight', '800'],
+  ['.gif', 'height', 'calc(var(--emote-h, 1.75em) * 3)'],
+  ['#chat.layout-horizontal .lines', 'gap', '0 1em'],
+  ['#chat.layout-horizontal.has-bg .lines', 'gap', '0 .4em'],
+  ['@keyframes tco-in > from', 'transform', 'translateY(.4em)'],
+  ['@keyframes tco-in-x > from', 'transform', 'translateX(.6em)']
+];
+
+// v is lit, or var(--x, v') with v' passing the same test.
+function keepsLiteral(v, lit) {
+  if (v === lit) return true;
+  const m = /^var\(--[\w-]+, ([\s\S]*)\)$/.exec(v || '');
+  return !!m && keepsLiteral(m[1], lit);
+}
+
+test('(i) overlay.css: the values the options stand in for are still 1.5.2\'s (or that value as a var() fallback)', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'css', 'overlay.css'), 'utf8');
+  const rules = cssRules(css);
+  assert.ok(rules.length > 40, 'the scan finds the rules');
+  assert.ok(keepsLiteral('var(--x, var(--y, 1em))', '1em') && !keepsLiteral('var(--x, 2em)', '1em') && !keepsLiteral(undefined, '1em'));
+  LITERALS.forEach(([sel, prop, lit]) => {
+    const r = rules.filter((x) => x.sel === sel && own(x.decls, prop))[0];
+    assert.ok(r, sel + ' { ' + prop + ' } is in overlay.css');
+    assert.ok(keepsLiteral(r.decls[prop], lit), sel + ' { ' + prop + ': ' + r.decls[prop] + ' } should be ' + lit);
+  });
+  // A square badge slot that follows any height Custom CSS sets, and the highlight tint at (0,2,0).
+  const badge = rules.filter((x) => x.sel === '.badge')[0].decls;
+  assert.strictEqual(badge['aspect-ratio'], '1 / 1');
+  assert.ok(!own(badge, 'max-width'));
+  assert.match(css, /\n:where\(\.has-bg\) \.line\.highlight \{/);
+});

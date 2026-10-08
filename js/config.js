@@ -233,10 +233,11 @@
     return value === d;
   }
 
+  // A value as the URL writes it (the builder, its preview and the home page's demo frames use this too).
   function serialize(key, value) {
     var t = SPEC[key].type;
     if (t === 'bool') return value ? '1' : '0';
-    if (t === 'list') return value.join(',');
+    if (t === 'list') return (value || []).join(',');
     return String(value);
   }
 
@@ -302,6 +303,8 @@
     parse: parse,
     applyObject: applyObject,
     coerce: coerce,
+    isDefault: isDefault,
+    serialize: serialize,
     toParams: toParams,
     toObject: toObject,
     normalizeChannel: normalizeChannel,

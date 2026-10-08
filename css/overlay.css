@@ -2,8 +2,8 @@
 
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .badges .badge .name .colon .message
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
-   .platform-kick, badge modifiers .icon .platform (the Twitch / Kick logo), #chat modifiers .layout-vertical
-   .layout-horizontal .align-bottom .align-top .has-bg */
+   .platform-kick, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel),
+   #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg */
 
 html,
 body {

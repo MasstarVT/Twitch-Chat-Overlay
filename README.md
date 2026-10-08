@@ -107,21 +107,37 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | Selector | Element |
 |---|---|
 | `#chat` | the whole overlay |
+| `#chat.layout-vertical` | the overlay in the vertical layout |
 | `#chat.layout-horizontal` | the overlay in the horizontal layout |
+| `#chat.align-bottom`, `#chat.align-top` | newest message at the bottom or at the top (`align`); in the horizontal layout, the edge the row runs along |
+| `#chat.has-bg` | the overlay with a box behind each message (`bg` above 0) |
+| `.lines` | the box that holds the messages |
 | `.line` | one message |
 | `.line.notice` | a sub, raid or other notice |
 | `.line.platform-kick` | a message from Kick (Twitch lines have no platform class) |
 | `.line.action` | a `/me` message |
+| `.line.first-msg` | a first-time chatter's message (with `first_msg=1`) |
+| `.line.highlight` | a message highlighted with channel points |
+| `.line.announcement` | an `/announce` message (its bar color is one of `.ann-primary`, `.ann-blue`, `.ann-green`, `.ann-orange` or `.ann-purple`) |
+| `.line.mirrored` | a message from another channel during Shared Chat |
+| `.reply` | reply header |
 | `.badges`, `.badge` | badge container and badge images |
 | `.badge.platform` | the Twitch or Kick icon at the start of a line |
 | `.badge.icon` | a built-in badge drawn as SVG (the platform icons and Kick's role badges) |
 | `.badge.colored` | an FFZ or FFZ:AP badge drawn on its own background color |
+| `.badge.avatar` | the channel's avatar on a Shared Chat message |
 | `.name` | username |
+| `.colon` | the `: ` between the name and the message (a space after a `/me` name) |
 | `.message` | message text |
+| `.emote-stack` | one emote, with any zero-width emotes stacked on it |
 | `.emote` | emote images |
-| `.reply` | reply header |
+| `.emote.zw` | a zero-width emote drawn over the emote before it |
+| `.cheer` | a cheermote and its amount |
+| `.gif` | a Twitch chat GIF |
 
 For example, `.line { text-transform: uppercase; }`, `.badge { display: none; }` (hides every badge, the platform icons too; `badges=0` keeps the platform icons), or `.layout-horizontal .line { max-width: 30em; }` to cut long messages shorter in the horizontal layout.
+
+A `/me` message is italic and in the name's color. `.line.action .message { font-style: normal; color: inherit !important; }` shows it like any other message (the color is set on the message itself, so it needs `!important`).
 
 Emote height is the `--emote-h` variable (default `1.75em`), so `#chat { --emote-h: 2em; }` makes emotes bigger. Images are fetched at the size they are normally drawn, so emotes or badges enlarged with Custom CSS may look slightly softer.
 

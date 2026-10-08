@@ -35,13 +35,12 @@
   // Like the builder's preview URL: every setting is named (its default, unless the demo sets it) and the
   // channel is empty, so a settings.js next to overlay.html can't change a demo.
   function demoSrc(src, config) {
-    if (!config || !config.parse || !config.KEYS) return src;
+    if (!config || !config.parse || !config.KEYS || !config.serialize) return src;
     var q = src.indexOf('?');
     var cfg = config.parse(q < 0 ? '' : src.slice(q));
     var p = new URLSearchParams();
     config.KEYS.forEach(function (k) {
-      var v = cfg[k];
-      p.set(k, k === 'channel' ? '' : typeof v === 'boolean' ? (v ? '1' : '0') : Array.isArray(v) ? v.join(',') : String(v));
+      p.set(k, k === 'channel' ? '' : config.serialize(k, cfg[k]));
     });
     return (q < 0 ? src : src.slice(0, q)) + '?' + p.toString();
   }
