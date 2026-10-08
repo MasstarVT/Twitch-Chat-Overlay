@@ -64,6 +64,7 @@
   }
   function pointsOn(cfg) { return !!cfg.points_highlight; }
   function rolesOn(cfg) { return !!cfg.role_style && cfg.role_style !== 'off'; }
+  function commandsOn(cfg) { return !!cfg.hide_commands; }
 
   // Each Text size in px (renderer.js FONT_PX): where Exact text size starts from Auto (META.from0).
   var TEXT_PX = { small: 18, medium: 24, large: 32 };
@@ -160,10 +161,29 @@
     max: { label: 'Max messages on screen', widget: 'stepper', step: 5, help: 'From 1 to 200.' },
     bots: { label: 'Show bot messages',
       help: 'Nightbot, StreamElements, Streamlabs, Moobot, Fossabot and similar bots, plus the bots listed on the channel’s BetterTTV page.' },
-    hide_commands: { label: 'Hide !commands', help: 'Hides messages that start with “!”.' },
+    hide_commands: { label: 'Hide !commands',
+      help: 'Hides messages that start with a command prefix: “!”, or the signs set in Command prefixes (Advanced).' },
+    command_prefixes: { label: 'Command prefixes', placeholder: '!', when: commandsOn,
+      bad: 'Use up to 8 of these signs, written together: ! $ % & * + - . / : ; = ? @ # ~ ^',
+      help: 'The signs a command starts with, written together: !? hides both !points and ?points. Up to 8 of ! $ % & * + - . / : ; = ? @ # ~ ^. With @, a message that starts by naming someone is hidden too (a reply still shows). Needs Hide !commands (Filters).' },
     block: { label: 'Hide these users', help: 'Twitch usernames, separated by commas.', placeholder: 'username1, username2' },
+    block_words: { label: 'Hide messages containing', placeholder: 'word, two words',
+      help: 'Hides chat messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t hide eggs. A reply to a hidden message shows without quoting it. Try overlay to see it in the preview. A long list is better kept in settings.js than in the URL.' },
+    links: { label: 'Links', options: { show: 'Show', shorten: 'Shorten', hide: 'Hide' },
+      help: 'Shorten shows each link as its site’s name (clips.twitch.tv); Hide hides messages with a link. A link starts with https://, http:// or www. (a bare example.com is left as it is), and is never clickable. While it isn’t Show, a demo message has a link.' },
+    role_filter: { label: 'Only show messages from', options: { all: 'Everyone', subs: 'Subs+', vips: 'VIPs+', mods: 'Mods' }, wrap: true,
+      help: 'Subs+ is subscribers (founders too), VIPs, mods and the broadcaster; VIPs+ is VIPs, mods and the broadcaster. Read from their badges, so it works with badges off. The broadcaster always shows, and sub, raid and other notices follow Chat events.' },
+    allow_users: { label: 'Only show these users', placeholder: 'username1, username2',
+      help: 'While any are listed, only their chat messages show: usernames, separated by commas, Twitch and Kick alike. Sub, raid and other notices still show, and every other filter still applies.' },
+    min_length: { label: 'Hide messages shorter than', widget: 'stepper', zero: 'Off',
+      help: 'In characters (an emoji is one, and an emote counts as its name: LUL is 3), so 4 hides gg, o7 and LUL. A reply’s @name isn’t counted. A resubscriber’s message under its notice is hidden too; the notice stays.' },
     events: { label: 'Show subs, gifts, raids and announcements',
-      help: 'Sub, resub, gift sub, raid and bits badge notices, plus /announce messages. When off, all of these are hidden; a resubscriber’s own chat message still shows.' },
+      help: 'Sub, resub, gift sub, raid and bits badge notices, plus /announce messages. When off, all of these are hidden; a resubscriber’s own chat message still shows. The Event types switches pick which ones show.' },
+    event_subs: { label: 'Subs and resubs', when: eventsOn },
+    event_gifts: { label: 'Gift subs', when: eventsOn },
+    event_raids: { label: 'Raids and Kick hosts', when: eventsOn },
+    event_bits_badge: { label: 'Bits badges', when: eventsOn },
+    event_announcements: { label: 'Announcements', when: eventsOn },
     notice_color: { label: 'Notice text color', swatch: '#e2d6ff', when: eventsOn,
       help: 'Sub, gift, raid and bits badge notices, light purple by default. Announcements keep Text color. Needs Show subs, gifts, raids and announcements (Chat events).' },
     notice_size: { label: 'Notice text size', widget: 'range', unit: '%', when: eventsOn,
@@ -249,10 +269,17 @@
     'verified, staff, sub and gifter badges. BetterTTV covers Pro and staff. FrankerFaceZ includes custom mod and VIP ' +
     'badges. FFZ:AP covers its supporters.';
 
+  var EVENT_SUBS = ['event_subs', 'event_gifts', 'event_raids', 'event_bits_badge', 'event_announcements'];
+  // What each event switch covers, and what the demo can show of them.
+  var EVENT_SUBS_HELP = 'A switch that is off hides those notices only: a resubscriber’s own message still shows. Subs ' +
+    'include gift sub upgrades, and cheers always show. Announcements are hidden whole, as they are with all events ' +
+    'off. Kick’s subs, gifts and hosts follow these too. The demo has a resub and a raid only.';
+
   // Switches drawn as one grid under the switch that rules them (keyed by it): label names the grid for
   // assistive tech, help goes under it.
   var SUBGRIDS = {
-    badges: { keys: BADGE_SUBS, label: 'Badge sources', help: BADGE_SUBS_HELP }
+    badges: { keys: BADGE_SUBS, label: 'Badge sources', help: BADGE_SUBS_HELP },
+    events: { keys: EVENT_SUBS, label: 'Event types', help: EVENT_SUBS_HELP }
   };
 
   // One section of the settings panel each; the rail lists them in this order, then "Add to OBS".
@@ -272,10 +299,10 @@
     { id: 'messages', title: 'Messages', note: 'How many messages show, and for how long.',
       keys: ['fade', 'max', 'history'] },
     { id: 'events', title: 'Chat events', note: 'Subs, raids, replies, highlights and timestamps.',
-      keys: ['events', 'replies', 'first_msg', 'shared', 'mentions', 'timestamps'],
+      keys: ['events'].concat(EVENT_SUBS, ['replies', 'first_msg', 'shared', 'mentions', 'timestamps']),
       subs: [{ title: 'Highlights & timestamps', first: 'mentions' }], more: 'adv-events' },
     { id: 'filters', title: 'Filters', note: 'Who and what stays out of the overlay.',
-      keys: ['bots', 'hide_commands', 'block'] },
+      keys: ['bots', 'hide_commands', 'block', 'block_words', 'links', 'role_filter'], more: 'adv-filters' },
     { id: 'emotes', title: 'Emotes', note: 'Twitch and Kick emotes are always shown.',
       keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only'], more: 'adv-emotes' },
     { id: 'badges', title: 'Badges & paints', note: 'Each badge source has its own switch.',
@@ -286,11 +313,13 @@
         'name_font', 'name_fallback', 'name_sep', 'readable_level', 'bg_shape', 'bg_width', 'spacing', 'line_width', 'pad_x',
         'edge_fade', 'row_sep', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'mention_color', 'keywords',
         'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color', 'mod_color',
-        'vip_color', 'gif_size', 'giant_emotes', 'shadow_style', 'paint_images', 'homies_lists'],
+        'vip_color', 'allow_users', 'min_length', 'command_prefixes', 'gif_size', 'giant_emotes', 'shadow_style', 'paint_images',
+        'homies_lists'],
       subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'text_px' },
         { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
         { id: 'adv-layout', title: 'Layout', first: 'line_width' }, { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
         { id: 'adv-highlights', title: 'Highlights', first: 'mention_color' },
+        { id: 'adv-filters', title: 'Filters', first: 'allow_users' },
         { id: 'adv-emotes', title: 'Emotes', first: 'gif_size' }, { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }
   ];
 
@@ -788,7 +817,7 @@
     if (s.type === 'int') return 'stepper';
     if (s.type === 'font') return 'font';
     if (s.type === 'color') return 'color';
-    return 'text'; // list, words, kick, room
+    return 'text'; // list, words, kick, room, chars
   }
 
   // The provider mark beside a field: the images are css/builder.css backgrounds, so no URL is set here.
@@ -1082,7 +1111,7 @@
         };
         break;
       }
-      default: { // text: a list of names (block, highlight_users) or words (keywords), or one value (kick, kick_room)
+      default: { // text: a list of names (block, highlight_users) or words (keywords), or one value (kick, kick_room, command_prefixes)
         addLabel(true);
         var isList = spec.type === 'list' || spec.type === 'words';
         var li = h('input', 'text');
@@ -1130,6 +1159,12 @@
           var raw = li.value.trim();
           // kick_room takes the pasted channel page too: the chatroom id is read out of it.
           if (raw && m.parse === 'kickRoom') raw = kick.roomFromText(raw) || raw;
+          // An emptied Command prefixes box is the default again once it is left or Enter is pressed ('' is no value for
+          // it); while it is still being typed in, it shows no error.
+          if (!raw && spec.type === 'chars') {
+            if (!final) { showBad(true); return; }
+            raw = String(spec.def);
+          }
           var before = B.cfg[key];
           var ok = update(key, raw);
           showBad(ok);
@@ -2337,6 +2372,7 @@
     META: META,
     GROUPS: GROUPS,
     BADGE_SUBS: BADGE_SUBS,
+    EVENT_SUBS: EVENT_SUBS,
     SUBGRIDS: SUBGRIDS,
     DEMO_INERT: DEMO_INERT,
     LAYOUT_SIZES: LAYOUT_SIZES,

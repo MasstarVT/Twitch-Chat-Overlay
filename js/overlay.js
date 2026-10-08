@@ -13,8 +13,14 @@
 
   var DEFAULT_BOTS = ['nightbot', 'streamelements', 'streamlabs', 'moobot', 'fossabot', 'wizebot',
     'soundalerts', 'sery_bot', 'kofistreambot', 'botrixoficial', 'botrix', 'blerp', 'pokemoncommunitygame'];
-  var NOTICE_TYPES = { sub: 1, resub: 1, subgift: 1, submysterygift: 1, giftpaidupgrade: 1,
-    anongiftpaidupgrade: 1, raid: 1, bitsbadgetier: 1 };
+  // The notices shown as notices, each with the switch under events that covers its type. Kick's sub, gift and host
+  // notices use the same names (a Kick host arrives as a raid).
+  var NOTICE_TYPES = { sub: 'event_subs', resub: 'event_subs', subgift: 'event_gifts', submysterygift: 'event_gifts',
+    giftpaidupgrade: 'event_subs', anongiftpaidupgrade: 'event_subs', raid: 'event_raids', bitsbadgetier: 'event_bits_badge' };
+  // role_filter: the roles (renderer.roleOf, the highest a chatter's badges give) each choice lets through. The
+  // broadcaster always passes.
+  var ROLE_PASS = { subs: { sub: 1, vip: 1, mod: 1, broadcaster: 1 }, vips: { vip: 1, mod: 1, broadcaster: 1 },
+    mods: { mod: 1, broadcaster: 1 } };
   // How long live chat waits for the history backfill; the request is aborted at the same moment.
   var HISTORY_WAIT_MS = 4000;
   // History is third-party data: at most this many distinct Shared Chat rooms may be loaded because of it
@@ -240,9 +246,12 @@
     return lookupIn(maps);
   }
 
+  // links=shorten: the links in a message's text as their host names, on Kick and Twitch lines alike.
+  function shortened(items) { return S.cfg.links === 'shorten' ? T.renderer.shortenItems(items) : items; }
+
   function tokensFor(m) {
     if (isKick(m)) {
-      return T.tokenizer.tokenize(m, { lookup: kickLookup(), bttvPrefixes: null, gifs: false }).items;
+      return shortened(T.tokenizer.tokenize(m, { lookup: kickLookup(), bttvPrefixes: null, gifs: false }).items);
     }
     var room = roomFor(m);
     var r = T.tokenizer.tokenize(m, {
@@ -252,7 +261,7 @@
     });
     var items = r.items;
     if (S.cfg.replies && m.reply) items = T.tokenizer.stripReplyPrefix(items, m.reply);
-    return items;
+    return shortened(items);
   }
 
   function ffzBadge(id, bgOverride) {
@@ -413,14 +422,48 @@
     return p ? T.paintCss.staticRuleFor(p) : null;
   }
 
-  // "!cmd", also when sent as a reply ("@Parent !cmd", shown without the "@Parent" prefix).
+  // A reply's text without its leading "@Parent" (it is shown without it).
+  function replyStripped(m, text) {
+    if (!m.reply || text.charAt(0) !== '@') return text;
+    var items = T.tokenizer.stripReplyPrefix([{ type: 'text', text: text, sp: false }], m.reply);
+    return items.length && items[0].type === 'text' ? items[0].text : '';
+  }
+
+  // "!cmd", also when sent as a reply ("@Parent !cmd", shown without the "@Parent" prefix). command_prefixes: the
+  // signs a command starts with ('!' by default).
   function isCommand(m) {
-    var text = m.text || '';
-    if (m.reply && text.charAt(0) === '@') {
-      var items = T.tokenizer.stripReplyPrefix([{ type: 'text', text: text, sp: false }], m.reply);
-      text = items.length && items[0].type === 'text' ? items[0].text : '';
+    return T.renderer.filtersFor(S.cfg).command.test(replyStripped(m, m.text || ''));
+  }
+
+  // Whether a notice type's own switch under events is on (each is on unless set to false, so a cfg without them
+  // shows every type, as before they existed).
+  function typeOn(cfg, type) {
+    return !Object.prototype.hasOwnProperty.call(NOTICE_TYPES, type) || cfg[NOTICE_TYPES[type]] !== false;
+  }
+
+  // min_length counts the text as shown: without the /me wrapper and the duplicate-bypass suffix (tokenizer.cleanText)
+  // and a reply's "@Parent", in characters as they are seen (Intl.Segmenter's graphemes, in Chromium 103 too: an emoji
+  // is one, with a skin tone or as a flag or family as well). Emote codes count as their letters.
+  var graphemes;
+  function textLength(m) {
+    var t = replyStripped(m, T.tokenizer.cleanText(m.text || '', m.action).text).trim();
+    if (graphemes === undefined) {
+      graphemes = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter() : null;
     }
-    return /^\s*!/.test(text);
+    return Array.from(graphemes ? graphemes.segment(t) : t).length;
+  }
+
+  // The filters for chat lines only (announcements, a resub's own text and notice text shown as chat too; notices go by
+  // the event switches). Each is skipped at its default.
+  function chatShown(m, cfg) {
+    var pass = Object.prototype.hasOwnProperty.call(ROLE_PASS, cfg.role_filter) ? ROLE_PASS[cfg.role_filter] : null;
+    if (pass && pass[T.renderer.roleOf(m)] !== 1) return false;
+    var allow = cfg.allow_users;
+    if (Array.isArray(allow) && allow.length && allow.indexOf(m.login || '') < 0) return false;
+    if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(m.text, T.renderer.filtersFor(cfg).block)) return false;
+    if (cfg.min_length > 0 && textLength(m) < cfg.min_length) return false;
+    if (cfg.links === 'hide' && T.renderer.hasLink(m.text)) return false;
+    return true;
   }
 
   function shouldShow(m) {
@@ -440,8 +483,24 @@
     }
     if (cfg.hide_commands && m.kind === 'chat' && isCommand(m)) return false;
     if (!cfg.events && (m.kind === 'notice' || m.announcement)) return false;
+    // The switches under events: a notice by its type (on Twitch and Kick; a resub's own text line is chat, so it
+    // stays), and an announcement as a whole message, as events=0 hides it.
+    if (m.kind === 'notice' && !typeOn(cfg, m.type)) return false;
+    if (m.announcement && cfg.event_announcements === false) return false;
     if (m.mirrored && !cfg.shared) return false;
+    if (m.kind === 'chat' && !chatShown(m, cfg)) return false;
     return true;
+  }
+
+  // A reply's header would quote a message that block_words or links=hide hides: the reply shows without it. The
+  // renderer asks as it draws the line (deps.quoteHidden), so a live change redraws the headers, and the reply itself
+  // stays on the message: its "@Parent" is still left out of its text and of the filters. reply_style=name quotes
+  // nothing.
+  function quotesHidden(r) {
+    var cfg = S.cfg;
+    if (!r || typeof r.body !== 'string' || !r.body || cfg.reply_style === 'name') return false;
+    if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(r.body, T.renderer.filtersFor(cfg).block)) return true;
+    return cfg.links === 'hide' && T.renderer.hasLink(r.body);
   }
 
   // ---------- rooms ----------
@@ -731,7 +790,8 @@
       return;
     }
     if (m.mirrored && !S.cfg.shared) return;
-    // A reply to a blocked user would quote them in its header: show the reply without it.
+    // A reply to a blocked user would quote them in its header: show the reply without it (a reply quoting what
+    // block_words or links=hide hides loses its header as it is drawn: quotesHidden).
     if (m.reply && m.reply.login && S.cfg.block.indexOf(m.reply.login) >= 0) m.reply = null;
     // Only lines the renderer accepted (not filtered out) load rooms and queue 7TV lookups.
     if (!S.renderer.push(m)) return;
@@ -772,8 +832,8 @@
       var amount = th >= 1000000 && th % 1000000 === 0 ? th / 1000000 + 'M' : th >= 1000 && th % 1000 === 0 ? th / 1000 + 'K' : String(th);
       if (th > 0) n.systemMsg = (n.displayName || n.login || 'Someone') + ' just earned a new ' + amount + ' Bits badge!';
     }
-    if (S.cfg.events && NOTICE_TYPES[n.type]) return deliver(n);
-    // Not shown as a notice: still show the user's own attached message as chat.
+    if (S.cfg.events && NOTICE_TYPES[n.type] && typeOn(S.cfg, n.type)) return deliver(n);
+    // Not shown as a notice (events off, or this type's switch): still show the user's own attached message as chat.
     if (n.text) {
       n.kind = 'chat';
       deliver(n);
@@ -1161,7 +1221,7 @@
       root: chatEl,
       cfg: cfg,
       deps: { tokensFor: tokensFor, badgesFor: badgesFor, nameFor: nameFor, paintRule: paintRule, paintStaticRule: paintStaticRule,
-        shouldShow: shouldShow }
+        shouldShow: shouldShow, quoteHidden: quotesHidden }
     });
     S.renderer.hold(true);
     applyFonts(cfg);

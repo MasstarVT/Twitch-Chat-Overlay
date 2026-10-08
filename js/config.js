@@ -9,8 +9,9 @@
   // Font weights, lightest first: 300, 400, 600, 700, 800 and 900 (renderer.js WEIGHTS).
   var WEIGHTS = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
 
-  // type: channel | kick | room | enum | int | bool | font | list | words | color
+  // type: channel | kick | room | enum | int | bool | font | list | words | color | chars
   // list: Twitch/Kick logins. words: words or phrases, separated by commas only (a phrase keeps its spaces).
+  // chars: command prefixes, a few signs from PREFIX_CHARS written together ('!?').
   // color: a hex color stored as bare lowercase rrggbb ('' = the overlay's built-in color).
   // int lowest: 0 is off, and the smallest value that does anything else is lowest (1..lowest-1 is raised to it).
   // int scale: the value is a ratio times scale, and a number under min is the ratio itself (readable_level 4.5 is 45).
@@ -57,8 +58,19 @@
     max: { type: 'int', min: 1, max: 200, def: 50 },
     bots: { type: 'bool', def: false },
     hide_commands: { type: 'bool', def: false },
+    command_prefixes: { type: 'chars', def: '!' },
     block: { type: 'list', def: [] },
+    block_words: { type: 'words', def: [] },
+    allow_users: { type: 'list', def: [] },
+    role_filter: { type: 'enum', values: ['all', 'subs', 'vips', 'mods'], def: 'all' },
+    min_length: { type: 'int', min: 0, max: 100, def: 0 },
+    links: { type: 'enum', values: ['show', 'shorten', 'hide'], def: 'show' },
     events: { type: 'bool', def: true },
+    event_subs: { type: 'bool', def: true },
+    event_gifts: { type: 'bool', def: true },
+    event_raids: { type: 'bool', def: true },
+    event_bits_badge: { type: 'bool', def: true },
+    event_announcements: { type: 'bool', def: true },
     notice_color: { type: 'color', def: '' },
     notice_size: { type: 'int', min: 50, max: 150, def: 85 },
     replies: { type: 'bool', def: true },
@@ -121,10 +133,14 @@
     'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale', 'emote_only',
     'gif_size', 'giant_emotes', 'name_font', 'name_color', 'name_fallback', 'name_sep', 'readable_level', 'timestamps',
     'reply_style', 'mentions', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight',
-    'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color'];
+    'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'event_subs', 'event_gifts', 'event_raids',
+    'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words', 'min_length', 'links',
+    'command_prefixes'];
 
   // words: at most this many phrases, each at most this many characters (a longer one is left out).
   var MAX_WORDS = 50, MAX_WORD_LEN = 40;
+  // chars: the signs a command may start with, and how many of them one value holds at most.
+  var PREFIX_CHARS = '!$%&*+-./:;=?@#~^', MAX_PREFIXES = 8;
 
   // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
   // them), in their canonical spelling.
@@ -285,6 +301,19 @@
         }
         return words;
       }
+      // Command prefixes ('!?'): signs from PREFIX_CHARS only, each once, in the order typed; spaces are left out
+      // ('! ?' is '!?'). Any other character, none at all, or more than MAX_PREFIXES make the value invalid, so the
+      // default '!' (or settings.js) stays.
+      case 'chars': {
+        if (tv === 'boolean') return undefined;
+        var cs = String(v).replace(/\s+/g, ''), pre = '';
+        for (var ci = 0; ci < cs.length; ci++) {
+          var ch = cs.charAt(ci);
+          if (PREFIX_CHARS.indexOf(ch) < 0) return undefined;
+          if (pre.indexOf(ch) < 0) pre += ch;
+        }
+        return pre && pre.length <= MAX_PREFIXES ? pre : undefined;
+      }
     }
     return undefined;
   }
@@ -403,6 +432,8 @@
     SYSTEM_FONT_NAMES: SYSTEM_FONT_NAMES,
     GENERIC_FONT_NAMES: GENERIC_FONT_NAMES,
     GOOGLE_FONTS: GOOGLE_FONTS,
+    PREFIX_CHARS: PREFIX_CHARS,
+    MAX_PREFIXES: MAX_PREFIXES,
     defaults: defaults,
     parse: parse,
     applyObject: applyObject,

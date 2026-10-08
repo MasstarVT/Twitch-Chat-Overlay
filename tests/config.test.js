@@ -13,8 +13,10 @@ describe('spec', () => {
       names: true, name_weight: 'heavy', name_line: false, name_font: '', name_color: '', name_fallback: '', name_sep: 'colon',
       bg: 0, bg_color: '', accent_bar: false, bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom',
       text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true,
-      fade: 0, max: 50, bots: false, hide_commands: false, block: [],
-      events: true, notice_color: '', notice_size: 85, replies: true, reply_style: 'full', first_msg: false, first_msg_color: '',
+      fade: 0, max: 50, bots: false, hide_commands: false, command_prefixes: '!', block: [], block_words: [], allow_users: [],
+      role_filter: 'all', min_length: 0, links: 'show',
+      events: true, event_subs: true, event_gifts: true, event_raids: true, event_bits_badge: true, event_announcements: true,
+      notice_color: '', notice_size: 85, replies: true, reply_style: 'full', first_msg: false, first_msg_color: '',
       history: 5, shared: true, timestamps: 'off', mentions: 'off', mention_color: '', keywords: [], highlight_users: [],
       keyword_color: '', points_highlight: true, points_color: '', role_style: 'off', broadcaster_color: '', mod_color: '',
       vip_color: '', gifs: true,
@@ -281,6 +283,60 @@ describe('coerce', () => {
     assert.deepEqual(config.parse(config.toParams(Object.assign(config.defaults(), { keywords: v }))).keywords, v);
     assert.equal(config.isDefault('keywords', []), true);
     assert.equal(config.isDefault('keywords', ['gg']), false);
+  });
+
+  test('filters and event switches: their values, live, and nothing in the URL at the defaults', () => {
+    assert.deepEqual(config.SPEC.role_filter.values, ['all', 'subs', 'vips', 'mods']);
+    assert.deepEqual(config.SPEC.links.values, ['show', 'shorten', 'hide']);
+    assert.equal(config.coerce('role_filter', 'MODS'), 'mods');
+    assert.equal(config.coerce('role_filter', 'subscribers'), undefined);
+    assert.equal(config.coerce('links', 'Hide'), 'hide');
+    assert.equal(config.coerce('links', 'remove'), undefined);
+    assert.deepEqual([config.coerce('min_length', '150'), config.coerce('min_length', '-3'), config.coerce('min_length', '4')], [100, 0, 4]);
+    assert.deepEqual(config.coerce('allow_users', '@PaintedPal, kick_user, bad name!'), ['paintedpal', 'kick_user', 'bad'],
+      'logins, like block');
+    assert.deepEqual(config.coerce('block_words', 'Spoiler, BAD  words'), ['spoiler', 'bad words'], 'words, like keywords');
+    ['event_subs', 'event_gifts', 'event_raids', 'event_bits_badge', 'event_announcements'].forEach((k) => {
+      assert.equal(config.SPEC[k].type, 'bool', k);
+      assert.equal(config.SPEC[k].def, true, k);
+      assert.equal(config.coerce(k, '0'), false, k);
+    });
+    ['event_subs', 'event_gifts', 'event_raids', 'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words',
+      'min_length', 'links', 'command_prefixes'].forEach((k) => assert.ok(config.LIVE_KEYS.includes(k), k + ' is live'));
+    assert.equal(config.toParams(Object.assign(config.defaults(), { event_gifts: false, role_filter: 'vips', allow_users: ['a', 'b'],
+      block_words: ['bad words', 'x'], min_length: 3, links: 'shorten', command_prefixes: '!#+' })).toString(),
+    'command_prefixes=%21%23%2B&block_words=bad+words%2Cx&allow_users=a%2Cb&role_filter=vips&min_length=3&links=shorten&event_gifts=0');
+    assert.deepEqual(config.toObject(Object.assign(config.defaults(), { command_prefixes: '?', event_raids: false })),
+      { command_prefixes: '?', event_raids: false });
+  });
+
+  test('chars: command prefixes, signs from the allowed set only, each once, at most 8, spaces left out', () => {
+    assert.equal(config.SPEC.command_prefixes.type, 'chars');
+    assert.equal(config.SPEC.command_prefixes.def, '!');
+    assert.equal(config.PREFIX_CHARS, '!$%&*+-./:;=?@#~^');
+    assert.equal(config.MAX_PREFIXES, 8);
+    assert.equal(config.coerce('command_prefixes', '!?'), '!?');
+    assert.equal(config.coerce('command_prefixes', ' ! ? '), '!?', 'spaces are left out');
+    assert.equal(config.coerce('command_prefixes', '!?!?!'), '!?', 'a repeat is dropped, the order kept');
+    assert.equal(config.coerce('command_prefixes', '^-'), '^-');
+    assert.equal(config.coerce('command_prefixes', config.PREFIX_CHARS.slice(0, 8)), '!$%&*+-.');
+    assert.equal(config.coerce('command_prefixes', config.PREFIX_CHARS.slice(0, 9)), undefined, 'more than 8');
+    ['', '  ', 'a', '!a', '!,', '\\', '[', '!¡', true, false, 5, null, undefined, { a: 1 }, ['!']].forEach((v) =>
+      assert.equal(config.coerce('command_prefixes', v), undefined, JSON.stringify(v)));
+    // Every allowed sign survives the URL: URLSearchParams writes # & + % as escapes, and reads them back.
+    const all = config.PREFIX_CHARS.split('');
+    for (let i = 0; i < all.length; i += 8) {
+      const v = all.slice(i, i + 8).join('');
+      const back = config.parse(config.toParams(Object.assign(config.defaults(), { command_prefixes: v })));
+      assert.equal(back.command_prefixes, v);
+      assert.equal(config.coerce('command_prefixes', config.serialize('command_prefixes', v)), v);
+    }
+    // A hand-written '+' in a URL is a space there, so it is lost; %2B keeps it.
+    assert.equal(config.parse('command_prefixes=!+?').command_prefixes, '!?');
+    assert.equal(config.parse('command_prefixes=!%2B').command_prefixes, '!+');
+    assert.equal(config.parse('command_prefixes=', { command_prefixes: '?' }).command_prefixes, '?', 'empty is no value');
+    assert.equal(config.isDefault('command_prefixes', '!'), true);
+    assert.equal(config.isDefault('command_prefixes', '!?'), false);
   });
 
   test('color: hex, # optional, 3 or 6 digits, stored as bare lowercase rrggbb; empty is the built-in color', () => {

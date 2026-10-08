@@ -226,7 +226,13 @@ const PREREQ = {
   points_color: { points_highlight: true },
   broadcaster_color: { role_style: 'tint' },
   mod_color: { role_style: 'tint' },
-  vip_color: { role_style: 'bar' }
+  vip_color: { role_style: 'bar' },
+  event_subs: { events: true },
+  event_gifts: { events: true },
+  event_raids: { events: true },
+  event_bits_badge: { events: true },
+  event_announcements: { events: true },
+  command_prefixes: { hide_commands: true }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 
@@ -245,6 +251,10 @@ function changed(cfg, k) {
 // Keys that reorder, re-time or cap the lines rather than draw them (each has its own tests in
 // renderer-dom.test.js); listed ahead for the options that will join them.
 const LIFECYCLE = ['layout', 'align', 'fade', 'max', 'animate', 'enter_style', 'enter_ms', 'exit_style', 'fade_out_ms', 'smooth_scroll'];
+// Filter keys that redraw as well: flip()'s value for links is shorten, which rewrites lines and hides none, so the
+// revert and effect tests take it like any drawn key (the filter test has its hide).
+const REDRAWS = ['links'];
+const filterOnly = (k) => R.FILTER_KEYS.indexOf(k) >= 0 && REDRAWS.indexOf(k) < 0;
 
 test('PREREQ and SHOWS name settings and valid values', () => {
   Object.keys(PREREQ).forEach((k) => {
@@ -263,7 +273,7 @@ test('(d) a live setting set and set back leaves #chat as it was, and every line
       // Class SET: classList.toggle appends, so a class switched off and on again moves to the end.
       assert.deepStrictEqual(after.root, before.root, k + ': #chat');
       const drawn = R.ROOT_KEYS.indexOf(k) >= 0 || R.RERENDER_KEYS.indexOf(k) >= 0;
-      if (drawn && R.FILTER_KEYS.indexOf(k) < 0 && LIFECYCLE.indexOf(k) < 0) {
+      if (drawn && !filterOnly(k) && LIFECYCLE.indexOf(k) < 0) {
         assert.deepStrictEqual(after.lines, before.lines, k + ': the lines');
       }
     });
@@ -273,7 +283,8 @@ test('(d) a live setting set and set back leaves #chat as it was, and every line
 test('(e) every key the renderer handles changes what is drawn (a key listed but never used fails here)', async () => {
   await inWorld((w) => {
     const keys = R.ROOT_KEYS.concat(R.RERENDER_KEYS.filter((k) => R.ROOT_KEYS.indexOf(k) < 0))
-      .filter((k) => R.FILTER_KEYS.indexOf(k) < 0);
+      .filter((k) => !filterOnly(k));
+    REDRAWS.forEach((k) => assert.ok(keys.indexOf(k) >= 0, k));
     assert.ok(keys.length >= 20, 'the keys are found');
     keys.forEach((k) => {
       const base = withPrereq(w.cfg0, k);
@@ -354,13 +365,25 @@ test('(e) the highlights mark exactly their lines of the transcript, Twitch and 
   });
 });
 
-// Each filter: a value that hides less, then one that hides some of the transcript.
+// Each filter: a value that hides less, then one that hides some of the transcript (with its PREREQ set:
+// command_prefixes needs hide_commands).
 const FILTERS = {
   bots: [true, false],
   hide_commands: [false, true],
   block: [[], ['waver']],
   events: [true, false],
-  shared: [true, false]
+  shared: [true, false],
+  event_subs: [true, false],
+  event_gifts: [true, false],
+  event_raids: [true, false],
+  event_bits_badge: [true, false],
+  event_announcements: [true, false],
+  role_filter: ['all', 'subs'],
+  allow_users: [[], ['subfan', 'kickfan']],
+  block_words: [[], ['nice']],
+  min_length: [0, 12],
+  links: ['show', 'hide'],
+  command_prefixes: ['$', '!']
 };
 
 // Each line goes by its own message: a resub's text line is a chat message, so events=0 keeps it.
@@ -370,7 +393,7 @@ test('(f) a filter sweeps exactly the lines it now hides, and nothing else', asy
   const ids = (list) => list.map((m) => m.id || m.kind + ': ' + m.systemMsg);
   await inWorld((w) => {
     Object.keys(FILTERS).forEach((k) => {
-      const from = Object.assign({}, w.cfg0, { max: 200 }); // nothing capped, so a line that goes is the filter's doing
+      const from = Object.assign(withPrereq(w.cfg0, k), { max: 200 }); // nothing capped, so a line that goes is the filter's doing
       from[k] = FILTERS[k][0];
       const to = Object.assign({}, from);
       to[k] = FILTERS[k][1];
@@ -383,6 +406,70 @@ test('(f) a filter sweeps exactly the lines it now hides, and nothing else', asy
       assert.strictEqual(new Set(ids(shown.msgs)).size, shown.msgs.length, k + ': one per line');
       assert.deepStrictEqual(ids(swept.msgs), ids(want), k);
     });
+  });
+});
+
+// The event switches and the chat filters on the whole transcript (Twitch and Kick, through the overlay's own intake),
+// switched live: exactly the lines each one should hide go. A switched-off type takes its notices (a Kick host is a
+// raid) but never the viewer's own message under one; the chat filters never take a notice.
+test('(f) the event switches and the chat filters hide exactly their lines of the transcript', async () => {
+  const ids = (list) => list.map((m) => m.id || m.kind + ': ' + m.systemMsg);
+  await inWorld((w) => {
+    const from = Object.assign({}, w.cfg0, { max: 200 });
+    const all = ids(drive(w, [from]).msgs);
+    const hidden = (over) => {
+      const left = ids(drive(w, [from, Object.assign({}, from, over)]).msgs);
+      return all.filter((x) => left.indexOf(x) < 0);
+    };
+    assert.deepStrictEqual(hidden({ event_subs: false }), ['n-resub', 'n-sub', 'notice: KickFan subscribed for 5 months!', 'x-upgrade',
+      'notice: KickPlain subscribed!']);
+    assert.ok(all.indexOf('n-resub:m') >= 0, 'the resub\'s own message is there, and stays');
+    assert.deepStrictEqual(hidden({ event_gifts: false }), ['x-mystery', 'x-gift3', 'notice: KickFan gifted 3 subs!',
+      'notice: KickFan gifted a sub to KickPlain!']);
+    assert.deepStrictEqual(hidden({ event_raids: false }), ['n-raid', 'notice: KickHost is hosting with 12 viewers!']);
+    assert.deepStrictEqual(hidden({ event_bits_badge: false }), ['x-bitsbadge'], 'its "wow" stays');
+    assert.deepStrictEqual(hidden({ event_announcements: false }), ['n-ann', 'x-shared-ann']);
+    // Roles from the badge tags (a Shared Chat line by its source badges, a Kick line by its badge types); the broadcaster
+    // always passes; notices are never role-filtered.
+    assert.deepStrictEqual(hidden({ role_filter: 'subs' }), ['h-1', 'm-action', 'm-first', 'kick:a1b2c3d4-0002', 'm-gif', 'm-intl',
+      'm-plain', 'm-dark', 'm-link', 'm-cmd', 'm-painted2', 'm-noname', 'x-troll', 'x-beta', 'x-ritual', 'x-shared-resub', 'x-shared-ann']);
+    const mods = hidden({ role_filter: 'mods' });
+    ['m-caster', 'm-mod', 'm-dev', 'x-ffzbot', 'm-homeshared', 'kick:a1b2c3d4-0001', 'n-ann'].forEach((x) => assert.ok(mods.indexOf(x) < 0, x));
+    ['m-reply', 'kick:a1b2c3d4-0003', 'm-chat', 'n-resub:m'].forEach((x) => assert.ok(mods.indexOf(x) >= 0, x));
+    ['n-resub', 'n-sub', 'n-raid', 'x-mystery', 'x-gift3', 'x-upgrade', 'x-bitsbadge'].forEach((x) => assert.ok(mods.indexOf(x) < 0, x));
+    assert.ok(!mods.some((x) => /^notice: /.test(x)), 'Kick notices stay');
+    // Only these users' chat lines (Twitch and Kick); every notice stays.
+    const allow = hidden({ allow_users: ['subfan', 'kickfan'] });
+    assert.deepStrictEqual(all.filter((x) => allow.indexOf(x) < 0), ['h-2', 'm-chat', 'n-resub', 'n-resub:m', 'n-sub', 'n-raid',
+      'kick:a1b2c3d4-0001', 'notice: KickFan subscribed for 5 months!', 'm-zw', 'm-giant', 'm-mention', 'm-emoteonly', 'x-mystery',
+      'x-gift3', 'x-upgrade', 'x-bitsbadge', 'notice: KickFan gifted 3 subs!', 'notice: KickFan gifted a sub to KickPlain!',
+      'notice: KickHost is hosting with 12 viewers!', 'notice: KickPlain subscribed!']);
+    assert.deepStrictEqual(hidden({ block_words: ['nice'] }), ['m-gif', 'm-mod']);
+    assert.deepStrictEqual(hidden({ block_words: ['KAPPA how'] }), ['m-chat'], 'a phrase, in any letter case');
+    // Counted after a reply's @name: "@Troll no u" is 4.
+    assert.deepStrictEqual(hidden({ min_length: 12 }), ['kick:a1b2c3d4-0003', 'm-cmd', 'x-troll', 'x-reply-troll', 'x-reply-cmd', 'x-bitsbadge:m']);
+    assert.deepStrictEqual(hidden({ links: 'hide' }), ['m-link']);
+    assert.deepStrictEqual(hidden({ links: 'shorten' }), []);
+    // command_prefixes needs hide_commands; a reply's @name is never a prefix ('@' hides "@home you rock", not "@SubFan thanks").
+    assert.deepStrictEqual(hidden({ command_prefixes: '!@' }), []);
+    assert.deepStrictEqual(hidden({ hide_commands: true, command_prefixes: '!@' }), ['m-mention', 'm-cmd', 'x-reply-cmd']);
+    assert.deepStrictEqual(hidden({ hide_commands: true, command_prefixes: '?' }), []);
+    w.S.cfg = w.cfg0;
+  });
+});
+
+// links=shorten on the transcript: only the link line's text changes, on the Twitch path here (the Kick path in
+// overlay.test.js), and back again.
+test('(e) links=shorten rewrites only the links, as text', async () => {
+  await inWorld((w) => {
+    const from = Object.assign({}, w.cfg0, { max: 200 });
+    const a = drive(w, [from]), b = drive(w, [from, Object.assign({}, from, { links: 'shorten' })]);
+    const text = (l) => JSON.stringify(l);
+    const changedLines = b.lines.filter((l, i) => text(l) !== text(a.lines[i]));
+    assert.strictEqual(changedLines.length, 1);
+    assert.match(changedLines[0].textContent, /check example\.com and www\.test\.org$/);
+    assert.ok(!/<a\b|"tag":"A"/.test(text(b.lines)), 'no anchors');
+    w.S.cfg = w.cfg0;
   });
 });
 

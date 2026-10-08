@@ -20,6 +20,7 @@ function flip(cfg, k) {
   else if (s.type === 'list') c[k] = (c[k] || []).concat('someone');
   else if (s.type === 'words') c[k] = (c[k] || []).concat('some words');
   else if (s.type === 'color') c[k] = c[k] === 'ff8800' ? '336699' : 'ff8800';
+  else if (s.type === 'chars') c[k] = c[k] === '!?' ? '!' : '!?';
   else throw new Error('flip: no case for type ' + s.type);
   return c;
 }

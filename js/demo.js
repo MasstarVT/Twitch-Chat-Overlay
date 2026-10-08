@@ -184,7 +184,10 @@
         var st = S();
         var hasPrefix = st.bttvPrefixes && st.bttvPrefixes.has('h!');
         var b = pick('bttv', 1);
-        return privmsg(USERS[2], hasPrefix && b[0] ? 'mirror mirror h! ' + b[0] : 'mirror mirror ' + (b[0] || 'Kappa'));
+        // links on Shorten or Hide: this line has a link, to show what they do. (Never the first-time chatter's line,
+        // which Hide would take out of the first_msg preview.)
+        var link = st.cfg.links && st.cfg.links !== 'show' ? ' https://clips.twitch.tv/demo' : '';
+        return privmsg(USERS[2], (hasPrefix && b[0] ? 'mirror mirror h! ' + b[0] : 'mirror mirror ' + (b[0] || 'Kappa')) + link);
       }
     ];
 

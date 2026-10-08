@@ -429,11 +429,15 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
     'name_sep', 'readable_level', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade',
     'row_sep', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Highlights#adv-highlights',
     'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color',
-    'mod_color', 'vip_color', 'Emotes#adv-emotes', 'gif_size', 'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images',
-    'homies_lists']);
-  // Chat events: its own heading over the mentions and timestamps (no anchor: only Advanced's headings have one).
-  assert.deepStrictEqual(outline('group-events'), ['events', 'replies', 'first_msg', 'shared', 'Highlights & timestamps', 'mentions',
+    'mod_color', 'vip_color', 'Filters#adv-filters', 'allow_users', 'min_length', 'command_prefixes', 'Emotes#adv-emotes', 'gif_size',
+    'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']);
+  // Chat events: the Event types grid under its switch, and a heading over the mentions and timestamps (no anchor:
+  // only Advanced's headings have one).
+  assert.deepStrictEqual(outline('group-events'), ['events', null, 'replies', 'first_msg', 'shared', 'Highlights & timestamps', 'mentions',
     'timestamps']);
+  // Filters: no heading, and its foot links Advanced's Filters.
+  assert.deepStrictEqual(outline('group-filters'), ['bots', 'hide_commands', 'block', 'block_words', 'links', 'role_filter']);
+  assert.strictEqual(p.$('group-filters').children[2].children[0].href, '#adv-filters');
   // Emotes: no sub-heading, the two sizes after the GIF switch, and its foot links Advanced's Emotes.
   assert.deepStrictEqual(outline('group-emotes'), ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only']);
   assert.strictEqual(p.$('group-emotes').children[2].children[0].href, '#adv-emotes');
@@ -1055,4 +1059,91 @@ test('the highlights: live, the words and users as typed lists, and each color g
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([state(), p.text('bar-url'), p.$('f-keywords').value, p.$('f-highlight_users').value],
     [['mention_color', 'keyword_color', 'broadcaster_color', 'mod_color', 'vip_color'], OVERLAY, '', '']);
+});
+
+test('event types and filters: a labelled grid under Show subs…, greyed out with it; the filters live; Command prefixes', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  const type = (key, v) => { const e = p.$('f-' + key); e.value = v; e.dispatch('change'); };
+  const flip = (key, on) => { const e = p.$('f-' + key); e.checked = on; e.dispatch('change'); };
+  // The grid: built like Badge sources (labelled for assistive tech, its help last), right under its switch.
+  const body = p.$('group-events').children.filter((e) => e.className === 'fields')[0];
+  const grid = body.children[1];
+  assert.deepStrictEqual([grid.tagName, grid.className, grid.getAttribute('role'), grid.getAttribute('aria-label')],
+    ['DIV', 'subgrid', 'group', 'Event types']);
+  const rows = grid.children.slice(0, -1), help = grid.children[grid.children.length - 1];
+  assert.deepStrictEqual(rows.map((e) => e.getAttribute('data-key')), p.builder.EVENT_SUBS);
+  rows.forEach((e) => assert.strictEqual(e.className, 'field field-check sub'));
+  assert.deepStrictEqual([help.tagName, help.className, help.textContent], ['P', 'help', p.builder.SUBGRIDS.events.help]);
+  const off = () => p.builder.EVENT_SUBS.filter((k) => rowOf(p, k).classList.contains('disabled'));
+  assert.deepStrictEqual(off(), []);
+  flip('events', false);
+  assert.deepStrictEqual(off(), p.builder.EVENT_SUBS);
+  assert.ok(p.builder.EVENT_SUBS.every((k) => p.$('f-' + k).disabled), 'every switch off');
+  flip('events', true);
+  assert.deepStrictEqual(off(), []);
+  flip('event_gifts', false);
+  flip('event_announcements', false);
+  // Command prefixes: greyed out until Hide !commands is on; the signs written together; a bad value says which
+  // signs it takes; an emptied box is '!' again.
+  const cp = p.$('f-command_prefixes');
+  assert.deepStrictEqual([rowOf(p, 'command_prefixes').classList.contains('disabled'), cp.disabled, cp.value], [true, true, '!']);
+  flip('hide_commands', true);
+  assert.deepStrictEqual([rowOf(p, 'command_prefixes').classList.contains('disabled'), cp.disabled], [false, false]);
+  type('command_prefixes', ' ! ? # ');
+  assert.strictEqual(cp.value, '!?#');
+  type('command_prefixes', '!a');
+  assert.deepStrictEqual([cp.getAttribute('aria-invalid'), p.$('e-command_prefixes').hidden], ['true', false]);
+  assert.strictEqual(p.$('e-command_prefixes').textContent, p.builder.META.command_prefixes.bad);
+  assert.strictEqual(p.$('f-hide_commands').parentNode.parentNode.byClass('tag')[0].textContent, 'hide_commands=1');
+  type('command_prefixes', '');
+  assert.deepStrictEqual([cp.value, cp.getAttribute('aria-invalid')], ['!', 'false']);
+  // While it is still being typed in (the input's own commit, 600 ms on): a bad sign shows its error, an emptied box
+  // none, and keeps the value until it is left.
+  const typing = (v) => { cp.value = v; cp.dispatch('input'); t.mock.timers.tick(600); };
+  typing('!a');
+  assert.deepStrictEqual([cp.getAttribute('aria-invalid'), p.$('e-command_prefixes').hidden], ['true', false]);
+  typing('');
+  assert.deepStrictEqual([cp.value, cp.getAttribute('aria-invalid'), p.$('e-command_prefixes').hidden], ['', 'false', true]);
+  assert.ok(p.text('bar-url').indexOf('command_prefixes') < 0, 'still the default');
+  cp.dispatch('change');
+  assert.strictEqual(cp.value, '!');
+  type('command_prefixes', '!?#');
+  // The other filters, as typed lists, choices and a stepper.
+  type('block_words', 'Spoiler,  BAD  words,spoiler');
+  assert.strictEqual(p.$('f-block_words').value, 'spoiler, bad words');
+  type('allow_users', '@KickFan, bad name!');
+  assert.strictEqual(p.$('f-allow_users').value, 'kickfan, bad');
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-role_filter"]').map((r) => r.parentNode.textContent),
+    ['Everyone', 'Subs+', 'VIPs+', 'Mods']);
+  assert.strictEqual(p.$('l-role_filter').parentNode.parentNode.byClass('seg')[0].className, 'seg wrap field-control');
+  seg('role_filter', 'vips');
+  seg('links', 'shorten');
+  const ml = p.$('f-min_length');
+  assert.strictEqual(ml.value, 'Off');
+  ml.parentNode.children[2].dispatch('click');
+  ml.parentNode.children[2].dispatch('click');
+  assert.strictEqual(ml.value, '2');
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.event_gifts, last.event_announcements, last.hide_commands, last.command_prefixes, last.block_words,
+    last.allow_users, last.role_filter, last.links, last.min_length],
+  [false, false, true, '!?#', ['spoiler', 'bad words'], ['kickfan', 'bad'], 'vips', 'shorten', 2]);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?hide_commands=1&command_prefixes=%21%3F%23&block_words=spoiler,bad+words' +
+    '&allow_users=kickfan,bad&role_filter=vips&min_length=2&links=shorten&event_gifts=0&event_announcements=0');
+  // The counts: Filters has its three and Hide !commands, Advanced its three, Chat events the two switches.
+  assert.deepStrictEqual(['filters', 'advanced', 'events'].map((g) => p.text('count-' + g)), ['4', '3', '2']);
+  assert.strictEqual(p.$('adv-filters').textContent, 'Filters');
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([p.text('bar-url'), cp.value, cp.disabled, p.$('f-block_words').value, ml.value], [OVERLAY, '!', true, '', 'Off']);
 });

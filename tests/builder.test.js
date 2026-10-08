@@ -748,12 +748,44 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style'],
     ['Highlights #adv-highlights', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color',
       'role_style', 'broadcaster_color', 'mod_color', 'vip_color'],
+    ['Filters #adv-filters', 'allow_users', 'min_length', 'command_prefixes'],
     ['Emotes #adv-emotes', 'gif_size', 'giant_emotes'],
     ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']
   ]);
-  // Chat events: the mentions and the timestamps last, under a heading of their own.
-  assert.deepStrictEqual(g('events').keys, ['events', 'replies', 'first_msg', 'shared', 'mentions', 'timestamps']);
+  // Chat events: the event types right under their switch, the mentions and the timestamps last, under a heading of
+  // their own.
+  assert.deepStrictEqual(g('events').keys, ['events', 'event_subs', 'event_gifts', 'event_raids', 'event_bits_badge',
+    'event_announcements', 'replies', 'first_msg', 'shared', 'mentions', 'timestamps']);
   assert.deepStrictEqual(g('events').subs, [{ title: 'Highlights & timestamps', first: 'mentions' }]);
+  // Filters: the common three after what is there, the rest under Advanced's Filters.
+  assert.deepStrictEqual(g('filters').keys, ['bots', 'hide_commands', 'block', 'block_words', 'links', 'role_filter']);
+  assert.strictEqual(g('filters').more, 'adv-filters');
+  assert.deepStrictEqual(builder.META.role_filter.options, { all: 'Everyone', subs: 'Subs+', vips: 'VIPs+', mods: 'Mods' });
+  assert.strictEqual(builder.META.role_filter.wrap, true);
+  assert.deepStrictEqual(builder.META.links.options, { show: 'Show', shorten: 'Shorten', hide: 'Hide' });
+  assert.deepStrictEqual(['block_words', 'allow_users', 'command_prefixes', 'min_length', 'links', 'role_filter'].map(builder.widgetFor),
+    ['text', 'text', 'text', 'stepper', 'seg', 'seg']);
+  assert.strictEqual(builder.valueText('min_length', 0), 'Off');
+  assert.strictEqual(builder.valueText('min_length', 5), '5');
+  assert.match(builder.META.block_words.help, /Try overlay to see it in the preview/);
+  assert.match(builder.META.block_words.help, /settings\.js/);
+  assert.match(builder.META.links.help, /a demo message has a link/);
+  assert.match(builder.META.links.help, /never clickable/);
+  assert.match(builder.META.min_length.help, /4 hides gg, o7 and LUL/);
+  assert.match(builder.META.allow_users.help, /notices still show/);
+  assert.match(builder.META.role_filter.help, /broadcaster always shows/);
+  assert.match(builder.META.hide_commands.help, /Command prefixes \(Advanced\)/);
+  // Every sign Command prefixes takes is named in its help and its error text.
+  config.PREFIX_CHARS.split('').forEach((ch) => {
+    assert.ok(builder.META.command_prefixes.help.indexOf(' ' + ch) >= 0, ch);
+    assert.ok(builder.META.command_prefixes.bad.indexOf(' ' + ch) >= 0, ch);
+  });
+  // The event switches: short labels, one help under the grid saying what the demo shows of them.
+  assert.deepStrictEqual(builder.EVENT_SUBS.map((k) => builder.META[k].label),
+    ['Subs and resubs', 'Gift subs', 'Raids and Kick hosts', 'Bits badges', 'Announcements']);
+  assert.match(builder.SUBGRIDS.events.help, /resubscriber’s own message still shows/);
+  assert.match(builder.SUBGRIDS.events.help, /cheers always show/);
+  assert.match(builder.SUBGRIDS.events.help, /The demo has a resub and a raid only/);
   // The highlights: short labels that wrap in a narrow panel, the help naming the demo words that show them.
   assert.deepStrictEqual(builder.META.mentions.options, { off: 'Off', at: '@name', name: 'Plain too' });
   assert.strictEqual(builder.META.mentions.wrap, true);
@@ -780,7 +812,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   assert.strictEqual(g('events').more, 'adv-events');
   assert.strictEqual(g('emotes').more, 'adv-emotes');
   assert.strictEqual(g('badges').more, 'adv-lighter');
-  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events', 'emotes', 'badges']);
+  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events', 'filters', 'emotes', 'badges']);
   assert.deepStrictEqual(builder.META.emote_only.options, { normal: 'Normal', big: 'Big', huge: 'Huge' });
   assert.deepStrictEqual(builder.segValues('gif_size').map((v) => v.label), ['1×', '2×', '3×']);
   assert.match(builder.META.gif_size.help, /The demo has no GIF/);
@@ -826,7 +858,8 @@ test('the look options grey out while the setting they need is off, and their he
     points_color: [{ points_highlight: false }, {}, 'Channel-points highlights'],
     broadcaster_color: [{ role_style: 'off' }, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
     mod_color: [{}, { role_style: 'tint' }, 'Mark broadcaster, mods, VIPs'],
-    vip_color: [{}, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs']
+    vip_color: [{}, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
+    command_prefixes: [{}, { hide_commands: true }, 'Hide !commands (Filters)']
   };
   // The highlight word color is for the users too.
   assert.strictEqual(off('keyword_color', { highlight_users: ['a'] }), false);
@@ -898,6 +931,9 @@ test('subgrids: a block of switches in the section of the switch that rules them
   const groups = builder.groupLayout();
   assert.strictEqual(builder.SUBGRIDS.badges.keys, builder.BADGE_SUBS);
   assert.strictEqual(builder.SUBGRIDS.badges.label, 'Badge sources');
+  assert.strictEqual(builder.SUBGRIDS.events.keys, builder.EVENT_SUBS);
+  assert.strictEqual(builder.SUBGRIDS.events.label, 'Event types');
+  assert.deepStrictEqual(Object.keys(builder.SUBGRIDS), ['badges', 'events']);
   Object.keys(builder.SUBGRIDS).forEach((master) => {
     const sg = builder.SUBGRIDS[master];
     assert.strictEqual(config.SPEC[master].type, 'bool', master);

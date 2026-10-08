@@ -19,5 +19,5 @@ window.TCO_SETTINGS = {
   // fade: 0,             // seconds a message stays; the last second fades out (0 = never)
   // max: 50,             // maximum lines on screen
   // bots: false,         // show messages from known bots
-  // hide_commands: false, // hide messages starting with "!"
+  // hide_commands: false, // hide messages starting with a command prefix ("!" unless command_prefixes says otherwise)
 };

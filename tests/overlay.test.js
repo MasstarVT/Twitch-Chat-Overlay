@@ -1032,3 +1032,169 @@ test('Kick: a refused app key shows a hint that joining clears', async (t) => {
   h.kick.opts.onStatus('joined');
   assert.strictEqual(h.els.hint.hidden, true);
 });
+
+// ---------- event switches and chat filters ----------
+// The builder's live updates, as the preview frame gets them.
+function sender(h) {
+  globalThis.parent = {};
+  return (cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
+}
+const chatMsg = (raw) => globalThis.TCO.ircParse.toChatMessage(globalThis.TCO.ircParse.parseLine(raw));
+
+test('event switches: a type that is off keeps its viewer\'s own message as chat; Kick notices go by type; live too', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0&event_subs=0&event_bits_badge=0&event_announcements=0' });
+  join(h);
+  h.feed(usernotice('resub', 'fan', 'still here'));
+  h.feed(usernotice('sub', 'newbie', ''));
+  h.feed(usernotice('giftpaidupgrade', 'upgrader', ''));
+  h.feed(usernotice('raid', 'raider', ''));
+  h.feed(usernotice('bitsbadgetier', 'cheerer', 'wow', { 'msg-param-threshold': '1000' }));
+  h.feed(usernotice('announcement', 'mod', 'big news', { 'msg-param-color': 'BLUE' }));
+  h.feed(priv('cheerer', 'Cheer100 cheers always show', { bits: '100' }));
+  h.kick.send('SubscriptionEvent', { chatroom_id: 668, username: 'KickSub', months: 3 });
+  h.kick.send('StreamHostEvent', { chatroom_id: 668, host_username: 'KickHost', number_viewers: 5 });
+  const seen = () => h.pushed.map((m) => m.kind + ':' + (m.type || '') + ':' + (m.text || ''));
+  assert.deepStrictEqual(seen(), ['chat:resub:still here', 'notice:raid:', 'chat:bitsbadgetier:wow',
+    'chat::Cheer100 cheers always show', 'notice:raid:']);
+  // The resub's text keeps its type, but it is a chat line: the switches never hide it.
+  const resubText = h.pushed[0];
+  // Live from the builder: the switches go through config.coerce, and each notice goes by its own type.
+  const send = sender(h);
+  send({ event_subs: '1', event_raids: false, event_announcements: 'nope' });
+  const S = h.S();
+  assert.deepStrictEqual([S.cfg.event_subs, S.cfg.event_raids, S.cfg.event_announcements], [true, false, false]);
+  assert.strictEqual(h.deps.shouldShow(h.pushed[1]), false, 'a Twitch raid');
+  assert.strictEqual(h.deps.shouldShow(h.pushed[4]), false, 'a Kick host is a raid');
+  assert.strictEqual(h.deps.shouldShow(resubText), true);
+  send({ event_subs: false });
+  assert.strictEqual(h.deps.shouldShow(resubText), true, 'the viewer\'s own message stays');
+  const ann = h.pushed.length;
+  send({ event_announcements: true });
+  h.feed(usernotice('announcement', 'mod', 'big news', { 'msg-param-color': 'BLUE' }));
+  assert.deepStrictEqual(seen().slice(ann), ['chat:announcement:big news']);
+  send({ events: false, event_announcements: true });
+  assert.strictEqual(h.deps.shouldShow(h.pushed[ann]), false, 'events=0 still hides every one');
+});
+
+test('chat filters: words, links and length hide chat lines only; a reply quoting a hidden message loses the quote', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0&block_words=spoiler,bad%20words&links=hide&min_length=4' });
+  join(h);
+  const reply = (body) => ({ 'reply-parent-msg-id': 'p', 'reply-parent-user-login': 'someone', 'reply-parent-display-name': 'Someone',
+    'reply-parent-msg-body': body });
+  ['the SPOILER is here', 'no spoilers', 'such bad  words', 'see https://x.com/a', 'example.com is fine', 'gg', 'LUL!'].forEach((s) =>
+    h.feed(priv('viewer', s)));
+  h.feed(priv('viewer', '@Someone gg', reply('hi')));
+  h.feed(priv('viewer', '\u0001ACTION hi\u0001'));
+  h.feed(priv('viewer', 'hi ͏'));
+  h.feed(priv('viewer', 'okay then', reply('the\\sspoiler\\sis\\shere')));
+  h.feed(priv('viewer', 'right then', reply('look\\shttps://x.com')));
+  h.feed(priv('viewer', 'fine reply', reply('all\\sgood')));
+  h.feed(usernotice('resub', 'fan', 'spoiler'));
+  h.kick.send('ChatMessageEvent', kickChat('kfan', 'kick spoiler line'));
+  h.kick.send('ChatMessageEvent', kickChat('kfan', 'kick www.example.org/x'));
+  h.kick.send('ChatMessageEvent', kickChat('kfan', 'kick is fine'));
+  assert.deepStrictEqual(texts(h), ['no spoilers', 'example.com is fine', 'LUL!', 'okay then', 'right then', 'fine reply', 'spoiler',
+    'kick is fine']);
+  // The reply stays on the message; its header is left out as the line is drawn (deps.quoteHidden).
+  assert.deepStrictEqual(h.pushed.slice(3, 6).map((m) => !!m.reply), [true, true, true]);
+  assert.deepStrictEqual(h.pushed.slice(3, 6).map((m) => h.deps.quoteHidden(m.reply)), [true, true, false],
+    'the quote goes with what it quotes');
+  // The resub notice stays; the text line under it is a chat line, which the renderer checks on its own.
+  const resub = h.pushed[6];
+  assert.strictEqual(resub.kind, 'notice');
+  assert.strictEqual(h.deps.shouldShow(globalThis.TCO.renderer._internal.userPart(resub)), false);
+  // Live: the patterns are rebuilt for the new settings.
+  const send = sender(h);
+  send({ block_words: 'Fine', links: 'show', min_length: '0' });
+  assert.deepStrictEqual(['the SPOILER is here', 'see https://x.com/a', 'gg', 'fine', 'so FINE'].map((s) =>
+    h.deps.shouldShow(chatMsg(priv('viewer', s)))), [true, true, true, false, false]);
+  send({ block_words: [], min_length: 3 });
+  // Characters as seen: an emoji with its variation sign or skin tone, a flag and a family are one each.
+  assert.deepStrictEqual(['gg', 'LUL', '  gg  ', '👋👋', '👋👋👋', '❤️❤️', '👍🏽👍🏽', '🇺🇸🇺🇸', '👨‍👩‍👧👨‍👩‍👧', '👍🏽👍🏽👍🏽']
+    .map((s) => h.deps.shouldShow(chatMsg(priv('viewer', s)))), [false, true, false, false, true, false, false, false, false, true]);
+  // A reply whose quote goes keeps its parent, so its "@Someone" is still left out of the length and the command check.
+  send({ block_words: 'spoiler', links: 'hide', min_length: 4, hide_commands: true });
+  const n = h.pushed.length;
+  h.feed(priv('viewer', '@Someone ok', reply('a\\sspoiler\\shere')));
+  h.feed(priv('viewer', '@Someone !cmd2', reply('see\\shttps://x.com')));
+  h.feed(priv('viewer', '@Someone fine2', reply('a\\sspoiler\\shere')));
+  assert.deepStrictEqual(texts(h).slice(n), ['@Someone fine2']);
+  assert.strictEqual(h.deps.quoteHidden(h.pushed[n].reply), true, 'kept, with its header left out');
+  // Decided as the line is drawn: back once the word is gone; reply_style=name keeps it (it quotes nothing).
+  send({ block_words: [] });
+  assert.strictEqual(h.deps.quoteHidden(h.pushed[n].reply), false);
+  send({ block_words: 'spoiler', reply_style: 'name' });
+  assert.strictEqual(h.deps.quoteHidden(h.pushed[n].reply), false);
+  assert.strictEqual(h.deps.quoteHidden(undefined), false);
+});
+
+test('role_filter and allow_users: chat lines only, from the badge tags (Twitch, Kick, Shared Chat); the broadcaster always', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0' });
+  join(h);
+  const send = sender(h);
+  const tw = (badges, extra) => chatMsg(priv('u' + badges.replace(/\W/g, ''), 'hi', Object.assign({ badges: badges }, extra || {})));
+  const lines = {
+    plain: tw(''), sub: tw('subscriber/3'), founder: tw('founder/0'), vip: tw('vip/1'), mod: tw('moderator/1'),
+    lead: tw('lead_moderator/1'), caster: tw('broadcaster/1'),
+    partnerMod: tw('', { 'source-room-id': PARTNER, 'source-badges': 'moderator/1' }),
+    kickVip: { platform: 'kick', kind: 'chat', login: 'kv', text: 'hi', kickBadges: [{ type: 'vip' }] },
+    kickOg: { platform: 'kick', kind: 'chat', login: 'ko', text: 'hi', kickBadges: [{ type: 'og' }] }
+  };
+  const notice = { kind: 'notice', type: 'raid', login: 'raider', systemMsg: 'raid!', badges: [] };
+  const shown = () => Object.keys(lines).filter((k) => h.deps.shouldShow(lines[k]));
+  assert.strictEqual(shown().length, 10);
+  send({ role_filter: 'subs' });
+  assert.deepStrictEqual(shown(), ['sub', 'founder', 'vip', 'mod', 'lead', 'caster', 'partnerMod', 'kickVip']);
+  send({ role_filter: 'vips' });
+  assert.deepStrictEqual(shown(), ['vip', 'mod', 'lead', 'caster', 'partnerMod', 'kickVip']);
+  send({ role_filter: 'MODS' });
+  assert.deepStrictEqual(shown(), ['mod', 'lead', 'caster', 'partnerMod']);
+  assert.strictEqual(h.deps.shouldShow(notice), true, 'notices follow the event switches');
+  // allow_users: only these users' chat lines, along with every other filter; notices unaffected.
+  send({ role_filter: 'all', allow_users: '@UMODERATOR1, kv' });
+  assert.deepStrictEqual(shown(), ['mod', 'kickVip']);
+  assert.strictEqual(h.deps.shouldShow(notice), true);
+  send({ role_filter: 'vips', allow_users: 'umoderator1,kv,u' });
+  assert.deepStrictEqual(shown(), ['mod', 'partnerMod', 'kickVip']);
+  send({ role_filter: 'all', allow_users: '' });
+  assert.strictEqual(shown().length, 10);
+});
+
+test('command_prefixes: each sign as itself (- and ^ too), a reply\'s @name still skipped; live through config.coerce', async (t) => {
+  const h = await boot(t, { search: '?channel=home&hide_commands=1&command_prefixes=!-%3F' });
+  join(h);
+  assert.strictEqual(h.S().cfg.command_prefixes, '!-?');
+  const show = (s, extra) => h.deps.shouldShow(chatMsg(priv('viewer', s, extra)));
+  // '!-?' as a range would take the digits, quotes and commas between them.
+  assert.deepStrictEqual(['!cmd', '-cmd', '?cmd', '  ?cmd', '0 digits', '"quote', ',comma', '/slash', 'a?'].map((s) => show(s)),
+    [false, false, false, false, true, true, true, true, true]);
+  assert.strictEqual(show('@Nightbot ?help', { 'reply-parent-msg-id': 'x', 'reply-parent-user-login': 'nightbot',
+    'reply-parent-display-name': 'Nightbot' }), false, 'after a reply\'s @name');
+  const send = sender(h);
+  send({ command_prefixes: '^' });
+  assert.deepStrictEqual(['^cmd', 'hello', '!cmd'].map((s) => show(s)), [false, true, true], '^ is no negation');
+  send({ command_prefixes: 'nope' });
+  assert.strictEqual(h.S().cfg.command_prefixes, '^', 'an invalid value is not taken');
+  send({ command_prefixes: '@#' });
+  assert.deepStrictEqual(['@home hi', '#tag', '!cmd'].map((s) => show(s)), [false, false, true]);
+  assert.strictEqual(show('@Someone hi', { 'reply-parent-msg-id': 'x', 'reply-parent-user-login': 'someone',
+    'reply-parent-display-name': 'Someone' }), true, 'a reply still shows');
+  send({ hide_commands: false });
+  assert.strictEqual(show('#tag'), true, 'only with hide_commands');
+});
+
+test('links=shorten: Twitch and Kick text shows each link as its host, never as a link; live', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0&links=shorten' });
+  join(h);
+  h.feed(priv('viewer', 'look https://clips.twitch.tv/abc?x=1 now Kappa', { emotes: '25:41-45' }));
+  h.kick.send('ChatMessageEvent', kickChat('kfan', 'kick www.example.org/page [emote:37226:KEKW]'));
+  const [tw, kk] = h.pushed;
+  const text = (items) => items.map((i) => (i.type === 'text' ? i.text : i.type + ':' + i.emote.name));
+  assert.deepStrictEqual(text(h.deps.tokensFor(tw)), ['look clips.twitch.tv now', 'emote:Kappa']);
+  assert.deepStrictEqual(text(h.deps.tokensFor(kk)), ['kick www.example.org', 'emote:KEKW']);
+  assert.strictEqual(tw.text, 'look https://clips.twitch.tv/abc?x=1 now Kappa', 'the message itself is unchanged');
+  assert.strictEqual(h.deps.shouldShow(tw), true);
+  sender(h)({ links: 'show' });
+  assert.deepStrictEqual(text(h.deps.tokensFor(tw)), ['look https://clips.twitch.tv/abc?x=1 now', 'emote:Kappa']);
+  assert.deepStrictEqual(text(h.deps.tokensFor(kk)), ['kick www.example.org/page', 'emote:KEKW']);
+});

@@ -749,6 +749,81 @@ test('the matchers: built once per cfg object, never stored on it; a new cfg (a 
   assert.strictEqual(R.escapeRe('a.b*c(d)[e]{f}|g^h$i+j?k\\l/m-n'), 'a\\.b\\*c\\(d\\)\\[e\\]\\{f\\}\\|g\\^h\\$i\\+j\\?k\\\\l\\/m-n');
 });
 
+test('links: https://, http:// or www. where a word starts, never a bare domain or another scheme', () => {
+  ['https://example.com', 'see http://x.io/a?b=1 ok', 'www.test.org/a', 'WWW.Test.org', '(https://x.com)', 'HTTP://X.IO',
+    'go to https://clips.twitch.tv/demo!'].forEach((t) => assert.strictEqual(renderer.hasLink(t), true, t));
+  ['example.com', 'e.g. this', 'lol.exe', 'ok.so', 'awww.cute', 'www.', 'https://', 'http:/x.com', 'mailto:a@b.c', 'steam://run/123',
+    'C://Users', 'ftp://files.x', 'xhttps://x.com', '', null, 5].forEach((t) => assert.strictEqual(renderer.hasLink(t), false, String(t)));
+});
+
+test('links=shorten: each link as its host name, as text; what follows a link stays', () => {
+  const s = renderer.shortenLinks;
+  assert.strictEqual(s('check https://example.com/page?x=1 and www.test.org/a'), 'check example.com and www.test.org');
+  assert.strictEqual(s('mirror mirror Kappa https://clips.twitch.tv/demo'), 'mirror mirror Kappa clips.twitch.tv');
+  assert.strictEqual(s('HTTPS://Example.COM/A'), 'example.com', 'host names are lower case');
+  assert.strictEqual(s('look: https://x.com/a, then https://y.com/b.'), 'look: x.com, then y.com.');
+  assert.strictEqual(s('(see https://x.com/a)'), '(see x.com)', 'a bracket around the link stays');
+  assert.strictEqual(s('https://en.wikipedia.org/wiki/Foo_(bar)'), 'en.wikipedia.org', 'a bracket of the link\'s own goes with it');
+  assert.strictEqual(s('https://user:pw@evil.example/x'), 'evil.example', 'only the host');
+  assert.strictEqual(s('https://例え.jp/x'), 'xn--r8jz45g.jp', 'an international name as the parser writes it');
+  assert.strictEqual(s('https://[nope/x'), 'https://[nope/x', 'a link the parser rejects stays');
+  assert.strictEqual(s('file:///etc/x'), 'file:///etc/x', 'no host: as it is');
+  assert.strictEqual(s('steam://run/123 or C://Users'), 'steam://run/123 or C://Users', 'other schemes are no site: as they are');
+  assert.strictEqual(s('no links here'), 'no links here');
+  assert.strictEqual(s(undefined), undefined);
+  // The items: text only, copied when changed, the rest as they were.
+  const e = { type: 'emote', emote: { name: 'https://x.com' }, sp: true };
+  const items = [{ type: 'text', text: 'see https://x.com/a', sp: false }, e, { type: 'text', text: 'plain', sp: true }];
+  const out = renderer.shortenItems(items);
+  assert.deepStrictEqual(out, [{ type: 'text', text: 'see x.com', sp: false }, e, items[2]]);
+  assert.strictEqual(items[0].text, 'see https://x.com/a', 'the items handed in are not changed');
+  assert.strictEqual(out[1], e);
+  const plain = [{ type: 'text', text: 'hi', sp: false }];
+  assert.strictEqual(renderer.shortenItems(plain), plain, 'nothing to shorten: the same array');
+  assert.strictEqual(renderer.shortenItems(null), null);
+  // A reply header's quote too, only with shorten.
+  const reply = { name: 'A', body: 'look https://x.com/a' };
+  assert.strictEqual(R.replyModel(reply, false).body, 'look https://x.com/a');
+  assert.strictEqual(R.replyModel(reply, false, true).body, 'look x.com');
+  assert.deepStrictEqual(R.replyModel(reply, true, true), { name: '@A', short: true });
+  const m = (cfg) => R.modelFor({ login: 'b', reply: reply }, R.normalizeCfg(cfg), { kind: 'chat', items: [] }).reply.body;
+  assert.deepStrictEqual([m({}), m({ links: 'hide' }), m({ links: 'shorten' })], ['look https://x.com/a', 'look https://x.com/a', 'look x.com']);
+});
+
+test('the chat filters\' patterns: built once per cfg object, never stored on it; prefixes escaped; words as keywords', () => {
+  const c1 = { block_words: ['spoiler', 'bad words'], command_prefixes: '!?' };
+  const f1 = renderer.filtersFor(c1);
+  assert.strictEqual(renderer.filtersFor(c1), f1, 'cached');
+  assert.deepStrictEqual(Object.keys(c1), ['block_words', 'command_prefixes'], 'nothing added to the cfg');
+  assert.ok(!f1.block.global && !f1.command.global, 'no g flag: test() keeps no state between lines');
+  const hw = (t) => renderer.hasWords(t, f1.block);
+  assert.deepStrictEqual(['SPOILER alert', 'no spoilers', 'some BAD   words here', 'badwords', 'spoiler!', 'İspoiler'].map(hw),
+    [true, false, true, false, true, false]);
+  assert.strictEqual(renderer.hasWords('x', null), false);
+  assert.strictEqual(renderer.hasWords(null, f1.block), false);
+  assert.deepStrictEqual(['!cmd', '  ?cmd', 'hi !cmd', '#x', ''].map((t) => f1.command.test(t)), [true, true, false, false, false]);
+  // The default and a cfg without the setting: '!' only, as /^\s*!/ always was.
+  [{ command_prefixes: '!' }, {}, { command_prefixes: 5 }, { command_prefixes: 'ab' }].forEach((c) => {
+    const re = renderer.filtersFor(c).command;
+    assert.deepStrictEqual(['!x', ' \t!x', '?x', 'x!', 'a', 'b'].map((t) => re.test(t)), [true, true, false, false, false, false], JSON.stringify(c));
+  });
+  assert.strictEqual(renderer.filtersFor({}).block, null);
+  // '-' and '^' are the signs themselves, never a range or a negation: '!-?' doesn't cover the digits between them.
+  const range = renderer.filtersFor({ command_prefixes: '!-?' }).command;
+  assert.deepStrictEqual(['!a', '-a', '?a', '0a', '"a', '/a', 'a'].map((t) => range.test(t)), [true, true, true, false, false, false, false]);
+  const neg = renderer.filtersFor({ command_prefixes: '^' }).command;
+  assert.deepStrictEqual(['^a', 'a', '!a'].map((t) => neg.test(t)), [true, false, false]);
+  // Every allowed sign works on its own and with the others (escaped: ] \ and the rest stay literal).
+  const all = config.PREFIX_CHARS;
+  const every = renderer.filtersFor({ command_prefixes: all }).command;
+  all.split('').forEach((ch) => {
+    assert.ok(renderer.filtersFor({ command_prefixes: ch }).command.test(ch + 'cmd'), ch);
+    assert.ok(every.test(ch + 'x'), ch);
+  });
+  ['a', '0', '"', '[', ']', '\\', '_', ' ', '`'].forEach((ch) => assert.strictEqual(every.test(ch + 'x'), false, JSON.stringify(ch)));
+  assert.strictEqual(renderer.filtersFor(null).block, null);
+});
+
 test('line classes: a whitelisted platform class for Kick lines; Twitch lines and unknown platforms get none', () => {
   assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'chat', false), 'line platform-kick');
   assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'notice', false), 'line notice platform-kick');
@@ -1021,6 +1096,10 @@ test('config keys that trigger a re-render or a filter sweep', () => {
     assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0, k);
   }
   for (const k of ['bots', 'hide_commands', 'block']) assert.ok(R.FILTER_KEYS.indexOf(k) >= 0, k);
+  // The filters and event switches sweep the lines they now hide; links also rebuilds them (shorten rewrites the text).
+  ['event_subs', 'event_gifts', 'event_raids', 'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words',
+    'min_length', 'links', 'command_prefixes'].forEach((k) => assert.ok(R.FILTER_KEYS.indexOf(k) >= 0, k));
+  assert.deepStrictEqual(R.FILTER_KEYS.filter((k) => R.RERENDER_KEYS.indexOf(k) >= 0).sort(), ['links', 'shared']);
 });
 
 test('every live config key is handled by the renderer', () => {

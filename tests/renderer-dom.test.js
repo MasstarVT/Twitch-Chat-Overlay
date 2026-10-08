@@ -143,6 +143,41 @@ test('a timeout or ban removes the user\'s text from reply headers, even after t
   assert.deepStrictEqual(s.texts(), ['lol', 'ok']);
 });
 
+// block_words and links=hide (overlay.js quotesHidden): asked each time a reply is drawn, so a live change takes the
+// header away and gives it back.
+test('deps.quoteHidden leaves a reply\'s header out as it is drawn; a block_words change redraws the replies only', (t) => {
+  let hide = [];
+  const built = [];
+  const s = setup(t, {}, {
+    tokensFor: (m) => { built.push(m.text); return [{ type: 'text', text: m.text, sp: false }]; },
+    quoteHidden: (r) => hide.some((w) => r.body.indexOf(w) >= 0)
+  });
+  const parent = chat('amy', 'a spoiler here');
+  s.r.push(parent);
+  s.r.push(replyTo(parent, 'viewer', 'wow'));
+  s.r.push(chat('bob', 'plain'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[1]), '↪ @amy: a spoiler here');
+  hide = ['spoiler'];
+  built.length = 0;
+  s.r.setConfig({ block_words: ['spoiler'] });
+  assert.strictEqual(replyText(s.lines()[1]), null);
+  assert.deepStrictEqual(built, ['wow'], 'only the reply is rebuilt');
+  assert.deepStrictEqual(s.texts(), ['a spoiler here', 'wow', 'plain'], 'no shouldShow here: every line stays');
+  built.length = 0;
+  s.r.setConfig({ block_words: ['spoiler'] });
+  assert.deepStrictEqual(built, [], 'unchanged: nothing redrawn');
+  hide = [];
+  s.r.setConfig({ block_words: [] });
+  assert.strictEqual(replyText(s.lines()[1]), '↪ @amy: a spoiler here', 'back with the setting');
+  // A reply arriving while it applies has no header from the start.
+  hide = ['spoiler'];
+  s.r.setConfig({ block_words: ['spoiler'] });
+  s.r.push(replyTo(parent, 'late', 'lol'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[3]), null);
+});
+
 test('a reply without a usable parent (null, as a blocked parent arrives) renders without a header', (t) => {
   const s = setup(t);
   s.r.push(chat('amy', 'hi', { reply: null }));

@@ -210,3 +210,22 @@ test('mentions on, with a channel: the first line mentions it (Twitch login, els
   const off = runScript(st({ channel: 'forsen' })).map((l) => ircParse.parseLine(l).params[1]);
   assert.deepStrictEqual(on.slice(1), off.slice(1));
 });
+
+test('links on Shorten or Hide: the 12th line (a plain one, never the first-time chatter\'s) gets a link; otherwise as always', () => {
+  const st = (cfg) => Object.assign(fakeState(true), { cfg: cfg });
+  const texts = (cfg) => runScript(st(cfg)).map((l) => ircParse.parseLine(l).params[1]);
+  const usual = texts({ channel: 'forsen' });
+  assert.strictEqual(usual.length, 12);
+  assert.ok(!usual.some((t) => /https?:\/\//.test(t)), 'no link in the usual loop');
+  ['show', undefined].forEach((v) => assert.deepStrictEqual(texts({ channel: 'forsen', links: v }), usual, String(v)));
+  ['shorten', 'hide'].forEach((v) => {
+    const t = texts({ channel: 'forsen', links: v });
+    assert.strictEqual(t[11], usual[11] + ' https://clips.twitch.tv/demo', v);
+    assert.deepStrictEqual(t.slice(0, 11), usual.slice(0, 11), v + ': every other line as always');
+    // The first-time chatter's line (index 9) never carries it, so links=hide leaves the first_msg preview alone.
+    assert.match(runScript(st({ channel: 'forsen', links: v })).filter((l) => /first-msg=1/.test(l))[0], /first time here!$/);
+  });
+  // Its emote ranges still cover their words.
+  const m = ircParse.toChatMessage(ircParse.parseLine(runScript(st({ channel: 'forsen', links: 'hide' }))[11]));
+  ircParse.parseEmotesTag(m.emotes).forEach((e) => assert.strictEqual(TWITCH[e.id], Array.from(m.text).slice(e.start, e.end + 1).join('')));
+});

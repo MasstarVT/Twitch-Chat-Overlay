@@ -64,8 +64,14 @@
     // The name colors come from deps.nameFor (overlay.js reads these); the rest are drawn into the line.
     'name_color', 'name_fallback', 'readable_level', 'name_sep', 'timestamps', 'reply_style',
     // The highlights are line classes (lineClasses); their colors are #chat variables (ROOT_KEYS).
-    'mentions', 'keywords', 'highlight_users', 'points_highlight', 'role_style'];
-  var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
+    'mentions', 'keywords', 'highlight_users', 'points_highlight', 'role_style',
+    // links=shorten rewrites the text (overlay.js tokensFor) and reply headers; links=hide is a filter, and a reply
+    // header quoting a link goes (deps.quoteHidden).
+    'links'];
+  // Each line goes by deps.shouldShow (overlay.js): a change sweeps the lines it now hides.
+  var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared', 'event_subs', 'event_gifts', 'event_raids',
+    'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words', 'min_length', 'links',
+    'command_prefixes'];
   // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
   var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
@@ -667,13 +673,86 @@
     return c.join(' ');
   }
 
-  // short (reply_style=name): the header names who is answered, without what they said ({name, short}).
-  function replyModel(reply, short) {
+  // ---------- filters (overlay.js shouldShow, quotesHidden and tokensFor) ----------
+  // A link: 'https://', 'http://' or 'www.' where a word starts, up to the next space (any letter case). A bare domain
+  // never is one ('e.g.', 'lol.exe' and 'ok.so' are words), nor another scheme: 'steam://run/1' or 'C://Users' would
+  // shorten to a word that is no site.
+  var LINK_SRC = '(?:\\bhttps?:\\/\\/|\\bwww\\.)\\S+';
+  var LINK_RE = new RegExp(LINK_SRC, 'i');
+  var LINKS_RE = new RegExp(LINK_SRC, 'gi');
+  function hasLink(text) { return typeof text === 'string' && LINK_RE.test(text); }
+  // links=shorten: each link as its site's host name ('https://clips.twitch.tv/x?y' is 'clips.twitch.tv'), still as
+  // text (a link is never made clickable). The signs a sentence puts after a link stay after the host, and so does a
+  // closing bracket, unless the link has an opening one of its own ('…/Foo_(bar)'). A link the URL parser rejects, or
+  // one without a host, stays as it is.
+  function shortenLinks(text) {
+    if (!hasLink(text)) return text;
+    return text.replace(LINKS_RE, function (url) {
+      var tail = (/[(\[{<]/.test(url) ? /[.,!?;:'"]+$/ : /[.,!?;:'")\]}>]+$/).exec(url);
+      var core = tail ? url.slice(0, tail.index) : url;
+      var host = '';
+      try { host = new URL(/^www\./i.test(core) ? 'http://' + core : core).hostname; } catch (e) { host = ''; }
+      return host ? host + (tail ? tail[0] : '') : url;
+    });
+  }
+  // The same over tokenizer items: only text items change (emotes, cheers and GIFs are items of their own). A changed
+  // item is a copy, so the items handed in are left as they were.
+  function shortenItems(items) {
+    if (!Array.isArray(items)) return items;
+    var out = items;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (!it || it.type !== 'text' || !hasLink(it.text)) continue;
+      var copy = {};
+      for (var k in it) if (Object.prototype.hasOwnProperty.call(it, k)) copy[k] = it[k];
+      copy.text = shortenLinks(it.text);
+      if (out === items) out = items.slice();
+      out[i] = copy;
+    }
+    return out;
+  }
+
+  // What overlay.js's chat filters match against, built once per cfg object in a WeakMap like MATCHERS (onMessage
+  // makes a new cfg for every live change, and copies its properties, so nothing is stored on it). block: block_words
+  // as one pattern, matched like keywords (any letter case, whole words at its ends; hasWords). command: a message that
+  // starts with one of command_prefixes after any spaces, every sign escaped in the class, so '-' and '^' stand for
+  // themselves ('!' when there are none, as before the setting).
+  var FILTERS = new WeakMap();
+  function buildFilters(c) {
+    var out = { block: null, command: null };
+    var bw = Array.isArray(c.block_words) ? c.block_words : [], pats = [];
+    for (var i = 0; i < bw.length && pats.length < MAX_PHRASES; i++) {
+      var p = typeof bw[i] === 'string' ? bw[i].trim() : '';
+      if (p) pats.push(phrasePattern(p));
+    }
+    if (pats.length) out.block = makeRe(pats.join('|'));
+    var pre = typeof c.command_prefixes === 'string' ? c.command_prefixes : '', cls = '';
+    // ASCII signs only: a backslash before any of them is the sign itself (no u flag), never a class like \d.
+    for (var j = 0; j < pre.length; j++) if (/^[!-\/:-@\[-`{-~]$/.test(pre.charAt(j))) cls += '\\' + pre.charAt(j);
+    out.command = new RegExp('^\\s*[' + (cls || '\\!') + ']');
+    return out;
+  }
+  function filtersFor(c) {
+    if (!c || typeof c !== 'object') return buildFilters({});
+    var f = FILTERS.get(c);
+    if (!f) {
+      f = buildFilters(c);
+      FILTERS.set(c, f);
+    }
+    return f;
+  }
+  // The text has one of the words of a filtersFor pattern (re: block). As hasKeyword, for a Turkish 'İ' too.
+  function hasWords(text, re) { return !!re && typeof text === 'string' && hasKeyword(text, re); }
+
+  // short (reply_style=name): the header names who is answered, without what they said ({name, short}). shorten
+  // (links=shorten): links in what they said show as their host name, as in the message itself.
+  function replyModel(reply, short, shorten) {
     if (!reply) return null;
     var name = String(reply.name || reply.login || '');
     if (!name) return null;
     if (short) return { name: '@' + util.capMarks(name), short: true };
     var body = String(reply.body || '').replace(/^\u0001ACTION /, '').replace(/\u0001$/, '').replace(/[\r\n]+/g, ' ');
+    if (shorten) body = shortenLinks(body);
     return { name: '@' + util.capMarks(name), body: util.capMarks(body) };
   }
 
@@ -814,8 +893,9 @@
   }
 
   // Everything a line shows, as plain data.
-  // d: {kind, items, action, badges, name:{text, color, paint}, dpr, noReply: the replied-to message was moderated,
-  //   alone: a notice's own text line whose notice line is no longer drawn (events turned off)}
+  // d: {kind, items, action, badges, name:{text, color, paint}, dpr, noReply: the replied-to message was moderated (or
+  //   a filter hides what it said: deps.quoteHidden), alone: a notice's own text line whose notice line is no longer
+  //   drawn (events turned off)}
   function modelFor(msg, cfg, d) {
     cfg = cfg || {};
     d = d || {};
@@ -846,7 +926,7 @@
     var model = {
       kind: 'chat',
       cls: lineClasses(msg, cfg, 'chat', action, only),
-      reply: cfg.replies === false || d.noReply ? null : replyModel(msg.reply, cfg.reply_style === 'name'),
+      reply: cfg.replies === false || d.noReply ? null : replyModel(msg.reply, cfg.reply_style === 'name', cfg.links === 'shorten'),
       badges: badgeModels(visibleBadges(d.badges, cfg), wantBadge(px, dpr, sizeScale(cfg.badge_size))),
       name: { text: text, color: color, paint: paint },
       // name_sep: one of the fixed NAME_SEPS strings; ': ' for anything else (a partial cfg).
@@ -1182,7 +1262,8 @@
         badges: Array.isArray(badges) ? badges : [],
         name: { text: nm.text, color: nm.color, paint: paint },
         dpr: dpr,
-        noReply: replyGone(msg.reply, Date.now()),
+        // A moderated quote, or one the overlay's filters hide (block_words, links=hide; asked again on each redraw).
+        noReply: replyGone(msg.reply, Date.now()) || (!!msg.reply && !!callDep('quoteHidden', msg.reply)),
         alone: !!alone
       });
     }
@@ -1705,6 +1786,8 @@
       if (restart) restartFades(Date.now());
       if (changedAny(prev, cfg, FILTER_KEYS)) sweepFilters();
       if (changedAny(prev, cfg, RERENDER_KEYS)) rerender();
+      // block_words decides which reply headers quote a hidden message (deps.quoteHidden): only replies change.
+      else if (changedAny(prev, cfg, ['block_words'])) rerender(function (m) { return !!m.reply; });
       capLines();
       scheduleTrim();
     }
@@ -1882,6 +1965,12 @@
     createRenderer: createRenderer,
     isGenericFont: isGenericFont,
     roleOf: roleOf,
+    // overlay.js's filters (shouldShow, quotesHidden) and links=shorten (tokensFor).
+    filtersFor: filtersFor,
+    hasWords: hasWords,
+    hasLink: hasLink,
+    shortenLinks: shortenLinks,
+    shortenItems: shortenItems,
     _internal: {
       FONT_PX: FONT_PX,
       EMOTE_EM: EMOTE_EM,
@@ -1943,6 +2032,7 @@
       annClass: annClass,
       roleOf: roleOf,
       matchersFor: matchersFor,
+      filtersFor: filtersFor,
       escapeRe: escapeRe,
       lineClasses: lineClasses,
       replyModel: replyModel,
