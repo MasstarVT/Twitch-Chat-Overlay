@@ -60,6 +60,7 @@
     fade: { type: 'int', min: 0, max: 3600, def: 0 },
     fade_out_ms: { type: 'int', min: 0, max: 10000, def: 1000 },
     exit_style: { type: 'enum', values: ['fade', 'slide'], def: 'fade' },
+    smooth_scroll: { type: 'bool', def: false },
     max: { type: 'int', min: 1, max: 200, def: 50 },
     bots: { type: 'bool', def: false },
     hide_commands: { type: 'bool', def: false },
@@ -140,7 +141,7 @@
     'reply_style', 'mentions', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight',
     'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'event_subs', 'event_gifts', 'event_raids',
     'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words', 'min_length', 'links',
-    'command_prefixes', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'];
+    'command_prefixes', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll'];
 
   // words: at most this many phrases, each at most this many characters (a longer one is left out).
   var MAX_WORDS = 50, MAX_WORD_LEN = 40;

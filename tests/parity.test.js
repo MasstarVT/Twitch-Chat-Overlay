@@ -148,12 +148,14 @@ function inWorld(fn) {
   });
 }
 
-// #chat (class set and inline style), each line (whole subtree, its animation aside), the lines' animations,
-// and the paint rules.
+// #chat (class set and inline style), .lines' own inline style (a value set back to '' is no declaration on a page),
+// each line (whole subtree, its animation aside), the lines' animations, and the paint rules.
 function snapshot(root, doc) {
-  const kids = root.firstElementChild.children;
+  const box = root.firstElementChild;
+  const kids = box.children;
   return {
     root: { cls: root.className.split(/\s+/).filter(Boolean).sort(), style: Object.assign({}, root.style) },
+    box: Object.keys(box.style).filter((p) => box.style[p] !== '').reduce((o, p) => { o[p] = box.style[p]; return o; }, {}),
     lines: kids.map((l) => {
       const s = cap.serialize(l);
       if (s.style) {
@@ -238,7 +240,8 @@ const PREREQ = {
   // These two also without an entrance, which nothing ends here (no animationend): a line still coming in takes a
   // new fade-out length or exit only as its entrance ends.
   fade_out_ms: { fade: 30, animate: false },
-  exit_style: { fade: 30, animate: false }
+  exit_style: { fade: 30, animate: false },
+  smooth_scroll: { animate: true, layout: 'vertical' }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 
@@ -261,6 +264,9 @@ const LIFECYCLE = ['layout', 'align', 'fade', 'max', 'animate', 'enter_style', '
 // revert and effect tests take it like any drawn key (the filter test has its hide).
 const REDRAWS = ['links'];
 const filterOnly = (k) => R.FILTER_KEYS.indexOf(k) >= 0 && REDRAWS.indexOf(k) < 0;
+// Lifecycle keys whose effect needs a page that is laid out: smooth_scroll moves the lines by what it measures, and the
+// fake document here measures nothing. renderer-dom.test.js gives them a layout ("smooth_scroll: ...").
+const MEASURED = ['smooth_scroll'];
 
 test('PREREQ and SHOWS name settings and valid values', () => {
   Object.keys(PREREQ).forEach((k) => {
@@ -270,7 +276,7 @@ test('PREREQ and SHOWS name settings and valid values', () => {
   Object.keys(SHOWS).forEach((k) => assert.deepStrictEqual(config.coerce(k, SHOWS[k]), SHOWS[k], k));
 });
 
-test('(d) a live setting set and set back leaves #chat as it was, and every line too unless it filters or re-times them', async () => {
+test('(d) a live setting set and set back leaves #chat and .lines as they were, and every line too unless it filters or re-times them', async () => {
   await inWorld((w) => {
     config.LIVE_KEYS.forEach((k) => {
       const base = withPrereq(w.cfg0, k);
@@ -278,6 +284,7 @@ test('(d) a live setting set and set back leaves #chat as it was, and every line
       const after = drive(w, [base, changed(base, k), base]);
       // Class SET: classList.toggle appends, so a class switched off and on again moves to the end.
       assert.deepStrictEqual(after.root, before.root, k + ': #chat');
+      assert.deepStrictEqual(after.box, before.box, k + ': .lines');
       const drawn = R.ROOT_KEYS.indexOf(k) >= 0 || R.RERENDER_KEYS.indexOf(k) >= 0;
       if (drawn && !filterOnly(k) && LIFECYCLE.indexOf(k) < 0) {
         assert.deepStrictEqual(after.lines, before.lines, k + ': the lines');
@@ -291,8 +298,9 @@ test('(e) every key the renderer handles changes what is drawn (a key listed but
     const keys = R.ROOT_KEYS.concat(R.RERENDER_KEYS.filter((k) => R.ROOT_KEYS.indexOf(k) < 0))
       .filter((k) => !filterOnly(k));
     REDRAWS.forEach((k) => assert.ok(keys.indexOf(k) >= 0, k));
+    MEASURED.forEach((k) => assert.ok(R.ROOT_KEYS.indexOf(k) >= 0 && LIFECYCLE.indexOf(k) >= 0, k));
     assert.ok(keys.length >= 20, 'the keys are found');
-    keys.forEach((k) => {
+    keys.filter((k) => MEASURED.indexOf(k) < 0).forEach((k) => {
       const base = withPrereq(w.cfg0, k);
       const a = drive(w, [base, base], true);
       const b = drive(w, [base, changed(base, k)], true);

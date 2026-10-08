@@ -745,7 +745,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     ['Names #adv-names', 'names', 'name_weight', 'name_font', 'name_fallback', 'name_sep', 'readable_level'],
     ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
     ['Layout #adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep'],
-    ['Animation #adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style'],
+    ['Animation #adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll'],
     ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style'],
     ['Highlights #adv-highlights', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color',
       'role_style', 'broadcaster_color', 'mod_color', 'vip_color'],
@@ -867,7 +867,8 @@ test('the look options grey out while the setting they need is off, and their he
     enter_style: [{ animate: false }, {}, 'Animate new messages'],
     enter_ms: [{ animate: false }, {}, 'Animate new messages (Look)'],
     fade_out_ms: [{}, { fade: 30 }, 'Remove messages after (Messages)'],
-    exit_style: [{ fade: 0 }, { fade: 5 }, 'Remove messages after (Messages) and a Fade-out length other than Instant']
+    exit_style: [{ fade: 0 }, { fade: 5 }, 'Remove messages after (Messages) and a Fade-out length other than Instant'],
+    smooth_scroll: [{ animate: false }, {}, 'Animate new messages on (Look)']
   };
   // The highlight word color is for the users too.
   assert.strictEqual(off('keyword_color', { highlight_users: ['a'] }), false);
@@ -887,7 +888,7 @@ test('the look options grey out while the setting they need is off, and their he
   assert.strictEqual(off('readable_level', { name_fallback: 'ff8800' }), false);
   assert.match(builder.META.readable_level.help, /not used while a Name color \(Look\) is set/);
   // Column only: off in a row whatever else is set.
-  ['bg_width', 'name_line', 'text_align', 'emote_only', 'gif_size', 'giant_emotes'].forEach((k) => {
+  ['bg_width', 'name_line', 'text_align', 'emote_only', 'gif_size', 'giant_emotes', 'smooth_scroll'].forEach((k) => {
     assert.strictEqual(builder.META[k].only, 'vertical', k);
     assert.strictEqual(off(k, { bg: 40, layout: 'horizontal' }), true, k);
     assert.match(builder.META[k].help, /Vertical layout only/, k);
@@ -968,6 +969,15 @@ test('the animation options: labels, steppers and what each needs', () => {
   assert.match(m.enter_ms.help, /its fade-out waits for the entrance to end and takes the time left/);
   assert.match(m.exit_style.help, /up, down when new messages appear at the top, or left in a row/);
   assert.match(m.enter_style.help, /older messages still glide left/);
+  // Smooth scrolling: a switch in Advanced > Animation, for a column with animate on; it says what still jumps.
+  assert.strictEqual(m.smooth_scroll.label, 'Smooth scrolling');
+  assert.strictEqual(builder.widgetFor('smooth_scroll'), 'check');
+  assert.ok(builder.isLiveKey('smooth_scroll'));
+  assert.deepStrictEqual([off('smooth_scroll'), off('smooth_scroll', { align: 'top' }), off('smooth_scroll', { animate: false }),
+    off('smooth_scroll', { layout: 'horizontal' })], [false, false, true, true]);
+  assert.match(m.smooth_scroll.help, /down when new messages appear at the top/);
+  assert.match(m.smooth_scroll.help, /removed from the middle.*still closes its gap at once/);
+  assert.strictEqual(builder.groupCounts(Object.assign(config.defaults(), { smooth_scroll: true })).advanced, 1);
 });
 
 test('sectionFromHash: an Advanced sub-heading id opens Advanced; every other hash as before', () => {

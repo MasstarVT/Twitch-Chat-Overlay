@@ -13,7 +13,7 @@ describe('spec', () => {
       names: true, name_weight: 'heavy', name_line: false, name_font: '', name_color: '', name_fallback: '', name_sep: 'colon',
       bg: 0, bg_color: '', accent_bar: false, bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom',
       text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true, enter_style: 'slide',
-      enter_ms: 180, fade: 0, fade_out_ms: 1000, exit_style: 'fade', max: 50, bots: false, hide_commands: false, command_prefixes: '!', block: [], block_words: [], allow_users: [],
+      enter_ms: 180, fade: 0, fade_out_ms: 1000, exit_style: 'fade', smooth_scroll: false, max: 50, bots: false, hide_commands: false, command_prefixes: '!', block: [], block_words: [], allow_users: [],
       role_filter: 'all', min_length: 0, links: 'show',
       events: true, event_subs: true, event_gifts: true, event_raids: true, event_bits_badge: true, event_announcements: true,
       notice_color: '', notice_size: 85, replies: true, reply_style: 'full', first_msg: false, first_msg_color: '',
@@ -455,6 +455,18 @@ describe('coerce', () => {
       exit_style: 'slide' })).toString(), 'enter_style=drop&enter_ms=300&fade=30&fade_out_ms=0&exit_style=slide');
     assert.deepEqual(config.parse('enter_style=fade&fade_out_ms=2500'), Object.assign(config.defaults(),
       { enter_style: 'fade', fade_out_ms: 2500 }));
+  });
+
+  test('smooth_scroll: a live switch, off by default and out of the URL until turned on', () => {
+    assert.equal(config.SPEC.smooth_scroll.type, 'bool');
+    assert.equal(config.defaults().smooth_scroll, false);
+    assert.deepEqual(['1', 'true', 'yes', '0', 'false', 'no'].map((v) => config.coerce('smooth_scroll', v)),
+      [true, true, true, false, false, false]);
+    assert.ok(config.LIVE_KEYS.includes('smooth_scroll'), 'the builder preview turns it on without a reload');
+    assert.equal(config.toParams(config.defaults()).toString(), '');
+    assert.equal(config.toParams(Object.assign(config.defaults(), { smooth_scroll: true })).toString(), 'smooth_scroll=1');
+    assert.equal(config.parse('smooth_scroll=1&align=top').smooth_scroll, true);
+    assert.equal(config.parse('', { smooth_scroll: true }).smooth_scroll, true, 'settings.js');
   });
 
   test('list: normalized, deduped logins from strings or arrays', () => {

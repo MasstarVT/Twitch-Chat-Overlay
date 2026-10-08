@@ -707,6 +707,236 @@ test('horizontal slide: the start offset never exceeds the chat width', (t) => {
   assert.ok(s.lines().length <= 3, 'lines out of view even at the start of the slide are trimmed');
 });
 
+// ---------- smooth_scroll: the column's slide ----------
+
+// A column of lines in an H px tall chat (x: a setup or another()), 30 px each (90 for a message starting "tall"),
+// newest at the bottom, or at the top with align=top (top: true). .lines' transform is modelled the way the page
+// draws it: translateY(n) shifts every line by n until the transition starts, which then takes the line home
+// linearly over SLIDE_MS (frozen: never, as in a source that draws no frames). transition 'none' cancels a running
+// one at the next style flush (any layout read), if it is still 'none' then; transform 'none' cancels it too; ''
+// leaves it running (the initial `transition: all` still covers transform).
+// moves: every start offset, in order; sets: every write to transform or transition.
+function colLayout(s, x, H, opts) {
+  opts = opts || {};
+  const hOf = (l) => (/^tall/.test(l.byClass('message').map((m) => m.textContent).join('')) ? 90 : 30);
+  let glide = null, transition = '', sets = 0;
+  const offset = () => {
+    if (!glide) return 0;
+    if (glide.at === null || opts.frozen) return glide.n;
+    return glide.n * Math.max(0, 1 - (Date.now() - glide.at) / R.SLIDE_MS);
+  };
+  const moves = [];
+  const st = x.linesEl.style;
+  Object.defineProperty(st, 'transition', { get: () => transition, set: (v) => { sets++; transition = v; } });
+  Object.defineProperty(st, 'transform', {
+    get: () => '',
+    set: (v) => {
+      sets++;
+      const m = /^translateY\((-?[\d.]+)px\)$/.exec(v);
+      if (m) { glide = { n: Number(m[1]), at: null }; moves.push(v); }
+      else if (v === '' && glide && glide.at === null && /^transform /.test(transition)) glide.at = Date.now();
+      else if (v !== '' || !glide || glide.at === null) glide = null;
+    }
+  });
+  const prev = s.doc.layout;
+  s.doc.layout = (el) => {
+    if (transition === 'none' && glide && glide.at !== null) glide = null; // the style flush
+    if (el === x.root || el === x.linesEl) return { left: 0, right: 400, width: 400, top: 0, bottom: H, height: H };
+    const list = x.lines();
+    const i = list.indexOf(el);
+    if (i < 0) return prev ? prev(el) : null;
+    const hs = list.map(hOf);
+    let top = 0;
+    if (opts.top) for (let j = 0; j < i; j++) top += hs[j];
+    else { top = H - hs[i]; for (let j = i + 1; j < hs.length; j++) top -= hs[j]; }
+    top += offset();
+    return { left: 0, right: 400, width: 400, top: top, bottom: top + hs[i], height: hs[i] };
+  };
+  return { moves, transition: () => transition, home: () => glide === null, sets: () => sets };
+}
+const msgs = (x) => x.lines().map((l) => l.byClass('message').map((m) => m.textContent).join(''));
+// Each message in turn into every renderer listed, a flush each, then the clock on by gap ms.
+function feed(s, list, texts, gap) {
+  texts.forEach((m) => {
+    list.forEach((x) => { x.r.push(chat(m, m)); x.r.flush(); });
+    s.tick(gap);
+  });
+}
+
+test('smooth_scroll off (the default): a column reads no layout for a slide and never touches .lines', (t) => {
+  const s = setup(t, { animate: true });
+  const on = another(s, { animate: true, smooth_scroll: true });
+  const off = colLayout(s, s, 300), lay = colLayout(s, on, 300);
+  feed(s, [s, on], ['a', 'b', 'c'], 300);
+  // One flush with an old line on screen: the trim reads the chat box and the oldest line (in view) and stops.
+  let at = s.doc.reads;
+  s.r.push(chat('d', 'd'));
+  s.r.flush();
+  assert.strictEqual(s.doc.reads - at, 2, 'the trim alone, as in 1.5');
+  assert.deepStrictEqual([off.moves, off.sets()], [[], 0], 'no transform or transition ever written');
+  // With smooth_scroll: the newest old line before and after, the chat height, and the style flush that starts it.
+  at = s.doc.reads;
+  on.r.push(chat('d', 'd'));
+  on.r.flush();
+  assert.strictEqual(s.doc.reads - at, 6);
+  assert.deepStrictEqual(lay.moves, ['translateY(30px)', 'translateY(30px)', 'translateY(30px)']);
+  // Left out of a partial cfg it is off, and animate=0 turns it off too.
+  assert.strictEqual(R.glideOf(R.normalizeCfg({})), null);
+  assert.strictEqual(R.glideOf(R.normalizeCfg({ smooth_scroll: true, animate: false })), null);
+  on.r.destroy();
+});
+
+test('smooth_scroll: the old lines start where they were drawn and glide up (down with align=top) over SLIDE_MS', (t) => {
+  const s = setup(t);
+  [false, true].forEach((top) => {
+    const x = another(s, { animate: true, smooth_scroll: true, align: top ? 'top' : 'bottom' });
+    const lay = colLayout(s, x, 300, { top: top });
+    feed(s, [x], ['a'], 300);
+    assert.deepStrictEqual(lay.moves, [], 'the first line has nothing to push');
+    const a = x.lines()[0];
+    const was = a.getBoundingClientRect().top;
+    x.r.push(chat('b', 'tall b'));
+    x.r.flush();
+    assert.deepStrictEqual(lay.moves, [top ? 'translateY(-90px)' : 'translateY(90px)'], 'the new line\'s height');
+    assert.strictEqual(a.getBoundingClientRect().top, was, 'no jump');
+    assert.strictEqual(lay.transition(), 'transform ' + R.SLIDE_MS + 'ms ease-out');
+    s.tick(R.SLIDE_MS);
+    assert.strictEqual(a.getBoundingClientRect().top, top ? 90 : 180, 'home');
+    x.r.destroy();
+  });
+});
+
+test('smooth_scroll: a new line mid-glide carries what was left; after SLIDE_MS nothing carries over', (t) => {
+  const s = setup(t);
+  [false, true].forEach((top) => {
+    const x = another(s, { animate: true, smooth_scroll: true, align: top ? 'top' : 'bottom' });
+    const lay = colLayout(s, x, 300, { top: top });
+    feed(s, [x], ['a', 'b'], 0);
+    s.tick(100); // 18 of the 30 px still to go
+    feed(s, [x], ['c'], R.SLIDE_MS);
+    feed(s, [x], ['d'], 0);
+    const sign = top ? '-' : '';
+    assert.deepStrictEqual(lay.moves, ['30px', '48px', '30px'].map((v) => 'translateY(' + sign + v + ')'));
+    x.r.destroy();
+  });
+});
+
+test('smooth_scroll: lines in view at the start of the glide survive the trim; a burst starts one view away at most', (t) => {
+  const s = setup(t, { animate: true, smooth_scroll: true });
+  const lay = colLayout(s, s, 100);
+  feed(s, [s], ['a', 'b', 'c', 'd', 'e'], 300);
+  // a ends 20 px above the chat, but the glide that put it there started 30 px lower, where it showed.
+  assert.deepStrictEqual(msgs(s), ['a', 'b', 'c', 'd', 'e']);
+  feed(s, [s], ['f'], 300);
+  assert.deepStrictEqual(msgs(s), ['b', 'c', 'd', 'e', 'f'], 'the next flush trims it');
+  s.r.hold(true);
+  for (let i = 0; i < 10; i++) s.r.push(chat('g' + i, 'g' + i));
+  s.r.hold(false);
+  assert.strictEqual(lay.moves[lay.moves.length - 1], 'translateY(100px)', '300 px of new lines start one view down');
+  // What shows at the start of that glide (100 px lower): g3, whose bottom is then at 20 px, and the lines below it.
+  assert.deepStrictEqual(msgs(s), ['g3', 'g4', 'g5', 'g6', 'g7', 'g8', 'g9']);
+});
+
+test('smooth_scroll with align=top: a line below the chat that showed at the start of the glide stays until the next', (t) => {
+  const s = setup(t, { animate: true, smooth_scroll: true, align: 'top' });
+  colLayout(s, s, 100, { top: true });
+  feed(s, [s], ['a', 'b', 'c', 'd', 'e'], 300);
+  // a's top is at 120, below the chat, but the glide started 30 px higher, where it showed.
+  assert.deepStrictEqual(msgs(s), ['e', 'd', 'c', 'b', 'a']);
+  feed(s, [s], ['f'], 300);
+  assert.deepStrictEqual(msgs(s), ['f', 'e', 'd', 'c', 'b']);
+});
+
+test('smooth_scroll in a source that draws nothing (flushes from the fallback timer): no pile-up; on show, home', (t) => {
+  const s = setup(t, { animate: true, smooth_scroll: true });
+  const lay = colLayout(s, s, 300, { frozen: true });
+  ['a', 'b0', 'b1', 'b2', 'b3', 'b4'].forEach((m) => { s.r.push(chat(m, m)); s.tick(R.FLUSH_FALLBACK_MS); });
+  assert.strictEqual(s.lines().length, 6);
+  // FLUSH_FALLBACK_MS >= SLIDE_MS: a glide that was never drawn is over by the next flush, so each starts from home.
+  assert.deepStrictEqual(lay.moves, Array(5).fill('translateY(30px)'));
+  // Shown again with the last glide long over: it is dropped before a frame can play it.
+  s.tick(1000);
+  s.doc.defaultView.dispatch('obsSourceVisibleChanged', { detail: { visible: true } });
+  assert.ok(lay.home() && lay.transition() === '', 'cancelled, not left to run, and no inline value left');
+  assert.strictEqual(s.lines()[5].getBoundingClientRect().top, 270);
+  // Shown while one still runs: it plays on.
+  s.r.push(chat('c', 'c'));
+  s.tick(R.FLUSH_FALLBACK_MS + 100);
+  s.doc.defaultView.dispatch('obsSourceVisibleChanged', { detail: { visible: true } });
+  assert.ok(!lay.home() && /^transform /.test(lay.transition()));
+  // A row keeps 1.5's behaviour: its slide is left to play on show.
+  const row = another(s, { animate: true, layout: 'horizontal' });
+  const moves = rowLayout({ doc: s.doc, root: row.root, linesEl: row.linesEl, lines: row.lines }, 300);
+  row.r.push(chat('a', 'x'));
+  row.r.flush();
+  row.r.push(chat('b', 'y'));
+  row.r.flush();
+  s.tick(1000);
+  s.doc.defaultView.dispatch('obsSourceVisibleChanged', { detail: { visible: true } });
+  assert.strictEqual(moves.length, 1);
+  assert.match(row.linesEl.style.transition, /^transform /);
+  row.r.destroy();
+});
+
+test('smooth_scroll: turning it off, flipping align, switching layout, animate off or clearing all sends the lines home', (t) => {
+  const s = setup(t, { animate: true, smooth_scroll: true });
+  const lay = colLayout(s, s, 300);
+  const cfg = { animate: true, smooth_scroll: true };
+  feed(s, [s], ['a', 'b'], 300);
+  [{ smooth_scroll: false }, { align: 'top' }, { layout: 'horizontal' }, { animate: false }].forEach((over) => {
+    s.r.setConfig(cfg);
+    s.tick(300);
+    feed(s, [s], ['x'], 0);
+    assert.ok(!lay.home(), 'gliding');
+    s.r.setConfig(Object.assign({}, cfg, over));
+    // Home with no inline transition left behind (a default page has none on .lines).
+    assert.ok(lay.home() && lay.transition() === '', JSON.stringify(over));
+  });
+  // Turned on, nothing moves until a new line comes in; turned off again with nothing gliding, nothing is left either.
+  s.r.setConfig({ animate: true });
+  const n = lay.moves.length;
+  s.r.setConfig(cfg);
+  assert.ok(lay.home() && lay.moves.length === n);
+  s.r.setConfig({ animate: true });
+  assert.ok(lay.home() && lay.transition() === '');
+  s.r.setConfig(cfg);
+  // Cleared (a Twitch /clear) mid-glide: the glide stops, and the next line, with nothing to push, starts in place.
+  feed(s, [s], ['y'], 0);
+  assert.ok(!lay.home(), 'gliding');
+  s.r.clearAll();
+  assert.ok(lay.home() && lay.transition() === '', 'clearAll');
+  const c = lay.moves.length;
+  feed(s, [s], ['w'], 0);
+  assert.ok(lay.home() && lay.moves.length === c);
+  // A line removed from the middle is no glide: the lines above it close the gap at once.
+  const mid = chat('m', 'm');
+  s.r.push(mid);
+  s.r.flush();
+  feed(s, [s], ['z'], 300);
+  const k = lay.moves.length;
+  s.r.clearMessage(mid.id);
+  assert.strictEqual(lay.moves.length, k);
+});
+
+test('smooth_scroll leaves the lines\' own entrances and fades exactly as they are without it', (t) => {
+  const s = setup(t);
+  const cfg = { animate: true, fade: 30, enter_style: 'pop', fade_out_ms: 2000 };
+  const a = another(s, cfg), b = another(s, Object.assign({ smooth_scroll: true }, cfg));
+  colLayout(s, a, 300);
+  const lay = colLayout(s, b, 300);
+  const anims = (x) => x.lines().map((l) => l.style.animation);
+  feed(s, [a, b], ['p', 'q', 'r'], 50);
+  assert.strictEqual(lay.moves.length, 2);
+  assert.deepStrictEqual(anims(b), anims(a));
+  [a, b].forEach((x) => x.r.setConfig(Object.assign({}, cfg, { smooth_scroll: x === b, fade_out_ms: 500 })));
+  [a, b].forEach((x) => x.lines().forEach((l) => x.linesEl.dispatch('animationend', { target: l, animationName: 'tco-in-pop' })));
+  assert.deepStrictEqual(anims(b), anims(a), 'the fade after the entrance');
+  assert.match(anims(b)[0], /^tco-fade 500ms linear /);
+  [a, b].forEach((x) => x.r.setConfig(Object.assign({}, cfg, { smooth_scroll: x === b, fade: 20 })));
+  assert.deepStrictEqual(anims(b), anims(a), 're-timed');
+  [a, b].forEach((x) => x.r.destroy());
+});
+
 // ---------- rerender, paints, images ----------
 
 test('rerender keeps unchanged lines and rebuilds changed ones', (t) => {

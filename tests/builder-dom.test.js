@@ -438,7 +438,7 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'text_px',
     'line_height', 'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'name_font', 'name_fallback',
     'name_sep', 'readable_level', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade',
-    'row_sep', 'Animation#adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Highlights#adv-highlights',
+    'row_sep', 'Animation#adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Highlights#adv-highlights',
     'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color',
     'mod_color', 'vip_color', 'Filters#adv-filters', 'allow_users', 'min_length', 'command_prefixes', 'Emotes#adv-emotes', 'gif_size',
     'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']);

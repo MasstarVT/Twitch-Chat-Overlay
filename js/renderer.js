@@ -35,7 +35,7 @@
   var OUTLINE_EM = ['', '.04em', '.06em', '.08em'];
   var OUTLINE_DIRS = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
   var IN_MS = 180;            // tco-in / tco-in-x (animate=1): enter_ms's default
-  var SLIDE_MS = 250;         // layout=horizontal, animate=1: the row glides left to make room for a new line
+  var SLIDE_MS = 250;         // animate=1: a row glides left (and with smooth_scroll a column up or down) to make room
   var LAYOUT_SETTLE_MS = 300; // after a live layout switch no trimming, until the builder has resized the preview too
   var FADE_OUT_MS = 1000;     // tco-fade length (fade_out_ms's default); the line is gone exactly `fade` s after it arrived
   var FLUSH_FALLBACK_MS = 250;
@@ -80,7 +80,9 @@
     'emote_scale', 'emote_only', 'gif_size', 'name_font', 'mention_color', 'keyword_color', 'points_color',
     'broadcaster_color', 'mod_color', 'vip_color',
     // The animations: new lines take the entrance; a timing or exit change re-times the fades (restartFades).
-    'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'];
+    'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style',
+    // A column's glide: the next new line starts one (glideOf); turned off, a running one stops (stopGlide).
+    'smooth_scroll'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -130,6 +132,7 @@
     enter_ms: { min: 50, max: 1000, def: IN_MS },
     fade_out_ms: { min: 0, max: 10000, def: FADE_OUT_MS },
     exit_style: { values: ['fade', 'slide'], def: 'fade' },
+    smooth_scroll: { bool: true, def: false },
     font: { str: true, def: 'Inter' },
     text_weight: { values: WEIGHT_NAMES, def: 'semibold' },
     text_color: { hex: true, def: '' },
@@ -342,6 +345,15 @@
   // A horizontal row always ends with the newest line on the right; align only moves the row up or down.
   function newestFirst(c) { return !!c && c.layout !== 'horizontal' && c.align === 'top'; }
 
+  // Which way the lines glide to make room for new ones (animate=1): a row 'left', as always; a column only with
+  // smooth_scroll, 'up' (newest last) or 'down' (newest first). null: nothing glides and nothing is measured for it.
+  function glideOf(c) {
+    if (!c || !c.animate) return null;
+    if (c.layout === 'horizontal') return 'left';
+    if (c.smooth_scroll !== true) return null;
+    return newestFirst(c) ? 'down' : 'up';
+  }
+
   // Inline `animation` value for a line ('' = none). A horizontal row slides new lines in sideways. style (enter_style),
   // inMs (enter_ms) and exitName (exitFor's keyframes) may be left out: the line then comes in and fades as in 1.5.
   // Only the listed keyframe names and clamped numbers ever reach the string.
@@ -491,8 +503,8 @@
     return c;
   }
 
-  // How far (px) a running slide still had to go when a new one starts: what the row showed on screen,
-  // at most the slide's own offset. After SLIDE_MS the slide is over even if a paused renderer (a hidden
+  // How far (px) a running slide still had to go when a new one starts: what the row (or column) showed on
+  // screen, at most the slide's own offset. After SLIDE_MS the slide is over even if a paused renderer (a hidden
   // OBS source, where flushes come from the fallback timer) never drew it, so offsets can't pile up.
   function slideLeft(visualShift, slideDx, elapsed) {
     if (!(slideDx > 0) || !(elapsed < SLIDE_MS) || !(visualShift > 0)) return 0;
@@ -501,7 +513,9 @@
 
   // Where the next slide starts (px right of home): what was left, plus how far the newest old line moved
   // left when the new lines went in. Under a pixel is no slide. At most maxDx (the chat width): a start
-  // further right than one view shows nothing, and in a burst the carried-over part would pile up.
+  // further right than one view shows nothing, and in a burst the carried-over part would pile up. A column
+  // (smooth_scroll) passes its edges the same way round, so dx is how far below (or above) home it starts, at
+  // most the chat height.
   function slideDelta(left, xBefore, xAfter, maxDx) {
     var dx = (left > 0 ? left : 0) + (xBefore - xAfter);
     if (maxDx > 0 && dx > maxDx) dx = maxDx;
@@ -1463,8 +1477,10 @@
     }
 
     // Remove lines that are fully outside the chat box (the newest line is never removed).
-    // slack (horizontal only, px): the row is about to slide in from that far right, so a line counts
-    // as outside only if it is also out of view at the start of the slide.
+    // slack (px): the row (or with smooth_scroll the column) is about to slide in from that far right (below, or
+    // above with the newest on top), so a line counts as outside only if it is also out of view at the start of
+    // the slide. Without slack the lines are measured where they are drawn, mid-slide too: one out of view then
+    // only moves further out.
     function trimOverflow(slack) {
       if (destroyed) return;
       var wait = settleUntil - Date.now();
@@ -1483,13 +1499,14 @@
       var view = rootEl.getBoundingClientRect();
       var rectAt = function (i) { return kids[i].getBoundingClientRect(); };
       var cnt;
+      var s = slack > 0 ? slack : 0;
       // Not laid out (hidden iframe, display:none): measure nothing.
       if (cfg.layout === 'horizontal') {
         if (!(view.width > 0)) return;
-        cnt = overflowCountX(n, rectAt, view.left - (slack > 0 ? slack : 0));
+        cnt = overflowCountX(n, rectAt, view.left - s);
       } else {
         if (!(view.height > 0)) return;
-        cnt = overflowCount(n, rectAt, cfg.align, view.top, view.bottom);
+        cnt = overflowCount(n, rectAt, cfg.align, view.top - s, view.bottom + s);
       }
       cnt = Math.min(cnt, n - 1);
       if (!cnt) return;
@@ -1507,41 +1524,66 @@
       }, 0);
     }
 
-    // ----- horizontal slide (layout=horizontal, animate=1) -----
-    // A new line at the right end pushes the whole row left. Measure the newest old line before and
-    // after the new lines go in, start the row that much further right, and let it glide back.
+    // ----- slide (animate=1): a row (layout=horizontal), and a column with smooth_scroll -----
+    // A new line at the right end pushes the whole row left; one at the bottom of a column pushes the lines
+    // above it up (one at the top, newest first, pushes them down). Measure the newest old line before and
+    // after the new lines go in, start the lines that much further right (below, above), and let them glide back.
     function clearSlide() {
       slideDx = 0;
       linesEl.style.transition = '';
       linesEl.style.transform = '';
     }
+    // A column's slide stopped where it is: the lines go home now. transition 'none' cancels the running transition at
+    // the style flush, which '' alone would leave running under the initial `transition: all`. Then '' leaves no inline
+    // value behind, and starts nothing: transform is already home.
+    function stopGlide() {
+      slideDx = 0;
+      linesEl.style.transition = 'none';
+      linesEl.style.transform = '';
+      void linesEl.offsetWidth; // style flush
+      linesEl.style.transition = '';
+    }
+    // The newest old line's edge the slide follows: a row's right end, a column's top.
+    function edgeOf(el, dir) {
+      var r = el.getBoundingClientRect();
+      return dir === 'left' ? r.right : r.top;
+    }
     // Before new lines go in: stop any running slide, noting how far it still had to go.
     function slideStart(now) {
-      if (cfg.layout !== 'horizontal' || !cfg.animate) return null;
-      var el = linesEl.lastElementChild;
+      var dir = glideOf(cfg);
+      if (!dir) return null;
+      // The newest old line: the last, or the first in a column with the newest on top (new lines go in before it).
+      var el = dir === 'down' ? linesEl.firstElementChild : linesEl.lastElementChild;
       if (!el) return null;
       var running = slideDx > 0 && now - slideAt < SLIDE_MS;
-      var visual = running ? el.getBoundingClientRect().right : 0; // includes the running transform
+      var visual = running ? edgeOf(el, dir) : 0; // includes the running transform
       linesEl.style.transition = 'none';
       linesEl.style.transform = 'none';
-      var x = el.getBoundingClientRect().right;
-      return { el: el, x: x, left: running ? slideLeft(visual - x, slideDx, now - slideAt) : 0 };
+      var x = edgeOf(el, dir);
+      // A slide down started above home, so what it still had to go is how far the line was still above.
+      return { el: el, x: x, dir: dir,
+        left: running ? slideLeft(dir === 'down' ? x - visual : visual - x, slideDx, now - slideAt) : 0 };
     }
-    // After: how far right the row must start so the lines already on screen don't jump.
-    // Capped at the chat width (clientWidth is free here: the read before it already laid out).
+    // After: how far right (below, above) the lines must start so the ones already on screen don't jump.
+    // Capped at the chat width or height (free here: the read before it already laid out).
     function slideOffset(s) {
-      return s.el.parentNode === linesEl ? slideDelta(s.left, s.x, s.el.getBoundingClientRect().right, rootEl.clientWidth) : 0;
+      if (s.el.parentNode !== linesEl) return 0;
+      if (s.dir === 'left') return slideDelta(s.left, s.x, edgeOf(s.el, s.dir), rootEl.clientWidth);
+      var y = edgeOf(s.el, s.dir);
+      return s.dir === 'down' ? slideDelta(s.left, y, s.x, rootEl.clientHeight) : slideDelta(s.left, s.x, y, rootEl.clientHeight);
     }
-    function startSlide(dx, now) {
+    function startSlide(dx, now, dir) {
       if (!(dx > 0)) { clearSlide(); return; }
       slideAt = now;
       slideDx = dx;
-      linesEl.style.transform = 'translateX(' + Math.round(dx * 100) / 100 + 'px)';
+      var px = Math.round(dx * 100) / 100 + 'px)';
+      linesEl.style.transform = dir === 'left' ? 'translateX(' + px : dir === 'down' ? 'translateY(-' + px : 'translateY(' + px;
       void linesEl.offsetWidth; // style flush: the transition starts from the shifted position
       linesEl.style.transition = 'transform ' + SLIDE_MS + 'ms ease-out';
       linesEl.style.transform = '';
-      // Lines still peeking in at the left edge when the slide started are out of view once it ends. They
-      // are clipped and removing them moves nothing, so the next flush's trim takes them (no extra frame).
+      // Lines still peeking in at the left edge (a column's top, or bottom) when the slide started are out of view
+      // once it ends. They are clipped and removing them moves nothing, so the next flush's trim takes them (no
+      // extra frame).
     }
 
     // Re-time every line's fade from its arrival time (after align/fade changes or a reorder). keepEntering (a new
@@ -1678,9 +1720,9 @@
       if (changed) {
         var dx = slide ? slideOffset(slide) : 0;
         trimOverflow(dx);
-        if (slide) startSlide(dx, now);
+        if (slide) startSlide(dx, now, slide.dir);
       } else if (slide) {
-        startSlide(slide.left, now); // nothing went in after all: finish the interrupted slide
+        startSlide(slide.left, now, slide.dir); // nothing went in after all: finish the interrupted slide
       }
       ensureSweepTimer();
       flushes++;
@@ -1712,6 +1754,9 @@
     // While hidden nothing renders, so CSS animations of lines inserted meanwhile never started.
     // On show: flush, then re-time every line from its arrival (no mass fade-in, correct fades).
     function onShown() {
+      // A column's slide (smooth_scroll) whose time ran out while nothing was drawn would only start once frames
+      // resume, moving lines that are long in place: it is over, so they go home now.
+      if (slideDx > 0 && glideOf(cfg) !== 'left' && Date.now() - slideAt >= SLIDE_MS) stopGlide();
       flush();
       if (!held && !destroyed) restartFades(Date.now());
     }
@@ -1826,6 +1871,10 @@
         settleUntil = Date.now() + LAYOUT_SETTLE_MS;
       }
       if (!cfg.animate) clearSlide();
+      // A column's glide (smooth_scroll) turned off, turned round by an align flip (the lines were just reversed), or
+      // ended by a layout switch or animate=0: the lines go home at once.
+      var glide = glideOf(prev);
+      if (glide && glide !== 'left' && glide !== glideOf(cfg)) stopGlide();
       // Switched to still paints: the paints already in use get their still rule now (applyRoot set the class).
       // Back to animated, the rules stay, unused without the class.
       if (cfg.paint_images === 'static' && prev.paint_images !== 'static') {
@@ -1907,7 +1956,10 @@
       queue.clear();
       byId.clear();
       byUser.clear();
-      clearSlide();
+      // A column's glide (smooth_scroll) stops too: left running, it would carry the next line in from below.
+      var glide = glideOf(cfg);
+      if (glide && glide !== 'left') stopGlide();
+      else clearSlide();
       linesEl.textContent = '';
     }
 
@@ -2073,6 +2125,7 @@
       timeText: timeText,
       fadeTiming: fadeTiming,
       newestFirst: newestFirst,
+      glideOf: glideOf,
       animString: animString,
       exitFor: exitFor,
       animDefaults: animDefaults,

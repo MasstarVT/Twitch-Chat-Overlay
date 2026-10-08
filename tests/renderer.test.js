@@ -612,6 +612,38 @@ test('slideDelta: the next slide starts where the row is on screen', () => {
   assert.strictEqual(R.slideDelta(5000, 1000, 600, 1280), 1280);
   assert.strictEqual(R.slideDelta(50, 1000, 600, 1280), 450, 'under the cap: unchanged');
   assert.strictEqual(R.slideDelta(50, 1000, 600, 0), 450, 'no width known: no cap');
+  // A column (smooth_scroll) the same way round: up, the newest old line's top before and after; down (align=top), after
+  // and before. At most the chat height.
+  assert.strictEqual(R.slideDelta(0, 670, 640, 720), 30, 'up 30 px: starts 30 px below');
+  assert.strictEqual(R.slideDelta(12, 30, 0, 720), 42, 'down 30 px with 12 px left: starts 42 px above');
+  assert.strictEqual(R.slideDelta(0, 670, -1330, 720), 720);
+});
+
+test('glideOf: a row glides left as always; a column only with smooth_scroll, up or (align=top) down', () => {
+  const g = (c) => R.glideOf(R.normalizeCfg(c));
+  assert.strictEqual(g({}), null, 'the defaults: a column that never glides');
+  assert.strictEqual(g({ align: 'top' }), null);
+  assert.strictEqual(g({ layout: 'horizontal' }), 'left');
+  assert.strictEqual(g({ layout: 'horizontal', align: 'top', smooth_scroll: true }), 'left', 'a row is a row');
+  assert.strictEqual(g({ layout: 'horizontal', animate: false }), null);
+  assert.strictEqual(g({ smooth_scroll: true }), 'up');
+  assert.strictEqual(g({ smooth_scroll: true, align: 'top' }), 'down');
+  assert.strictEqual(g({ smooth_scroll: true, animate: false }), null, 'needs animate');
+  // Only a real true (normalizeCfg makes one of any setting); never a string from a hand-made cfg.
+  assert.strictEqual(R.glideOf({ animate: true, smooth_scroll: 'false' }), null);
+  assert.strictEqual(R.glideOf(null), null);
+  assert.strictEqual(R.NORM.smooth_scroll.def, false);
+});
+
+test('overflowCount: a column about to glide counts only lines out of view at its start too (slack)', () => {
+  // bottom alignment, view 0..100: the glide starts 30 px lower, so the line ending at -20 still shows then
+  const rects = [{ top: -80, bottom: -50 }, { top: -50, bottom: -20 }, { top: -20, bottom: 10 }];
+  assert.strictEqual(R.overflowCount(rects.length, (i) => rects[i], 'bottom', 0, 100), 2);
+  assert.strictEqual(R.overflowCount(rects.length, (i) => rects[i], 'bottom', 0 - 30, 100 + 30), 1);
+  // top alignment, newest first: the glide starts 30 px higher
+  const trects = [{ top: 0, bottom: 30 }, { top: 90, bottom: 120 }, { top: 120, bottom: 150 }];
+  assert.strictEqual(R.overflowCount(trects.length, (i) => trects[i], 'top', 0, 100), 1);
+  assert.strictEqual(R.overflowCount(trects.length, (i) => trects[i], 'top', 0 - 30, 100 + 30), 0);
 });
 
 test('reverseGroups keeps a notice and its message line together', () => {
@@ -1185,7 +1217,7 @@ test('every live config key is handled by the renderer', () => {
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
     'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale',
     'emote_only', 'gif_size', 'name_font', 'mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color',
-    'vip_color', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'];
+    'vip_color', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
   // The animations time the lines (new ones, and restartFades): they never rebuild one.
   ['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].forEach((k) => assert.ok(R.RERENDER_KEYS.indexOf(k) < 0, k));

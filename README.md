@@ -112,6 +112,7 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `fade` | `0` | `0`–`3600` | Seconds a message stays on screen; it fades out over the last `fade_out_ms` (one second unless changed). `0` means never. |
 | `fade_out_ms` | `1000` | `0`–`10000` | How long the fade-out at the end of `fade` takes, in milliseconds, and never longer than the message stays: the message is gone `fade` seconds after it came in either way. `0` removes it without a fade. Needs `fade` above 0. |
 | `exit_style` | `fade` | `fade`, `slide` | `slide` moves a message out as it fades, toward the edge old messages leave by: up, down with `align=top`, or left in the horizontal layout. It works with `animate=0` too. Needs `fade` and `fade_out_ms` above 0. |
+| `smooth_scroll` | `0` | bool | The older messages glide up (down with `align=top`) over a quarter second to make room for a new one instead of jumping, as the horizontal row glides left. In a busy chat they keep moving. A message removed from the middle (deleted by a moderator, say) still closes its gap at once. Vertical layout only; needs `animate=1`. |
 | `max` | `50` | `1`–`200` | Maximum number of messages on screen. A sub or resub notice and the viewer's own message under it count as one and leave together. |
 | `bots` | `0` | bool | Show messages from known bots (Nightbot, StreamElements, …, plus the channel's BTTV bot list). During Shared Chat, the partner channel's BTTV bot list applies to its lines too. |
 | `hide_commands` | `0` | bool | Hide messages that start with one of `command_prefixes` (`!` by default), including replies whose text after the `@name` starts with one. |
@@ -258,7 +259,7 @@ The tints (`.highlight`, `.mention`, `.keyword`, `.user-hl`, `.role-tint`) are t
 
 `outline` and `shadow_style=text` draw their layers from the `--tshadow` variable (on `.line` and `.reply`), and set how far those layers reach past the letters as `--tshadow-room`: a horizontal line without a box gets that much padding at its sides, and a reply header lets them draw that far past its edges. Both are set only while those options are on.
 
-The animations are the keyframes `tco-in` and `tco-in-x` (`enter_style=slide` in a column and in a row), `tco-in-fade`, `tco-in-pop` and `tco-in-pop-x`, and `tco-in-drop` for the entrances, and `tco-fade` (`exit_style=fade`), `tco-out-slide`, `tco-out-slide-down` and `tco-out-slide-x` (`exit_style=slide` up, down and left) for the fade-out. Custom CSS can redefine one, such as `@keyframes tco-in-drop { from { opacity: 0; transform: translateY(-1em); } }`; the options keep picking which one runs and for how long.
+The animations are the keyframes `tco-in` and `tco-in-x` (`enter_style=slide` in a column and in a row), `tco-in-fade`, `tco-in-pop` and `tco-in-pop-x`, and `tco-in-drop` for the entrances, and `tco-fade` (`exit_style=fade`), `tco-out-slide`, `tco-out-slide-down` and `tco-out-slide-x` (`exit_style=slide` up, down and left) for the fade-out. Custom CSS can redefine one, such as `@keyframes tco-in-drop { from { opacity: 0; transform: translateY(-1em); } }`; the options keep picking which one runs and for how long. The row's glide, and a column's with `smooth_scroll`, is a `transform` transition set on `.lines` itself.
 
 ## Services this overlay contacts
 
