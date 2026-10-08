@@ -354,9 +354,10 @@
       name_line: true } },
     { id: 'big', label: 'Big & bold', set: { size: 'large', text_weight: 'bold', shadow: 3, emote_scale: 125 } }
   ];
-  var PRESETS_HELP = 'Sets text size, weight and color, shadow, outline, box, spacing, and emote and badge size. Your font, ' +
-    'name colors, layout and position stay. Big & bold’s bigger emotes can reach into the line above, and it can be cut ' +
-    'off in a 1920 × 100 horizontal source.';
+  // Its first sentence names every PRESET_KEYS setting (tests/builder-dom.test.js holds it to that): a look resets each.
+  var PRESETS_HELP = 'Sets text size, weight and color, shadow, outline, box, name-color bar, spacing, whether the name ' +
+    'has a line of its own, and emote and badge size. Your font, name colors, layout and position stay. Big & bold’s ' +
+    'bigger emotes can reach into the line above, and it can be cut off in a 1920 × 100 horizontal source.';
 
   // ---------- pure helpers (unit tested) ----------
 

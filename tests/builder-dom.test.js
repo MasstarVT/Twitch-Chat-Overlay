@@ -1243,7 +1243,8 @@ test('Quick look: a row of five buttons at the top of Look, Default pressed at t
     L.group.getAttribute('aria-describedby')], ['DIV', 'btns field-control', 'group', 'Quick look', 'h-presets']);
   const help = p.$('h-presets');
   assert.strictEqual(help.parentNode, L.row);
-  assert.match(help.textContent, /^Sets text size, weight and color, shadow, outline, box, spacing, and emote and badge size\./);
+  assert.match(help.textContent, new RegExp('^Sets text size, weight and color, shadow, outline, box, name-color bar, spacing, ' +
+    'whether the name has a line of its own, and emote and badge size\\.'));
   assert.match(help.textContent, /Your font, name colors, layout and position stay\./);
   assert.match(help.textContent, /Big & bold’s bigger emotes can reach into the line above, and it can be cut off in a 1920 × 100 horizontal source\./);
   assert.deepStrictEqual(L.btns.map((b) => [b.tagName, b.type, b.textContent]),
@@ -1254,6 +1255,22 @@ test('Quick look: a row of five buttons at the top of Look, Default pressed at t
   assert.deepStrictEqual([L.undo.textContent, L.undo.className, L.undo.type, L.undo.getAttribute('aria-label'), L.undo.disabled,
     !!L.undo.hidden], ['Undo', 'btn ghost', 'button', 'Undo quick look', true, false]);
   assert.strictEqual(p.text('count-look'), '', 'the row is no changed setting');
+});
+
+// A look puts every PRESET_KEYS setting at its value or its default, so the help's first sentence names each: one
+// it left out (the name's own line, the name-color bar) would be reset with the help saying nothing of it.
+test('Quick look help: its first sentence names every setting a look sets', (t) => {
+  const p = open(t, HREF);
+  const help = p.text('h-presets');
+  const said = help.slice(0, help.indexOf('. '));
+  const phrase = {
+    size: 'text size', text_px: 'text size', text_weight: 'weight', name_weight: 'weight', text_color: 'weight and color',
+    line_height: 'spacing', shadow: 'shadow', shadow_color: 'shadow', outline: 'outline', outline_color: 'outline',
+    bg: 'box', bg_color: 'box', bg_shape: 'box', bg_width: 'box', spacing: 'spacing', accent_bar: 'name-color bar',
+    name_line: 'whether the name has a line of its own', emote_scale: 'emote', badge_size: 'badge size'
+  };
+  assert.deepStrictEqual(Object.keys(phrase).sort(), p.builder.PRESET_KEYS.slice().sort(), 'a phrase for each look setting');
+  Object.keys(phrase).forEach((k) => assert.ok(said.indexOf(phrase[k]) >= 0, 'the help names ' + k + ' ("' + phrase[k] + '"): ' + said));
 });
 
 test('a quick look click never moves the buttons: Undo is always in the row, only switched on and off', (t) => {
