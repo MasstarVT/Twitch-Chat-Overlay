@@ -71,8 +71,8 @@ test('README: the mentions row\'s examples are what the overlay tints', () => {
   const R = require('../js/renderer.js')._internal;
   const row = /^\| `mentions` \|[^\n]*/m.exec(section('Options'));
   assert.ok(row, 'README has a mentions row');
-  const ex = /\bso ([^.]*?) count but ([^.]*?) doesn't/.exec(row[0]);
-  assert.ok(ex, 'the row gives names that count and one that doesn\'t');
+  const ex = /\bso ([^.]*?) count but ([^.]*?) (?:doesn't|don't)/.exec(row[0]);
+  assert.ok(ex, 'the row gives names that count and some that don\'t');
   const yes = codeIn(ex[1]), no = codeIn(ex[2]);
   assert.ok(yes.length >= 2 && no.length >= 1, 'the scan finds the examples');
   assert.ok(/`-`/.test(row[0]) && no.some((s) => /-/.test(s)), 'the row says a "-" can make it part of a longer name');

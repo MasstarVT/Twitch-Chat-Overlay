@@ -186,11 +186,15 @@
   // is cancelled. 404s are definitive (the loader decides, usually by resolving empty).
   // Returns a controller { promise, retryNow(), cancel() }.
   var RETRY_DELAYS = [3000, 10000, 30000, 60000];
+  // The wait before retry number attempt + 1 (overlay.js's font stylesheets wait the same way).
+  function retryDelay(attempt) {
+    return attempt < RETRY_DELAYS.length ? RETRY_DELAYS[attempt] : 300000;
+  }
   function loadWithRetry(name, fn, onDone) {
     var attempt = 0, timer = null, cancelled = false, done = false, running = false;
     var ctl = { name: name, status: 'pending', error: null };
     function schedule() {
-      var delay = attempt < RETRY_DELAYS.length ? RETRY_DELAYS[attempt] : 300000;
+      var delay = retryDelay(attempt);
       attempt++;
       timer = setTimeout(run, delay);
     }
@@ -503,6 +507,7 @@
     postJson: postJson,
     isNotFound: isNotFound,
     loadWithRetry: loadWithRetry,
+    retryDelay: retryDelay,
     Backoff: Backoff,
     SocketClient: SocketClient,
     TWITCH_PALETTE: TWITCH_PALETTE,

@@ -46,6 +46,12 @@
     if (typeof v !== 'string' && typeof v !== 'number') return '';
     return String(v).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, MAX_NAME);
   }
+  // The login a Kick name is matched by (the block list, allow_users, highlight_users, the bot list, a reply's quote): in
+  // lower case and without a leading '@'. Kick's StreamElements bot is "@StreamElements", and config.normalizeLogin takes
+  // the '@' off what the streamer types, so 'streamelements' names it. The name is still shown as Kick sends it.
+  function loginOf(name) {
+    return name.replace(/^@+/, '').toLowerCase() || name.toLowerCase();
+  }
 
   function apiUrl(slug) {
     return CHANNEL_API + encodeURIComponent(config.normalizeKick(slug));
@@ -173,6 +179,17 @@
     return out;
   }
 
+  // Kick's own Bot badge (StreamElements, Botrix and other verified bots carry it): not drawn, but the bot filter
+  // (bots=0) hides the sender's lines whatever its name.
+  function hasBotBadge(list) {
+    if (!Array.isArray(list)) return false;
+    for (var i = 0; i < list.length && i < 50; i++) {
+      var b = list[i];
+      if (b && typeof b.type === 'string' && b.type.toLowerCase() === 'bot') return true;
+    }
+    return false;
+  }
+
   // Kick has sent metadata both as an object and as a JSON string.
   function objectOf(v) {
     if (v && typeof v === 'object') return v;
@@ -190,7 +207,7 @@
     var name = cleanName(os.username);
     var id = kickId(om.id);
     if (!name || !id) return null;
-    return { id: id, userId: kickId(os.id), login: name.toLowerCase(), name: name, body: splitEmotes(om.content).text };
+    return { id: id, userId: kickId(os.id), login: loginOf(name), name: name, body: splitEmotes(om.content).text };
   }
 
   function base(d) {
@@ -236,10 +253,12 @@
     var m = base(d);
     m.id = id;
     m.userId = uid;
-    m.login = name.toLowerCase();
+    m.login = loginOf(name);
     m.displayName = name;
     m.color = typeof ident.color === 'string' && HEX_RE.test(ident.color) ? ident.color : '';
     m.kickBadges = parseBadges(ident.badges);
+    // Set only on a bot's lines, so every other message keeps its shape.
+    if (hasBotBadge(ident.badges)) m.kickBot = true;
     m.ts = isFinite(ts) ? ts : Date.now();
     m.kind = 'chat';
     m.text = body.text;
@@ -255,7 +274,7 @@
     m.kind = 'notice';
     m.type = type;
     m.msgId = type;
-    m.login = login.toLowerCase();
+    m.login = loginOf(login);
     m.systemMsg = systemMsg;
     m.params = {};
     m.communityGiftId = '';
@@ -287,7 +306,7 @@
       case 'UserBannedEvent': {
         var u = objectOf(d.user);
         var bid = kickId(u && u.id);
-        return bid ? { type: 'ban', userId: bid, login: cleanName(u.username).toLowerCase() } : null;
+        return bid ? { type: 'ban', userId: bid, login: loginOf(cleanName(u.username)) } : null;
       }
       case 'ChatroomClearEvent':
         return { type: 'clear' };
@@ -452,6 +471,7 @@
     roomFromText: roomFromText,
     splitEmotes: splitEmotes,
     parseBadges: parseBadges,
+    loginOf: loginOf,
     toMessage: toMessage,
     parseEvent: parseEvent,
     createKick: createKick

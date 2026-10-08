@@ -30,6 +30,9 @@ const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 //   allows both of the app's own badge files, where 1.5.2 let the developer one through only (models, dom).
 // - A reply to a blocked user keeps its reply (overlay.js quotesHidden leaves its header out as the line is drawn), so the
 //   'filtered' boot takes it in as the defaults boot does: with its reply, and without its "@name" in the tokens (intake).
+// - With kick_room the Kick channel lookup (sub badge images, the channel's 7TV set) is retried like every other load once
+//   it fails, where 1.5.2 asked once: both boots set kick_room, the capture's lookup always fails, and its 6 s take in
+//   the retry 3 s later, so each lists kick-lookup(kickname) twice (intake loaders).
 function withFixes(name, old) {
   const out = plain(old);
   if (name === 'models' || name === 'dom') {
@@ -63,6 +66,12 @@ function withFixes(name, old) {
       kept++;
     });
     assert.ok(kept > 0, 'intake: the transcript has replies to a blocked user');
+    ['defaults', 'filtered'].forEach((b) => {
+      assert.ok(/[?&]kick_room=\d/.test(cap.INTAKE_BOOTS[b]), b + ' sets kick_room');
+      const at = out[b].loaders.indexOf('kick-lookup(kickname)');
+      assert.ok(at >= 0 && out[b].loaders.lastIndexOf('kick-lookup(kickname)') === at, b + ': 1.5.2 looked it up once');
+      out[b].loaders.splice(at, 0, 'kick-lookup(kickname)');
+    });
   }
   return out;
 }
@@ -308,8 +317,9 @@ function changed(cfg, k) {
 // renderer-dom.test.js); listed ahead for the options that will join them.
 const LIFECYCLE = ['layout', 'align', 'fade', 'max', 'animate', 'enter_style', 'enter_ms', 'exit_style', 'fade_out_ms', 'smooth_scroll'];
 // Filter keys that redraw as well: flip()'s value for links is shorten, which rewrites lines and hides none, so the
-// revert and effect tests take it like any drawn key (the filter test has its hide).
-const REDRAWS = ['links'];
+// revert and effect tests take it like any drawn key (the filter test has its hide). replies draws the header, and is a
+// filter only with block_words set (FILTER_WITH): a reply's "@Parent" is matched only while replies=0 draws it.
+const REDRAWS = ['links', 'replies'];
 const filterOnly = (k) => R.FILTER_KEYS.indexOf(k) >= 0 && REDRAWS.indexOf(k) < 0;
 // Lifecycle keys whose effect needs a page that is laid out: smooth_scroll moves the lines by what it measures, and the
 // fake document here measures nothing. renderer-dom.test.js gives them a layout ("smooth_scroll: ...").
@@ -460,8 +470,12 @@ const FILTERS = {
   block_words: [[], ['nice']],
   min_length: [0, 12],
   links: ['show', 'hide'],
-  command_prefixes: ['$', '!']
+  command_prefixes: ['$', '!'],
+  replies: [true, false]
 };
+// What a filter key needs besides its PREREQ to hide anything, in this test only: replies=0 hides the reply to SubFan
+// ("@SubFan thanks for that") once its "@SubFan" is drawn and block_words names it.
+const FILTER_WITH = { replies: { block_words: ['subfan'] } };
 
 // Each line goes by its own message: a resub's text line is a chat message, so events=0 keeps it.
 test('(f) a filter sweeps exactly the lines it now hides, and nothing else', async () => {
@@ -470,7 +484,8 @@ test('(f) a filter sweeps exactly the lines it now hides, and nothing else', asy
   const ids = (list) => list.map((m) => m.id || m.kind + ': ' + m.systemMsg);
   await inWorld((w) => {
     Object.keys(FILTERS).forEach((k) => {
-      const from = Object.assign(withPrereq(w.cfg0, k), { max: 200 }); // nothing capped, so a line that goes is the filter's doing
+      // Nothing capped, so a line that goes is the filter's doing.
+      const from = Object.assign(withPrereq(w.cfg0, k), FILTER_WITH[k] || {}, { max: 200 });
       from[k] = FILTERS[k][0];
       const to = Object.assign({}, from);
       to[k] = FILTERS[k][1];

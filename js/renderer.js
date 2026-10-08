@@ -46,6 +46,7 @@
   var DELETED_CAP = 5000;
   var CLEARED_TTL_MS = 3600000; // timed-out / banned users: replies quoting their earlier messages lose the header
   var CLEARED_CAP = 1000;
+  var MAX_CLEARS = 8;           // chat clears kept for reply headers (one per platform is the usual most)
   var MAX_IMAGES = 200;       // emote images per message (base + overlays); the rest render as their names
   var PAINT_ID_RE = /^[0-9A-Za-z]{1,40}$/;
   var HEX_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
@@ -70,10 +71,11 @@
     // links=shorten rewrites the text (overlay.js tokensFor) and reply headers; links=hide is a filter, and a reply
     // header quoting a link goes (deps.quoteHidden).
     'links'];
-  // Each line goes by deps.shouldShow (overlay.js): a change sweeps the lines it now hides.
+  // Each line goes by deps.shouldShow (overlay.js): a change sweeps the lines it now hides. replies too: block_words
+  // matches a reply's "@Parent" only while it is drawn (replies=0).
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared', 'event_subs', 'event_gifts', 'event_raids',
     'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words', 'min_length', 'links',
-    'command_prefixes'];
+    'command_prefixes', 'replies'];
   // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
   var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
@@ -590,7 +592,8 @@
   var SPACED_CH = '(?:(?![' + NOSP + '])' + WORD_CH + ')';
   // What can continue a Twitch login or a Kick slug, which are ASCII: a Latin letter (é too: @homé is another word),
   // a mark, a digit or '_', and (the mention matcher's '-?') a '-' before one, as a Kick slug can go on (@home-made),
-  // after the Twitch login too. A Japanese or Korean suffix (@homeさん, @home님, @home-さん) or a word before the '@' doesn't.
+  // after the Twitch login too; a bare name (mentions=name) the same way in front (my-home). A Japanese or Korean suffix
+  // (@homeさん, @home님, @home-さん) or a word before the '@' doesn't.
   var LOGIN_CH = '[\\p{Script=Latin}\\p{M}\\p{Nd}_]';
   var MAX_PHRASES = 50; // config.js keeps keywords to as many
   // Literal text in a regex. Only the syntax characters: the u flag rejects any other escaped one ('\-').
@@ -625,7 +628,8 @@
   // What lineClasses matches chat lines against, built once per cfg object (setConfig makes a new one for every
   // change), in a WeakMap: nothing is stored on the cfg. mention: the channel's names (the Twitch login and the Kick
   // slug, whichever are set) after an '@' (mentions=at), or also on their own (name), but not after '/' or '.' (a
-  // twitch.tv/name link, a domain); null while mentions is off or there is no channel. keyword: any of the keywords.
+  // twitch.tv/name link, a domain) or a '-' that joins them to a longer name (my-home, another Kick slug); null while
+  // mentions is off or there is no channel. keyword: any of the keywords.
   // users: the highlight_users logins.
   var MATCHERS = new WeakMap();
   var NO_MATCHERS = { mention: null, channel: '', kickKey: '', keyword: null, users: null };
@@ -642,7 +646,11 @@
       if (names.length) {
         out.channel = ch;
         out.kickKey = kk ? slugKey(kk) : '';
-        out.mention = makeRe((c.mentions === 'at' ? '(?<!' + LOGIN_CH + ')@' : '(?<![\\p{Script=Latin}\\p{M}\\p{Nd}_/.@])@?') +
+        // name: the '@' form as at finds it, or the bare name, which a '-' joined to a name character before it makes
+        // part of a longer name too (jelly-bean, kick.com/my-home), as one after it does.
+        var atForm = '(?<!' + LOGIN_CH + ')@';
+        out.mention = makeRe((c.mentions === 'at' ? atForm
+          : '(?:' + atForm + '|(?<![\\p{Script=Latin}\\p{M}\\p{Nd}_/.@])(?<!' + LOGIN_CH + '-))') +
           '(?:' + names.join('|') + ')(?!-?' + LOGIN_CH + ')');
       }
     }
@@ -677,6 +685,21 @@
     var to = msg.reply && typeof msg.reply === 'object' && typeof msg.reply.login === 'string' ? msg.reply.login.toLowerCase() : '';
     if (to && (kick ? m.kickKey && slugKey(to) === m.kickKey : m.channel && to === m.channel)) return true;
     return typeof msg.text === 'string' && m.mention.test(visibleText(msg.text));
+  }
+
+  // A chat line's text as it is drawn, for the keywords: a Twitch reply without its leading "@Parent" while replies are on
+  // (overlay.js tokensFor leaves it out with tokenizer.stripReplyPrefix, whose rule this is; with replies=0 it is drawn,
+  // and matched); a Kick line as Kick sends it. overlay.js matches block_words against the same text (shownText).
+  function shownText(msg, cfg) {
+    var t = msg.text, r = msg.reply;
+    if (cfg.replies === false || msg.platform === 'kick' || !r || typeof r !== 'object' || t.charAt(0) !== '@') return t;
+    var low = t.toLowerCase(), names = [r.name, r.login];
+    for (var i = 0; i < names.length; i++) {
+      if (!names[i]) continue;
+      var n = '@' + String(names[i]).toLowerCase();
+      if (low.indexOf(n) === 0 && (low.length === n.length || low.charAt(n.length) === ' ')) return t.slice(n.length).replace(/^ /, '');
+    }
+    return t;
   }
 
   // The text (as drawn: visibleText) has a keyword (a pattern of keywords folded by foldDottedI): as it is, or with a
@@ -719,7 +742,7 @@
     var out = [], m = matchersFor(cfg);
     var tint = highlighted ? 'highlight' : '';
     if (!tint && m.mention && mentionsChannel(msg, m)) tint = 'mention';
-    if (!tint && m.keyword && typeof msg.text === 'string' && hasKeyword(msg.text, m.keyword)) tint = 'keyword';
+    if (!tint && m.keyword && typeof msg.text === 'string' && hasKeyword(shownText(msg, cfg), m.keyword)) tint = 'keyword';
     if (!tint && m.users && typeof msg.login === 'string' && m.users[msg.login.toLowerCase()] === 1) tint = 'user-hl';
     if (tint && !highlighted) out.push(tint);
     var role = cfg.role_style === 'bar' || cfg.role_style === 'tint' ? roleOf(msg) : null;
@@ -1079,6 +1102,17 @@
     var cleared = new DeletedIds(CLEARED_TTL_MS, CLEARED_CAP);
     var spoke = new DeletedIds(CLEARED_TTL_MS, DELETED_CAP);
     var mseq = 0;
+    // Chat clears (clearAll), oldest first: { seq: mseq at the clear, at: ms, pred: the lines it took (null: all) }. A reply
+    // on a line a clear covers loses its header when the message it quotes is from before that clear: one the clear took,
+    // or one the overlay hasn't heard of since (it had already left the screen, or came before the overlay started).
+    // heard: message id (and source id) -> mseq, noted for every message pushed while a clear is kept, so a reply to
+    // what is said after the clear keeps its header. A clear is kept CLEARED_TTL_MS, as a ban is, and only while heard
+    // still holds every message since it (DELETED_CAP).
+    var clears = [];
+    var heard = new Map();
+    // Messages whose reply quote was found moderated: it stays out for good, also when the line is redrawn after the
+    // deletion, ban or clear has expired from the lists above (a 7TV emote set update an hour later redraws it).
+    var goneQuotes = new WeakSet();
     var byId = new Map();        // msg id / source id -> line
     var byUser = new Map();      // user id -> Set<line>
     var recs = new WeakMap();    // line -> {msg, src, kind, gid, born, sig, ids, userId, fadeLater}
@@ -1366,7 +1400,7 @@
         name: { text: nm.text, color: nm.color, paint: paint },
         dpr: dpr,
         // A moderated quote, or one the overlay's filters hide (block_words, links=hide; asked again on each redraw).
-        noReply: replyGone(msg.reply, Date.now()) || (!!msg.reply && !!callDep('quoteHidden', msg.reply)),
+        noReply: replyGone(msg, Date.now()) || (!!msg.reply && !!callDep('quoteHidden', msg.reply)),
         alone: !!alone
       });
     }
@@ -1381,12 +1415,53 @@
       return false;
     }
 
-    // The message a reply quotes was deleted, or its author was timed out or banned after sending it:
-    // the "↪ @user: text" header would put the moderated text back on stream.
-    function replyGone(r, now) {
+    // ----- chat clears (see clears) -----
+    // Whether pred (a clear's) covers msg: a throwing pred covers nothing, as in clearAll.
+    function covers(pred, msg) {
+      if (!pred) return true;
+      try { return !!pred(msg); } catch (e) { return false; }
+    }
+    // Clears older than CLEARED_TTL_MS go; with none left, nothing more is noted.
+    function pruneClears(now) {
+      while (clears.length && now - clears[0].at >= CLEARED_TTL_MS) clears.shift();
+      if (!clears.length) heard.clear();
+    }
+    function hear(id) {
+      if (!id) return;
+      heard.delete(id);
+      heard.set(id, ++mseq);
+      if (heard.size <= DELETED_CAP) return;
+      // The oldest goes: a clear from before it no longer knows everything said since, and goes too.
+      var first = heard.entries().next().value;
+      heard.delete(first[0]);
+      while (clears.length && clears[0].seq < first[1]) clears.shift();
+      if (!clears.length) heard.clear();
+    }
+    // A reply on msg's line quotes pid, a message from before a clear that covers the line.
+    function clearedBefore(msg, pid, now) {
+      if (!clears.length) return false;
+      var said = pid && heard.has(pid) ? heard.get(pid) : 0;
+      for (var i = 0; i < clears.length; i++) {
+        var c = clears[i];
+        if (now - c.at < CLEARED_TTL_MS && said <= c.seq && covers(c.pred, msg)) return true;
+      }
+      return false;
+    }
+
+    // The message a reply quotes was deleted, or its author was timed out or banned after sending it, or a chat clear
+    // took it: the "↪ @user: text" header would put the moderated text back on stream.
+    function replyGone(msg, now) {
+      var r = msg.reply;
       if (!r || typeof r !== 'object') return false;
+      if (goneQuotes.has(msg)) return true;
+      if (!quoteModerated(msg, r, now)) return false;
+      goneQuotes.add(msg);
+      return true;
+    }
+    function quoteModerated(msg, r, now) {
       var pid = util.idStr(r.id);
       if (pid && deleted.has(pid, now)) return true;
+      if (clearedBefore(msg, pid, now)) return true;
       var uid = util.idStr(r.userId);
       var at = uid ? cleared.get(uid, now) : undefined;
       if (at === undefined) return false;
@@ -1999,12 +2074,17 @@
     function push(msg) {
       if (destroyed || !msg || typeof msg !== 'object') return false;
       var now = Date.now();
-      var id = util.idStr(msg.id);
+      var id = util.idStr(msg.id), sid = util.idStr(msg.sourceId);
+      // After a chat clear: what is said from now on is newer than it (clearedBefore), shown or not.
+      if (clears.length) pruneClears(now);
+      if (clears.length) {
+        hear(id);
+        if (sid !== id) hear(sid);
+      }
       if (id) {
         if (deleted.has(id, now) || byId.has(id)) return false;
         if (queue.some(function (en) { return util.idStr(en.msg.id) === id; })) return false;
       }
-      var sid = util.idStr(msg.sourceId);
       if (sid && deleted.has(sid, now)) return false;
       // Back after a timeout: replies to what this user says from now on keep their header.
       var uid = util.idStr(msg.userId);
@@ -2044,19 +2124,45 @@
     }
 
     // Without pred: every line. With pred(msg): only the queued and on-screen lines it matches (a Twitch /clear
-    // keeps the Kick lines of a combined chat, and a Kick clear keeps the Twitch ones).
+    // keeps the Kick lines of a combined chat, and a Kick clear keeps the Twitch ones). Like a deletion, the clear keeps
+    // what it took out of reply headers (replyGone): the messages it took count as deleted (a copy delivered again is
+    // refused too), and the clear is kept (clears) for the ones that had already left the screen.
     function clearAll(pred) {
       if (destroyed) return;
-      if (typeof pred === 'function') {
-        var hit = function (m) { try { return !!pred(m); } catch (e) { return false; } };
-        queue.filter(function (en) { return !hit(en.msg); });
-        var list = children();
-        for (var i = 0; i < list.length; i++) {
-          var rec = recs.get(list[i]);
-          if (rec && hit(rec.src || rec.msg)) removeLine(list[i]);
+      var now = Date.now();
+      if (typeof pred !== 'function') pred = null;
+      pruneClears(now);
+      // A newer clear of the same lines makes an older one redundant (what is from before it is from before this one).
+      for (var c = clears.length - 1; c >= 0; c--) if (clears[c].pred === pred || !pred) clears.splice(c, 1);
+      clears.push({ seq: ++mseq, at: now, pred: pred });
+      if (clears.length > MAX_CLEARS) clears.shift();
+      var forget = function (m) {
+        deleted.add(util.idStr(m.id), now);
+        deleted.add(util.idStr(m.sourceId), now);
+      };
+      var list = children(), i, rec;
+      if (pred) {
+        queue.filter(function (en) {
+          if (!covers(pred, en.msg)) return true;
+          forget(en.msg);
+          return false;
+        });
+        for (i = 0; i < list.length; i++) {
+          rec = recs.get(list[i]);
+          if (!rec || !covers(pred, rec.src || rec.msg)) continue;
+          forget(rec.msg);
+          if (rec.src) forget(rec.src);
+          removeLine(list[i]);
         }
         dropLoneSep();
         return;
+      }
+      queue.forEach(function (en) { forget(en.msg); });
+      for (i = 0; i < list.length; i++) {
+        rec = recs.get(list[i]);
+        if (!rec) continue;
+        forget(rec.msg);
+        if (rec.src) forget(rec.src);
       }
       queue.clear();
       byId.clear();

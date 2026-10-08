@@ -98,26 +98,54 @@
     return w.join(';');
   }
 
-  // name + ':' + weights -> true (asked for) or 'failed'. A failed one is asked for again only with retry (a reconnect
-  // after an outage, the network back): the builder's preview gets every live change, and a font Google Fonts doesn't
-  // host would be asked for, and refused, on each one.
+  // name + ':' + weights -> true (asked for) or 'failed'. A failed one is asked for again on a backoff of its own while
+  // the overlay draws with it (fontRetry), and at once with retry (a reconnect, the network back), but never at once on a
+  // live change: the builder's preview gets every one, and a font Google Fonts doesn't host would be asked for, and
+  // refused, on each.
   var loadedFonts = {};
+  // A failed stylesheet's own retries, on the backoff every other load has (util.retryDelay: 3 s, 10 s, 30 s, 60 s, then
+  // every 5 min): an OBS start before the network is up (no 'online' event when only DNS wasn't ready), an outage IRC
+  // rides out in under 30 s, a Kick-only overlay or one refused request no longer leave the fallback font on for the
+  // whole stream. key -> { timer, n: retries so far }; dropped once the font loads.
+  var fontRetry = {};
+  // Google Fonts family names are case-sensitive in the request URL.
+  function fontName(name) { return name && T.config.canonicalFont ? T.config.canonicalFont(name) : name; }
+  // Whether the overlay draws with this font (and these weights) now: applyFonts' fonts.
+  function fontInUse(key) {
+    var c = S && S.cfg;
+    if (!c) return false;
+    var w = ':' + fontWeights(c);
+    return fontName(c.font) + w === key || (!!c.name_font && fontName(c.name_font) + w === key);
+  }
+  function retryFontLater(name, key) {
+    var r = fontRetry[key] || (fontRetry[key] = { timer: null, n: 0 });
+    if (r.timer) return;
+    r.timer = setTimeout(function () {
+      r.timer = null;
+      // A live change may have moved on from it: it is asked for again once it is back in use (applyFont).
+      if (loadedFonts[key] === 'failed' && fontInUse(key)) applyFont(name, S.cfg, true);
+    }, T.util.retryDelay(r.n++));
+  }
   function applyFont(name, cfg, retry) {
-    // Google Fonts family names are case-sensitive in the request URL.
-    if (name && T.config.canonicalFont) name = T.config.canonicalFont(name);
+    name = fontName(name);
     var weights = fontWeights(cfg), key = name + ':' + weights;
-    if (!name || T.config.isSystemFont(name) || loadedFonts[key] === true || (loadedFonts[key] === 'failed' && !retry)) return;
+    if (!name || T.config.isSystemFont(name) || loadedFonts[key] === true) return;
+    if (loadedFonts[key] === 'failed' && !retry) { retryFontLater(name, key); return; }
     // Generic families (system-ui, serif, ...) are never Google Fonts: a request for one is a wasted 400.
     if (T.renderer.isGenericFont && T.renderer.isGenericFont(name)) return;
+    var r = fontRetry[key];
+    if (r && r.timer) { clearTimeout(r.timer); r.timer = null; }
     loadedFonts[key] = true;
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name).replace(/%20/g, '+') +
       ':wght@' + weights + '&display=swap';
-    // A failed request (offline start, or a family Google doesn't host) is marked, so the next reconnect can ask again.
+    link.onload = function () { delete fontRetry[key]; };
+    // A failed request (offline start, or a family Google doesn't host) is marked and asked for again later.
     link.onerror = function () {
       if (link.parentNode) link.parentNode.removeChild(link);
       loadedFonts[key] = 'failed';
+      retryFontLater(name, key);
     };
     document.head.appendChild(link);
   }
@@ -436,6 +464,13 @@
     var items = T.tokenizer.stripReplyPrefix([{ type: 'text', text: text, sp: false }], m.reply);
     return items.length && items[0].type === 'text' ? items[0].text : '';
   }
+  // A chat line's text as it is drawn (tokensFor), for block_words: a Twitch reply without its leading "@Parent" while
+  // replies are on (with replies=0 it is drawn, and matched); a Kick line as Kick sends it (a Kick reply's text doesn't
+  // name the parent). The renderer's keywords go by the same rule (renderer.shownText).
+  function shownText(m, cfg) {
+    var t = m.text || '';
+    return cfg.replies && !isKick(m) ? replyStripped(m, t) : t;
+  }
 
   // "!cmd", also when sent as a reply ("@Parent !cmd", shown without the "@Parent" prefix). command_prefixes: the
   // signs a command starts with ('!' by default).
@@ -472,7 +507,7 @@
     if (pass && pass[T.renderer.roleOf(m)] !== 1) return false;
     var allow = cfg.allow_users;
     if (Array.isArray(allow) && allow.length && allow.indexOf(m.login || '') < 0) return false;
-    if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(m.text, T.renderer.filtersFor(cfg).block)) return false;
+    if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(shownText(m, cfg), T.renderer.filtersFor(cfg).block)) return false;
     if (cfg.min_length > 0 && textLength(m) < cfg.min_length) return false;
     if (cfg.links === 'hide' && T.renderer.hasLink(m.text)) return false;
     return true;
@@ -482,6 +517,8 @@
     var cfg = S.cfg;
     var login = m.login || '';
     if (login && cfg.block.indexOf(login) >= 0) return false;
+    // Kick's own Bot badge (kick.js) marks a bot whatever its name.
+    if (!cfg.bots && m.kickBot === true && isKick(m)) return false;
     if (!cfg.bots && login) {
       if (DEFAULT_BOTS.indexOf(login) >= 0) return false;
       var home = S.rooms.home();
@@ -903,6 +940,8 @@
   function onKickStatus(status, detail) {
     S.kickStatus = status;
     if (status === 'joined') {
+      // The network works: a font stylesheet that failed is asked for again (a Kick-only overlay has no IRC rejoin).
+      applyFonts(S.cfg, true);
       if (S.kickHintShown) {
         S.kickHintShown = false;
         S.hintSticky = false;
@@ -940,9 +979,10 @@
     var lookup = function () { return T.kick.lookupChannel(cfg.kick); };
     if (cfg.kick_room) {
       connectKick(cfg.kick_room);
-      lookup().then(function (c) { if (c) applyKickChannel(c); }, function (e) {
-        T.util.log('kick channel lookup failed (chat still works with kick_room):', e && e.message);
-      });
+      // Chat already works: the lookup only adds the channel's sub badge images and its 7TV set, and is retried like
+      // every other load (backoff, back online, after an outage) when it fails, so a start before the network is up
+      // doesn't leave them out for the whole stream. A channel Kick doesn't know (null) is simply left at that.
+      track('kick-channel', lookup, function (c) { if (c) applyKickChannel(c); });
       return;
     }
     track('kick-channel', lookup, function (c) {
@@ -990,8 +1030,10 @@
         // for a socket that is connected.
         if (S.stvEvents) S.stvEvents.kick();
         if (S.bttvLive) S.bttvLive.kick();
-        applyFonts(S.cfg, true);
       }
+      // After any outage, however short: a font stylesheet that failed in it is asked for again now (one that loaded,
+      // or is still loading, is left alone).
+      if (S.closedAt) applyFonts(S.cfg, true);
       S.closedAt = 0;
       hideHint();
     } else if (status === 'closed') {

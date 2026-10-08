@@ -352,6 +352,7 @@
   function parse(search, settings) {
     var cfg = defaults();
     applyObject(cfg, settings);
+    var setKick = cfg.kick;
     var params = typeof search === 'string' || search === undefined || search === null
       ? new URLSearchParams(search || '')
       : search;
@@ -363,6 +364,12 @@
     applyObject(cfg, fromUrl);
     // An explicit empty channel= clears a settings.js channel (an invalid non-empty one still falls back).
     if (own(fromUrl, 'channel') && String(fromUrl.channel).trim() === '') cfg.channel = '';
+    // A settings.js chatroom id is its Kick channel's: a URL that names another Kick channel and gives no valid id of its
+    // own leaves it out, so the overlay looks the new channel up instead of joining the old one's chat (builder.startCfg
+    // does the same with its remembered config). An id set in settings.js without a channel stays.
+    if (setKick && cfg.kick !== setKick && (!own(fromUrl, 'kick_room') || coerce('kick_room', fromUrl.kick_room) === undefined)) {
+      cfg.kick_room = '';
+    }
     return cfg;
   }
 

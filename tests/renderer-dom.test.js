@@ -143,6 +143,138 @@ test('a timeout or ban removes the user\'s text from reply headers, even after t
   assert.deepStrictEqual(s.texts(), ['lol', 'ok']);
 });
 
+// A /clear (Twitch) or a chatroom clear (Kick) took the lines, but a reply sent after it still carries the cleared text
+// (Twitch's reply-parent-msg-body, Kick's original_message): the header put it back on stream, as it did before a
+// deletion or a ban was kept out of headers.
+test('a chat clear keeps what it took out of later reply headers: on screen, queued, or already gone before it', (t) => {
+  const s = setup(t, { max: 3 });
+  const gone = chat('hater', 'SPAM ONE');
+  s.r.push(gone);
+  ['a', 'b', 'c'].forEach((n) => s.r.push(chat(n, n)));
+  s.r.flush();
+  assert.deepStrictEqual(s.texts(), ['a', 'b', 'c'], 'the first one left the screen before the clear');
+  const shown = chat('hater', 'SPAM TWO');
+  s.r.push(shown);
+  s.r.flush();
+  s.r.hold(true);
+  const queued = chat('hater', 'SPAM THREE');
+  s.r.push(queued);
+  s.r.clearAll();
+  s.r.hold(false);
+  assert.deepStrictEqual(s.texts(), []);
+  [gone, shown, queued].forEach((p) => s.r.push(replyTo(p, 'amy', 'what was that')));
+  s.r.flush();
+  assert.deepStrictEqual(s.texts(), ['what was that', 'what was that', 'what was that']);
+  assert.deepStrictEqual(s.lines().map(replyText), [null, null, null]);
+  assert.ok(!/SPAM/.test(s.root.textContent), 'no cleared text is drawn');
+  // Said after the clear: a reply to it keeps its header. One the overlay never saw (from before it started) counts as
+  // from before the clear.
+  const after = chat('bob', 'fresh start');
+  s.r.push(after);
+  s.r.push(replyTo(after, 'amy', 'hi bob'));
+  s.r.push(replyTo({ id: 'never-seen', userId: 'u-x', login: 'x', displayName: 'x', text: 'OLD SPAM' }, 'amy', 'eh'));
+  s.r.flush();
+  assert.deepStrictEqual(s.texts(), ['fresh start', 'hi bob', 'eh']);
+  assert.deepStrictEqual(s.lines().map(replyText), [null, '↪ @bob: fresh start', null]);
+  // A copy of a cleared message delivered again is refused, as a deleted one is.
+  assert.strictEqual(s.r.push(Object.assign({}, shown)), false);
+});
+
+test('a Twitch /clear in a combined chat keeps the headers of Kick replies, and a Kick clear those of Twitch ones', (t) => {
+  const s = setup(t, { max: 20 });
+  const isKick = (m) => m.platform === 'kick';
+  const notKick = (m) => !isKick(m);
+  const tw = chat('tw', 'TWITCH TEXT');
+  const kk = chat('kk', 'KICK TEXT', { platform: 'kick', id: 'kick:1', userId: 'kick:9' });
+  s.r.push(tw);
+  s.r.push(kk);
+  s.r.flush();
+  s.r.clearAll(notKick);
+  assert.deepStrictEqual(s.texts(), ['KICK TEXT']);
+  s.r.push(replyTo(tw, 'amy', 'tw reply'));
+  s.r.push(Object.assign(replyTo(kk, 'ann', 'kick reply'), { platform: 'kick', id: 'kick:2', userId: 'kick:8' }));
+  s.r.push(Object.assign(replyTo({ id: 'kick:0', userId: 'kick:7', login: 'old', displayName: 'old', text: 'old kick' }, 'ann', 'kick reply 2'),
+    { platform: 'kick', id: 'kick:3', userId: 'kick:8' }));
+  s.r.flush();
+  const header = (text) => replyText(s.lines().find((l) => l.byClass('message')[0].textContent === text));
+  assert.strictEqual(header('tw reply'), null);
+  assert.strictEqual(header('kick reply'), '↪ @kk: KICK TEXT');
+  assert.strictEqual(header('kick reply 2'), '↪ @old: old kick', 'no Kick clear yet');
+  // Now Kick's own clear, and a Twitch message after the Twitch one: its replies keep their header.
+  const tw2 = chat('tw', 'after the clear');
+  s.r.push(tw2);
+  s.r.flush();
+  s.r.clearAll(isKick);
+  s.r.push(Object.assign(replyTo(kk, 'ann', 'kick reply 3'), { platform: 'kick', id: 'kick:4', userId: 'kick:8' }));
+  s.r.push(replyTo(tw2, 'amy', 'tw reply 2'));
+  s.r.flush();
+  assert.strictEqual(header('kick reply 3'), null);
+  assert.strictEqual(header('tw reply 2'), '↪ @tw: after the clear');
+  // A new Twitch clear covers what was said since the old one.
+  s.r.clearAll(notKick);
+  s.r.push(replyTo(tw2, 'amy', 'tw reply 3'));
+  s.r.flush();
+  assert.strictEqual(header('tw reply 3'), null);
+});
+
+// A deleted id is kept 10 minutes, a ban or a clear an hour: a reply line still on screen after that (a slow chat) got the
+// moderated text back in its header as soon as anything redrew it (a 7TV emote set update, a badge load).
+test('a reply whose quote was moderated keeps it out when its line is redrawn after the moderation has expired', (t) => {
+  const s = setup(t);
+  const del = chat('troll', 'DELETED WORDS');
+  const ban = chat('banned', 'BANNED WORDS');
+  const clr = chat('spam', 'CLEARED WORDS');
+  [del, ban, clr].forEach((m) => s.r.push(m));
+  s.r.flush();
+  s.r.clearMessage(del.id);
+  s.r.clearUser(ban.userId);
+  s.r.clearAll();
+  [del, ban, clr].forEach((m) => s.r.push(replyTo(m, 'amy', 'reply to ' + m.login)));
+  s.r.flush();
+  assert.deepStrictEqual(s.lines().map(replyText), [null, null, null]);
+  s.tick(2 * 3600000);
+  s.r.rerender();
+  assert.deepStrictEqual(s.lines().map(replyText), [null, null, null]);
+  assert.ok(!/WORDS/.test(s.root.textContent));
+  // A reply that arrives now, quoting a message the overlay no longer knows was moderated, is drawn as it comes.
+  s.r.push(replyTo(del, 'bob', 'late'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[3]), '↪ @troll: DELETED WORDS');
+});
+
+test('a chat clear is kept an hour, as a ban is', (t) => {
+  const s = setup(t);
+  const old = { id: 'p0', userId: 'u-x', login: 'x', displayName: 'x', text: 'before' };
+  s.r.clearAll();
+  s.r.push(replyTo(old, 'amy', 'one'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[0]), null);
+  s.tick(3599000);
+  s.r.push(replyTo(old, 'amy', 'two'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[1]), null);
+  s.tick(1000);
+  s.r.push(replyTo(old, 'amy', 'three'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[2]), '↪ @x: before');
+});
+
+test('a chat clear is kept only while the overlay knows every message said since it', (t) => {
+  // More messages since the clear than the overlay notes (shown or not): a reply to one from before it isn't expected.
+  const s = setup(t, {}, { shouldShow: (m) => m.login !== 'filler' });
+  s.r.clearAll();
+  const R = renderer._internal;
+  // The reply is a message too: with it, as many as are noted.
+  for (let i = 0; i < R.DELETED_CAP - 1; i++) s.r.push(chat('filler', 'x'));
+  s.r.push(replyTo({ id: 'p1', userId: 'u-x', login: 'x', displayName: 'x', text: 'before' }, 'amy', 'three'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[0]), null, 'still within the record');
+  s.r.push(chat('filler', 'x'));
+  s.r.push(replyTo({ id: 'p1', userId: 'u-x', login: 'x', displayName: 'x', text: 'before' }, 'amy', 'four'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[1]), '↪ @x: before');
+});
+
 // block_words and links=hide (overlay.js quotesHidden): asked each time a reply is drawn, so a live change takes the
 // header away and gives it back.
 test('deps.quoteHidden leaves a reply\'s header out as it is drawn; a block_words change redraws the replies only', (t) => {

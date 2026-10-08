@@ -816,7 +816,7 @@ test('a font stylesheet that failed is requested again when the network returns'
 
 // The builder posts every live change to its preview: a font Google Fonts doesn't host (one installed on the PC, which
 // the help suggests) answers 400, and was asked for again on each slider step, toggle or color pick.
-test('a font stylesheet that failed is not asked for again on every live change, only at a reconnect or back online', async (t) => {
+test('a font stylesheet that failed is not asked for again at once on a live change, only at a reconnect or back online', async (t) => {
   const css2 = (family) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@400;600;700;800&display=swap';
   const hrefs = (h) => h.links.map((l) => l.href);
   const h = await boot(t, { search: '?channel=home&history=0&font=Gotham' });
@@ -837,15 +837,70 @@ test('a font stylesheet that failed is not asked for again on every live change,
   h.listeners.online.forEach((fn) => fn());
   send({ bg: 70 });
   assert.deepStrictEqual(hrefs(h).slice(3), [css2('Gotham'), css2('Zzzz+Notreal')]);
-  // And after a reconnect that followed an outage.
+  // And after a reconnect, however short the outage (before their own backoff, below, asks for them).
   h.links[3].onerror();
   h.links[4].onerror();
   send({ bg: 80 });
   assert.strictEqual(h.links.length, 5);
   h.irc.onStatus('closed');
-  t.mock.timers.tick(45000);
+  t.mock.timers.tick(2000);
   join(h);
   assert.deepStrictEqual(hrefs(h).slice(5), [css2('Gotham'), css2('Zzzz+Notreal')]);
+});
+
+// OBS starting with the PC before the network is up: the stylesheet failed, and only an 'online' event (none when the
+// adapter was up and DNS was not) or an IRC rejoin after more than 30 s asked for it again, so the overlay could draw
+// the fallback font for the whole stream (a Kick-only overlay has no IRC at all).
+test('a font stylesheet that failed is asked for again on its own backoff (3 s, 10 s, 30 s, 60 s, then 5 min) until it loads', async (t) => {
+  const h = await boot(t, { search: '?channel=home&history=0' });
+  join(h);
+  const steps = [3000, 10000, 30000, 60000, 300000, 300000];
+  steps.forEach((ms, i) => {
+    h.links[i].onerror();
+    t.mock.timers.tick(ms - 1);
+    assert.strictEqual(h.links.length, i + 1, 'not before ' + ms + ' ms');
+    t.mock.timers.tick(1);
+    assert.strictEqual(h.links.length, i + 2, 'after ' + ms + ' ms');
+  });
+  assert.ok(h.links.every((l) => /family=Inter:wght@400;600;700;800&/.test(l.href)));
+  h.links[h.links.length - 1].onload();
+  t.mock.timers.tick(3600000);
+  assert.strictEqual(h.links.length, steps.length + 1, 'loaded: never asked for again');
+});
+
+test('a font stylesheet that failed is asked for again when IRC rejoins after a short outage, and when Kick joins', async (t) => {
+  let h = await boot(t, { search: '?channel=home&history=0' });
+  join(h);
+  h.links[0].onerror();
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(1000);
+  join(h);
+  assert.strictEqual(h.links.length, 2, 'a 1 s outage');
+  h.irc.onStatus('closed');
+  join(h);
+  assert.strictEqual(h.links.length, 2, 'in flight: not asked twice');
+  h = await boot(t, { search: '?kick=kickname&kick_room=668' });
+  h.links[0].onerror();
+  h.kick.opts.onStatus('joined');
+  assert.strictEqual(h.links.length, 2, 'Kick only');
+});
+
+// The backoff keeps the builder's rule: a live change never asks at once, and a font no longer drawn isn't asked for.
+test('a failed font\'s backoff skips it while a live change has moved on, and asks again a step after it is back', async (t) => {
+  const css2 = (family) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@400;600;700;800&display=swap';
+  const h = await boot(t, { search: '?channel=home&history=0&font=Gotham' });
+  join(h);
+  const send = sender(h);
+  h.links[0].onerror();
+  send({ font: 'Roboto' });
+  t.mock.timers.tick(3000);
+  assert.deepStrictEqual(h.links.map((l) => l.href), [css2('Gotham'), css2('Roboto')], 'Gotham isn\'t drawn: not asked for');
+  send({ font: 'Gotham' });
+  assert.strictEqual(h.links.length, 2, 'not at once');
+  t.mock.timers.tick(9999);
+  assert.strictEqual(h.links.length, 2);
+  t.mock.timers.tick(1);
+  assert.deepStrictEqual(h.links.slice(2).map((l) => l.href), [css2('Gotham')], 'the next step');
 });
 
 test('font weights: Light and Black add 300 and 900 to the Google Fonts request, only while one is chosen', async (t) => {
@@ -1184,6 +1239,44 @@ test('Kick: the block list and bot list cover Kick names; a Twitch channel\'s BT
   assert.deepStrictEqual(texts(h), ['samename says hi', 'fine says hi']);
 });
 
+// Kick's StreamElements bot posts as "@StreamElements" with Kick's Bot badge (a real frame, tests/fixtures). Its login
+// once kept the '@', which no bot list, block entry or allow_users entry (config.normalizeLogin takes the '@' off) could
+// ever name: its ads showed at the defaults and couldn't be blocked.
+test('Kick: "@StreamElements" is hidden by bots=0, block=streamelements (or @streamelements); its Bot badge counts too', async (t) => {
+  const f = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'kick-streamelements.json'), 'utf8'));
+  const se = JSON.parse(f.data);
+  se.chatroom_id = 668;
+  const run = async (q) => {
+    const h = await boot(t, { search: '?kick=kickname&kick_room=668' + q });
+    h.kick.send('ChatMessageEvent', kickChat('KickFan', 'normal viewer line'));
+    h.kick.send('ChatMessageEvent', se);
+    // Another account with Kick's Bot badge, under a name no bot list has.
+    h.kick.send('ChatMessageEvent', kickChat('ChannelHelper', 'timer', { sender: { id: 31, username: 'ChannelHelper', identity: { badges: [{ type: 'bot' }] } } }));
+    return h;
+  };
+  const se1 = /^Dzik Energy/;
+  let h = await run('');
+  assert.deepStrictEqual(texts(h), ['normal viewer line'], 'the defaults (bots=0)');
+  h = await run('&bots=1');
+  assert.strictEqual(texts(h).length, 3);
+  assert.match(texts(h)[1], se1);
+  assert.strictEqual(h.deps.nameFor(h.pushed[1]).text, '@StreamElements', 'shown as Kick sends it');
+  for (const b of ['streamelements', '%40streamelements', '@StreamElements']) {
+    h = await run('&bots=1&block=' + b);
+    assert.deepStrictEqual(texts(h), ['normal viewer line', 'timer'], 'block=' + b);
+  }
+  h = await run('&bots=1&allow_users=streamelements');
+  assert.strictEqual(texts(h).length, 1);
+  assert.match(texts(h)[0], se1);
+  // A Kick reply quoting it loses the header while it is blocked.
+  h = await run('&block=streamelements');
+  h.kick.send('ChatMessageEvent', kickChat('Viewer', 'lol', { type: 'reply',
+    metadata: { original_sender: { id: 55807129, username: '@StreamElements' }, original_message: { id: 'd7e968e1-0449-4b52-b795-fe35290ecd1f', content: 'ad' } } }));
+  const reply = h.pushed[h.pushed.length - 1];
+  assert.strictEqual(reply.text, 'lol');
+  assert.strictEqual(h.deps.quoteHidden(reply.reply), true);
+});
+
 test('Kick: events wait for Twitch history, in order with Twitch lines', async (t) => {
   const hist = deferred();
   const h = await boot(t, {
@@ -1223,6 +1316,65 @@ test('Kick without kick_room: the channel lookup finds the chatroom; a refused l
   assert.strictEqual(h.els.hint.hidden, false);
   assert.match(h.els.hint.children[0].textContent, /Kick chatroom for "kickname".*kick_room/);
   assert.strictEqual(h.els.hint.children[1].href, 'builder.html?kick=kickname');
+});
+
+// A local folder whose settings.js names one Kick channel and its chatroom id, opened as overlay.html?kick=other: the
+// overlay joined the settings.js channel's chat (with the other channel's sub badges and 7TV set on top).
+test('Kick: a URL naming another channel than settings.js looks it up instead of joining the settings.js chatroom', async (t) => {
+  const lookups = [];
+  const stubs = (T) => {
+    T.kick.lookupChannel = (slug) => {
+      lookups.push(slug);
+      return Promise.resolve({ chatroomId: slug === 'channel-a' ? '111' : '222', userId: '', slug: slug, username: slug, subBadges: [] });
+    };
+  };
+  let h = await boot(t, { search: '?kick=channel-b', settings: { kick: 'channel-a', kick_room: '111' }, stubs });
+  assert.strictEqual(h.S().cfg.kick_room, '');
+  assert.strictEqual(h.kick.opts.room, '222', 'channel-b\'s own chat');
+  assert.deepStrictEqual(lookups, ['channel-b']);
+  h = await boot(t, { search: '?kick=channel-a', settings: { kick: 'channel-a', kick_room: '111' }, stubs });
+  assert.strictEqual(h.kick.opts.room, '111', 'the same channel keeps its id');
+});
+
+// With kick_room the lookup only adds the sub badge images and the channel's 7TV set. Asked once, a failure at startup
+// (OBS starting before the network is up) left them out for the whole stream; now it is retried like any load.
+test('Kick with kick_room: a channel lookup that failed is retried (backoff, back online), then adds badges and 7TV', async (t) => {
+  let n = 0;
+  const h = await boot(t, {
+    search: '?kick=kickname&kick_room=668',
+    stubs(T) {
+      T.kick.lookupChannel = () => (++n === 1 ? Promise.reject(new TypeError('Failed to fetch'))
+        : Promise.resolve({ chatroomId: '668', userId: '676', slug: 'kickname', username: 'KickName',
+          subBadges: [{ months: 1, url: 'https://files.kick.com/sub/1' }] }));
+      T.seventv.loadChannel = (id, plat) => Promise.resolve(plat === 'kick'
+        ? { emotes: new Map([['KickSet', { name: 'KickSet' }]]), setId: null, ownerId: null } : null);
+    }
+  });
+  assert.strictEqual(h.kick.started, 1, 'chat connects at once');
+  assert.strictEqual(n, 1);
+  assert.strictEqual(h.S().loads.get('kick-channel').status, 'failed');
+  assert.strictEqual(h.S().kickSubBadges.length, 0);
+  // The network is back.
+  h.listeners.online.forEach((fn) => fn());
+  await settle();
+  assert.strictEqual(n, 2);
+  assert.strictEqual(h.S().kickSubBadges.length, 1);
+  assert.strictEqual(h.S().kickStv.size, 1, 'the Kick channel\'s own 7TV set');
+  assert.strictEqual(h.kick.started, 1, 'the chat socket is left as it is');
+  assert.strictEqual(h.els.hint.hidden, true);
+  // On its own too, after 3 s.
+  n = 0;
+  const g = await boot(t, {
+    search: '?kick=kickname&kick_room=668',
+    stubs(T) { T.kick.lookupChannel = () => (++n === 1 ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(null)); }
+  });
+  t.mock.timers.tick(3000);
+  await settle();
+  assert.strictEqual(n, 2);
+  assert.strictEqual(g.S().loads.get('kick-channel').status, 'ok', 'a channel Kick doesn\'t know is no failure');
+  t.mock.timers.tick(20000);
+  await settle();
+  assert.strictEqual(g.els.hint.hidden, true, 'chat works with kick_room: no hint');
 });
 
 test('Kick: a refused app key shows a hint that joining clears', async (t) => {
@@ -1367,6 +1519,30 @@ test('chat filters: words, links and length hide chat lines only; a reply quotin
   send({ block_words: 'spoiler', reply_style: 'name' });
   assert.strictEqual(h.deps.quoteHidden(h.pushed[n].reply), false);
   assert.strictEqual(h.deps.quoteHidden(undefined), false);
+});
+
+// A Twitch reply's text starts with "@Parent", which isn't drawn while replies are on: block_words once matched it, so
+// block_words=simp hid every reply to the chatter Simp (and none of Simp's own lines).
+test('block_words: a reply\'s "@Parent" is matched only where it is drawn (replies=0); a Kick line as Kick sends it', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0&block_words=simp' });
+  join(h);
+  const toSimp = { 'reply-parent-msg-id': 'p', 'reply-parent-user-id': 'u-simp', 'reply-parent-user-login': 'simp',
+    'reply-parent-display-name': 'Simp', 'reply-parent-msg-body': 'hello\\sall' };
+  h.feed(priv('simp', 'hello all'));
+  h.feed(priv('amy', '@Simp thanks for the sub!', toSimp));
+  h.feed(priv('amy', '@simp nice play', toSimp));
+  h.feed(priv('amy', '@Simp what a simp', toSimp));
+  h.feed(priv('amy', 'what a simp'));
+  // A Kick reply's text doesn't name its parent: an "@Simp" there was typed, and is drawn.
+  h.kick.send('ChatMessageEvent', kickChat('kfan', '@Simp hi', { type: 'reply',
+    metadata: { original_sender: { id: 1, username: 'Simp' }, original_message: { id: 'k-p', content: 'yo' } } }));
+  assert.deepStrictEqual(texts(h), ['hello all', '@Simp thanks for the sub!', '@simp nice play']);
+  // replies=0 draws the "@Simp": then it is matched.
+  const send = sender(h);
+  send({ replies: false });
+  assert.deepStrictEqual(h.pushed.slice(1).map((m) => h.deps.shouldShow(m)), [false, false]);
+  send({ replies: true });
+  assert.deepStrictEqual(h.pushed.slice(1).map((m) => h.deps.shouldShow(m)), [true, true]);
 });
 
 test('block: a reply to a blocked user goes through min_length and the command check like any reply; live, headers follow', async (t) => {

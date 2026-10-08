@@ -175,6 +175,27 @@ test('toMessage: replies (object or JSON-string metadata), bad colors, unknown b
   assert.strictEqual(kick.toMessage(null), null);
 });
 
+// tests/fixtures/kick-streamelements.json: a real frame from Kick's StreamElements bot (captured from Kick's Pusher socket,
+// 2026-10-08). Its name is "@StreamElements", and it carries Kick's Bot badge, which the overlay doesn't draw.
+test('a Kick name with a leading "@" (Kick\'s StreamElements bot) is matched without it; Kick\'s Bot badge marks a bot', () => {
+  const f = JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, 'fixtures', 'kick-streamelements.json'), 'utf8'));
+  const m = kick.parseEvent(f.event, f.data).msg;
+  assert.strictEqual(m.login, 'streamelements', 'what block, allow_users and the bot list name');
+  assert.strictEqual(m.displayName, '@StreamElements', 'shown as Kick sends it');
+  assert.strictEqual(m.kickBot, true);
+  assert.deepStrictEqual(m.kickBadges.map((b) => b.type), ['moderator', 'verified'], 'the Bot badge is not drawn');
+  assert.ok(!('kickBot' in kick.toMessage(chat())), 'other messages keep their shape');
+  assert.strictEqual(kick.toMessage(chat({ sender: { id: 3, username: 'x', identity: { badges: [{ type: 'BOT' }] } } })).kickBot, true);
+  // A reply quoting it, a notice about it and a ban of it name it the same way.
+  const meta = { original_sender: { id: 55807129, username: '@StreamElements' }, original_message: { id: 'abc-1', content: 'ad' } };
+  const reply = kick.toMessage(chat({ type: 'reply', metadata: meta })).reply;
+  assert.deepStrictEqual([reply.login, reply.name], ['streamelements', '@StreamElements']);
+  const ban = kick.parseEvent('App\\Events\\UserBannedEvent', JSON.stringify({ user: { id: 5, username: '@Bot' } }));
+  assert.deepStrictEqual(ban, { type: 'ban', userId: 'kick:5', login: 'bot' });
+  assert.strictEqual(kick.parseEvent('App\\Events\\SubscriptionEvent', JSON.stringify({ username: '@Fan', months: 1 })).msg.login, 'fan');
+  assert.deepStrictEqual(['@@x', 'Some_Viewer', '@', 'a@b'].map((s) => kick.loginOf(s)), ['x', 'some_viewer', '@', 'a@b']);
+});
+
 test('parseEvent maps every Kick event, with string or object data', () => {
   const ev = (name, d) => kick.parseEvent('App\\Events\\' + name, JSON.stringify(d));
   assert.strictEqual(ev('ChatMessageEvent', chat()).type, 'message');

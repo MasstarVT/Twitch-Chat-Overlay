@@ -132,6 +132,23 @@ describe('normalizeKick', () => {
     assert.equal(config.parse('Kick=Other&KICK_ROOM=5', settings).kick_room, '5');
   });
 
+  // A second OBS source on a local folder, opened as overlay.html?kick=other: the settings.js chatroom id is xqc's, and
+  // joining it showed xqc's Kick chat as the other channel's.
+  test('a settings.js kick_room is left out when the URL names another Kick channel without an id of its own', () => {
+    const settings = { kick: 'xqc', kick_room: '668' };
+    assert.equal(config.parse('kick=other', settings).kick, 'other');
+    assert.equal(config.parse('kick=other', settings).kick_room, '', 'looked up instead');
+    assert.equal(config.parse('Kick=https://kick.com/Other', settings).kick_room, '');
+    assert.equal(config.parse('kick=other&kick_room=12a', settings).kick_room, '', 'an invalid id of its own is none');
+    assert.equal(config.parse('kick=other&kick_room=5', settings).kick_room, '5');
+    // The same channel (in any spelling), an invalid name (the settings.js channel stays) or no kick in the URL: kept.
+    ['', 'kick=XQC', 'Kick=https://kick.com/xqc', 'kick=bad%20name', 'channel=forsen'].forEach((q) =>
+      assert.equal(config.parse(q, settings).kick_room, '668', q));
+    // An id in settings.js without a channel stays, as in the builder.
+    assert.equal(config.parse('kick=other', { kick_room: '668' }).kick_room, '668');
+    assert.equal(config.parse('kick=other', { Kick: 'xqc', KICK_ROOM: '668' }).kick_room, '');
+  });
+
   test('only a set Kick channel and room reach the URL and settings.js', () => {
     const cfg = config.defaults();
     assert.equal(config.toParams(cfg).toString(), '');

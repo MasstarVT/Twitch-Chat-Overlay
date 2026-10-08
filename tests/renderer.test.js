@@ -728,6 +728,12 @@ test('mentions: @name (at), or the bare name too (name), of the Twitch login and
   ['@homeさん こんにちは', '@home님 안녕하세요', '@home你好', 'こんにちは@home', '@home，你好', 'привет@home', '@kick-nameさん', '@home-さん']
     .forEach((s) => assert.ok(t(at, s) && t(name, s), s));
   ['@homeless', '@homé', '@home-made', '@home_', '@home2', 'éx@home'].forEach((s) => assert.ok(!t(at, s) && !t(name, s), s));
+  // A '-' joined to a name character makes a bare name part of a longer one in front too, as after it (a Kick slug can
+  // have one: my-home is another channel); name tints everything at does ('@' after a word and a '-', '.', or '/').
+  ['jelly-home', 'anti-home', '1-home', 'é-home', 'x_-home', 'go to kick.com/my-home', '@my-home', 'my-kick-name', 'my-kick_name',
+    'jelly-bean-home'].forEach((s) => assert.ok(!t(name, s) && !t(at, s), s));
+  ['not-@home', 'jelly-@home', 'lol.@home', '/@home', '-@home'].forEach((s) => assert.ok(t(at, s) && t(name, s), s));
+  ['-home', '- home', 'ほ-home', 'さん-home', '(-home)', '--home'].forEach((s) => assert.ok(t(name, s) && !t(at, s), s));
   // Only the names that are set: a Kick-only overlay looks for the slug, one with neither looks for nothing.
   assert.ok(t({ mentions: 'at', kick: 'kick-name' }, '@kick_name') && !t({ mentions: 'at', kick: 'kick-name' }, '@home'));
   assert.ok(t({ mentions: 'at', channel: 'home' }, '@home') && !t({ mentions: 'at', channel: 'home' }, '@kick-name'));
@@ -792,6 +798,21 @@ test('keywords: any letter case, whole words at word ends, phrases with any run 
   assert.strictEqual(hlCls(users, { platform: 'kick', login: 'kick_fan', text: 'hi' }), 'line user-hl platform-kick');
   assert.strictEqual(hlCls(users, { login: 'wave', text: 'waver' }), 'line', 'by login, not by text');
   assert.strictEqual(hlCls({ highlight_users: ['constructor'] }, { login: '__proto__' }), 'line');
+});
+
+// A Twitch reply's text starts with "@Parent", which isn't drawn while replies are on: keywords=simp once tinted every
+// reply to the chatter Simp (and none of Simp's own lines).
+test('keywords: a reply\'s "@Parent" is matched only where it is drawn (replies=0); a Kick line as Kick sends it', () => {
+  const reply = { id: 'p', login: 'simp', name: 'Simp' };
+  const cls = (over, msg) => hlCls(Object.assign({ keywords: ['simp'] }, over), msg);
+  assert.strictEqual(cls({}, { text: '@Simp thanks for the sub!', reply: reply }), 'line');
+  assert.strictEqual(cls({}, { text: '@simp nice', reply: reply }), 'line', 'by login too, any letter case');
+  assert.strictEqual(cls({}, { text: '@Simp', reply: reply }), 'line');
+  assert.strictEqual(cls({}, { text: '@Simp what a simp', reply: reply }), 'line keyword', 'its own text still counts');
+  assert.strictEqual(cls({}, { text: '@Simpson hi', reply: reply }), 'line', 'no "@Simp " there: nothing taken off');
+  assert.strictEqual(cls({}, { text: '@Simp hi' }), 'line keyword', 'not a reply: drawn as it is');
+  assert.strictEqual(cls({ replies: false }, { text: '@Simp thanks for the sub!', reply: reply }), 'line keyword', 'drawn with replies=0');
+  assert.strictEqual(cls({}, { platform: 'kick', text: '@Simp hi', reply: reply }), 'line keyword platform-kick', 'a Kick reply as sent');
 });
 
 test('roleOf: Twitch badge tags (source badges on a mirrored line), Kick badge types; the highest role', () => {
@@ -1284,10 +1305,11 @@ test('config keys that trigger a re-render or a filter sweep', () => {
     assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0, k);
   }
   for (const k of ['bots', 'hide_commands', 'block']) assert.ok(R.FILTER_KEYS.indexOf(k) >= 0, k);
-  // The filters and event switches sweep the lines they now hide; links also rebuilds them (shorten rewrites the text).
+  // The filters and event switches sweep the lines they now hide; links also rebuilds them (shorten rewrites the text),
+  // and replies too (block_words matches a reply's "@Parent" only while replies=0 draws it).
   ['event_subs', 'event_gifts', 'event_raids', 'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words',
-    'min_length', 'links', 'command_prefixes'].forEach((k) => assert.ok(R.FILTER_KEYS.indexOf(k) >= 0, k));
-  assert.deepStrictEqual(R.FILTER_KEYS.filter((k) => R.RERENDER_KEYS.indexOf(k) >= 0).sort(), ['links', 'shared']);
+    'min_length', 'links', 'command_prefixes', 'replies'].forEach((k) => assert.ok(R.FILTER_KEYS.indexOf(k) >= 0, k));
+  assert.deepStrictEqual(R.FILTER_KEYS.filter((k) => R.RERENDER_KEYS.indexOf(k) >= 0).sort(), ['links', 'replies', 'shared']);
 });
 
 test('every live config key is handled by the renderer', () => {
