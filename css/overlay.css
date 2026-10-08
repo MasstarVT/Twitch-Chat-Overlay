@@ -316,17 +316,19 @@ body {
 /* emote_only=big/huge: a message of emotes alone (.emote-only, a column only) draws them --eo times as tall. A
    gigantified emote (.big) keeps its own 3x. */
 :where(.line.emote-only) .emote-stack:not(.big) { --eh: calc(var(--emote-h, 1.75em) * var(--eo, 2)); }
-/* In a column an emote reaches past its line only as far as there is room; past that the line grows instead (as for a
-   GIF), so the emote keeps clear of the name above it (name_line), a reply header, the row of text above it, its bg box
-   and the emotes of the next line. At the defaults the margins stay -.3em, as always.
+/* An emote reaches past its line only as far as there is room; past that the line grows instead (as for a GIF), so the
+   emote keeps clear of the name above it (name_line), a reply header, the row of text above it, its bg box and the
+   emotes of the next line. In a row too: there it stays clear of a reply header and inside its box, and a row's GIFs
+   take the same margins (below). At the defaults the margins stay -.3em, as always.
    - Taller than its line (gigantified, emote_only, emote_scale above 100): from 2.05em (1.75em + .3em) it reaches at most
      .2em below its line and never above it.
    - line_height below 135: the line has less room above its text, so that 2.05em comes down twice as fast as the line
      height (1.35em at line_height 100), and a 1.75em emote's line grows.
    - spacing=tight, without a box: at most twice the gap between two lines' text (--emote-hang, set on #chat), so the
-     emotes of two lines in a row overlap no more than at normal spacing. A box's own .2em padding holds them. */
+     emotes of two lines in a row overlap no more than at normal spacing. A box's own .2em padding holds them. The
+     messages of a horizontal row sit side by side, so it has none there (the .3em fallback). */
 :where(.layout-vertical:not(.has-bg)) { --emote-hang: calc(2 * var(--line-gap, .15em)); }
-:where(.layout-vertical) .emote-stack {
+:where(.layout-vertical, .layout-horizontal) .emote-stack {
   margin-top: calc(-1 * max(0em, min(.3em, var(--emote-hang, .3em), 2.05em - var(--eh),
     (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));
   margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(.3em, var(--emote-hang, .3em), 2.05em - var(--eh),
@@ -363,8 +365,8 @@ body {
   vertical-align: middle;
   margin: -.3em .05em;
 }
-/* Taller than its line (emote_scale above 100), a line_height below 135, spacing=tight: as an emote's, in a column */
-:where(.layout-vertical) .cheer-img {
+/* Taller than its line (emote_scale above 100), a line_height below 135, spacing=tight: as an emote's, in either layout */
+:where(.layout-vertical, .layout-horizontal) .cheer-img {
   margin-top: calc(-1 * max(0em, min(.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em),
     (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
   margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em),
@@ -415,43 +417,73 @@ body {
 }
 /* A reply header makes a line at most 15em wide; longer ones end in an ellipsis. */
 .layout-horizontal .reply { max-width: 15em; }
+/* A row along the top edge lines its messages up by their top, so a reply header on a row of its own above its message
+   would put that message a header lower than the others (and, in a source one row tall, cut it off). There the header
+   sits before its message on the same row instead, in its own box (the 15em cap and the ellipsis still apply), on the
+   message's baseline: overflow: clip keeps that box's baseline its text's (a hidden one's would be its bottom edge). */
+:where(.layout-horizontal.align-top) .reply {
+  display: inline-block;
+  vertical-align: baseline;
+  overflow: clip;
+  margin-right: .5em;
+}
 .layout-horizontal .emote-stack.big { --eh: var(--emote-h, 1.75em); }
 /* An emote's box, with its width reserved up front: a GIF has no size until it loads, and growing then
-   would shove the whole row sideways. object-fit: contain letterboxes other shapes. */
+   would shove the whole row sideways. object-fit: contain letterboxes other shapes. Its margins are an emote's (above):
+   -.3em .05em, with no room above and .2em below once it is taller than its line. */
 .layout-horizontal .gif {
   width: calc(var(--emote-h, 1.75em) * 16 / 9);
   height: var(--emote-h, 1.75em);
   max-height: var(--emote-h, 1.75em);
-  margin: -.3em .05em;
+  margin: calc(-1 * max(0em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)))) .05em
+    calc(-1 * max(.2em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
+}
+/* The messages of a row are lined up by their box's edge, so every one is as tall as one with an emote (a cheer, a GIF)
+   or a badge: an empty inline box at its end whose line-height is the tallest of those (its margin box: an emote's height
+   less its margins), on the same middle line. Their text then lines up whatever emote_scale, badge_size and line_height
+   are. Inline, not an inline-block: a space at the end of a message still collapses. With Inter at the defaults it fits
+   inside the line, as an emote does, so nothing moves. */
+.layout-horizontal .line::after {
+  content: '';
+  line-height: max(var(--badge-h, 1em), var(--emote-h, 1.75em)
+    - max(0em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)))
+    - max(.2em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
+  vertical-align: middle;
 }
 /* row_sep: a dot, bar or diamond before every message in a row but the first. A pseudo-element can't sit between
    flex items, so it is drawn in the message (in its box, with bg), before its first inline part: after a reply
-   header, whose block would put it on a row of its own. Fixed glyphs in the text color (a notice's own text is
-   lavender); an empty badge holder shows to carry one. Without a box the row's gap comes before the mark, so the
-   same gap follows it. A line whose line before it left out of view at the left edge keeps its mark (.keep-sep, set by
-   renderer.js), so a mark in view never vanishes when the row trims a line it has slid past. :is() keeps these at the
+   header, whose block would put it on a row of its own. In a row along the top edge, where the header sits before its
+   message on the same row, the message itself carries it, before the header. Fixed glyphs in the text color (a notice's
+   own text is lavender); an empty badge holder shows to carry one. Without a box the row's gap comes before the mark, so
+   the same gap follows it. A line whose line before it left out of view at the left edge keeps its mark (.keep-sep, set
+   by renderer.js), so a mark in view never vanishes when the row trims a line it has slid past. :is() keeps these at the
    specificity of .line + .line. */
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before {
+:where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before,
+:where(.layout-horizontal.align-top):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep)::before {
   margin-right: .5em;
   color: var(--text-color, #fff);
   opacity: .6;
 }
-:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
-:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before {
+:where(.layout-horizontal.align-bottom:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal.align-bottom:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before,
+:where(.layout-horizontal.align-top:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep)::before {
   margin-right: var(--row-gap, 1em);
 }
-:where(.layout-horizontal.sep-dot) :is(.line + .line, .line.keep-sep) > .reply + *::before,
-:where(.layout-horizontal.sep-dot) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before { content: '\2022'; }
-:where(.layout-horizontal.sep-bar) :is(.line + .line, .line.keep-sep) > .reply + *::before,
-:where(.layout-horizontal.sep-bar) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before { content: '|'; }
-:where(.layout-horizontal.sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
-:where(.layout-horizontal.sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before { content: '\25C6'; }
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .badges:empty { display: inline; }
+:where(.layout-horizontal.align-bottom.sep-dot) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal.align-bottom.sep-dot) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before,
+:where(.layout-horizontal.align-top.sep-dot) :is(.line + .line, .line.keep-sep)::before { content: '\2022'; }
+:where(.layout-horizontal.align-bottom.sep-bar) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal.align-bottom.sep-bar) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before,
+:where(.layout-horizontal.align-top.sep-bar) :is(.line + .line, .line.keep-sep)::before { content: '|'; }
+:where(.layout-horizontal.align-bottom.sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal.align-bottom.sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before,
+:where(.layout-horizontal.align-top.sep-diamond) :is(.line + .line, .line.keep-sep)::before { content: '\25C6'; }
+:where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .badges:empty { display: inline; }
 /* timestamps: a line's time comes first (after a reply header), so it carries the mark. Its smaller, fainter text is
    undone for the mark and the gap after it: 1.25 x .8em is the line's 1em, and .857 x .7 is the .6 above. */
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + .time::before,
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .time:first-child::before {
+:where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + .time::before,
+:where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .time:first-child::before {
   font-size: 1.25em;
   opacity: .857;
 }
@@ -460,7 +492,8 @@ body {
    keeps the bigger mark from making the notice's line taller. After the time's rule, which it ties. */
 @property --row-em { syntax: '<length>'; inherits: true; initial-value: 0px; }
 :where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) { --row-em: 1em; }
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child::before {
+:where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child::before,
+:where(.layout-horizontal.align-top):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice::before {
   font-size: var(--row-em);
   line-height: 0;
 }
@@ -488,8 +521,9 @@ body {
   border-top-left-radius: calc(var(--sep-w) + var(--row-gap, 1em) + .3em) .3em;
   border-bottom-left-radius: calc(var(--sep-w) + var(--row-gap, 1em) + .3em) .3em;
 }
-:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint) > .reply + *::before,
-:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint) > :first-child:not(.reply)::before {
+:where(.layout-horizontal.align-bottom:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint) > .reply + *::before,
+:where(.layout-horizontal.align-bottom:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint) > :first-child:not(.reply)::before,
+:where(.layout-horizontal.align-top:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint)::before {
   display: inline-block;
   width: var(--sep-w);
   text-align: center;
@@ -499,8 +533,10 @@ body {
 
 /* line_width=5..100: no message wider than --line-max, in either layout (a longer one wraps in a column and ends in
    an ellipsis in a row). After the row's rules, which it beats on order alone. A notice's em is its own smaller
-   text, so its cap is --line-max-n: the same width. */
-.has-maxw .line { max-width: min(100%, var(--line-max, 100%)); }
+   text, so its cap is --line-max-n: the same width. The cap holds a bar's or a tint's padding too (border-box, as
+   with bg and in a row), so in a column without a box no message is wider than the others' cap, and with text_align
+   right or center their bars and tints line up. */
+.has-maxw .line { box-sizing: border-box; max-width: min(100%, var(--line-max, 100%)); }
 .has-maxw .line.notice { max-width: min(100%, var(--line-max-n, var(--line-max, 100%))); }
 
 /* ---------- animations ---------- */

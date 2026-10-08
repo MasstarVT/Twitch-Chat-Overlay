@@ -912,7 +912,7 @@ test('links=shorten: each link as its host name, as text; what follows a link st
   assert.strictEqual(s('(see https://x.com/a)'), '(see x.com)', 'a bracket around the link stays');
   assert.strictEqual(s('https://en.wikipedia.org/wiki/Foo_(bar)'), 'en.wikipedia.org', 'a bracket of the link\'s own goes with it');
   assert.strictEqual(s('https://user:pw@evil.example/x'), 'evil.example', 'only the host');
-  assert.strictEqual(s('https://例え.jp/x'), 'xn--r8jz45g.jp', 'an international name as the parser writes it');
+  assert.strictEqual(s('https://例え.jp/x'), '例え.jp', 'an international name in its own letters');
   assert.strictEqual(s('https://[nope/x'), 'https://[nope/x', 'a link the parser rejects stays');
   assert.strictEqual(s('file:///etc/x'), 'file:///etc/x', 'no host: as it is');
   assert.strictEqual(s('steam://run/123 or C://Users'), 'steam://run/123 or C://Users', 'other schemes are no site: as they are');
@@ -944,6 +944,43 @@ test('links=shorten: each link as its host name, as text; what follows a link st
   assert.deepStrictEqual(R.replyModel(reply, true, true), { name: '@A', short: true });
   const m = (cfg) => R.modelFor({ login: 'b', reply: reply }, R.normalizeCfg(cfg), { kind: 'chat', items: [] }).reply.body;
   assert.deepStrictEqual([m({}), m({ links: 'hide' }), m({ links: 'shorten' })], ['look https://x.com/a', 'look https://x.com/a', 'look x.com']);
+});
+
+test('links=shorten: an international site name in its own letters, as links=show draws it, not its xn-- form', () => {
+  // renderer-css round 3: new URL().hostname is the punycode (ASCII) form, so 'www.müller.de' was drawn as
+  // 'www.xn--mller-kva.de' and 'яндекс.рф' as 'xn--d1acpjx3f.xn--p1ai'.
+  const s = renderer.shortenLinks;
+  assert.strictEqual(s('schau mal https://www.müller.de/angebote'), 'schau mal www.müller.de');
+  assert.strictEqual(s('смотри https://яндекс.рф/maps'), 'смотри яндекс.рф');
+  assert.strictEqual(s('https://日本語.jp/news'), '日本語.jp');
+  assert.strictEqual(s('see https://bücher.de.'), 'see bücher.de.', 'the sentence\'s sign stays after it');
+  // As the parser reads the name: lower case, only the host, full-width letters and the ideographic dot mapped.
+  assert.strictEqual(s('www.MÜLLER.de/x'), 'www.müller.de');
+  assert.strictEqual(s('https://user:pw@MÜLLER.de:8080/x'), 'müller.de');
+  assert.strictEqual(s('https://ｅｘａｍｐｌｅ。ｃｏｍ/x'), 'example.com');
+  // A name typed in its xn-- form shows its letters too, as a browser shows it; ASCII names and addresses are untouched.
+  assert.strictEqual(s('https://xn--r8jz45g.xn--zckzah/'), '例え.テスト');
+  assert.strictEqual(s('https://xn--mller-kva.de/'), 'müller.de');
+  assert.strictEqual(s('https://clips.twitch.tv/a?b'), 'clips.twitch.tv');
+  assert.strictEqual(s('https://xn-x.example/ https://a--b.example/'), 'xn-x.example a--b.example');
+  assert.strictEqual(s('https://[::1]:80/x'), '[::1]');
+  // Every label decodes as Node's own domainToUnicode does (the same RFC 3492 algorithm).
+  const url = require('node:url');
+  const pool = Array.from('abcxyzäöüßéñçøåæœ日本語例えテスト한국어中文ไทยعربيעבריתкириллица€😀-0123456789');
+  let n = 0, seed = 7;
+  const rnd = (k) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return (seed >>> 8) % k; };
+  for (let k = 0; k < 3000; k++) {
+    let lab = '';
+    for (let q = 1 + rnd(12); q > 0; q--) lab += pool[rnd(pool.length)];
+    let h;
+    try { h = new URL('https://' + lab + '.de/').hostname; } catch (e) { continue; }
+    if (h.indexOf('xn--') < 0) continue;
+    n++;
+    assert.strictEqual(s('https://' + lab + '.de/x'), url.domainToUnicode(h), lab);
+  }
+  assert.ok(n > 1000, 'international names tried: ' + n);
+  // A reply header's quote too.
+  assert.strictEqual(R.replyModel({ name: 'A', body: 'look https://www.müller.de/x' }, false, true).body, 'look www.müller.de');
 });
 
 test('the chat filters\' patterns: built once per cfg object, never stored on it; prefixes escaped; words as keywords', () => {

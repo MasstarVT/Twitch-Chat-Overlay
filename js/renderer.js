@@ -103,7 +103,8 @@
   // margins (--gif-margin), so its line is no taller than one with emotes: as css/overlay.css gives an emote in a column,
   // -.3em .05em, except that it reaches past its line only as far as there is room: one taller than its line (emote_scale
   // above 100) never above it and at most .2em below it, less at a line_height below 135, and at spacing=tight without a
-  // box no more than twice the gap (--emote-hang). A row draws GIFs with its own margins. --gif-margin is set on #chat,
+  // box no more than twice the gap (--emote-hang). A row draws GIFs at emote height whatever gif_size is, with the same
+  // margins written into its own rule (.layout-horizontal .gif), so --gif-margin is a column's. It is set on #chat,
   // where --emote-h, --line-height and --emote-hang are too, so the var()s below take #chat's values.
   var GIF_MUL = { '1x': '1', '2x': '2' };
   var EMOTE_ROOM = '.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), ' +
@@ -793,7 +794,8 @@
   // links=shorten: each link as its site's host name ('https://clips.twitch.tv/x?y' is 'clips.twitch.tv'), still as
   // text (a link is never made clickable). The signs a sentence puts after a link stay after the host, and so does a
   // closing bracket, unless the link has an opening one of its own ('…/Foo_(bar)'). A link the URL parser rejects, or
-  // one without a host, stays as it is.
+  // one without a host, stays as it is. An international name is shown in its own letters ('www.müller.de'), as
+  // links=show and a browser's address bar show it, not as the parser writes it ('www.xn--mller-kva.de').
   function shortenLinks(text) {
     if (!hasLink(text)) return text;
     return text.replace(LINKS_RE, function (url) {
@@ -801,8 +803,57 @@
       var core = tail ? url.slice(0, tail.index) : url;
       var host = '';
       try { host = new URL(/^www\./i.test(core) ? 'http://' + core : core).hostname; } catch (e) { host = ''; }
-      return host ? host + (tail ? tail[0] : '') : url;
+      return host ? hostLetters(host) + (tail ? tail[0] : '') : url;
     });
+  }
+  // A host name from the URL parser with each 'xn--' label (the parser's ASCII form of an international name) decoded.
+  // The parser has already checked and lower-cased the name; a label that still doesn't decode stays as it is.
+  function hostLetters(host) {
+    if (host.indexOf('xn--') < 0) return host;
+    return host.split('.').map(function (label) {
+      var u = label.slice(0, 4) === 'xn--' ? punyDecode(label.slice(4)) : null;
+      return u || label;
+    }).join('.');
+  }
+  // RFC 3492 punycode: the letters a label's part after 'xn--' stands for, or null when it is not valid punycode (a
+  // digit that isn't one, an overflow, no code point).
+  var PUNY_MAX = 2147483647;
+  function punyAdapt(delta, points, first) {
+    var k = 0;
+    delta = first ? Math.floor(delta / 700) : delta >> 1;
+    delta += Math.floor(delta / points);
+    for (; delta > 455; k += 36) delta = Math.floor(delta / 35);
+    return Math.floor(k + 36 * delta / (delta + 38));
+  }
+  function punyDecode(s) {
+    var out = [], n = 128, i = 0, bias = 72;
+    var basic = Math.max(s.lastIndexOf('-'), 0);
+    for (var j = 0; j < basic; j++) {
+      if (s.charCodeAt(j) >= 0x80) return null;
+      out.push(s.charCodeAt(j));
+    }
+    for (var at = basic > 0 ? basic + 1 : 0; at < s.length;) {
+      var old = i;
+      for (var w = 1, k = 36; ; k += 36) {
+        if (at >= s.length) return null;
+        var c = s.charCodeAt(at++);
+        var digit = c >= 48 && c < 58 ? c - 22 : c >= 65 && c < 91 ? c - 65 : c >= 97 && c < 123 ? c - 97 : 36;
+        if (digit >= 36 || digit > Math.floor((PUNY_MAX - i) / w)) return null;
+        i += digit * w;
+        var t = k <= bias ? 1 : k >= bias + 26 ? 26 : k - bias;
+        if (digit < t) break;
+        if (w > Math.floor(PUNY_MAX / (36 - t))) return null;
+        w *= 36 - t;
+      }
+      var len = out.length + 1;
+      bias = punyAdapt(i - old, len, old === 0);
+      if (Math.floor(i / len) > PUNY_MAX - n) return null;
+      n += Math.floor(i / len);
+      i %= len;
+      if (n > 0x10FFFF) return null;
+      out.splice(i++, 0, n);
+    }
+    try { return out.length ? String.fromCodePoint.apply(String, out) : null; } catch (e) { return null; }
   }
   // The same over tokenizer items: only text items change (emotes, cheers and GIFs are items of their own). A changed
   // item is a copy, so the items handed in are left as they were.

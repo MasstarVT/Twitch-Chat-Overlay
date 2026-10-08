@@ -1610,7 +1610,7 @@ test('overlay.css: the layout rules (stage 4) stay off by default, in their own 
   assert.match(css, /\n\.text-right:where\([^)]*\) \.line \{ margin-left: auto; \}/);
   assert.ok(at('.text-right:where(') > at('.has-bg .line {'), 'after the box\'s own margin, which it overrides at (0,2,0)');
   // line_width: class-only (0,2,0), after the row's rules it beats on order; notices get their own em's cap.
-  assert.match(css, /\n\.has-maxw \.line \{ max-width: min\(100%, var\(--line-max, 100%\)\); \}/);
+  assert.match(css, /\n\.has-maxw \.line \{ box-sizing: border-box; max-width: min\(100%, var\(--line-max, 100%\)\); \}/);
   assert.match(css, /\n\.has-maxw \.line\.notice \{ max-width: min\(100%, var\(--line-max-n, var\(--line-max, 100%\)\)\); \}/);
   assert.ok(at('.has-maxw .line {') > at('.layout-horizontal .line {') && at('.layout-horizontal .line {') > at('.has-bg .line {'));
   // edge_fade: on #chat (never .lines, which moves), the -webkit- property Chromium 103 has, toward the edge old
@@ -1624,33 +1624,45 @@ test('overlay.css: the layout rules (stage 4) stay off by default, in their own 
   assert.doesNotMatch(css, /[^-]mask-image/, 'only the prefixed property');
   // In a row the newest message starts after the fade.
   assert.match(css, /\n\.edge-fade\.layout-horizontal \.lines \{ padding-left: max\(var\(--pad-x, 8px\), min\(var\(--edge-fade, 2em\), 50%\)\); \}/);
-  // row_sep: in a row only, never on .line::before (beside a reply's block header it would take a row of its own), a
-  // fixed glyph per class in the text color, and an empty badge holder shown to carry it.
+  // row_sep: in a row only, a fixed glyph per class in the text color, and an empty badge holder shown to carry it. In a
+  // row along the bottom it is never on .line::before (beside a reply's block header it would take a row of its own); in
+  // one along the top, where the header sits before its message on the same row (renderer-css round 3), the line itself
+  // carries it, before the header, and its children never do.
   // A line after another, or one that keeps its mark after the line before it left out of view (.keep-sep, renderer-css
   // round 1), in :is() at the specificity of .line + .line. A notice's mark is the row's size (--row-em, on #chat).
   const seps = selectors.filter((s) => /sep-/.test(s));
   assert.ok(seps.length >= 5);
+  let tops = 0, bottoms = 0;
   seps.forEach((s) => s.split(/,\s*(?=:where)/).forEach((one) => {
     assert.match(one, /^:where\(\.layout-horizontal(?:\)|\.|:not\(\.has-bg\)\))/, one);
     if (one === ':where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond)') return; // --row-em
     if (/^:where\(\.layout-horizontal\.sep-(?:dot|bar|diamond)\)$/.test(one)) return; // --sep-w (renderer-css round 2)
+    const edge = /^:where\(\.layout-horizontal\.align-(bottom|top)[.:)]/.exec(one);
     // A line with a bar or a tint, without a box: its mark before the bar and outside the tint (renderer-css round 2).
-    const dec = /^:where\(\.layout-horizontal:not\(\.has-bg\)\):where\(\.sep-dot, \.sep-bar, \.sep-diamond\) :is\(\.line \+ \.line, \.line\.keep-sep\):where\(([^)]*)\)(?: > \.reply \+ \*::before| > :first-child:not\(\.reply\)::before)?$/.exec(one);
+    const dec = /^:where\(\.layout-horizontal(?:\.align-(?:bottom|top))?:not\(\.has-bg\)\):where\(\.sep-dot, \.sep-bar, \.sep-diamond\) :is\(\.line \+ \.line, \.line\.keep-sep\):where\(([^)]*)\)( > \.reply \+ \*::before| > :first-child:not\(\.reply\)::before|::before)?$/.exec(one);
     if (dec) {
       const decos = ['.accent', '.first-msg', '.role-bar', '.announcement', '.highlight', '.mention', '.keyword', '.user-hl', '.role-tint'];
       assert.ok(dec[1].split(', ').every((c) => decos.indexOf(c) >= 0), one);
+      // The line's own rules (border, padding) in both rows; the mark's on a child along the bottom, on the line along the top.
+      assert.strictEqual(edge ? edge[1] : '', !dec[2] ? '' : dec[2] === '::before' ? 'top' : 'bottom', one);
       return;
     }
     // (.time: a time that carries the mark, stage 6.)
-    assert.match(one, / :is\(\.line \+ \.line, \.line\.keep-sep\)(?:\.notice > :first-child::before| > (?:\.reply \+ \*::before|:first-child:not\(\.reply\)::before|\.badges:empty|\.reply \+ \.time::before|\.time:first-child::before))$/, one);
+    const m = / :is\(\.line \+ \.line, \.line\.keep-sep\)(?:\.notice > :first-child::before| > (?:\.reply \+ \*::before|:first-child:not\(\.reply\)::before|\.badges:empty|\.reply \+ \.time::before|\.time:first-child::before)|(?:\.notice)?::before)$/.exec(one);
+    assert.ok(m, one);
+    assert.ok(edge, 'a row along the bottom or the top: ' + one);
+    assert.strictEqual(edge[1], /:is\(\.line \+ \.line, \.line\.keep-sep\)(?:\.notice)?::before$/.test(one) ? 'top' : 'bottom', one);
+    if (edge[1] === 'top') tops++; else bottoms++;
   }));
+  assert.ok(tops >= 5 && bottoms >= 10, tops + ' ' + bottoms);
   assert.doesNotMatch(css, /\.line::before|\.line \+ \.line::before/);
   [['sep-dot', '\'\\2022\''], ['sep-bar', '\'|\''], ['sep-diamond', '\'\\25C6\'']].forEach(([c, glyph]) =>
-    assert.ok(css.indexOf(':where(.layout-horizontal.' + c + ') :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before { content: ' + glyph + '; }') > 0, c));
+    assert.ok(css.indexOf(':where(.layout-horizontal.align-bottom.' + c + ') :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before,\n' +
+      ':where(.layout-horizontal.align-top.' + c + ') :is(.line + .line, .line.keep-sep)::before { content: ' + glyph + '; }') > 0, c));
   assert.match(css, /::before \{\s*margin-right: \.5em;\s*color: var\(--text-color, #fff\);\s*opacity: \.6;\s*\}/);
   // Without a box the row's gap is before the mark, so the same gap goes after it (same specificity, later).
-  const after = ':where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before {\n  margin-right: var(--row-gap, 1em);\n}';
-  assert.ok(css.indexOf(after) > at(':where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,'));
+  const after = ':where(.layout-horizontal.align-top:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep)::before {\n  margin-right: var(--row-gap, 1em);\n}';
+  assert.ok(css.indexOf(after) > at(':where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,'));
   assert.match(css, /:is\(\.line \+ \.line, \.line\.keep-sep\) > \.badges:empty \{ display: inline; \}/);
   // No new rule starts with #chat, so Custom CSS on the documented selectors keeps winning.
   ['text-center', 'text-right', 'has-maxw', 'edge-fade', 'sep-'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
@@ -1696,7 +1708,7 @@ test('the sizes: a font-size or variable on #chat only while changed, gone again
   assert.deepStrictEqual(['1x', '2x', '3x'].map((v) => one('gif_size', v)),
     [{ '--gif-mul': '1', '--gif-margin': 'calc(-1 * max(0em, min(' + room + '))) .05em ' +
       'calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(' + room + ')))' }, { '--gif-mul': '2' }, {}]);
-  const emoteRule = /\n:where\(\.layout-vertical\) \.emote-stack \{\s*margin-top: ([^;]+);\s*margin-bottom: ([^;]+);/.exec(overlayCss());
+  const emoteRule = /\n:where\(\.layout-vertical, \.layout-horizontal\) \.emote-stack \{\s*margin-top: ([^;]+);\s*margin-bottom: ([^;]+);/.exec(overlayCss());
   assert.ok(emoteRule, 'the emote rule');
   const flat = (x) => x.replace(/\s+/g, ' ').split('var(--eh)').join('var(--emote-h, 1.75em)');
   assert.strictEqual(flat(emoteRule[1]) + ' .05em ' + flat(emoteRule[2]), one('gif_size', '1x')['--gif-margin'], 'the same margins as an emote');
@@ -1773,7 +1785,7 @@ test('overlay.css: the size rules keep today\'s values as fallbacks and stay ove
   assert.match(gif, /\n  max-height: calc\(var\(--emote-h, 1\.75em\) \* var\(--gif-mul, 3\)\);/);
   assert.match(gif, /\n  margin: var\(--gif-margin, \.1em 0\);/);
   const row = /\n\.layout-horizontal \.gif \{([^}]*)\}/.exec(css)[1];
-  assert.match(row, /height: var\(--emote-h, 1\.75em\);[\s\S]*max-height: var\(--emote-h, 1\.75em\);[\s\S]*margin: -\.3em \.05em;/);
+  assert.match(row, /height: var\(--emote-h, 1\.75em\);[\s\S]*max-height: var\(--emote-h, 1\.75em\);[\s\S]*margin: calc\(/);
   // emote_only: only .emote-only lines, never a gigantified emote (.big keeps its 3x), at (0,2,0) like .emote-stack.big.
   const eo = Array.from(css.matchAll(/([^{}]+)\{[^}]*var\(--eo/g), (m) => m[1].trim());
   assert.deepStrictEqual(eo, [':where(.line.emote-only) .emote-stack:not(.big)']);
@@ -1940,13 +1952,14 @@ test('overlay.css: the stage-6 rules (name font, timestamps) are scoped and stay
   // timestamps: .time only, which nothing draws while they are off.
   assert.match(css, /\n\.time \{\n  opacity: \.7;\n  font-size: \.8em;\n  margin-right: \.35em;\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;\n\}/);
   // With row_sep, a line's .time carries the mark between messages: the mark (only it) undoes .time's smaller,
-  // fainter text, so it is as tall, as faint and as far from the message as without timestamps.
-  const sepPre = ':where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > ';
+  // fainter text, so it is as tall, as faint and as far from the message as without timestamps. In a row along the top
+  // the line itself carries it (renderer-css round 3), so there the time never does.
+  const sepPre = ':where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > ';
   assert.deepStrictEqual(selectors.filter((s) => /\.time\b/.test(s)),
     ['.time', sepPre + '.reply + .time::before,\n' + sepPre + '.time:first-child::before']);
   assert.match(css, /\.time:first-child::before \{\n  font-size: 1\.25em;\n  opacity: \.857;\n\}/);
   // It comes after the mark's own rules, which it beats (or ties) on specificity.
-  assert.ok(css.indexOf('.time:first-child::before') > css.indexOf(':first-child:not(.reply)::before { content: \'\\25C6\'; }'));
+  assert.ok(css.indexOf('.time:first-child::before') > css.indexOf('::before { content: \'\\25C6\'; }'));
   ['has-name-font', '\\.time'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
 });
 
@@ -2107,11 +2120,32 @@ test('overlay.css: a reply header clips .3em past its line above and below, and 
   const decl = (k) => { const m = new RegExp('\\n  ' + k + ': ([^;]+);').exec(rule); return m && m[1]; };
   assert.deepStrictEqual(['overflow', 'text-overflow', 'white-space', 'padding-top', 'padding-bottom', 'margin-top', 'margin-bottom'].map(decl),
     ['hidden', 'ellipsis', 'nowrap', '.3em', '.3em', '-.3em', '-.3em']);
-  // Nothing else gives .reply a padding or a vertical margin (a row's only caps its width), so the two cancel.
+  // Nothing else gives .reply a padding or a vertical margin (a row's only caps its width, and along the top adds a gap
+  // after it), so the two cancel.
   const others = Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g))
     .filter((m) => m[1].trim() !== '.reply' && m[1].split(',').some((x) => /\.reply\s*$/.test(x)));
-  assert.ok(others.length >= 3, others.map((m) => m[1].trim()).join(' | '));
-  others.forEach((m) => assert.doesNotMatch(m[2], /(?:^|[;\n])\s*(?:padding|margin)(?:-\w+)?\s*:/, m[1].trim()));
+  assert.ok(others.length >= 4, others.map((m) => m[1].trim()).join(' | '));
+  others.forEach((m) => assert.doesNotMatch(m[2], /(?:^|[;\n])\s*(?:padding(?:-\w+)?|margin|margin-(?:top|bottom|block\w*))\s*:/, m[1].trim()));
+});
+
+test('overlay.css: in a row along the top edge a reply header sits before its message, on the same row and baseline', () => {
+  // renderer-css round 3 (pre-existing since the horizontal layout): the row lines its messages up by their top there, so
+  // the header's block put the reply's own message a header lower than the others, and cut it off in a one-row source.
+  const css = overlayCss();
+  assert.match(css, /\n#chat\.layout-horizontal\.align-top \.lines \{ align-items: flex-start; \}/);
+  const rule = /\n:where\(\.layout-horizontal\.align-top\) \.reply \{([^}]*)\}/.exec(css);
+  assert.ok(rule, 'the top row\'s header rule, at .reply\'s own specificity (Custom CSS on .reply still wins)');
+  const decls = {};
+  rule[1].split(';').forEach((d) => { const i = d.indexOf(':'); if (i > 0) decls[d.slice(0, i).trim()] = d.slice(i + 1).trim(); });
+  // inline-block keeps the 15em cap and the ellipsis; overflow: clip (not hidden) keeps its baseline its text's.
+  assert.deepStrictEqual(decls, { display: 'inline-block', 'vertical-align': 'baseline', overflow: 'clip', 'margin-right': '.5em' });
+  assert.ok(css.indexOf('\n:where(.layout-horizontal.align-top) .reply {') > css.indexOf('\n.reply {'), 'after .reply, which it ties');
+  assert.match(css, /\n\.layout-horizontal \.reply \{ max-width: 15em; \}/);
+  // Only there: a row along the bottom, and a column, keep the block header.
+  const inline = [];
+  Array.from(css.matchAll(/([^{}]+)\{[^}]*display:\s*inline/g), (m) => m[1].trim())
+    .forEach((s) => s.split(/,\s*/).forEach((one) => { if (/\.reply$/.test(one)) inline.push(one); }));
+  assert.deepStrictEqual(inline, [':where(.layout-horizontal.align-top) .reply']);
 });
 
 // A column rule's emote margins worked out as numbers (em) from the rule's own text: eh the image's height (--eh, or
@@ -2126,18 +2160,20 @@ function emoteMargins(css, sel, eh, L, hang) {
   return [m[1], m[2]].map((x) => Math.round(Function('return ' + js(x))() * 1000) / 1000 + 0);
 }
 
+const EMOTE_SEL = ':where(.layout-vertical, .layout-horizontal) .emote-stack';
+const CHEER_SEL = ':where(.layout-vertical, .layout-horizontal) .cheer-img';
+
 test('overlay.css: an emote or cheer taller than its line grows the line in a column, never reaching above it', () => {
   const css = overlayCss();
   const at = (s) => css.indexOf('\n' + s);
-  assert.ok(at(':where(.layout-vertical) .emote-stack {') > at('.emote-stack {'), 'emotes, after the shorthand');
-  assert.ok(at(':where(.layout-vertical) .cheer-img {') > at('.cheer-img {'), 'cheers, after the shorthand');
-  assert.ok(at(':where(.layout-vertical) .emote-stack {') > at(':where(.line.emote-only) .emote-stack:not(.big)'), '--eh is set by then');
+  assert.ok(at(EMOTE_SEL + ' {') > at('.emote-stack {'), 'emotes, after the shorthand');
+  assert.ok(at(CHEER_SEL + ' {') > at('.cheer-img {'), 'cheers, after the shorthand');
+  assert.ok(at(EMOTE_SEL + ' {') > at(':where(.line.emote-only) .emote-stack:not(.big)'), '--eh is set by then');
   // --eh carries every height (emote_scale, emote_only, gigantified), and the shorthand keeps today's -.3em .05em.
   assert.match(/\n\.emote-stack \{([^}]*)\}/.exec(css)[1], /\n  margin: -\.3em \.05em;/);
-  assert.doesNotMatch(css, /:where\(\.layout-horizontal\)[^{]*\.emote-stack \{\s*margin/);
   // The margins: -.3em while the image is at most the usual 1.75em (today's look), none above and .2em below once it is
-  // .3em taller, in between on the way there. Only in a column: a row keeps one height and its own .3em room.
-  [[':where(.layout-vertical) .emote-stack', 'emotes'], [':where(.layout-vertical) .cheer-img', 'cheers']].forEach(([sel, what]) => {
+  // .3em taller, in between on the way there. In a row too (renderer-css round 3; the row's own test is below).
+  [[EMOTE_SEL, 'emotes'], [CHEER_SEL, 'cheers']].forEach(([sel, what]) => {
     const at135 = (eh) => emoteMargins(css, sel, eh, 1.35, 0.3);
     assert.deepStrictEqual([1.75, 0.875, 1.9, 2.05, 2.1875, 3.5, 5.25].map(at135),
       [[-0.3, -0.3], [-0.3, -0.3], [-0.15, -0.2], [0, -0.2], [0, -0.2], [0, -0.2], [0, -0.2]], what);
@@ -2149,7 +2185,7 @@ test('overlay.css: at a line_height below 135, and at spacing=tight without a bo
   // into the name row (name_line), a reply header, the text above it or the next line's emotes.
   const css = overlayCss();
   assert.match(css, /\n:where\(\.layout-vertical:not\(\.has-bg\)\) \{ --emote-hang: calc\(2 \* var\(--line-gap, \.15em\)\); \}/);
-  [[':where(.layout-vertical) .emote-stack', 'emotes'], [':where(.layout-vertical) .cheer-img', 'cheers']].forEach(([sel, what]) => {
+  [[EMOTE_SEL, 'emotes'], [CHEER_SEL, 'cheers']].forEach(([sel, what]) => {
     const em = (eh, L, hang) => emoteMargins(css, sel, eh, L, hang);
     // line_height: below 135 the threshold comes down twice as fast, so the line grows instead (100 to 120: none above,
     // .2em below); at 135 and up nothing changes.
@@ -2162,6 +2198,80 @@ test('overlay.css: at a line_height below 135, and at spacing=tight without a bo
     assert.deepStrictEqual(em(1.75, 1, 0.1), [0, -0.1], what + ': both');
     assert.deepStrictEqual(em(2.1875, 1.35, 0.1), [0, -0.1], what + ': taller at tight');
   });
+});
+
+// A length expression from overlay.css as a number of em: eh --emote-h (and --eh), L the line_height, badge --badge-h.
+function cssEm(x, eh, L, badge) {
+  const js = x.replace(/\s+/g, ' ').replace(/var\(--eh\)|var\(--emote-h, 1\.75em\)/g, '(' + eh + ')')
+    .replace(/var\(--line-height, 1\.35\)/g, '(' + L + ')').replace(/var\(--badge-h, 1em\)/g, '(' + badge + ')')
+    .replace(/var\(--emote-hang, \.3em\)/g, '(.3)').replace(/(\d*\.?\d+)em\b/g, '$1').replace(/\bcalc\(/g, '(')
+    .replace(/\bmin\(/g, 'Math.min(').replace(/\bmax\(/g, 'Math.max(');
+  assert.doesNotMatch(js, /var\(|--/, x);
+  return Math.round(Function('return ' + js)() * 1000) / 1000 + 0;
+}
+// A declaration's value split at its top-level spaces ('calc(a b) .05em calc(c)' is three).
+function topLevel(v) {
+  const out = [];
+  let depth = 0, cur = '';
+  for (const ch of v.replace(/\s+/g, ' ').trim()) {
+    if (ch === ' ' && depth === 0) { out.push(cur); cur = ''; continue; }
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    cur += ch;
+  }
+  return out.concat(cur);
+}
+
+test('overlay.css: in a row an emote, cheer or GIF taller than its line stays clear of a reply header and inside its box, and every message lines up', () => {
+  // renderer-css round 3: a row kept the fixed -.3em margins, so an emote taller than its line (emote_scale above about
+  // 110, Big & bold, line_height below 135) still reached .3em above it, across a reply header's text and out of its bg
+  // box. And a row lines its messages up by their box's edge, so a message with a bigger emote, cheer, GIF or badge
+  // (badge_size) sat higher (lower with align=top) than plain ones.
+  const css = overlayCss();
+  // A row's emotes and cheers take the column's rule; --emote-hang is a column's only, so a row has its .3em fallback.
+  assert.deepStrictEqual(Array.from(css.matchAll(/([^{}]+)\{[^}]*--emote-hang:/g), (m) => m[1].trim()), [':where(.layout-vertical:not(.has-bg))']);
+  const sizes = [[1.75, 1.35], [0.875, 1.35], [1.9, 1.35], [2.1875, 1.35], [2.625, 1.35], [3.5, 1.35], [1.75, 1], [1.75, 1.25], [2.1875, 1], [1.75, 2]];
+  const want = sizes.map(([eh, L]) => emoteMargins(css, EMOTE_SEL, eh, L, 0.3));
+  assert.deepStrictEqual(want.slice(0, 4), [[-0.3, -0.3], [-0.3, -0.3], [-0.15, -0.2], [0, -0.2]], 'none above once taller than its line');
+  assert.deepStrictEqual(sizes.map(([eh, L]) => emoteMargins(css, CHEER_SEL, eh, L, 0.3)), want, 'cheers');
+  // A row's GIF (emote height there): the same margins, with .05em at its sides as before.
+  const gif = /\n\.layout-horizontal \.gif \{([^}]*)\}/.exec(css)[1];
+  const parts = topLevel(/\n  margin: ([^;]+);/.exec(gif)[1]);
+  assert.strictEqual(parts.length, 3);
+  assert.strictEqual(parts[1], '.05em');
+  assert.deepStrictEqual(sizes.map(([eh, L]) => [cssEm(parts[0], eh, L, 1), cssEm(parts[2], eh, L, 1)]), want, 'GIFs');
+  assert.doesNotMatch(gif, /emote-hang/);
+  // Every message in a row ends in an empty inline box whose line-height is the tallest image's margin box (an emote's
+  // height less its margins, or a badge), on the same middle line: then all their line boxes, and so their text, line up.
+  // Inline (no display, width or height): an inline-block would keep a space at the end of a message from collapsing.
+  const sp = /\n\.layout-horizontal \.line::after \{([^}]*)\}/.exec(css);
+  assert.ok(sp, 'the spacer');
+  const d = {};
+  sp[1].split(/;\s*\n/).forEach((x) => { const i = x.indexOf(':'); if (i > 0) d[x.slice(0, i).trim()] = x.slice(i + 1).replace(/;\s*$/, '').trim(); });
+  assert.deepStrictEqual(Object.keys(d), ['content', 'line-height', 'vertical-align']);
+  assert.deepStrictEqual([d.content, d['vertical-align']], ['\'\'', 'middle']);
+  [1, 0.5, 1.25, 2].forEach((badge) => sizes.forEach(([eh, L], i) => {
+    const box = Math.round((eh + want[i][0] + want[i][1]) * 1000) / 1000;
+    assert.strictEqual(cssEm(d['line-height'], eh, L, badge), Math.max(badge, box), eh + ' ' + L + ' ' + badge);
+  }));
+  // At the defaults it is an emote's 1.15em, which already fits a 1.35em line (in Inter): nothing moves.
+  assert.strictEqual(cssEm(d['line-height'], 1.75, 1.35, 1), 1.15);
+  // Badges keep no vertical margins, so their margin box is their height.
+  assert.doesNotMatch(/\n\.badge \{([^}]*)\}/.exec(css)[1], /margin(?:-top|-bottom)?:/);
+});
+
+test('overlay.css: line_width caps a message with its bar or tint, so with text_align their bars and tints line up', () => {
+  // renderer-css round 3: in a column without a box a line is content-box, so a bar's .4em or a tint's .3em a side came
+  // on top of the cap: every kind of line had its own width, and with text_align=right/center their bars were staggered.
+  const css = overlayCss();
+  assert.match(css, /\n\.has-maxw \.line \{ box-sizing: border-box; max-width: min\(100%, var\(--line-max, 100%\)\); \}/);
+  // A box and a row are border-box already, and nothing gives a capped line content-box back.
+  assert.match(/\n\.has-bg \.line \{([^}]*)\}/.exec(css)[1], /box-sizing: border-box;/);
+  assert.match(/\n\.layout-horizontal \.line \{([^}]*)\}/.exec(css)[1], /box-sizing: border-box;/);
+  assert.doesNotMatch(css, /box-sizing: content-box/);
+  // The paddings it now holds: the bars' .4em, the tints' .3em a side, the announcement's .5em.
+  ['accent', 'role-bar', 'first-msg', 'highlight', 'mention', 'keyword', 'user-hl', 'role-tint', 'announcement'].forEach((c) =>
+    assert.ok(Number(linePadLeft(css, ['line', c]).replace('em', '')) > 0, c));
 });
 
 test('row_sep: the line after one that left out of view at the left edge keeps its mark (.keep-sep), on a rerender too', (t) => {
@@ -2240,10 +2350,15 @@ test('overlay.css: row_sep without a box puts a barred or tinted message\'s mark
   const round = 'calc(var(--sep-w) + var(--row-gap, 1em) + .3em) .3em';
   assert.deepStrictEqual(rule(P + ':where(.highlight, .mention, .keyword, .user-hl, .role-tint)'),
     { 'border-top-left-radius': round, 'border-bottom-left-radius': round }, 'the tint\'s corners: .3em inside the border');
-  const mark = rule(P + D + ' > .reply + *::before,\n' + P + D + ' > :first-child:not(.reply)::before');
+  // The mark: on the line's first part along the bottom (after a reply's block header), on the line itself along the top
+  // (renderer-css round 3: there the header sits before the message, and the mark before it).
+  const Pb = P.replace('.layout-horizontal:not', '.layout-horizontal.align-bottom:not');
+  const Pt = P.replace('.layout-horizontal:not', '.layout-horizontal.align-top:not');
+  const markSel = Pb + D + ' > .reply + *::before,\n' + Pb + D + ' > :first-child:not(.reply)::before,\n' + Pt + D + '::before';
+  const mark = rule(markSel);
   assert.deepStrictEqual(mark, { display: 'inline-block', width: 'var(--sep-w)', 'text-align': 'center',
     'margin-left': 'calc(-1 * (var(--sep-w) + var(--row-gap, 1em) + var(--sep-pad)))', 'margin-right': 'calc(var(--row-gap, 1em) + var(--sep-pad))' });
-  assert.ok(css.indexOf('\n' + P + D + ' > .reply + *::before,') > css.indexOf('margin-right: var(--row-gap, 1em);'), 'after the plain mark\'s gap, which it ties');
+  assert.ok(css.indexOf('\n' + markSel) > css.lastIndexOf('margin-right: var(--row-gap, 1em);'), 'after the plain mark\'s gap, which it ties');
   // Each line's own padding: the bars' .4em, the tints' .3em, the announcement's .5em (the line's, over both).
   assert.match(css, /\n\.line\.accent \{[^}]*padding-left: \.4em;/);
   assert.match(css, /\n\.line\.announcement \{[^}]*padding-left: \.5em;/);
@@ -2358,8 +2473,10 @@ test('overlay.css: a notice\'s row_sep mark, and the space after it, are the row
   const css = overlayCss();
   assert.match(css, /\n@property --row-em \{ syntax: '<length>'; inherits: true; initial-value: 0px; \}/);
   assert.ok(css.indexOf('\n:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) { --row-em: 1em; }') > 0, 'set wherever a mark is drawn');
-  const rule = '\n:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > ' +
-    ':first-child::before {\n  font-size: var(--row-em);\n  line-height: 0;\n}';
+  // On its first part along the bottom, on the notice line itself along the top (renderer-css round 3).
+  const rule = '\n:where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > ' +
+    ':first-child::before,\n:where(.layout-horizontal.align-top):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice::before ' +
+    '{\n  font-size: var(--row-em);\n  line-height: 0;\n}';
   assert.ok(css.indexOf(rule) > css.indexOf('.time:first-child::before {\n  font-size: 1.25em;'), 'after the time\'s rule, which it ties');
   assert.strictEqual(Array.from(css.matchAll(/var\(--row-em\)/g)).length, 1, 'notices only: a chat line\'s em is the row\'s');
 });
