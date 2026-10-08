@@ -362,6 +362,259 @@ test('hidden page: nothing is built; on show, lines are re-timed from their arri
   assert.strictEqual(s.lines().length, 0, 'expired while hidden: dropped on show');
 });
 
+// ---------- animations (enter_style, enter_ms, fade_out_ms, exit_style) ----------
+
+// One more renderer on a setup's document (the mocked clock is the setup's).
+function another(s, cfg) {
+  const root = s.doc.createElement('div');
+  s.doc.body.appendChild(root);
+  const r = renderer.createRenderer({ root: root, cfg: cfg, deps: {} });
+  const linesEl = root.firstElementChild;
+  return { r, root, linesEl, lines: () => linesEl.children };
+}
+
+test('every entrance hands off to the fade, in a column and in a row, and the fade still ends `fade` s after arrival', (t) => {
+  const s = setup(t);
+  const exits = { vertical: 'tco-out-slide', horizontal: 'tco-out-slide-x' };
+  ['vertical', 'horizontal'].forEach((layout) => {
+    ['slide', 'fade', 'pop', 'drop'].forEach((style) => {
+      ['fade', 'slide'].forEach((exit) => {
+        const x = another(s, { fade: 30, animate: true, layout: layout, enter_style: style, enter_ms: 300, fade_out_ms: 2000, exit_style: exit });
+        x.r.push(chat('amy', 'a'));
+        x.r.flush();
+        const line = x.lines()[0];
+        const name = R.ENTER[style][layout === 'horizontal' ? 1 : 0];
+        const what = layout + ' ' + style + ' ' + exit;
+        assert.strictEqual(line.style.animation, name + ' 300ms ease-out', what + ': the entrance alone');
+        s.tick(300);
+        x.linesEl.dispatch('animationend', { target: line, animationName: name });
+        const out = exit === 'fade' ? 'tco-fade' : exits[layout];
+        assert.strictEqual(line.style.animation, out + ' 2000ms linear 27700ms forwards', what + ': 300 + 27700 + 2000 = 30 s');
+        x.linesEl.dispatch('animationend', { target: line, animationName: out });
+        assert.strictEqual(x.lines().length, 0, what + ': the exit ending removes the line');
+        assert.strictEqual(x.r.stats().ids, 0);
+        x.r.destroy();
+      });
+    });
+  });
+});
+
+test('the fade-out waits for the entrance, whatever its length; an entrance of any style hands off, whatever is set now', (t) => {
+  // fade=2 with a 1.5 s fade-out: the fade-out starts 500 ms after arrival. A 180 ms entrance ends first, and the
+  // fade waits for it as always.
+  const s = setup(t, { fade: 2, animate: true, fade_out_ms: 1500 });
+  s.r.push(chat('amy', 'a'));
+  s.r.flush();
+  assert.strictEqual(s.lines()[0].style.animation, 'tco-in 180ms ease-out');
+  // Begun at 500 ms, the fade-out would take over opacity and cut a 1000 ms entrance short with a jump. So it waits
+  // for this one too, then starts from full over the 1000 ms left: still gone 2 s after arrival.
+  s.r.setConfig({ fade: 2, animate: true, fade_out_ms: 1500, enter_ms: 1000 });
+  s.r.push(chat('bob', 'b'));
+  s.r.flush();
+  const b = s.lines()[1];
+  assert.strictEqual(b.style.animation, 'tco-in 1000ms ease-out');
+  s.tick(1000);
+  s.linesEl.dispatch('animationend', { target: b, animationName: 'tco-in' });
+  assert.strictEqual(b.style.animation, 'tco-fade 1000ms linear 0ms forwards');
+  // A 500 ms one ends just as the fade-out begins.
+  s.r.setConfig({ fade: 2, animate: true, fade_out_ms: 1500, enter_ms: 500 });
+  s.r.push(chat('eve', 'e'));
+  s.r.flush();
+  assert.strictEqual(s.lines()[2].style.animation, 'tco-in 500ms ease-out');
+  s.linesEl.dispatch('animationend', { target: s.lines()[2], animationName: 'tco-in' });
+  assert.strictEqual(s.lines()[2].style.animation, 'tco-fade 1500ms linear 500ms forwards', 'no time has passed (mocked clock)');
+  // A line that came in with one style hands off when that entrance ends, after the style changed.
+  s.r.setConfig({ fade: 30, animate: true, enter_style: 'slide' });
+  s.r.push(chat('cat', 'c'));
+  s.r.flush();
+  const c = s.lines()[3];
+  assert.strictEqual(c.style.animation, 'tco-in 180ms ease-out');
+  s.r.setConfig({ fade: 30, animate: true, enter_style: 'pop' });
+  assert.strictEqual(c.style.animation, 'tco-in 180ms ease-out', 'a new style is for new lines');
+  s.linesEl.dispatch('animationend', { target: c, animationName: 'tco-in' });
+  assert.strictEqual(c.style.animation, 'tco-fade 1000ms linear 29000ms forwards');
+  // An end that isn't one of the overlay's own changes nothing.
+  s.r.push(chat('dan', 'd'));
+  s.r.flush();
+  const d = s.lines()[4];
+  assert.strictEqual(d.style.animation, 'tco-in-pop 180ms ease-out');
+  s.linesEl.dispatch('animationend', { target: d, animationName: 'my-own' });
+  assert.strictEqual(d.style.animation, 'tco-in-pop 180ms ease-out');
+  s.linesEl.dispatch('animationend', { target: d, animationName: 'tco-in-pop' });
+  assert.strictEqual(d.style.animation, 'tco-fade 1000ms linear 29000ms forwards');
+});
+
+test('off the animation defaults the entrance is never cut short; at them, 1.5\'s timing to the letter', (t) => {
+  // A fade-out as long as the whole stay, with a slide exit: begun at arrival it would hide the pop entirely.
+  const s = setup(t, { fade: 3, animate: true, fade_out_ms: 3000, enter_style: 'pop', exit_style: 'slide', enter_ms: 600 });
+  s.r.push(chat('amy', 'a'));
+  s.r.flush();
+  const a = s.lines()[0];
+  assert.strictEqual(a.style.animation, 'tco-in-pop 600ms ease-out');
+  s.tick(600);
+  s.linesEl.dispatch('animationend', { target: a, animationName: 'tco-in-pop' });
+  assert.strictEqual(a.style.animation, 'tco-out-slide 2400ms linear 0ms forwards', '600 + 2400 = 3 s');
+  // fade=1: any change to the four keeps the entrance whole, and the fade-out takes the rest of the second.
+  const f = another(s, { fade: 1, animate: true, enter_ms: 200 });
+  f.r.push(chat('bob', 'b'));
+  f.r.flush();
+  const b = f.lines()[0];
+  assert.strictEqual(b.style.animation, 'tco-in 200ms ease-out');
+  s.tick(200);
+  f.linesEl.dispatch('animationend', { target: b, animationName: 'tco-in' });
+  assert.strictEqual(b.style.animation, 'tco-fade 800ms linear 0ms forwards');
+  // An entrance as long as the whole stay: the line goes as it ends.
+  f.r.setConfig({ fade: 1, animate: true, enter_ms: 1000, enter_style: 'fade' });
+  f.r.push(chat('cat', 'c'));
+  f.r.flush();
+  const c = f.lines()[f.lines().length - 1];
+  assert.strictEqual(c.style.animation, 'tco-in-fade 1000ms ease-out');
+  s.tick(1000);
+  f.linesEl.dispatch('animationend', { target: c, animationName: 'tco-in-fade' });
+  assert.strictEqual(c.parentNode, null);
+  f.r.destroy();
+  // At the defaults, as in 1.5: fade=1 puts both on at once, and a late entrance end starts the fade part-way.
+  const d = another(s, { fade: 1, animate: true });
+  d.r.push(chat('dan', 'd'));
+  d.r.flush();
+  assert.strictEqual(d.lines()[0].style.animation, 'tco-in 180ms ease-out, tco-fade 1000ms linear 0ms forwards');
+  d.r.setConfig({ fade: 2, animate: true });
+  d.r.push(chat('eve', 'e'));
+  d.r.flush();
+  const e = d.lines()[1];
+  assert.strictEqual(e.style.animation, 'tco-in 180ms ease-out');
+  s.tick(1100);
+  d.linesEl.dispatch('animationend', { target: e, animationName: 'tco-in' });
+  assert.strictEqual(e.style.animation, 'tco-fade 1000ms linear -100ms forwards');
+  d.r.destroy();
+});
+
+test('a line still coming in keeps its entrance when the entrance length, fade-out length or exit changes', (t) => {
+  const s = setup(t, { fade: 10, animate: true, enter_ms: 1000, enter_style: 'fade' });
+  s.r.push(chat('amy', 'a'));
+  s.r.flush();
+  const a = s.lines()[0];
+  s.linesEl.dispatch('animationend', { target: a, animationName: 'tco-in-fade' });
+  assert.strictEqual(a.style.animation, 'tco-fade 1000ms linear 9000ms forwards');
+  s.tick(500);
+  s.r.push(chat('bob', 'b'));
+  s.r.flush();
+  const b = s.lines()[1];
+  assert.strictEqual(b.style.animation, 'tco-in-fade 1000ms ease-out');
+  s.tick(300);
+  // enter_ms is for new lines only: nothing is re-timed.
+  s.r.setConfig({ fade: 10, animate: true, enter_ms: 950, enter_style: 'fade' });
+  assert.deepStrictEqual([a.style.animation, b.style.animation], ['tco-fade 1000ms linear 9000ms forwards', 'tco-in-fade 1000ms ease-out']);
+  // A new fade-out and exit: the line on screen is re-timed; the one coming in takes them as its entrance ends.
+  s.r.setConfig({ fade: 10, animate: true, enter_ms: 950, enter_style: 'fade', fade_out_ms: 1250, exit_style: 'slide' });
+  assert.strictEqual(a.style.animation, 'tco-out-slide 1250ms linear 7950ms forwards', '800 + 7950 + 1250 = 10 s');
+  assert.strictEqual(b.style.animation, 'tco-in-fade 1000ms ease-out');
+  s.tick(700);
+  s.linesEl.dispatch('animationend', { target: b, animationName: 'tco-in-fade' });
+  assert.strictEqual(b.style.animation, 'tco-out-slide 1250ms linear 7750ms forwards', '1000 + 7750 + 1250 = 10 s');
+  // fade itself re-times every line, one coming in too, as in 1.5.
+  s.r.push(chat('cat', 'c'));
+  s.r.flush();
+  const c = s.lines()[2];
+  assert.strictEqual(c.style.animation, 'tco-in-fade 950ms ease-out');
+  s.r.setConfig({ fade: 20, animate: true, enter_ms: 950, enter_style: 'fade', fade_out_ms: 1250, exit_style: 'slide' });
+  assert.strictEqual(c.style.animation, 'tco-out-slide 1250ms linear 18750ms forwards');
+});
+
+test('fade-out length and exit: lines on screen are re-timed at once, still ending `fade` s after arrival', (t) => {
+  const s = setup(t, { fade: 10, animate: false });
+  s.r.push(chat('amy', 'a'));
+  s.r.flush();
+  const line = s.lines()[0];
+  assert.strictEqual(line.style.animation, 'tco-fade 1000ms linear 9000ms forwards');
+  s.tick(2000);
+  s.r.setConfig({ fade: 10, animate: false, fade_out_ms: 3000 });
+  assert.strictEqual(line.style.animation, 'tco-fade 3000ms linear 5000ms forwards');
+  s.r.setConfig({ fade: 10, animate: false, fade_out_ms: 3000, exit_style: 'slide' });
+  assert.strictEqual(line.style.animation, 'tco-out-slide 3000ms linear 5000ms forwards');
+  // The slide's direction follows the layout and the alignment.
+  s.r.setConfig({ fade: 10, animate: false, fade_out_ms: 3000, exit_style: 'slide', align: 'top' });
+  assert.strictEqual(line.style.animation, 'tco-out-slide-down 3000ms linear 5000ms forwards');
+  s.r.setConfig({ fade: 10, animate: false, fade_out_ms: 3000, exit_style: 'slide', align: 'top', layout: 'horizontal' });
+  assert.strictEqual(line.style.animation, 'tco-out-slide-x 3000ms linear 5000ms forwards');
+  s.r.setConfig({ fade: 10, animate: false, fade_out_ms: 0, exit_style: 'slide', layout: 'horizontal' });
+  assert.strictEqual(line.style.animation, 'tco-out-slide-x 0ms linear 8000ms forwards', 'no fade: gone at 10 s');
+  // A new line takes them too, entrance or not.
+  s.r.push(chat('bob', 'b'));
+  s.r.flush();
+  assert.strictEqual(s.lines()[1].style.animation, 'tco-out-slide-x 0ms linear 10000ms forwards');
+  // The sweep is the backup when no animationend comes: at 10 s, as always.
+  s.tick(7999);
+  assert.strictEqual(s.lines().length, 2);
+  s.tick(1001);
+  assert.strictEqual(s.lines().length, 1);
+});
+
+test('the animation settings at their defaults change nothing on screen, and without fade they re-time nothing', (t) => {
+  const s = setup(t, { animate: true });
+  s.r.push(chat('amy', 'a'));
+  s.r.flush();
+  const line = s.lines()[0];
+  assert.strictEqual(line.style.animation, 'tco-in 180ms ease-out');
+  let flushes = 0;
+  Object.defineProperty(s.linesEl, 'offsetHeight', { get: () => { flushes++; return 0; } });
+  // No fade: no fade to re-time, and a new entrance is for new lines only.
+  s.r.setConfig({ animate: true, enter_ms: 500, fade_out_ms: 0, exit_style: 'slide', enter_style: 'drop' });
+  assert.strictEqual(line.style.animation, 'tco-in 180ms ease-out');
+  assert.strictEqual(flushes, 0, 'restartFades never ran');
+  // With fade, at the defaults: a layout switch re-times nothing it didn't before (the exit is tco-fade either way).
+  const v = another(s, { fade: 30, animate: true });
+  v.r.push(chat('bob', 'b'));
+  v.r.flush();
+  const b = v.lines()[0];
+  v.r.setConfig({ fade: 30, animate: true, layout: 'horizontal' });
+  assert.strictEqual(b.style.animation, 'tco-in 180ms ease-out');
+  v.r.setConfig({ fade: 30, animate: true, layout: 'horizontal', enter_style: 'slide', enter_ms: 180, fade_out_ms: 1000, exit_style: 'fade' });
+  assert.strictEqual(b.style.animation, 'tco-in 180ms ease-out', 'the defaults written out are the defaults');
+  v.r.destroy();
+});
+
+test('hidden, then shown: lines are re-timed from arrival with the fade-out length and exit', (t) => {
+  const s = setup(t, { fade: 6, animate: true, enter_style: 'pop', fade_out_ms: 2000, exit_style: 'slide', align: 'top' });
+  s.doc.visibilityState = 'hidden';
+  s.r.push(chat('amy', 'a'));
+  s.tick(1500);
+  assert.strictEqual(s.lines().length, 0);
+  s.doc.visibilityState = 'visible';
+  s.doc.dispatch('visibilitychange');
+  assert.strictEqual(s.lines()[0].style.animation, 'tco-out-slide-down 2000ms linear 2500ms forwards', 'no entrance; 1.5 s already passed');
+  s.tick(3000);
+  s.doc.defaultView.dispatch('obsSourceVisibleChanged', { detail: { visible: true } });
+  assert.strictEqual(s.lines()[0].style.animation, 'tco-out-slide-down 2000ms linear -500ms forwards', 'part-way through the exit');
+  s.tick(1500);
+  s.doc.defaultView.dispatch('obsSourceVisibleChanged', { detail: { visible: true } });
+  assert.strictEqual(s.lines().length, 0, 'gone 6 s after arrival');
+});
+
+test('overlay.css: a keyframes rule for every name the renderer writes, animating opacity and transform only', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8')
+    .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  const frames = {};
+  for (const m of css.matchAll(/@keyframes ([\w-]+) \{([\s\S]*?)\n\}/g)) frames[m[1]] = m[2];
+  assert.deepStrictEqual(Object.keys(frames).sort(), R.ENTER_NAMES.concat(R.EXIT_NAMES).sort());
+  Object.keys(frames).forEach((n) => {
+    // Opacity and transform run off the main thread; transform-origin (or anything else) would not.
+    const props = Array.from(frames[n].matchAll(/([\w-]+):/g), (m) => m[1]);
+    props.forEach((p) => assert.ok(p === 'opacity' || p === 'transform', n + ': ' + p));
+    const fadesIn = R.ENTER_NAMES.indexOf(n) >= 0;
+    assert.match(frames[n], fadesIn ? /from \{ opacity: 0;/ : /to \{ opacity: 0;/, n);
+  });
+  // 1.5's three are as they were.
+  assert.match(css, /@keyframes tco-in \{\n {2}from \{ opacity: 0; transform: translateY\(\.4em\); \}\n {2}to \{ opacity: 1; transform: none; \}\n\}/);
+  assert.match(css, /@keyframes tco-in-x \{\n {2}from \{ opacity: 0; transform: translateX\(\.6em\); \}\n {2}to \{ opacity: 1; transform: none; \}\n\}/);
+  assert.match(css, /@keyframes tco-fade \{\n {2}from \{ opacity: 1; \}\n {2}to \{ opacity: 0; \}\n\}/);
+  // pop keeps where the text starts: the left end by default, set by text_align's own rules in a column only.
+  assert.match(frames['tco-in-pop'], /translateX\(var\(--pop-x, -7\.5%\)\) scale\(\.85\)/);
+  assert.deepStrictEqual(Array.from(css.matchAll(/([^{}\n]+)\{[^}]*--pop-x:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]), [
+    [':where(.layout-vertical.text-center) .lines', '0%'], [':where(.layout-vertical.text-right) .lines', '7.5%']]);
+  assert.doesNotMatch(css, /transform-origin/);
+});
+
 // ---------- flush scheduling ----------
 
 test('flushes wait for the next frame, at most one per FLUSH_GAP_MS', (t) => {

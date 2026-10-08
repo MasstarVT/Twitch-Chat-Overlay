@@ -16,7 +16,7 @@ window.TCO_SETTINGS = {
   // text_color: '',      // hex color such as 'ffe08a', '#' optional ('' = the built-in white)
   // shadow: 2,           // 0-3
   // layout: 'vertical',  // vertical | horizontal (one row, like a ticker)
-  // fade: 0,             // seconds a message stays; the last second fades out (0 = never)
+  // fade: 0,             // seconds a message stays (0 = never); it fades out over the last fade_out_ms (1000 ms)
   // max: 50,             // maximum lines on screen
   // bots: false,         // show messages from known bots
   // hide_commands: false, // hide messages starting with a command prefix ("!" unless command_prefixes says otherwise)

@@ -423,11 +423,12 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
     assert.strictEqual(e.id, undefined, 'only Advanced headings are anchors');
   });
   assert.deepStrictEqual(outline('group-look'), ['Layout', 'layout', 'align', 'text_align', 'Text', 'size', 'font', 'text_weight',
-    'text_color', 'shadow', 'outline', 'Names', 'name_color', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate']);
+    'text_color', 'shadow', 'outline', 'Names', 'name_color', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate',
+    'enter_style']);
   assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'text_px',
     'line_height', 'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'name_font', 'name_fallback',
     'name_sep', 'readable_level', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade',
-    'row_sep', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Highlights#adv-highlights',
+    'row_sep', 'Animation#adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Highlights#adv-highlights',
     'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color',
     'mod_color', 'vip_color', 'Filters#adv-filters', 'allow_users', 'min_length', 'command_prefixes', 'Emotes#adv-emotes', 'gif_size',
     'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']);
@@ -1146,4 +1147,62 @@ test('event types and filters: a labelled grid under Show subs…, greyed out wi
   assert.strictEqual(p.$('adv-filters').textContent, 'Filters');
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([p.text('bar-url'), cp.value, cp.disabled, p.$('f-block_words').value, ml.value], [OVERLAY, '!', true, '', 'Off']);
+});
+
+test('the animation options: live, greyed out while animate or fade is off (fade is on another tab), Messages links them', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  const keys = ['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'];
+  const state = () => keys.filter((k) => rowOf(p, k).classList.contains('disabled'));
+  // Messages: its foot links Advanced's Animation heading.
+  const foot = p.$('group-messages').children.filter((e) => e.className === 'section-foot')[0];
+  assert.deepStrictEqual([foot.children[0].textContent, foot.children[0].href], ['More in Advanced', '#adv-animation']);
+  assert.strictEqual(p.$('adv-animation').textContent, 'Animation');
+  assert.strictEqual(p.$('l-animate').textContent, 'Animate new messages');
+  // At the defaults fade is Never: the fade-out length and the exit wait for it.
+  assert.deepStrictEqual(state(), ['fade_out_ms', 'exit_style']);
+  const fo = p.$('f-fade_out_ms'), em = p.$('f-enter_ms');
+  assert.deepStrictEqual([fo.value, fo.disabled, em.value, em.disabled], ['1000 ms', true, '180 ms', false]);
+  assert.match(p.$('h-fade_out_ms').textContent, /Needs Remove messages after \(Messages\)/);
+  p.$('f-fade').parentNode.children[2].dispatch('click');
+  assert.deepStrictEqual(state(), []);
+  // Off animate: the entrance only; the fade-out and the exit don't need it.
+  const an = p.$('f-animate');
+  an.checked = false;
+  an.dispatch('change');
+  assert.deepStrictEqual(state(), ['enter_style', 'enter_ms']);
+  assert.ok(p.doc.querySelectorAll('input[name="f-enter_style"]').every((r) => r.disabled));
+  an.checked = true;
+  an.dispatch('change');
+  seg('enter_style', 'pop');
+  em.parentNode.children[2].dispatch('click');
+  assert.strictEqual(em.value, '200 ms');
+  seg('exit_style', 'slide');
+  fo.parentNode.children[0].dispatch('click');
+  fo.parentNode.children[0].dispatch('click');
+  fo.parentNode.children[0].dispatch('click');
+  assert.deepStrictEqual([fo.value, state()], ['250 ms', []]);
+  // An Instant fade-out moves nothing: the exit greys out, keeping its Slide.
+  fo.parentNode.children[0].dispatch('click');
+  assert.deepStrictEqual([fo.value, state()], ['Instant', ['exit_style']]);
+  assert.ok(p.doc.querySelectorAll('input[name="f-exit_style"]').every((r) => r.disabled));
+  assert.match(p.$('h-exit_style').textContent, /a Fade-out length other than Instant/);
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.enter_style, last.enter_ms, last.fade_out_ms, last.exit_style, last.fade], ['pop', 200, 0, 'slide', 5]);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?enter_style=pop&enter_ms=200&fade=5&fade_out_ms=0&exit_style=slide');
+  // The counts: Look its entrance, Messages the fade, Advanced its three.
+  assert.deepStrictEqual(['look', 'messages', 'advanced'].map((g) => p.text('count-' + g)), ['1', '1', '3']);
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([p.text('bar-url'), state(), fo.value, em.value], [OVERLAY, ['fade_out_ms', 'exit_style'], '1000 ms', '180 ms']);
 });

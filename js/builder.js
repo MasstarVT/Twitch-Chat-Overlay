@@ -65,6 +65,11 @@
   function pointsOn(cfg) { return !!cfg.points_highlight; }
   function rolesOn(cfg) { return !!cfg.role_style && cfg.role_style !== 'off'; }
   function commandsOn(cfg) { return !!cfg.hide_commands; }
+  // The entrance needs animate; the fade-out and the exit need fade (Messages), and are independent of animate. The
+  // exit also needs a fade-out to run in (an Instant one moves nothing).
+  function animateOn(cfg) { return !!cfg.animate; }
+  function fadeOn(cfg) { return cfg.fade > 0; }
+  function fadeOutOn(cfg) { return cfg.fade > 0 && cfg.fade_out_ms > 0; }
 
   // Each Text size in px (renderer.js FONT_PX): where Exact text size starts from Auto (META.from0).
   var TEXT_PX = { small: 18, medium: 24, large: 32 };
@@ -155,9 +160,17 @@
       help: 'Old messages fade out over this distance (in em, the text size) as they reach the edge they leave by: the top, the bottom when new messages appear at the top, or the left end of a row. It covers at most half the source, so the newest message stays clear unless it is taller than that. In a row the newest message starts after the fade, so a long one is cut that much shorter. Some extra PC work while animated emotes are on screen.' },
     row_sep: { label: 'Mark between messages', options: { none: 'None', dot: 'Dot', bar: 'Bar', diamond: 'Diamond' }, only: 'horizontal',
       help: 'A small mark in the text color between messages in the row. Horizontal layout only.' },
-    animate: { label: 'Slide in new messages' },
+    animate: { label: 'Animate new messages' },
+    enter_style: { label: 'Entrance', options: { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop' }, when: animateOn,
+      help: 'How a new message comes in: Slide rises from below (in a row, in from the right), Fade fades in, Pop grows from smaller and Drop comes down from above. In a row the older messages still glide left to make room. Needs Animate new messages.' },
+    enter_ms: { label: 'Entrance length', widget: 'stepper', step: 50, unit: 'ms', when: animateOn,
+      help: 'How long a new message takes to come in, in milliseconds (180 by default). When a message is removed soon after (Remove messages after, in Messages), its fade-out waits for the entrance to end and takes the time left. Needs Animate new messages (Look).' },
     fade: { label: 'Remove messages after', widget: 'stepper', step: 5, unit: 's', zero: 'Never',
-      help: 'Seconds. The last second fades out. Never keeps messages until newer ones push them out.' },
+      help: 'Seconds. The message fades out over the end of that time: the last second, or the Fade-out length set in Advanced. Never keeps messages until newer ones push them out.' },
+    fade_out_ms: { label: 'Fade-out length', widget: 'stepper', step: 250, unit: 'ms', zero: 'Instant', when: fadeOn,
+      help: 'How long a message takes to fade out at the end of Remove messages after, in milliseconds (1000, one second, by default), and never longer than it stays. The message is gone at the same moment either way. Instant removes it without a fade. Needs Remove messages after (Messages).' },
+    exit_style: { label: 'Exit', options: { fade: 'Fade', slide: 'Slide' }, when: fadeOutOn,
+      help: 'Slide moves a message out as it fades, toward the edge old messages leave by: up, down when new messages appear at the top, or left in a row. Works with or without Animate new messages. Needs Remove messages after (Messages) and a Fade-out length other than Instant.' },
     max: { label: 'Max messages on screen', widget: 'stepper', step: 5, help: 'From 1 to 200.' },
     bots: { label: 'Show bot messages',
       help: 'Nightbot, StreamElements, Streamlabs, Moobot, Fossabot and similar bots, plus the bots listed on the channel’s BetterTTV page.' },
@@ -289,7 +302,7 @@
   var GROUPS = [
     { id: 'look', title: 'Look', note: 'Layout, text, names, boxes and how new messages come in.',
       keys: ['layout', 'align', 'text_align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_color',
-        'name_line', 'bg', 'bg_color', 'accent_bar', 'animate'],
+        'name_line', 'bg', 'bg_color', 'accent_bar', 'animate', 'enter_style'],
       subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_color' },
         { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
       more: 'adv-text' },
@@ -297,7 +310,7 @@
       foot: 'Kick chat shows Kick and 7TV emotes, and Kick badges. It has no recent-message history.',
       keys: ['kick', 'kick_room', 'platform_icons'] },
     { id: 'messages', title: 'Messages', note: 'How many messages show, and for how long.',
-      keys: ['fade', 'max', 'history'] },
+      keys: ['fade', 'max', 'history'], more: 'adv-animation' },
     { id: 'events', title: 'Chat events', note: 'Subs, raids, replies, highlights and timestamps.',
       keys: ['events'].concat(EVENT_SUBS, ['replies', 'first_msg', 'shared', 'mentions', 'timestamps']),
       subs: [{ title: 'Highlights & timestamps', first: 'mentions' }], more: 'adv-events' },
@@ -311,13 +324,14 @@
     { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then fine-tuning for every section and lighter-on-PC switches.',
       keys: ['debug', 'demo', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight',
         'name_font', 'name_fallback', 'name_sep', 'readable_level', 'bg_shape', 'bg_width', 'spacing', 'line_width', 'pad_x',
-        'edge_fade', 'row_sep', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'mention_color', 'keywords',
-        'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color', 'mod_color',
-        'vip_color', 'allow_users', 'min_length', 'command_prefixes', 'gif_size', 'giant_emotes', 'shadow_style', 'paint_images',
-        'homies_lists'],
+        'edge_fade', 'row_sep', 'enter_ms', 'fade_out_ms', 'exit_style', 'notice_color', 'notice_size', 'first_msg_color',
+        'reply_style', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color',
+        'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'allow_users', 'min_length', 'command_prefixes', 'gif_size',
+        'giant_emotes', 'shadow_style', 'paint_images', 'homies_lists'],
       subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'text_px' },
         { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
-        { id: 'adv-layout', title: 'Layout', first: 'line_width' }, { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
+        { id: 'adv-layout', title: 'Layout', first: 'line_width' }, { id: 'adv-animation', title: 'Animation', first: 'enter_ms' },
+        { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
         { id: 'adv-highlights', title: 'Highlights', first: 'mention_color' },
         { id: 'adv-filters', title: 'Filters', first: 'allow_users' },
         { id: 'adv-emotes', title: 'Emotes', first: 'gif_size' }, { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }

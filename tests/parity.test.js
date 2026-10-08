@@ -232,7 +232,13 @@ const PREREQ = {
   event_raids: { events: true },
   event_bits_badge: { events: true },
   event_announcements: { events: true },
-  command_prefixes: { hide_commands: true }
+  command_prefixes: { hide_commands: true },
+  enter_style: { animate: true },
+  enter_ms: { animate: true },
+  // These two also without an entrance, which nothing ends here (no animationend): a line still coming in takes a
+  // new fade-out length or exit only as its entrance ends.
+  fade_out_ms: { fade: 30, animate: false },
+  exit_style: { fade: 30, animate: false }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 
@@ -484,6 +490,15 @@ test('(g) the line animations at the defaults', () => {
   assert.strictEqual(R.animString(true, true, t, 'vertical'), 'tco-in 180ms ease-out, tco-fade 1000ms linear 29000ms forwards');
   const css = fs.readFileSync(path.join(ROOT, 'css', 'overlay.css'), 'utf8');
   ['tco-in', 'tco-in-x', 'tco-fade'].forEach((n) => assert.ok(css.indexOf('@keyframes ' + n + ' {') >= 0, n));
+  // The animation options at their defaults (as a full config passes them) write the same strings.
+  const d = R.normalizeCfg(config.defaults());
+  assert.deepStrictEqual([d.enter_style, d.enter_ms, d.fade_out_ms, d.exit_style, R.exitFor(d)], ['slide', R.IN_MS, R.FADE_OUT_MS, 'fade', 'tco-fade']);
+  assert.deepStrictEqual(R.fadeTiming(30, 0, d.fade_out_ms), t);
+  assert.strictEqual(R.animString(true, true, t, 'vertical', d.enter_style, d.enter_ms, R.exitFor(d)),
+    'tco-in 180ms ease-out, tco-fade 1000ms linear 29000ms forwards');
+  assert.strictEqual(R.animString(true, true, null, 'horizontal', d.enter_style, d.enter_ms, R.exitFor(d)), 'tco-in-x 180ms ease-out');
+  assert.strictEqual(R.animString(false, false, t, 'horizontal', null, null, R.exitFor(Object.assign({}, d, { layout: 'horizontal', align: 'top' }))),
+    'tco-fade 1000ms linear 29000ms forwards');
 });
 
 test('(h) the renderer\'s defaults for a partial config are config.js\'s', () => {

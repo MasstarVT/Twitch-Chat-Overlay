@@ -12,8 +12,8 @@ describe('spec', () => {
       shadow_color: '', shadow_style: 'filter', outline: 0, outline_color: '',
       names: true, name_weight: 'heavy', name_line: false, name_font: '', name_color: '', name_fallback: '', name_sep: 'colon',
       bg: 0, bg_color: '', accent_bar: false, bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom',
-      text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true,
-      fade: 0, max: 50, bots: false, hide_commands: false, command_prefixes: '!', block: [], block_words: [], allow_users: [],
+      text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true, enter_style: 'slide',
+      enter_ms: 180, fade: 0, fade_out_ms: 1000, exit_style: 'fade', max: 50, bots: false, hide_commands: false, command_prefixes: '!', block: [], block_words: [], allow_users: [],
       role_filter: 'all', min_length: 0, links: 'show',
       events: true, event_subs: true, event_gifts: true, event_raids: true, event_bits_badge: true, event_announcements: true,
       notice_color: '', notice_size: 85, replies: true, reply_style: 'full', first_msg: false, first_msg_color: '',
@@ -439,6 +439,22 @@ describe('coerce', () => {
     assert.equal(config.toParams(config.defaults()).toString(), '');
     assert.equal(config.toParams(Object.assign(config.defaults(), { text_align: 'center', line_width: 30, pad_x: 0, edge_fade: 3, row_sep: 'dot' }))
       .toString(), 'text_align=center&line_width=30&pad_x=0&edge_fade=3&row_sep=dot');
+  });
+
+  test('animations: entrance style and length, fade-out length and exit style', () => {
+    assert.equal(config.coerce('enter_style', 'POP'), 'pop');
+    assert.equal(config.coerce('enter_style', 'none'), undefined, 'animate=0 is the off switch');
+    // No 0 ms entrance: the fade would wait on an animationend a hidden OBS source never fires.
+    assert.deepEqual([0, 49, 50, 180, '400', 1000, 5000].map((v) => config.coerce('enter_ms', v)), [50, 50, 50, 180, 400, 1000, 1000]);
+    // 0 is a fade-out of no length: the line vanishes at `fade`.
+    assert.deepEqual([0, 250, 1000, 10000, 20000, -5].map((v) => config.coerce('fade_out_ms', v)), [0, 250, 1000, 10000, 10000, 0]);
+    assert.equal(config.coerce('exit_style', 'Slide'), 'slide');
+    assert.equal(config.coerce('exit_style', 'none'), undefined, 'fade_out_ms=0 is the vanish');
+    ['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].forEach((k) => assert.ok(config.LIVE_KEYS.includes(k), k + ' is live'));
+    assert.equal(config.toParams(Object.assign(config.defaults(), { enter_style: 'drop', enter_ms: 300, fade: 30, fade_out_ms: 0,
+      exit_style: 'slide' })).toString(), 'enter_style=drop&enter_ms=300&fade=30&fade_out_ms=0&exit_style=slide');
+    assert.deepEqual(config.parse('enter_style=fade&fade_out_ms=2500'), Object.assign(config.defaults(),
+      { enter_style: 'fade', fade_out_ms: 2500 }));
   });
 
   test('list: normalized, deduped logins from strings or arrays', () => {

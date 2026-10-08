@@ -398,6 +398,80 @@ test('animString combines tco-in (new lines only) and tco-fade', () => {
   assert.strictEqual(R.animString(false, true, t, 'horizontal'), 'tco-fade 1000ms linear 9000ms forwards');
 });
 
+test('fadeTiming with a fade-out length: capped by the whole life, and the line still gone `fade` s after arrival', () => {
+  // Left out (or not a usable number): FADE_OUT_MS, as before.
+  [undefined, null, 'soon', -1, NaN].forEach((o) =>
+    assert.deepStrictEqual(R.fadeTiming(10, 0, o), { expired: false, delay: 9000, duration: 1000 }, String(o)));
+  assert.deepStrictEqual(R.fadeTiming(10, 0, 1000), R.fadeTiming(10, 0));
+  assert.deepStrictEqual(R.fadeTiming(10, 0, 2500), { expired: false, delay: 7500, duration: 2500 });
+  assert.deepStrictEqual(R.fadeTiming(10, 9000, 2500), { expired: false, delay: -1500, duration: 2500 });
+  // 0: no fade at all, the line vanishes at `fade`.
+  assert.deepStrictEqual(R.fadeTiming(10, 0, 0), { expired: false, delay: 10000, duration: 0 });
+  // Longer than the whole life: the whole life is the fade-out.
+  assert.deepStrictEqual(R.fadeTiming(3, 500, 10000), { expired: false, delay: -500, duration: 3000 });
+  assert.deepStrictEqual(R.fadeTiming(3, 3000, 250), { expired: true });
+  for (const out of [0, 250, 1000, 4000, 10000]) {
+    for (const age of [0, 1234, 4999]) {
+      const x = R.fadeTiming(5, age, out);
+      assert.strictEqual(age + x.delay + x.duration, 5000, out + ' ' + age);
+    }
+  }
+});
+
+test('animString: the entrance style and length, the exit keyframes; left out, 1.5\'s strings', () => {
+  const t = R.fadeTiming(10, 0);
+  // At the defaults, byte for byte what 1.5 wrote (renderer-dom.test.js and the parity fixtures pin them too).
+  assert.strictEqual(R.animString(true, true, null, 'vertical', 'slide', 180, 'tco-fade'), 'tco-in 180ms ease-out');
+  assert.strictEqual(R.animString(true, true, null, 'horizontal', 'slide', 180, 'tco-fade'), 'tco-in-x 180ms ease-out');
+  assert.strictEqual(R.animString(true, true, t, 'vertical', 'slide', 180, 'tco-fade'),
+    'tco-in 180ms ease-out, tco-fade 1000ms linear 9000ms forwards');
+  // Each style, in a column and in a row; fade and drop look the same in both, pop grows a row's message from its middle.
+  const inn = (style, layout) => R.animString(true, true, null, layout, style, 180);
+  assert.deepStrictEqual(['slide', 'fade', 'pop', 'drop'].map((s) => [inn(s, 'vertical'), inn(s, 'horizontal')]), [
+    ['tco-in 180ms ease-out', 'tco-in-x 180ms ease-out'],
+    ['tco-in-fade 180ms ease-out', 'tco-in-fade 180ms ease-out'],
+    ['tco-in-pop 180ms ease-out', 'tco-in-pop-x 180ms ease-out'],
+    ['tco-in-drop 180ms ease-out', 'tco-in-drop 180ms ease-out']]);
+  assert.strictEqual(R.animString(true, true, null, 'vertical', 'pop', 400), 'tco-in-pop 400ms ease-out');
+  // Only listed names and clamped numbers reach the string.
+  assert.strictEqual(R.animString(true, true, null, 'vertical', 'toString', 5), 'tco-in 50ms ease-out');
+  assert.strictEqual(R.animString(true, true, null, 'vertical', 'x; color: red', '1e9'), 'tco-in 180ms ease-out');
+  assert.strictEqual(R.animString(true, true, null, 'vertical', 'drop', 99999), 'tco-in-drop 1000ms ease-out');
+  assert.strictEqual(R.animString(true, false, null, 'vertical', 'pop', 400), '', 'animate=0: no entrance');
+  // The exit: any listed keyframes, with the fade's own timing; anything else is tco-fade.
+  R.EXIT_NAMES.forEach((n) => assert.strictEqual(R.animString(false, false, t, 'vertical', null, null, n), n + ' 1000ms linear 9000ms forwards'));
+  assert.strictEqual(R.animString(false, false, t, 'vertical', null, null, 'tco-in'), 'tco-fade 1000ms linear 9000ms forwards');
+  assert.strictEqual(R.animString(true, true, R.fadeTiming(1, 0, 400), 'horizontal', 'fade', 300, 'tco-out-slide-x'),
+    'tco-in-fade 300ms ease-out, tco-out-slide-x 400ms linear 600ms forwards');
+  // The name sets onAnimEnd acts on hold every name animString writes.
+  const entered = [];
+  Object.keys(R.ENTER).forEach((s) => R.ENTER[s].forEach((n) => { if (entered.indexOf(n) < 0) entered.push(n); }));
+  assert.deepStrictEqual(R.ENTER_NAMES.slice().sort(), entered.sort());
+  assert.deepStrictEqual(Object.keys(R.ENTER), config.SPEC.enter_style.values);
+});
+
+test('exitFor: tco-fade, or exit_style=slide toward the edge old lines leave by', () => {
+  const ex = (c) => R.exitFor(R.normalizeCfg(c));
+  assert.strictEqual(ex({}), 'tco-fade');
+  assert.strictEqual(ex({ align: 'top', layout: 'horizontal' }), 'tco-fade');
+  assert.strictEqual(ex({ exit_style: 'slide' }), 'tco-out-slide', 'a column with the newest at the bottom: up');
+  assert.strictEqual(ex({ exit_style: 'slide', align: 'top' }), 'tco-out-slide-down', 'the newest on top: down');
+  assert.strictEqual(ex({ exit_style: 'slide', layout: 'horizontal' }), 'tco-out-slide-x', 'a row: left');
+  assert.strictEqual(ex({ exit_style: 'slide', layout: 'horizontal', align: 'top' }), 'tco-out-slide-x');
+  assert.strictEqual(R.exitFor(null), 'tco-fade');
+  assert.deepStrictEqual(R.EXIT_NAMES.slice().sort(), ['tco-fade', 'tco-out-slide', 'tco-out-slide-down', 'tco-out-slide-x']);
+});
+
+test('animDefaults: only all four animation options at their defaults keep 1.5\'s overlapping fade', () => {
+  const at = (c) => R.animDefaults(R.normalizeCfg(c));
+  assert.strictEqual(at({}), true);
+  assert.strictEqual(at(config.defaults()), true);
+  // The other options never matter.
+  assert.strictEqual(at({ fade: 1, layout: 'horizontal', align: 'top', animate: false }), true);
+  [{ enter_style: 'fade' }, { enter_ms: 200 }, { fade_out_ms: 1500 }, { fade_out_ms: 0 }, { exit_style: 'slide' }]
+    .forEach((c) => assert.strictEqual(at(c), false, JSON.stringify(c)));
+});
+
 test('newestFirst: only a vertical, top-aligned chat keeps the newest line first in the DOM', () => {
   assert.strictEqual(R.newestFirst(R.normalizeCfg({})), false);
   assert.strictEqual(R.newestFirst(R.normalizeCfg({ align: 'top' })), true);
@@ -1111,8 +1185,10 @@ test('every live config key is handled by the renderer', () => {
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
     'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale',
     'emote_only', 'gif_size', 'name_font', 'mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color',
-    'vip_color'];
+    'vip_color', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
+  // The animations time the lines (new ones, and restartFades): they never rebuild one.
+  ['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].forEach((k) => assert.ok(R.RERENDER_KEYS.indexOf(k) < 0, k));
   // The highlights are line classes, so they rebuild the lines; their colors are #chat variables only.
   ['mentions', 'keywords', 'highlight_users', 'points_highlight', 'role_style'].forEach((k) => {
     assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0 && ROOT_KEYS.indexOf(k) < 0, k);

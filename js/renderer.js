@@ -34,10 +34,10 @@
   // outline=1..3: how far the eight sharp copies of the text that draw the outline sit from it.
   var OUTLINE_EM = ['', '.04em', '.06em', '.08em'];
   var OUTLINE_DIRS = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
-  var IN_MS = 180;            // tco-in / tco-in-x (animate=1)
+  var IN_MS = 180;            // tco-in / tco-in-x (animate=1): enter_ms's default
   var SLIDE_MS = 250;         // layout=horizontal, animate=1: the row glides left to make room for a new line
   var LAYOUT_SETTLE_MS = 300; // after a live layout switch no trimming, until the builder has resized the preview too
-  var FADE_OUT_MS = 1000;     // tco-fade length; the line is gone exactly `fade` seconds after it arrived
+  var FADE_OUT_MS = 1000;     // tco-fade length (fade_out_ms's default); the line is gone exactly `fade` s after it arrived
   var FLUSH_FALLBACK_MS = 250;
   var FLUSH_GAP_MS = 100;     // busy chat: at most one flush (layout + paint) per this many ms
   var SWEEP_MS = 1000;        // fade safety sweep, in case animationend never fires
@@ -78,7 +78,9 @@
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline',
     'outline_color', 'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size',
     'emote_scale', 'emote_only', 'gif_size', 'name_font', 'mention_color', 'keyword_color', 'points_color',
-    'broadcaster_color', 'mod_color', 'vip_color'];
+    'broadcaster_color', 'mod_color', 'vip_color',
+    // The animations: new lines take the entrance; a timing or exit change re-times the fades (restartFades).
+    'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -97,6 +99,16 @@
   // name_sep: what goes between the name and the message (a /me line keeps its space). Never '': the name and
   // the message would run together.
   var NAME_SEPS = { colon: ': ', space: ' ', dash: ' – ', arrow: ' › ' };
+  // enter_style: each entrance's keyframes (css/overlay.css) in a column and in a row. slide is the column's rise and
+  // the row's slide in from the right, as always; pop grows a row's message from its middle.
+  var ENTER = { slide: ['tco-in', 'tco-in-x'], fade: ['tco-in-fade', 'tco-in-fade'], pop: ['tco-in-pop', 'tco-in-pop-x'],
+    drop: ['tco-in-drop', 'tco-in-drop'] };
+  // exit_style=slide: the line moves out toward the edge old lines leave by as it fades: the top of a column, the bottom
+  // of one with the newest line on top (newestFirst), the left end of a row.
+  var EXIT_SLIDE = { up: 'tco-out-slide', down: 'tco-out-slide-down', left: 'tco-out-slide-x' };
+  // Every name onAnimEnd acts on, whatever the settings were when the animation began.
+  var ENTER_NAMES = ['tco-in', 'tco-in-x', 'tco-in-fade', 'tco-in-pop', 'tco-in-pop-x', 'tco-in-drop'];
+  var EXIT_NAMES = ['tco-fade', 'tco-out-slide', 'tco-out-slide-down', 'tco-out-slide-x'];
   // Text that draws nothing: spaces, and format and other invisible characters (U+E0000 and U+034F, the suffixes
   // chat clients add to send the same message twice). An emote-only line may have them between its emotes.
   var BLANK_RE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*$/u;
@@ -114,6 +126,10 @@
     fade: { min: 0, max: 3600, def: 0 },
     max: { min: 1, max: 200, def: 50 },
     animate: { bool: true, def: true },
+    enter_style: { values: ['slide', 'fade', 'pop', 'drop'], def: 'slide' },
+    enter_ms: { min: 50, max: 1000, def: IN_MS },
+    fade_out_ms: { min: 0, max: 10000, def: FADE_OUT_MS },
+    exit_style: { values: ['fade', 'slide'], def: 'fade' },
     font: { str: true, def: 'Inter' },
     text_weight: { values: WEIGHT_NAMES, def: 'semibold' },
     text_color: { hex: true, def: '' },
@@ -309,15 +325,16 @@
     return hh + ':' + (mm < 10 ? '0' : '') + mm;
   }
 
-  // Fade: the line disappears `fade` s after it arrived; the last FADE_OUT_MS is the visible fade-out.
-  // delay > 0: still fully visible; delay < 0: already part-way through the fade-out.
+  // Fade: the line disappears `fade` s after it arrived; the last outMs (fade_out_ms, FADE_OUT_MS when left out) is
+  // the visible fade-out, never longer than the whole life. delay > 0: still fully visible; delay < 0: already
+  // part-way through the fade-out.
   // Returns null (no fade), {expired:true} (drop it), or {expired:false, delay, duration} in ms.
-  function fadeTiming(fadeS, ageMs) {
+  function fadeTiming(fadeS, ageMs, outMs) {
     var total = Number(fadeS) * 1000;
     if (!(total > 0)) return null;
     var age = Math.max(0, Number(ageMs) || 0);
     if (age >= total) return { expired: true };
-    var dur = Math.min(FADE_OUT_MS, total);
+    var dur = Math.min(typeof outMs === 'number' && outMs >= 0 ? outMs : FADE_OUT_MS, total);
     return { expired: false, delay: Math.round(total - dur - age), duration: Math.round(dur) };
   }
 
@@ -325,12 +342,32 @@
   // A horizontal row always ends with the newest line on the right; align only moves the row up or down.
   function newestFirst(c) { return !!c && c.layout !== 'horizontal' && c.align === 'top'; }
 
-  // Inline `animation` value for a line ('' = none). A horizontal row slides new lines in sideways.
-  function animString(isNew, animate, timing, layout) {
+  // Inline `animation` value for a line ('' = none). A horizontal row slides new lines in sideways. style (enter_style),
+  // inMs (enter_ms) and exitName (exitFor's keyframes) may be left out: the line then comes in and fades as in 1.5.
+  // Only the listed keyframe names and clamped numbers ever reach the string.
+  function animString(isNew, animate, timing, layout, style, inMs, exitName) {
     var parts = [];
-    if (isNew && animate) parts.push((layout === 'horizontal' ? 'tco-in-x ' : 'tco-in ') + IN_MS + 'ms ease-out');
-    if (timing && !timing.expired) parts.push('tco-fade ' + timing.duration + 'ms linear ' + timing.delay + 'ms forwards');
+    if (isNew && animate) {
+      var names = Object.prototype.hasOwnProperty.call(ENTER, style) ? ENTER[style] : ENTER.slide;
+      parts.push(names[layout === 'horizontal' ? 1 : 0] + ' ' + clampInt(inMs, 50, 1000, IN_MS) + 'ms ease-out');
+    }
+    if (timing && !timing.expired) {
+      parts.push((EXIT_NAMES.indexOf(exitName) >= 0 ? exitName : 'tco-fade') + ' ' + timing.duration + 'ms linear ' +
+        timing.delay + 'ms forwards');
+    }
     return parts.join(', ');
+  }
+  // The exit's keyframes for a config: tco-fade, or with exit_style=slide the one toward the edge old lines leave by.
+  function exitFor(c) {
+    if (!c || c.exit_style !== 'slide') return 'tco-fade';
+    if (c.layout === 'horizontal') return EXIT_SLIDE.left;
+    return newestFirst(c) ? EXIT_SLIDE.down : EXIT_SLIDE.up;
+  }
+  // The four animation options at their defaults. A fade-out that begins during the entrance then runs along with it,
+  // as in 1.5 (fade=1: the line rises while it fades). Off them, the entrance always plays out first: the fade-out
+  // would take over opacity (and transform) the moment it began and cut the entrance short (insertGroups, onAnimEnd).
+  function animDefaults(c) {
+    return c.enter_style === 'slide' && c.enter_ms === IN_MS && c.fade_out_ms === FADE_OUT_MS && c.exit_style === 'fade';
   }
 
   // Fixed-capacity FIFO; pushing into a full ring drops the oldest entry.
@@ -1370,12 +1407,15 @@
         for (var li = 0; li < g.length; li++) {
           var line = g[li];
           var rec = recs.get(line);
-          var t = fadeTiming(cfg.fade, now - rec.born);
+          var t = fadeTiming(cfg.fade, now - rec.born, cfg.fade_out_ms);
           // tco-in and tco-fade both animate opacity, and two such animations on one element both run on the
           // main thread. So while the fade-out is further off than the entrance, only tco-in goes on now and
-          // onAnimEnd adds the fade when it ends (same timing: the fade is anchored to the arrival).
-          rec.fadeLater = !!(cfg.animate && t && !t.expired && t.delay >= IN_MS);
-          var anim = animString(true, cfg.animate, rec.fadeLater ? null : t, cfg.layout);
+          // onAnimEnd adds the fade when it ends (same timing: the fade is anchored to the arrival). The same for
+          // every entrance (enter_style) and exit (exit_style). Off their defaults the fade always waits, so it
+          // never cuts an entrance short (animDefaults).
+          rec.fadeLater = !!(cfg.animate && t && !t.expired && (t.delay >= cfg.enter_ms || !animDefaults(cfg)));
+          var anim = animString(true, cfg.animate, rec.fadeLater ? null : t, cfg.layout, cfg.enter_style, cfg.enter_ms,
+            exitFor(cfg));
           if (anim) line.style.animation = anim;
           frag.appendChild(line);
         }
@@ -1504,18 +1544,21 @@
       // are clipped and removing them moves nothing, so the next flush's trim takes them (no extra frame).
     }
 
-    // Re-time every line's fade from its arrival time (after align/fade changes or a reorder).
-    function restartFades(now) {
+    // Re-time every line's fade from its arrival time (after align/fade changes or a reorder). keepEntering (a new
+    // fade-out length or exit): a line still coming in keeps its entrance, and onAnimEnd gives it the new fade-out.
+    function restartFades(now, keepEntering) {
       var list = children();
+      if (keepEntering) list = list.filter(function (l) { var r = recs.get(l); return !(r && r.fadeLater); });
       if (!list.length) return;
       for (var i = 0; i < list.length; i++) list[i].style.animation = 'none';
       void linesEl.offsetHeight; // style flush: cancels the running animations so the new ones start now
+      var exit = exitFor(cfg);
       for (var j = 0; j < list.length; j++) {
         var rec = recs.get(list[j]);
-        var t = rec ? fadeTiming(cfg.fade, now - rec.born) : null;
+        var t = rec ? fadeTiming(cfg.fade, now - rec.born, cfg.fade_out_ms) : null;
         if (rec) rec.fadeLater = false;
         if (t && t.expired) removeLine(list[j]);
-        else list[j].style.animation = animString(false, false, t);
+        else list[j].style.animation = animString(false, false, t, cfg.layout, null, null, exit);
       }
     }
 
@@ -1650,14 +1693,20 @@
       var rec = recs.get(t);
       if (!rec) return;
       var name = e.animationName;
-      if (name === 'tco-fade') {
+      if (EXIT_NAMES.indexOf(name) >= 0) {
         removeLine(t);
-      } else if ((name === 'tco-in' || name === 'tco-in-x') && rec.fadeLater) {
-        // The entrance is over: now the fade-out alone, timed from the arrival (see insertGroups).
+      } else if (ENTER_NAMES.indexOf(name) >= 0 && rec.fadeLater) {
+        // The entrance is over: now the fade-out alone, timed from the arrival (see insertGroups). Off the animation
+        // defaults, one that should have begun already starts now, from full, over the time left: still gone at `fade`.
         rec.fadeLater = false;
-        var ft = fadeTiming(cfg.fade, Date.now() - rec.born);
+        var ft = fadeTiming(cfg.fade, Date.now() - rec.born, cfg.fade_out_ms);
         if (ft && ft.expired) removeLine(t);
-        else t.style.animation = animString(false, false, ft);
+        else {
+          if (ft && ft.delay < 0 && !animDefaults(cfg)) {
+            ft = { expired: false, delay: 0, duration: ft.duration + ft.delay };
+          }
+          t.style.animation = animString(false, false, ft, cfg.layout, null, null, exitFor(cfg));
+        }
       }
     }
     // While hidden nothing renders, so CSS animations of lines inserted meanwhile never started.
@@ -1783,7 +1832,11 @@
         paintState.forEach(function (ok, id) { if (ok) ensureStill(id); });
       }
       if (prev.fade !== cfg.fade) restart = true;
-      if (restart) restartFades(Date.now());
+      // The fades on screen take a new length or exit at once (and the exit's direction when the layout turns), so
+      // they still end `fade` s after arrival; lines still coming in get theirs as the entrance ends (onAnimEnd). A
+      // new enter_ms re-times nothing: it only decides, for new lines, whether the fade waits (insertGroups).
+      var retime = cfg.fade > 0 && (prev.fade_out_ms !== cfg.fade_out_ms || exitFor(prev) !== exitFor(cfg));
+      if (restart || retime) restartFades(Date.now(), !restart);
       if (changedAny(prev, cfg, FILTER_KEYS)) sweepFilters();
       if (changedAny(prev, cfg, RERENDER_KEYS)) rerender();
       // block_words decides which reply headers quote a hidden message (deps.quoteHidden): only replies change.
@@ -2021,6 +2074,11 @@
       fadeTiming: fadeTiming,
       newestFirst: newestFirst,
       animString: animString,
+      exitFor: exitFor,
+      animDefaults: animDefaults,
+      ENTER: ENTER,
+      ENTER_NAMES: ENTER_NAMES,
+      EXIT_NAMES: EXIT_NAMES,
       Ring: Ring,
       DeletedIds: DeletedIds,
       overflowCount: overflowCount,

@@ -89,9 +89,10 @@ body {
 :where(.layout-vertical.has-bg).bg-full .line { width: auto; }
 
 /* text_align=center/right, in a column: the text, and a line narrower than the column (a box, or line_width) moves
-   with it. Name-color, first-message and announcement bars stay on the left edge. */
-:where(.layout-vertical.text-center) .lines { text-align: center; }
-:where(.layout-vertical.text-right) .lines { text-align: right; }
+   with it. Name-color, first-message and announcement bars stay on the left edge. --pop-x keeps enter_style=pop
+   growing a message from where its text starts (tco-in-pop, with the animations). */
+:where(.layout-vertical.text-center) .lines { text-align: center; --pop-x: 0%; }
+:where(.layout-vertical.text-right) .lines { text-align: right; --pop-x: 7.5%; }
 .text-center:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line { margin-left: auto; margin-right: auto; }
 .text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line { margin-left: auto; }
 
@@ -435,6 +436,38 @@ body {
 @keyframes tco-fade {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+/* enter_style=fade/pop/drop and exit_style=slide, opacity and transform only like the three above. pop grows a message
+   from where its text starts: scaled about its middle, it moves by --pop-x (a share of its own width), so its left end
+   stays put, or with text_align its middle or right end; a row's message grows from its middle. An exit slide moves
+   the message .6em toward the edge old messages leave by: up, down while the newest is on top, left in a row. */
+@keyframes tco-in-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes tco-in-pop {
+  from { opacity: 0; transform: translateX(var(--pop-x, -7.5%)) scale(.85); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-pop-x {
+  from { opacity: 0; transform: scale(.85); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-drop {
+  from { opacity: 0; transform: translateY(-.4em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-out-slide {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-.6em); }
+}
+@keyframes tco-out-slide-down {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(.6em); }
+}
+@keyframes tco-out-slide-x {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateX(-.6em); }
 }
 
 /* ---------- status hint and debug line (overlay.html #hint / #debug) ---------- */

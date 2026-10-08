@@ -737,7 +737,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline'],
     ['Names', 'name_color', 'name_line'],
     ['Box', 'bg', 'bg_color', 'accent_bar'],
-    ['Animation', 'animate']
+    ['Animation', 'animate', 'enter_style']
   ]);
   assert.deepStrictEqual(outline(g('advanced')), [
     ['Troubleshooting #adv-trouble', 'debug', 'demo'],
@@ -745,6 +745,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     ['Names #adv-names', 'names', 'name_weight', 'name_font', 'name_fallback', 'name_sep', 'readable_level'],
     ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
     ['Layout #adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep'],
+    ['Animation #adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style'],
     ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style'],
     ['Highlights #adv-highlights', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color',
       'role_style', 'broadcaster_color', 'mod_color', 'vip_color'],
@@ -812,7 +813,10 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   assert.strictEqual(g('events').more, 'adv-events');
   assert.strictEqual(g('emotes').more, 'adv-emotes');
   assert.strictEqual(g('badges').more, 'adv-lighter');
-  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events', 'filters', 'emotes', 'badges']);
+  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'messages', 'events', 'filters', 'emotes', 'badges']);
+  // Messages: as before, and its foot links Advanced's Animation (the fade-out length and the exit).
+  assert.deepStrictEqual(g('messages').keys, ['fade', 'max', 'history']);
+  assert.strictEqual(g('messages').more, 'adv-animation');
   assert.deepStrictEqual(builder.META.emote_only.options, { normal: 'Normal', big: 'Big', huge: 'Huge' });
   assert.deepStrictEqual(builder.segValues('gif_size').map((v) => v.label), ['1×', '2×', '3×']);
   assert.match(builder.META.gif_size.help, /The demo has no GIF/);
@@ -859,7 +863,11 @@ test('the look options grey out while the setting they need is off, and their he
     broadcaster_color: [{ role_style: 'off' }, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
     mod_color: [{}, { role_style: 'tint' }, 'Mark broadcaster, mods, VIPs'],
     vip_color: [{}, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
-    command_prefixes: [{}, { hide_commands: true }, 'Hide !commands (Filters)']
+    command_prefixes: [{}, { hide_commands: true }, 'Hide !commands (Filters)'],
+    enter_style: [{ animate: false }, {}, 'Animate new messages'],
+    enter_ms: [{ animate: false }, {}, 'Animate new messages (Look)'],
+    fade_out_ms: [{}, { fade: 30 }, 'Remove messages after (Messages)'],
+    exit_style: [{ fade: 0 }, { fade: 5 }, 'Remove messages after (Messages) and a Fade-out length other than Instant']
   };
   // The highlight word color is for the users too.
   assert.strictEqual(off('keyword_color', { highlight_users: ['a'] }), false);
@@ -912,6 +920,54 @@ test('the look options grey out while the setting they need is off, and their he
     .forEach((k) => assert.strictEqual(off(k, { names: false, layout: 'horizontal' }), false, k));
   ['text_weight', 'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'spacing']
     .forEach((k) => assert.strictEqual(off(k, { bg: 0, events: false, first_msg: false, layout: 'horizontal' }), false, k));
+});
+
+test('the animation options: labels, steppers and what each needs', () => {
+  const m = builder.META;
+  const off = (k, over) => builder.fieldOff(k, Object.assign(config.defaults(), over || {}));
+  // animate is relabelled now that it has a choice of entrances; the switch itself is unchanged.
+  assert.strictEqual(m.animate.label, 'Animate new messages');
+  // Lengths, both (a higher number is slower, so not a "speed").
+  assert.deepStrictEqual([m.enter_ms.label, m.fade_out_ms.label], ['Entrance length', 'Fade-out length']);
+  assert.strictEqual(builder.widgetFor('animate'), 'check');
+  assert.deepStrictEqual(m.enter_style.options, { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop' });
+  assert.deepStrictEqual(m.exit_style.options, { fade: 'Fade', slide: 'Slide' });
+  assert.deepStrictEqual(['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].map(builder.widgetFor), ['seg', 'stepper', 'stepper', 'seg']);
+  // Steps of 50 and 250 ms; a fade-out of 0 shows as Instant (the entrance has no 0: animate=0 is its off switch).
+  assert.deepStrictEqual([m.enter_ms.step, m.enter_ms.unit, m.enter_ms.zero], [50, 'ms', undefined]);
+  assert.deepStrictEqual([m.fade_out_ms.step, m.fade_out_ms.unit, m.fade_out_ms.zero], [250, 'ms', 'Instant']);
+  assert.deepStrictEqual([50, 180, 1000].map((v) => builder.valueText('enter_ms', v)), ['50 ms', '180 ms', '1000 ms']);
+  assert.deepStrictEqual([0, 250, 1000].map((v) => builder.valueText('fade_out_ms', v)), ['Instant', '250 ms', '1000 ms']);
+  assert.deepStrictEqual(['180 ms', '180ms', '300', '0', '20', '5000', '1 s', '2.5'].map((x) => builder.parseStep('enter_ms', x)),
+    [180, 180, 300, 50, 50, 1000, undefined, undefined]);
+  assert.deepStrictEqual(['Instant', 'instant', '0', '1000 ms', '12000'].map((x) => builder.parseStep('fade_out_ms', x)), [0, 0, 0, 1000, 10000]);
+  ['enter_ms', 'fade_out_ms'].forEach((k) => {
+    const s = config.SPEC[k];
+    [s.min, s.def, s.max].forEach((v) => assert.strictEqual(builder.parseStep(k, builder.valueText(k, v)), v, k + ' ' + v));
+    // Every press lands on a value the setting takes, up and down.
+    for (let v = s.min; v < s.max;) {
+      const next = builder.stepValue(v, 1, m[k].step, s.min, s.max);
+      assert.ok(next > v && config.coerce(k, next) === next, k + ' up from ' + v);
+      assert.ok(builder.stepValue(next, -1, m[k].step, s.min, s.max) < next, k + ' down from ' + next);
+      v = next;
+    }
+  });
+  // The entrance needs animate; the fade-out and the exit need fade, whatever animate is, in both layouts.
+  assert.deepStrictEqual(['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].map((k) => off(k)), [false, false, true, true]);
+  assert.deepStrictEqual(['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].map((k) => off(k, { animate: false, fade: 30 })),
+    [true, true, false, false]);
+  ['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].forEach((k) =>
+    assert.strictEqual(off(k, { fade: 30, layout: 'horizontal' }), false, k));
+  // An Instant fade-out leaves the exit nothing to move in (the length itself stays on, to be raised again).
+  assert.deepStrictEqual(['fade_out_ms', 'exit_style'].map((k) => off(k, { fade: 30, fade_out_ms: 0 })), [false, true]);
+  assert.strictEqual(off('exit_style', { fade: 30, fade_out_ms: 250 }), false);
+  // The fade's own help follows the fade-out length (no more "the last second").
+  assert.doesNotMatch(m.fade.help, /The last second fades out/);
+  assert.match(m.fade.help, /Fade-out length/);
+  assert.match(m.fade_out_ms.help, /never longer than it stays/);
+  assert.match(m.enter_ms.help, /its fade-out waits for the entrance to end and takes the time left/);
+  assert.match(m.exit_style.help, /up, down when new messages appear at the top, or left in a row/);
+  assert.match(m.enter_style.help, /older messages still glide left/);
 });
 
 test('sectionFromHash: an Advanced sub-heading id opens Advanced; every other hash as before', () => {
