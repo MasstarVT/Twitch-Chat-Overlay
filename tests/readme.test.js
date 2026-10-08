@@ -64,6 +64,26 @@ test('README: the Custom CSS table names every class overlay.css lists as stable
   named.forEach((c) => assert.ok(new RegExp('[\\s.\'"#]' + c.slice(1).replace(/-/g, '\\-') + '\\b').test(drawn), c + ' is real'));
 });
 
+// The mentions row says what makes '@name' part of a longer name and gives examples either side of the rule. The
+// matcher's own lookahead takes a '-' before a Latin letter or digit as more name (a Kick slug can go on with one), so
+// the row names the '-' and its examples are what the overlay does, in both modes.
+test('README: the mentions row\'s examples are what the overlay tints', () => {
+  const R = require('../js/renderer.js')._internal;
+  const row = /^\| `mentions` \|[^\n]*/m.exec(section('Options'));
+  assert.ok(row, 'README has a mentions row');
+  const ex = /\bso ([^.]*?) count but ([^.]*?) doesn't/.exec(row[0]);
+  assert.ok(ex, 'the row gives names that count and one that doesn\'t');
+  const yes = codeIn(ex[1]), no = codeIn(ex[2]);
+  assert.ok(yes.length >= 2 && no.length >= 1, 'the scan finds the examples');
+  assert.ok(/`-`/.test(row[0]) && no.some((s) => /-/.test(s)), 'the row says a "-" can make it part of a longer name');
+  ['at', 'name'].forEach((mode) => {
+    const cfg = R.normalizeCfg({ mentions: mode, channel: 'name' });
+    const tinted = (s) => R.lineClasses({ login: 'viewer', text: s }, cfg, 'chat', false) === 'line mention';
+    yes.forEach((s) => assert.ok(tinted(s), mode + ': ' + s + ' counts'));
+    no.forEach((s) => assert.ok(!tinted(s), mode + ': ' + s + ' doesn\'t count'));
+  });
+});
+
 // A builder quick look puts every PRESET_KEYS setting at its value or its default, so the note's "Each sets ..."
 // names each: one it left out (the name's own line, the name-color bar) would be reset with the README silent on it.
 test('README: the Builder quick looks note names every setting a look sets', () => {

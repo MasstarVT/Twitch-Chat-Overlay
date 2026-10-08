@@ -577,7 +577,8 @@
   var NOSP_RE = new RegExp('^[' + NOSP + ']$', 'u');
   var SPACED_CH = '(?:(?![' + NOSP + '])' + WORD_CH + ')';
   // What can continue a Twitch login or a Kick slug, which are ASCII: a Latin letter (é too: @homé is another word),
-  // a mark, a digit or '_'. A Japanese or Korean suffix (@homeさん, @home님) or a word before the '@' doesn't.
+  // a mark, a digit or '_', and (the mention matcher's '-?') a '-' before one, as a Kick slug can go on (@home-made),
+  // after the Twitch login too. A Japanese or Korean suffix (@homeさん, @home님, @home-さん) or a word before the '@' doesn't.
   var LOGIN_CH = '[\\p{Script=Latin}\\p{M}\\p{Nd}_]';
   var MAX_PHRASES = 50; // config.js keeps keywords to as many
   // Literal text in a regex. Only the syntax characters: the u flag rejects any other escaped one ('\-').
