@@ -210,7 +210,9 @@ const PREREQ = {
   shadow_color: { shadow: 2 },
   shadow_style: { shadow: 2 },
   outline_color: { outline: 2 },
-  paint_images: { paints: true }
+  paint_images: { paints: true },
+  text_align: { layout: 'vertical' },
+  row_sep: { layout: 'horizontal' }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 

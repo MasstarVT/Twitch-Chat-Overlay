@@ -106,6 +106,16 @@
     align: { label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' },
       // Shown instead while layout is horizontal (see syncLabels).
       horizontal: { label: 'Row sits', help: 'Whether the row runs along the bottom or the top edge of the source. New messages always come in on the right.' } },
+    text_align: { label: 'Text alignment', options: { left: 'Left', center: 'Center', right: 'Right' }, only: 'vertical',
+      help: 'Where messages sit in the column, with their boxes. Name-color, first-message and announcement bars stay on the left. Vertical layout only.' },
+    line_width: { label: 'Max message width', widget: 'stepper', step: 5, unit: 'em', zero: 'No limit',
+      help: 'In em, the text size: 30 em is about 55 letters. A longer message wraps, or in a row ends in “…”. 1 to 4 become 5.' },
+    pad_x: { label: 'Side padding', widget: 'stepper', step: 4, unit: 'px',
+      help: 'Space between the messages and the left and right edges of the source (8 px by default). At 0, shadows and emotes at the edges are cut off.' },
+    edge_fade: { label: 'Soft edge', widget: 'stepper', unit: 'em', zero: 'Off',
+      help: 'Old messages fade out over this distance (in em, the text size) as they reach the edge they leave by: the top, the bottom when new messages appear at the top, or the left end of a row. It covers at most half the source, so the newest message stays clear unless it is taller than that. In a row the newest message starts after the fade, so a long one is cut that much shorter. Some extra PC work while animated emotes are on screen.' },
+    row_sep: { label: 'Mark between messages', options: { none: 'None', dot: 'Dot', bar: 'Bar', diamond: 'Diamond' }, only: 'horizontal',
+      help: 'A small mark in the text color between messages in the row. Horizontal layout only.' },
     animate: { label: 'Slide in new messages' },
     fade: { label: 'Remove messages after', widget: 'stepper', step: 5, unit: 's', zero: 'Never',
       help: 'Seconds. The last second fades out. Never keeps messages until newer ones push them out.' },
@@ -175,8 +185,8 @@
   // id, linked at the foot of the section as "More in Advanced".
   var GROUPS = [
     { id: 'look', title: 'Look', note: 'Layout, text, names, boxes and how new messages come in.',
-      keys: ['layout', 'align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_line', 'bg', 'bg_color',
-        'accent_bar', 'animate'],
+      keys: ['layout', 'align', 'text_align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_line', 'bg',
+        'bg_color', 'accent_bar', 'animate'],
       subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_line' },
         { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
       more: 'adv-text' },
@@ -196,10 +206,11 @@
       keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable']), more: 'adv-lighter' },
     { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then fine-tuning for every section and lighter-on-PC switches.',
       keys: ['debug', 'demo', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight', 'bg_shape',
-        'bg_width', 'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_style', 'paint_images', 'homies_lists'],
+        'bg_width', 'spacing', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'notice_color', 'notice_size', 'first_msg_color',
+        'shadow_style', 'paint_images', 'homies_lists'],
       subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'line_height' },
         { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
-        { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
+        { id: 'adv-layout', title: 'Layout', first: 'line_width' }, { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
         { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }
   ];
 
@@ -547,6 +558,15 @@
     return Math.max(min, Math.min(max, n));
   }
 
+  // A step from `from` to `to` on a setting with SPEC lowest (line_width): 1..lowest-1 isn't a value (config.coerce
+  // raises it to lowest), so a step down into it goes on to 0 and a step up into it goes to lowest. Otherwise
+  // ArrowDown from 5 would land on 4, which is 5 again.
+  function skipGap(key, from, to) {
+    var s = config.SPEC[key];
+    if (!s || !(s.lowest > 0) || !(to > 0 && to < s.lowest)) return to;
+    return to < from ? 0 : s.lowest;
+  }
+
   // The choices of a segmented field: an enum's values, or every step of a small number (shadow 0..3).
   function segValues(key) {
     var s = config.SPEC[key], m = META[key] || {};
@@ -818,10 +838,11 @@
           sv.setAttribute('aria-valuenow', String(B.cfg[key]));
           sv.setAttribute('aria-valuetext', valueText(key, B.cfg[key]));
         };
-        // say: the Fewer / More buttons keep the focus, so the new value is spoken through the status region.
-        var jump = function (n, say) {
+        // A step from `from` to n (over line_width's gap, skipGap). say: the Fewer / More buttons keep the focus, so
+        // the new value is spoken through the status region.
+        var jump = function (from, n, say) {
           clearTimeout(stt);
-          update(key, n);
+          update(key, skipGap(key, from, n));
           showStep(B.cfg[key]);
           if (say) announce(valueText(key, B.cfg[key]));
         };
@@ -840,10 +861,10 @@
           else if (e.key === 'PageDown') n = stepValue(cur, -1, step, spec.min, spec.max);
           else return;
           e.preventDefault();
-          jump(n);
+          jump(cur, n);
         });
-        less.addEventListener('click', function () { jump(stepValue(B.cfg[key], -1, step, spec.min, spec.max), true); });
-        more.addEventListener('click', function () { jump(stepValue(B.cfg[key], 1, step, spec.min, spec.max), true); });
+        less.addEventListener('click', function () { jump(B.cfg[key], stepValue(B.cfg[key], -1, step, spec.min, spec.max), true); });
+        more.addEventListener('click', function () { jump(B.cfg[key], stepValue(B.cfg[key], 1, step, spec.min, spec.max), true); });
         field.inputs.push(less, sv, more);
         field.set = function (v) { clearTimeout(stt); showStep(v); };
         break;
@@ -2248,6 +2269,7 @@
     valueText: valueText,
     parseStep: parseStep,
     stepValue: stepValue,
+    skipGap: skipGap,
     segValues: segValues,
     sectionIds: sectionIds,
     sectionFromHash: sectionFromHash,

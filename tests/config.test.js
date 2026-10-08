@@ -11,7 +11,8 @@ describe('spec', () => {
       text_weight: 'semibold', text_color: '', line_height: 135, text_case: 'none', shadow: 2,
       shadow_color: '', shadow_style: 'filter', outline: 0, outline_color: '',
       names: true, name_weight: 'heavy', name_line: false,
-      bg: 0, bg_color: '', accent_bar: false, bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom', animate: true,
+      bg: 0, bg_color: '', accent_bar: false, bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom',
+      text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
       events: true, notice_color: '', notice_size: 85, replies: true, first_msg: false, first_msg_color: '', history: 5, shared: true, gifs: true,
       emotes_7tv: true, emotes_bttv: true, emotes_ffz: true,
@@ -233,6 +234,34 @@ describe('coerce', () => {
     // homies_lists doesn't start with badges_: overlay.js reads the live badges_* keys as badge sources.
     assert.ok(config.KEYS.filter((k) => /^badges_/.test(k)).every((k) => config.SPEC[k].type === 'bool'));
     assert.equal(config.toParams(Object.assign(config.defaults(), { outline: 2, homies_lists: 'light' })).toString(), 'outline=2&homies_lists=light');
+  });
+
+  test('int lowest: line_width is 0 (no limit) or 5 to 100; 1 to 4 become 5', () => {
+    assert.equal(config.SPEC.line_width.lowest, 5);
+    assert.deepEqual([0, 1, 2, 4, 5, 6, 100, 101, -3].map((v) => config.coerce('line_width', v)), [0, 5, 5, 5, 5, 6, 100, 100, 0]);
+    assert.deepEqual(['0', '3', ' 4 ', '30', 4.4, 4.6].map((v) => config.coerce('line_width', v)), [0, 5, 5, 30, 5, 5]);
+    assert.equal(config.coerce('line_width', 'wide'), undefined);
+    assert.equal(config.parse('line_width=2').line_width, 5);
+    assert.equal(config.parse('', { line_width: 3 }).line_width, 5);
+    // Only line_width has a lowest; the other ints clamp as before (max=0 is 1, pad_x=1 stays 1).
+    assert.deepEqual(config.KEYS.filter((k) => config.SPEC[k].lowest !== undefined), ['line_width']);
+    assert.equal(config.coerce('pad_x', 1), 1);
+    assert.equal(config.coerce('edge_fade', 1), 1);
+    assert.equal(config.coerce('max', 0), 1);
+  });
+
+  test('layout: text alignment, side padding, soft edge and the mark between messages', () => {
+    assert.equal(config.coerce('text_align', 'Right'), 'right');
+    assert.equal(config.coerce('text_align', 'start'), undefined);
+    assert.equal(config.coerce('row_sep', 'DIAMOND'), 'diamond');
+    assert.equal(config.coerce('row_sep', '•'), undefined);
+    assert.equal(config.coerce('pad_x', 500), 200);
+    assert.equal(config.coerce('pad_x', '-1'), 0);
+    assert.equal(config.coerce('edge_fade', 11), 10);
+    ['text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep'].forEach((k) => assert.ok(config.LIVE_KEYS.includes(k), k + ' is live'));
+    assert.equal(config.toParams(config.defaults()).toString(), '');
+    assert.equal(config.toParams(Object.assign(config.defaults(), { text_align: 'center', line_width: 30, pad_x: 0, edge_fade: 3, row_sep: 'dot' }))
+      .toString(), 'text_align=center&line_width=30&pad_x=0&edge_fade=3&row_sep=dot');
   });
 
   test('list: normalized, deduped logins from strings or arrays', () => {

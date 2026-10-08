@@ -4,10 +4,12 @@
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
    .platform-kick .accent, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel),
    #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg .bg-full .no-names .name-line
-   .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static.
+   .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static .text-center .text-right .has-maxw
+   .edge-fade .sep-dot .sep-bar .sep-diamond.
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
    --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
-   --first-color. Outline and shadow_style set --tshadow and --tshadow-room, and accent_bar sets --line-accent on
+   --first-color --pad-x. Outline and shadow_style set --tshadow and --tshadow-room, line_width --line-max and
+   --line-max-n (with .has-maxw), edge_fade --edge-fade (with .edge-fade), and accent_bar sets --line-accent on
    each line */
 
 html,
@@ -26,7 +28,7 @@ body {
   left: 0;
   overflow: hidden;
   box-sizing: border-box;
-  padding: 0 8px;
+  padding: 0 var(--pad-x, 8px);
   font-family: var(--font, 'Inter'), 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
   font-size: 24px;
   line-height: var(--line-height, 1.35);
@@ -53,6 +55,15 @@ body {
 #chat.align-bottom .lines { top: auto; bottom: 0; }
 #chat.align-top .lines { top: 0; bottom: auto; }
 
+/* edge_fade=1..10: messages fade out over --edge-fade as they reach the edge they leave by: the top of a column
+   with the newest message at the bottom, the bottom of one with the newest at the top, the left end of a row. Never
+   over more than half the source, so the newest message stays clear; in a row it starts after the fade (it may be
+   that much shorter). A mask on #chat, not on .lines (which moves); Chromium 103 knows only -webkit-mask-image. */
+.edge-fade.layout-vertical.align-bottom { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 min(var(--edge-fade, 2em), 50%)); }
+.edge-fade.layout-vertical.align-top { -webkit-mask-image: linear-gradient(to top, transparent, #000 min(var(--edge-fade, 2em), 50%)); }
+.edge-fade.layout-horizontal { -webkit-mask-image: linear-gradient(to right, transparent, #000 min(var(--edge-fade, 2em), 50%)); }
+.edge-fade.layout-horizontal .lines { padding-left: max(var(--pad-x, 8px), min(var(--edge-fade, 2em), 50%)); }
+
 /* ---------- lines ---------- */
 .line {
   padding: var(--line-gap, .15em) 0;
@@ -72,6 +83,13 @@ body {
 }
 /* bg_width=full: every box as wide as the column */
 :where(.layout-vertical.has-bg).bg-full .line { width: auto; }
+
+/* text_align=center/right, in a column: the text, and a line narrower than the column (a box, or line_width) moves
+   with it. Name-color, first-message and announcement bars stay on the left edge. */
+:where(.layout-vertical.text-center) .lines { text-align: center; }
+:where(.layout-vertical.text-right) .lines { text-align: right; }
+.text-center:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line { margin-left: auto; margin-right: auto; }
+.text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line { margin-left: auto; }
 
 /* outline=1..3 and shadow_style=text: the outline, then the shadow, as text-shadow layers (--tshadow) on the
    letters only. A reply header draws its own, in step with its smaller text. Painted names keep none (.painted),
@@ -272,7 +290,7 @@ body {
    A line never wraps: past the chat width it is cut off with an ellipsis. align runs the row along the
    bottom or the top edge of the source. GIFs and gigantified emotes are drawn at emote height so the row
    keeps one height. The rules below .lines use classes only, so OBS Custom CSS such as
-   `.layout-horizontal .line { max-width: 30em; }` overrides them. */
+   `.layout-horizontal .line { max-width: 30em; }` (what line_width=30 does, below) overrides them. */
 #chat.layout-horizontal .lines {
   top: 0;
   bottom: 0;
@@ -306,6 +324,34 @@ body {
   max-height: var(--emote-h, 1.75em);
   margin: -.3em .05em;
 }
+/* row_sep: a dot, bar or diamond before every message in a row but the first. A pseudo-element can't sit between
+   flex items, so it is drawn in the message (in its box, with bg), before its first inline part: after a reply
+   header, whose block would put it on a row of its own. Fixed glyphs in the text color (a notice's own text is
+   lavender); an empty badge holder shows to carry one. Without a box the row's gap comes before the mark, so the
+   same gap follows it. A notice draws its mark, and the space after it, in its own smaller text. */
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .reply + *::before,
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > :first-child:not(.reply)::before {
+  margin-right: .5em;
+  color: var(--text-color, #fff);
+  opacity: .6;
+}
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .reply + *::before,
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > :first-child:not(.reply)::before {
+  margin-right: var(--row-gap, 1em);
+}
+:where(.layout-horizontal.sep-dot) .line + .line > .reply + *::before,
+:where(.layout-horizontal.sep-dot) .line + .line > :first-child:not(.reply)::before { content: '\2022'; }
+:where(.layout-horizontal.sep-bar) .line + .line > .reply + *::before,
+:where(.layout-horizontal.sep-bar) .line + .line > :first-child:not(.reply)::before { content: '|'; }
+:where(.layout-horizontal.sep-diamond) .line + .line > .reply + *::before,
+:where(.layout-horizontal.sep-diamond) .line + .line > :first-child:not(.reply)::before { content: '\25C6'; }
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .badges:empty { display: inline; }
+
+/* line_width=5..100: no message wider than --line-max, in either layout (a longer one wraps in a column and ends in
+   an ellipsis in a row). After the row's rules, which it beats on order alone. A notice's em is its own smaller
+   text, so its cap is --line-max-n: the same width. */
+.has-maxw .line { max-width: min(100%, var(--line-max, 100%)); }
+.has-maxw .line.notice { max-width: min(100%, var(--line-max-n, var(--line-max, 100%))); }
 
 /* ---------- animations ---------- */
 @keyframes tco-in {

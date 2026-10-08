@@ -421,12 +421,12 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
     assert.strictEqual(e.className, 'eyebrow subhead');
     assert.strictEqual(e.id, undefined, 'only Advanced headings are anchors');
   });
-  assert.deepStrictEqual(outline('group-look'), ['Layout', 'layout', 'align', 'Text', 'size', 'font', 'text_weight', 'text_color',
-    'shadow', 'outline', 'Names', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate']);
+  assert.deepStrictEqual(outline('group-look'), ['Layout', 'layout', 'align', 'text_align', 'Text', 'size', 'font', 'text_weight',
+    'text_color', 'shadow', 'outline', 'Names', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate']);
   assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'line_height',
     'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'Box#adv-box', 'bg_shape', 'bg_width',
-    'spacing', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'Lighter on PC#adv-lighter',
-    'shadow_style', 'paint_images', 'homies_lists']);
+    'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'Chat events#adv-events', 'notice_color',
+    'notice_size', 'first_msg_color', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']);
   const adv = fields('group-advanced').filter((e) => e.tagName === 'H3');
   adv.forEach((e) => assert.strictEqual(e.tabIndex, -1, e.id));
   // The link is the section's foot: an <a> to the heading's anchor. Chat events has one too.
@@ -635,4 +635,84 @@ test('the weights are sliders over their six names; the letter case is a segment
   lh.parentNode.children[2].dispatch('click');
   assert.strictEqual(lh.value, '140%');
   assert.strictEqual(p.text('bar-url'), OVERLAY + '?text_weight=black&line_height=140');
+});
+
+test('Max message width steps over 1 to 4: 5 -> ArrowDown -> 0, 0 -> PageUp or ArrowUp -> 5, by button too', (t) => {
+  const p = open(t, HREF);
+  const lw = p.$('f-line_width');
+  const [less, , more] = lw.parentNode.children;
+  const key = (k) => lw.dispatch('keydown', { key: k, preventDefault() {} });
+  assert.deepStrictEqual([lw.value, lw.getAttribute('aria-valuetext'), less.getAttribute('aria-label')], ['No limit', 'No limit', 'Less']);
+  key('ArrowUp');
+  assert.deepStrictEqual([lw.value, p.text('bar-url')], ['5 em', OVERLAY + '?line_width=5']);
+  key('ArrowDown');
+  assert.deepStrictEqual([lw.value, p.text('bar-url')], ['No limit', OVERLAY], 'not 4, which would be 5 again');
+  key('PageUp');
+  assert.strictEqual(lw.value, '5 em');
+  key('ArrowUp');
+  assert.strictEqual(lw.value, '6 em');
+  key('PageDown');
+  assert.strictEqual(lw.value, '5 em');
+  key('PageDown');
+  assert.strictEqual(lw.value, 'No limit');
+  more.dispatch('click');
+  more.dispatch('click');
+  assert.strictEqual(lw.value, '10 em');
+  less.dispatch('click');
+  less.dispatch('click');
+  assert.strictEqual(lw.value, 'No limit');
+  // A number typed in the gap reads as 5.
+  lw.value = '3';
+  lw.dispatch('input');
+  t.mock.timers.tick(400);
+  assert.deepStrictEqual([lw.getAttribute('aria-valuetext'), p.text('bar-url')], ['5 em', OVERLAY + '?line_width=5']);
+  key('ArrowDown');
+  assert.strictEqual(lw.value, 'No limit', 'from the 3 in the box, which is 5');
+  // The other two step as usual: side padding by 4 px, the soft edge by 1 em from Off.
+  const px = p.$('f-pad_x'), fade = p.$('f-edge_fade');
+  assert.deepStrictEqual([px.value, fade.value], ['8 px', 'Off']);
+  px.parentNode.children[0].dispatch('click');
+  fade.parentNode.children[2].dispatch('click');
+  assert.deepStrictEqual([px.value, fade.value], ['4 px', '1 em']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?pad_x=4&edge_fade=1');
+});
+
+test('the layout options: live in the preview; text alignment greys out in a row, the mark between messages in a column', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const off = (key) => rowOf(p, key).classList.contains('disabled');
+  const keys = ['text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep'];
+  const state = () => keys.filter(off);
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-text_align"]').map((r) => r.value), ['left', 'center', 'right']);
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-row_sep"]').map((r) => r.value), ['none', 'dot', 'bar', 'diamond']);
+  assert.deepStrictEqual(state(), ['row_sep'], 'a column: no mark between messages');
+  assert.ok(p.doc.querySelectorAll('input[name="f-row_sep"]').every((r) => r.disabled));
+  seg('text_align', 'right');
+  seg('layout', 'horizontal');
+  assert.deepStrictEqual(state(), ['text_align'], 'a row: no text alignment');
+  assert.ok(p.doc.querySelectorAll('input[name="f-text_align"]').every((r) => r.disabled));
+  seg('row_sep', 'diamond');
+  p.$('f-edge_fade').parentNode.children[2].dispatch('click');
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.text_align, last.row_sep, last.edge_fade, last.layout], ['right', 'diamond', 1, 'horizontal']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?layout=horizontal&text_align=right&edge_fade=1&row_sep=diamond');
+  seg('layout', 'vertical');
+  assert.deepStrictEqual(state(), ['row_sep'], 'and back');
+  // A paste and Reset follow too.
+  p.$('paste').value = '?layout=horizontal';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual(state(), ['text_align']);
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual(state(), ['row_sep']);
 });

@@ -8,7 +8,10 @@ function flip(cfg, k) {
   const c = Object.assign({}, cfg);
   const s = config.SPEC[k];
   if (s.type === 'bool') c[k] = !c[k];
-  else if (s.type === 'int') c[k] = c[k] === s.max ? s.min : c[k] + 1;
+  else if (s.type === 'int') {
+    c[k] = c[k] === s.max ? s.min : c[k] + 1;
+    if (s.lowest && c[k] > 0 && c[k] < s.lowest) c[k] = s.lowest; // line_width: 1 is no value, 5 is
+  }
   else if (s.type === 'enum') c[k] = s.values.filter((v) => v !== c[k])[0];
   else if (s.type === 'channel') c[k] = c[k] === 'xqc' ? 'forsen' : 'xqc';
   else if (s.type === 'font') c[k] = c[k] === 'Roboto' ? 'Inter' : 'Roboto';

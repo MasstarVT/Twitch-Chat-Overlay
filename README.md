@@ -62,7 +62,7 @@ Alternatively, leave **Local file** unticked and paste a `file:///…/overlay.ht
 Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large&fade=30`) or in `settings.js`. URL options override `settings.js`.
 
 - **Booleans** accept `1/true/yes/on` and `0/false/no/off`.
-- **Out-of-range numbers** are clamped to the nearest limit: `max=0` becomes 1, `bg=150` becomes 100.
+- **Out-of-range numbers** are clamped to the nearest limit: `max=0` becomes 1, `bg=150` becomes 100. `line_width` is `0` (no limit) or at least 5, so 1 to 4 become 5.
 - **Other invalid values** fall back to the default.
 - **Option names** are not case-sensitive, in the URL or in settings.js (`Size=large` works).
 - **Colors** are hex codes, 6 digits or 3 (`ff8800` or `f80`), and the `#` is optional. Leave it out in a URL (`text_color=ff8800`): there a `#` starts the page's anchor, and everything after it is lost. An empty value (`text_color=`) means the built-in color.
@@ -94,8 +94,13 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `bg_shape` | `round` | `square`, `soft`, `round`, `pill` | Corners of the box. `pill` gives a one-line box round ends (an announcement keeps its bar side less round). Needs `bg` above 0. |
 | `bg_width` | `fit` | `fit`, `full` | `full` makes every box as wide as the column. Vertical layout, with `bg` above 0. |
 | `spacing` | `normal` | `tight`, `normal`, `loose`, `extra` | Space between messages: above and below each one in the vertical layout, the gap between them in the horizontal layout. |
-| `layout` | `vertical` | `vertical`, `horizontal` | `vertical`: messages stack in a column. `horizontal`: messages sit side by side in one row, new ones come in on the right and older ones slide off to the left. In a row, a message longer than the source is cut off with an ellipsis, and GIFs and gigantified emotes are drawn at emote height. |
+| `layout` | `vertical` | `vertical`, `horizontal` | `vertical`: messages stack in a column. `horizontal`: messages sit side by side in one row, new ones come in on the right and older ones slide off to the left. In a row, a message longer than the source (or than `line_width`) is cut off with an ellipsis, and GIFs and gigantified emotes are drawn at emote height. |
 | `align` | `bottom` | `bottom`, `top` | `bottom`: newest message at the bottom. `top`: newest message at the top. With `layout=horizontal` the newest message is always on the right, and `align` picks the edge the row lines up on. |
+| `text_align` | `left` | `left`, `center`, `right` | Where messages sit in the column: the text, and the `bg` box with it. The `accent_bar`, `first_msg` and announcement bars stay on the left edge. Vertical layout only. |
+| `line_width` | `0` | `0`, `5`–`100` | The widest a message can be, in em (the text size; 30 is about 55 letters). A longer one wraps onto more lines, or in the horizontal layout ends in an ellipsis. `0` means no limit, and 1 to 4 become 5. |
+| `pad_x` | `8` | `0`–`200` | Space in px between the messages and the left and right edges of the source. At `0`, shadows and emotes at the edges are cut off. |
+| `edge_fade` | `0` | `0`–`10` | Fade old messages out over this many em as they reach the edge they leave by: the top (the bottom with `align=top`), or the left end of a row. It covers at most half the source, so the newest message stays clear (unless that one message fills more than half a vertical source); in a row the newest message starts after the fade, so a long one is cut that much shorter. `0` is off. It masks the whole overlay, which takes some extra drawing work while animated emotes are on screen. |
+| `row_sep` | `none` | `none`, `dot`, `bar`, `diamond` | A mark in the text color between messages in a row (drawn at the start of each message, inside its box with `bg`). Horizontal layout only. |
 | `animate` | `1` | bool | Slide and fade in new messages. |
 | `fade` | `0` | `0`–`3600` | Seconds a message stays on screen; the last second is its fade-out. `0` means never. |
 | `max` | `50` | `1`–`200` | Maximum number of messages on screen. A sub or resub notice and the viewer's own message under it count as one and leave together. |
@@ -140,6 +145,10 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `#chat.has-outline` | text with an outline (`outline` above 0) |
 | `#chat.shadow-text` | the shadow drawn on the letters only (`shadow_style=text`) |
 | `#chat.paint-static` | 7TV image paints drawn still (`paint_images=static`) |
+| `#chat.text-center`, `#chat.text-right` | messages centered or on the right (`text_align`; the stylesheet applies them to the vertical layout only) |
+| `#chat.has-maxw` | a cap on the width of a message (`line_width` above 0) |
+| `#chat.edge-fade` | old messages fading out toward the edge they leave by (`edge_fade` above 0) |
+| `#chat.sep-dot`, `#chat.sep-bar`, `#chat.sep-diamond` | a mark between messages (`row_sep`; the horizontal layout only) |
 | `.lines` | the box that holds the messages |
 | `.line` | one message |
 | `.line.notice` | a sub, raid or other notice |
@@ -165,7 +174,7 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `.cheer` | a cheermote and its amount |
 | `.gif` | a Twitch chat GIF |
 
-For example, `.line { text-transform: uppercase; }`, `.badge { display: none; }` (hides every badge, the platform icons too; `badges=0` keeps the platform icons), or `.layout-horizontal .line { max-width: 30em; }` to cut long messages shorter in the horizontal layout.
+For example, `.line { text-transform: uppercase; }`, `.badge { display: none; }` (hides every badge, the platform icons too; `badges=0` keeps the platform icons), or `.layout-horizontal .line { max-width: 30em; }` to cut long messages shorter in the horizontal layout only (`line_width=30` does it in both layouts).
 
 A `/me` message is italic and in the name's color. `.line.action .message { font-style: normal; color: inherit !important; }` shows it like any other message (the color is set on the message itself, so it needs `!important`).
 
@@ -186,6 +195,9 @@ These options set a variable on `#chat`, and only while they are changed, so Cus
 | `--notice-color` | `notice_color` | `#E2D6FF` |
 | `--notice-size` | `notice_size` | `.85em` |
 | `--first-color` | `first_msg_color` | `#9146FF` |
+| `--pad-x` | `pad_x` | `8px` |
+
+`line_width` sets the cap as `--line-max` (in em) and, for notices, whose em is their own smaller text, as `--line-max-n`; `edge_fade` sets the length of the fade as `--edge-fade`. Both work only with their class (`#chat.has-maxw`, `#chat.edge-fade`), which the option sets.
 
 `outline` and `shadow_style=text` draw their layers from the `--tshadow` variable (on `.line` and `.reply`), and set how far those layers reach past the letters as `--tshadow-room`: a horizontal line without a box gets that much padding at its sides, and a reply header lets them draw that far past its edges. Both are set only while those options are on.
 
@@ -241,7 +253,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Still paints:** `paint_images=static` takes an animated paint's still frame from 7TV's own list of its images. A paint that arrives in 7TV's older format (one image URL: when 7TV's paint list can't be loaded, or for a paint newer than the list) doesn't say whether it is animated, so it stays as it is.
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
-- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-trouble` (Troubleshooting), `#adv-text`, `#adv-names`, `#adv-box`, `#adv-events` (Chat events) and `#adv-lighter` (Lighter on PC).
+- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-trouble` (Troubleshooting), `#adv-text`, `#adv-names`, `#adv-box`, `#adv-layout`, `#adv-events` (Chat events) and `#adv-lighter` (Lighter on PC).
 - **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
 

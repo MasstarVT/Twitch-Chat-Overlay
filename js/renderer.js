@@ -64,7 +64,7 @@
   var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline',
-    'outline_color', 'paint_images'];
+    'outline_color', 'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -108,7 +108,12 @@
     shadow_style: { values: ['filter', 'text'], def: 'filter' },
     outline: { min: 0, max: 3, def: 0 },
     outline_color: { hex: true, def: '' },
-    paint_images: { values: ['animated', 'static'], def: 'animated' }
+    paint_images: { values: ['animated', 'static'], def: 'animated' },
+    text_align: { values: ['left', 'center', 'right'], def: 'left' },
+    line_width: { min: 0, max: 100, def: 0 },
+    pad_x: { min: 0, max: 200, def: 8 },
+    edge_fade: { min: 0, max: 10, def: 0 },
+    row_sep: { values: ['none', 'dot', 'bar', 'diamond'], def: 'none' }
   };
   var NORM_KEYS = Object.keys(NORM);
   var NORM_DEFAULTS = {};
@@ -217,6 +222,11 @@
     return OUTLINE_EM[clampInt(c.outline, 0, 3, 0)] || null;
   }
   function bgAlpha(bg) { return clampInt(bg, 0, 100, 0) / 100; }
+  // line_width's cap on a notice (--line-max-n), in the notice's own em: notice_size makes that em smaller (or
+  // larger) than the chat text's, so the same number of them would make notices narrower than the chat lines.
+  function noticeMax(width, noticeSize) {
+    return Math.round(width * 100000 / clampInt(noticeSize, 50, 150, 85)) / 1000 + 'em';
+  }
 
   // Value for --font: a quoted family name, or a bare generic keyword ("system-ui" must stay unquoted).
   function fontVar(name) {
@@ -1334,6 +1344,14 @@
       cl.toggle('has-outline', c.outline > 0);
       cl.toggle('shadow-text', shadowText);
       cl.toggle('paint-static', c.paint_images === 'static');
+      // text_align is for a column and row_sep for a row: the stylesheet scopes each to its layout.
+      cl.toggle('text-center', c.text_align === 'center');
+      cl.toggle('text-right', c.text_align === 'right');
+      cl.toggle('has-maxw', c.line_width > 0);
+      cl.toggle('edge-fade', c.edge_fade > 0);
+      cl.toggle('sep-dot', c.row_sep === 'dot');
+      cl.toggle('sep-bar', c.row_sep === 'bar');
+      cl.toggle('sep-diamond', c.row_sep === 'diamond');
       var st = rootEl.style;
       setVar(st, '--font', fontVar(c.font));
       setVar(st, '--shadow', shadowText ? 'none' : shadowCss(c.shadow, c.shadow_color));
@@ -1354,6 +1372,10 @@
       setVar(st, '--notice-color', hexColor(c.notice_color));
       setVar(st, '--notice-size', c.notice_size === 85 ? null : c.notice_size / 100 + 'em');
       setVar(st, '--first-color', hexColor(c.first_msg_color));
+      setVar(st, '--line-max', c.line_width > 0 ? c.line_width + 'em' : null);
+      setVar(st, '--line-max-n', c.line_width > 0 ? noticeMax(c.line_width, c.notice_size) : null);
+      setVar(st, '--pad-x', c.pad_x === 8 ? null : c.pad_x + 'px');
+      setVar(st, '--edge-fade', c.edge_fade > 0 ? c.edge_fade + 'em' : null);
     }
 
     function setConfig(next) {
@@ -1600,6 +1622,7 @@
       tshadow: tshadow,
       tshadowRoom: tshadowRoom,
       bgAlpha: bgAlpha,
+      noticeMax: noticeMax,
       fontVar: fontVar,
       fadeTiming: fadeTiming,
       newestFirst: newestFirst,

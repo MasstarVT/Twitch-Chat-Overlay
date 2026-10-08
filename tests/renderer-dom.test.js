@@ -788,6 +788,95 @@ test('overlay.css: the stage-3 rules (outline, text-only shadow, name-color bar)
   ['has-outline', 'shadow-text', 'accent', 'paint-static'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
 });
 
+test('layout options: a class or a variable on #chat only while changed, gone again when set back', (t) => {
+  const s = setup(t, {});
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  s.r.setConfig({ text_align: 'right', line_width: 30, pad_x: 0, edge_fade: 3, row_sep: 'bar' });
+  assert.deepStrictEqual(rootExtras(s), {
+    cls: ['edge-fade', 'has-maxw', 'sep-bar', 'text-right'],
+    style: { '--line-max': '30em', '--line-max-n': '35.294em', '--pad-x': '0px', '--edge-fade': '3em' }
+  });
+  s.r.setConfig({});
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  const one = (k, v) => { s.r.setConfig({ [k]: v }); return rootExtras(s); };
+  assert.deepStrictEqual(['left', 'center', 'right'].map((v) => one('text_align', v).cls), [[], ['text-center'], ['text-right']]);
+  assert.deepStrictEqual(['none', 'dot', 'bar', 'diamond'].map((v) => one('row_sep', v).cls), [[], ['sep-dot'], ['sep-bar'], ['sep-diamond']]);
+  assert.deepStrictEqual([0, 8, 9, 200].map((v) => one('pad_x', v).style), [{ '--pad-x': '0px' }, {}, { '--pad-x': '9px' }, { '--pad-x': '200px' }]);
+  assert.deepStrictEqual([0, 1, 10].map((v) => one('edge_fade', v)), [{ cls: [], style: {} },
+    { cls: ['edge-fade'], style: { '--edge-fade': '1em' } }, { cls: ['edge-fade'], style: { '--edge-fade': '10em' } }]);
+  assert.deepStrictEqual([0, 5, 100].map((v) => one('line_width', v)), [{ cls: [], style: {} },
+    { cls: ['has-maxw'], style: { '--line-max': '5em', '--line-max-n': '5.882em' } },
+    { cls: ['has-maxw'], style: { '--line-max': '100em', '--line-max-n': '117.647em' } }]);
+  // A notice's cap follows its size; without line_width there is none to follow.
+  assert.strictEqual(one('line_width', 30).style['--line-max-n'], '35.294em');
+  s.r.setConfig({ line_width: 30, notice_size: 100 });
+  assert.strictEqual(rootExtras(s).style['--line-max-n'], '30em');
+  s.r.setConfig({ notice_size: 120 });
+  assert.deepStrictEqual(rootExtras(s).style, { '--notice-size': '1.2em' });
+  // The classes stay in the other layout too (the stylesheet scopes each rule), so a layout switch keeps them.
+  s.r.setConfig({ text_align: 'center', row_sep: 'dot', layout: 'horizontal' });
+  assert.deepStrictEqual(rootExtras(s).cls, ['sep-dot', 'text-center']);
+  // None of it touches the lines: it is CSS on #chat.
+  s.r.setConfig({});
+  s.r.push(chat('amy', 'hi'));
+  s.r.push(resub('bob', 'still here'));
+  s.r.flush();
+  const before = JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  s.r.setConfig({ text_align: 'right', line_width: 20, pad_x: 30, edge_fade: 2, row_sep: 'diamond' });
+  assert.strictEqual(JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent])), before);
+});
+
+test('overlay.css: the layout rules (stage 4) stay off by default, in their own layout, and overridable', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8')
+    .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  const selectors = Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim());
+  const at = (s) => css.indexOf('\n' + s);
+  // pad_x: today's 8px as the fallback.
+  assert.match(css, /\n#chat \{[^}]*\n  padding: 0 var\(--pad-x, 8px\);/);
+  // text_align: a column only. A box's auto margin must never reach a row's flex items: unscoped, `.has-bg.text-right
+  // .line` would beat `.layout-horizontal .line { margin: 0 }` and spread the row out.
+  assert.deepStrictEqual(selectors.filter((s) => /text-(?:center|right)/.test(s)), [
+    ':where(.layout-vertical.text-center) .lines', ':where(.layout-vertical.text-right) .lines',
+    '.text-center:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line',
+    '.text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line']);
+  assert.match(css, /\n\.text-center:where\([^)]*\) \.line \{ margin-left: auto; margin-right: auto; \}/);
+  assert.match(css, /\n\.text-right:where\([^)]*\) \.line \{ margin-left: auto; \}/);
+  assert.ok(at('.text-right:where(') > at('.has-bg .line {'), 'after the box\'s own margin, which it overrides at (0,2,0)');
+  // line_width: class-only (0,2,0), after the row's rules it beats on order; notices get their own em's cap.
+  assert.match(css, /\n\.has-maxw \.line \{ max-width: min\(100%, var\(--line-max, 100%\)\); \}/);
+  assert.match(css, /\n\.has-maxw \.line\.notice \{ max-width: min\(100%, var\(--line-max-n, var\(--line-max, 100%\)\)\); \}/);
+  assert.ok(at('.has-maxw .line {') > at('.layout-horizontal .line {') && at('.layout-horizontal .line {') > at('.has-bg .line {'));
+  // edge_fade: on #chat (never .lines, which moves), the -webkit- property Chromium 103 has, toward the edge old
+  // lines leave by, and never over more than half the source.
+  const masks = Array.from(css.matchAll(/([^{}]+)\{[^}]*mask-image:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]);
+  assert.deepStrictEqual(masks, [
+    ['.edge-fade.layout-vertical.align-bottom', 'linear-gradient(to bottom, transparent, #000 min(var(--edge-fade, 2em), 50%))'],
+    ['.edge-fade.layout-vertical.align-top', 'linear-gradient(to top, transparent, #000 min(var(--edge-fade, 2em), 50%))'],
+    ['.edge-fade.layout-horizontal', 'linear-gradient(to right, transparent, #000 min(var(--edge-fade, 2em), 50%))']
+  ]);
+  assert.doesNotMatch(css, /[^-]mask-image/, 'only the prefixed property');
+  // In a row the newest message starts after the fade.
+  assert.match(css, /\n\.edge-fade\.layout-horizontal \.lines \{ padding-left: max\(var\(--pad-x, 8px\), min\(var\(--edge-fade, 2em\), 50%\)\); \}/);
+  // row_sep: in a row only, never on .line::before (beside a reply's block header it would take a row of its own), a
+  // fixed glyph per class in the text color, and an empty badge holder shown to carry it.
+  const seps = selectors.filter((s) => /sep-/.test(s));
+  assert.ok(seps.length >= 5);
+  seps.forEach((s) => s.split(/,\s*(?=:where)/).forEach((one) => {
+    assert.match(one, /^:where\(\.layout-horizontal(?:\)|\.|:not\(\.has-bg\)\))/, one);
+    assert.match(one, / \.line \+ \.line > (?:\.reply \+ \*::before|:first-child:not\(\.reply\)::before|\.badges:empty)$/, one);
+  }));
+  assert.doesNotMatch(css, /\.line::before|\.line \+ \.line::before/);
+  [['sep-dot', '\'\\2022\''], ['sep-bar', '\'|\''], ['sep-diamond', '\'\\25C6\'']].forEach(([c, glyph]) =>
+    assert.ok(css.indexOf(':where(.layout-horizontal.' + c + ') .line + .line > :first-child:not(.reply)::before { content: ' + glyph + '; }') > 0, c));
+  assert.match(css, /::before \{\s*margin-right: \.5em;\s*color: var\(--text-color, #fff\);\s*opacity: \.6;\s*\}/);
+  // Without a box the row's gap is before the mark, so the same gap goes after it (same specificity, later).
+  const after = ':where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > :first-child:not(.reply)::before {\n  margin-right: var(--row-gap, 1em);\n}';
+  assert.ok(css.indexOf(after) > at(':where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .reply + *::before,'));
+  assert.match(css, /\.line \+ \.line > \.badges:empty \{ display: inline; \}/);
+  // No new rule starts with #chat, so Custom CSS on the documented selectors keeps winning.
+  ['text-center', 'text-right', 'has-maxw', 'edge-fade', 'sep-'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
+});
+
 test('overlay.css: the stage-2 rules keep today\'s look by default and stay overridable', () => {
   const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   // text_case never reaches the built-in SVG badges (Kick's OG): only names, colons, messages and reply headers.

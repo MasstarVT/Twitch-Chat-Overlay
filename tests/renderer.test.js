@@ -18,6 +18,16 @@ test('exports createRenderer and the pure helpers', () => {
   assert.throws(() => renderer.createRenderer({}), /root element/);
 });
 
+test('noticeMax: line_width in a notice\'s own em, so a notice is capped as wide as a chat line', () => {
+  assert.strictEqual(R.noticeMax(30, 85), '35.294em');
+  assert.strictEqual(R.noticeMax(30, 100), '30em');
+  assert.strictEqual(R.noticeMax(5, 50), '10em');
+  assert.strictEqual(R.noticeMax(100, 150), '66.667em');
+  // At 85% text, 35.294 of the notice's em are 30 of the chat's, to a thousandth.
+  assert.ok(Math.abs(35.294 * 0.85 - 30) < 0.001);
+  assert.strictEqual(R.noticeMax(30, 'x'), '35.294em', 'not a size: the default 85');
+});
+
 test('shadow levels 0-3 match the plan; invalid falls back to 2', () => {
   assert.strictEqual(R.shadowCss(0), 'none');
   assert.strictEqual(R.shadowCss(1), 'drop-shadow(1px 1px 1px rgba(0,0,0,.8))');
@@ -648,7 +658,7 @@ test('every live config key is handled by the renderer', () => {
   const ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
-    'paint_images'];
+    'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
   // accent_bar is drawn on each line (a class and the line's own --line-accent), so it rebuilds the lines.
   assert.ok(R.RERENDER_KEYS.indexOf('accent_bar') >= 0 && ROOT_KEYS.indexOf('accent_bar') < 0);

@@ -117,7 +117,7 @@ test('widgets: switches, segmented choices, steppers, sliders, color pickers', (
   });
   assert.strictEqual(kinds.shadow, 'seg');
   assert.deepStrictEqual(Object.keys(kinds).filter((k) => kinds[k] === 'range').sort(), ['bg', 'name_weight', 'notice_size', 'text_weight']);
-  ['fade', 'max', 'history', 'line_height'].forEach((k) => assert.strictEqual(kinds[k], 'stepper', k));
+  ['fade', 'max', 'history', 'line_height', 'line_width', 'pad_x', 'edge_fade'].forEach((k) => assert.strictEqual(kinds[k], 'stepper', k));
   assert.deepStrictEqual(config.SPEC.text_weight.values.map((v) => builder.valueText('text_weight', v)),
     ['Light', 'Regular', 'Semi-bold', 'Bold', 'Heavy', 'Black']);
   assert.strictEqual(builder.valueText('name_weight', 'heavy'), 'Heavy');
@@ -199,6 +199,45 @@ test('stepValue moves to the next multiple of the step and stays in range', () =
       assert.ok(next > v && next <= s.max, k + ' up from ' + v);
       assert.strictEqual(config.coerce(k, next), next);
       v = next;
+    }
+  });
+});
+
+test('the layout steppers: what they show and read back, and line_width\'s steps over 1 to 4', () => {
+  ['line_width', 'pad_x', 'edge_fade'].forEach((k) => assert.strictEqual(builder.widgetFor(k), 'stepper', k));
+  assert.deepStrictEqual([0, 5, 30].map((v) => builder.valueText('line_width', v)), ['No limit', '5 em', '30 em']);
+  assert.deepStrictEqual([0, 8, 200].map((v) => builder.valueText('pad_x', v)), ['0 px', '8 px', '200 px']);
+  assert.deepStrictEqual([0, 2].map((v) => builder.valueText('edge_fade', v)), ['Off', '2 em']);
+  assert.deepStrictEqual(['No limit', 'no limit', '30 em', '30em', '3', '0'].map((t) => builder.parseStep('line_width', t)), [0, 0, 30, 30, 5, 0]);
+  assert.deepStrictEqual(['8 px', '0', '12px'].map((t) => builder.parseStep('pad_x', t)), [8, 0, 12]);
+  assert.deepStrictEqual(['Off', '3 em', '11'].map((t) => builder.parseStep('edge_fade', t)), [0, 3, 10]);
+  ['line_width', 'pad_x', 'edge_fade'].forEach((k) => {
+    const s = config.SPEC[k];
+    [s.min, s.def, s.max].forEach((v) => assert.strictEqual(builder.parseStep(k, builder.valueText(k, v)), v, k + ' ' + v));
+  });
+  // skipGap: a step that would land on 1..4 goes on to 0 (down) or 5 (up); anything else is left alone.
+  assert.strictEqual(builder.skipGap('line_width', 5, 4), 0, 'ArrowDown from 5');
+  assert.strictEqual(builder.skipGap('line_width', 0, 1), 5, 'ArrowUp from 0');
+  assert.strictEqual(builder.skipGap('line_width', 6, 5), 5);
+  assert.strictEqual(builder.skipGap('line_width', 5, 0), 0, 'Less from 5 (step 5)');
+  assert.strictEqual(builder.skipGap('line_width', 0, 5), 5, 'More from 0 (step 5)');
+  assert.strictEqual(builder.skipGap('line_width', 30, 35), 35);
+  assert.strictEqual(builder.skipGap('pad_x', 5, 4), 4, 'no lowest: as stepped');
+  assert.strictEqual(builder.skipGap('edge_fade', 0, 1), 1);
+  assert.strictEqual(builder.skipGap('max', 2, 1), 1);
+  assert.strictEqual(builder.skipGap('constructor', 2, 1), 1);
+  // Every press, by button or key, from every value the setting takes, lands on another value it takes (so
+  // nothing is stuck, as 5 -> 4 -> coerced to 5 would be), in the direction pressed.
+  ['line_width', 'pad_x', 'edge_fade', 'fade', 'max', 'history', 'line_height'].forEach((k) => {
+    const s = config.SPEC[k], step = (builder.META[k] && builder.META[k].step) || 1;
+    for (let v = s.min; v <= s.max; v++) {
+      if (config.coerce(k, v) !== v) continue;
+      [[1, v + 1], [-1, v - 1], [1, builder.stepValue(v, 1, step, s.min, s.max)], [-1, builder.stepValue(v, -1, step, s.min, s.max)]]
+        .forEach(([dir, to]) => {
+          const n = config.coerce(k, builder.skipGap(k, v, Math.max(s.min, Math.min(s.max, to))));
+          if (dir > 0 && v < s.max) assert.ok(n > v, k + ' up from ' + v);
+          if (dir < 0 && v > s.min) assert.ok(n < v, k + ' down from ' + v);
+        });
     }
   });
 });
@@ -636,7 +675,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     return out;
   };
   assert.deepStrictEqual(outline(g('look')), [
-    ['Layout', 'layout', 'align'],
+    ['Layout', 'layout', 'align', 'text_align'],
     ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline'],
     ['Names', 'name_line'],
     ['Box', 'bg', 'bg_color', 'accent_bar'],
@@ -647,6 +686,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     ['Text #adv-text', 'line_height', 'text_case', 'shadow_color', 'outline_color'],
     ['Names #adv-names', 'names', 'name_weight'],
     ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
+    ['Layout #adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep'],
     ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color'],
     ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']
   ]);
@@ -689,11 +729,25 @@ test('the look options grey out while the setting they need is off, and their he
     assert.ok(builder.META[k].help.indexOf(needs[k][2]) >= 0, k + ' help names ' + needs[k][2]);
   });
   // Column only: off in a row whatever else is set.
-  ['bg_width', 'name_line'].forEach((k) => {
+  ['bg_width', 'name_line', 'text_align'].forEach((k) => {
     assert.strictEqual(builder.META[k].only, 'vertical', k);
     assert.strictEqual(off(k, { bg: 40, layout: 'horizontal' }), true, k);
     assert.match(builder.META[k].help, /Vertical layout only/, k);
   });
+  // Row only: the mark between messages.
+  assert.strictEqual(builder.META.row_sep.only, 'horizontal');
+  assert.strictEqual(off('row_sep'), true);
+  assert.strictEqual(off('row_sep', { layout: 'horizontal' }), false);
+  assert.match(builder.META.row_sep.help, /Horizontal layout only/);
+  // The soft edge's two limits, as the README states them.
+  assert.match(builder.META.edge_fade.help, /stays clear unless it is taller than that/);
+  assert.match(builder.META.edge_fade.help, /In a row the newest message starts after the fade/);
+  // The other layout options apply in both layouts, with nothing else needed.
+  ['line_width', 'pad_x', 'edge_fade'].forEach((k) => {
+    assert.strictEqual(off(k), false, k);
+    assert.strictEqual(off(k, { layout: 'horizontal' }), false, k);
+  });
+  assert.strictEqual(off('text_align'), false);
   // Names off greys out only what draws a name line: name_weight still styles reply headers.
   const namesOff = Object.keys(builder.META).filter((k) => !off(k) && off(k, { names: false }));
   assert.deepStrictEqual(namesOff, ['name_line']);

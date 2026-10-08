@@ -11,6 +11,7 @@
 
   // type: channel | kick | room | enum | int | bool | font | list | color
   // color: a hex color stored as bare lowercase rrggbb ('' = the overlay's built-in color).
+  // int lowest: 0 is off, and the smallest value that does anything else is lowest (1..lowest-1 is raised to it).
   var SPEC = {
     channel: { type: 'channel', def: '' },
     kick: { type: 'kick', def: '' },
@@ -38,6 +39,11 @@
     spacing: { type: 'enum', values: ['tight', 'normal', 'loose', 'extra'], def: 'normal' },
     layout: { type: 'enum', values: ['vertical', 'horizontal'], def: 'vertical' },
     align: { type: 'enum', values: ['bottom', 'top'], def: 'bottom' },
+    text_align: { type: 'enum', values: ['left', 'center', 'right'], def: 'left' },
+    line_width: { type: 'int', min: 0, max: 100, lowest: 5, def: 0 },
+    pad_x: { type: 'int', min: 0, max: 200, def: 8 },
+    edge_fade: { type: 'int', min: 0, max: 10, def: 0 },
+    row_sep: { type: 'enum', values: ['none', 'dot', 'bar', 'diamond'], def: 'none' },
     animate: { type: 'bool', def: true },
     fade: { type: 'int', min: 0, max: 3600, def: 0 },
     max: { type: 'int', min: 1, max: 200, def: 50 },
@@ -83,7 +89,8 @@
     'badges_kick', 'badges_7tv', 'badges_bttv', 'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies',
     'paints', 'readable', 'shared', 'platform_icons', 'text_weight', 'text_color', 'line_height', 'text_case', 'names',
     'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width', 'spacing', 'notice_color', 'notice_size',
-    'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color', 'accent_bar', 'paint_images'];
+    'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color', 'accent_bar', 'paint_images',
+    'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep'];
 
   // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
   // them), in their canonical spelling.
@@ -192,7 +199,9 @@
         if (typeof v === 'string' && !/^\s*-?\d+\s*$/.test(v)) return undefined;
         var n = typeof v === 'number' ? Math.round(v) : parseInt(v, 10);
         if (!isFinite(n)) return undefined;
-        return Math.max(spec.min, Math.min(spec.max, n));
+        n = Math.max(spec.min, Math.min(spec.max, n));
+        // lowest: 1..lowest-1 is raised to it (a 3em line_width would wrap a column almost letter by letter).
+        return spec.lowest && n > 0 && n < spec.lowest ? spec.lowest : n;
       }
       case 'bool':
         return parseBool(v);
