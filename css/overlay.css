@@ -4,9 +4,9 @@
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
    .platform-kick .accent .emote-only .mention .keyword .user-hl .role-broadcaster .role-mod .role-vip .role-bar
    .role-tint .keep-sep, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel), #chat
-   modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg .bg-full .no-names .name-line
-   .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static .text-center .text-right .has-maxw
-   .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
+   modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .size-small .size-medium .size-large .has-bg
+   .bg-full .no-names .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static
+   .text-center .text-right .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
    --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
    --first-color --pad-x --emote-h --badge-h --gif-mul --mention-rgb --kw-rgb --hl-rgb --role-broadcaster-rgb

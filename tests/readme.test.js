@@ -102,3 +102,39 @@ test('README: the Builder quick looks note names every setting a look sets', () 
   assert.deepStrictEqual(Object.keys(phrase).sort(), builder.PRESET_KEYS.slice().sort(), 'a phrase for each look setting');
   Object.keys(phrase).forEach((k) => assert.ok(sets[1].indexOf(phrase[k]) >= 0, 'the note names ' + k + ' ("' + phrase[k] + '")'));
 });
+
+// A Custom CSS example that sets a property on #chat itself does something only if it weighs at least as much as the
+// stylesheet's own #chat rules for that property: #chat always has one of the size-* classes, so `#chat.size-medium
+// { font-size }` beats a plain `#chat { font-size: 28px; }` at every setting. OBS adds its Custom CSS after the page's
+// stylesheet, so a tie is enough, and an `!important` declaration always wins.
+test('README: a Custom CSS example on #chat outweighs the stylesheet\'s own #chat rules', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'css', 'overlay.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const onChat = (sel) => /^#chat(?:\.[\w-]+|\[[^\]]*\]|:[\w-]+)*$/.test(sel);
+  const weight = (sel) => [(sel.match(/#[\w-]+/g) || []).length, (sel.match(/\.[\w-]+|\[[^\]]*\]|:[\w-]+/g) || []).length];
+  const atLeast = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] >= b[1]);
+  const decls = (body) => body.split(';').map((d) => {
+    const at = d.indexOf(':');
+    return at < 0 ? null : { prop: d.slice(0, at).trim(), important: /!\s*important/.test(d) };
+  }).filter((d) => d && d.prop);
+  // property -> the heaviest stylesheet selector on #chat alone that sets it
+  const own = {};
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sels = m[1].split(',').map((s) => s.trim()).filter(onChat);
+    decls(m[2]).forEach((d) => sels.forEach((s) => {
+      if (!own[d.prop] || !atLeast(weight(own[d.prop]), weight(s))) own[d.prop] = s;
+    }));
+  }
+  assert.strictEqual(own['font-size'], '#chat.size-small', 'the scan finds the size rules');
+  let checked = 0;
+  codeIn(section('Custom CSS')).forEach((code) => {
+    const rule = /^([^{}@]+)\{([^{}]*)\}$/.exec(code.trim());
+    if (!rule) return;
+    rule[1].split(',').map((s) => s.trim()).filter(onChat).forEach((sel) => decls(rule[2]).forEach((d) => {
+      if (d.important || !own[d.prop]) return;
+      checked++;
+      assert.ok(atLeast(weight(sel), weight(own[d.prop])),
+        '`' + code + '` loses to the stylesheet\'s `' + own[d.prop] + ' { ' + d.prop + ' }`, so it does nothing');
+    }));
+  });
+  assert.ok(checked > 0, 'the README gives a Custom CSS example that changes a #chat property the stylesheet sets');
+});

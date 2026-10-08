@@ -177,6 +177,7 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `#chat.layout-vertical` | the overlay in the vertical layout |
 | `#chat.layout-horizontal` | the overlay in the horizontal layout |
 | `#chat.align-bottom`, `#chat.align-top` | newest message at the bottom or at the top (`align`); in the horizontal layout, the edge the row runs along |
+| `#chat.size-small`, `#chat.size-medium`, `#chat.size-large` | the text size (`size`), which these classes set as `font-size`; `text_px` sets it on `#chat` itself instead |
 | `#chat.has-bg` | the overlay with a box behind each message (`bg` above 0) |
 | `#chat.bg-full` | boxes as wide as the column (`bg_width=full`) |
 | `#chat.no-names` | names hidden (`names=0`) |
@@ -256,7 +257,9 @@ The tints (`.highlight`, `.mention`, `.keyword`, `.user-hl`, `.role-tint`) are t
 
 `line_width` sets the cap as `--line-max` (in em) and, for notices, whose em is their own smaller text, as `--line-max-n`; `edge_fade` sets the length of the fade as `--edge-fade`; `name_font` sets the names' font as `--name-font`. Each works only with its class (`#chat.has-maxw`, `#chat.edge-fade`, `#chat.has-name-font`), which the option sets.
 
-`emote_only` sets how many times as tall an emote-only line draws its emotes as `--eo` (`2` or `3`), which works only on `.line.emote-only`. `gif_size=1x` also sets a GIF's margins as `--gif-margin` (an emote's: `-.3em .05em`, with less room above and below once `emote_scale` makes it taller than its line, at a `line_height` below 135 and at `spacing=tight`; `.1em 0` otherwise). `text_px` sets `font-size` on `#chat` itself, so while it is set it wins over Custom CSS such as `#chat { font-size: 28px; }`.
+`emote_only` sets how many times as tall an emote-only line draws its emotes as `--eo` (`2` or `3`), which works only on `.line.emote-only`. `gif_size=1x` also sets a GIF's margins as `--gif-margin` (an emote's: `-.3em .05em`, with less room above and below once `emote_scale` makes it taller than its line, at a `line_height` below 135 and at `spacing=tight`; `.1em 0` otherwise).
+
+The text size is `font-size` on `#chat.size-small`, `#chat.size-medium` or `#chat.size-large` (`size`), and `#chat` always has one of those classes, so a rule on plain `#chat` never changes it. Custom CSS needs at least as much weight, such as `#chat[class] { font-size: 28px; }`. `text_px` sets `font-size` on `#chat` itself, so while it is set it wins over Custom CSS that lacks `!important` (`#chat { font-size: 28px !important; }` wins over both). Badges and emotes are sized in em, so they follow, but their images are loaded for the size the options give and may look slightly softer when enlarged this way.
 
 `outline` and `shadow_style=text` draw their layers from the `--tshadow` variable (on `.line` and `.reply`), and set how far those layers reach past the letters as `--tshadow-room`: a horizontal line without a box gets that much padding at its sides, and a reply header lets them draw that far past its edges. Both are set only while those options are on.
 
