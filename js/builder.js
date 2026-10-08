@@ -244,7 +244,7 @@
     emotes_bttv: { label: 'BetterTTV', logo: 'bttv' },
     emotes_ffz: { label: 'FrankerFaceZ', logo: 'ffz' },
     emote_scale: { label: 'Emote size', widget: 'range', unit: '%',
-      help: 'Emotes, cheers and GIFs next to the text (100% by default). Images load at the size drawn, up to the largest each emote service has: past that they look soft. A GIF drawn taller than 200 px loads Giphy’s original file. Above about 110% emotes reach out of the Line background box.' },
+      help: 'Emotes, cheers and GIFs next to the text (100% by default). Images load at the size drawn, up to the largest each emote service has: past that they look soft. A GIF drawn taller than 200 px loads Giphy’s original file. An emote taller than its line makes the line taller.' },
     emote_only: { label: 'Emote-only messages', options: { normal: 'Normal', big: 'Big', huge: 'Huge' }, only: 'vertical',
       help: 'A message of emotes alone, drawn two (Big) or three (Huge) times as tall. Gigantified emotes keep their own size, and a very wide emote is fitted to the column. Vertical layout only.' },
     giant_emotes: { label: 'Gigantified emotes', only: 'vertical',
@@ -356,8 +356,8 @@
   ];
   // Its first sentence names every PRESET_KEYS setting (tests/builder-dom.test.js holds it to that): a look resets each.
   var PRESETS_HELP = 'Sets text size, weight and color, shadow, outline, box, name-color bar, spacing, whether the name ' +
-    'has a line of its own, and emote and badge size. Your font, name colors, layout and position stay. Big & bold’s ' +
-    'bigger emotes can reach into the line above, and it can be cut off in a 1920 × 100 horizontal source.';
+    'has a line of its own, and emote and badge size. Your font, name colors, layout and position stay. Big & bold ' +
+    'can be cut off in a 1920 × 100 horizontal source.';
 
   // ---------- pure helpers (unit tested) ----------
 

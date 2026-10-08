@@ -759,10 +759,21 @@ test('keywords: any letter case, whole words at word ends, phrases with any run 
   const tc = (text) => hlCls(cjk, { text: text }) === 'line keyword';
   ['めっちゃかわいい！', '草草草', '草', 'ナイス！', 'ggです', 'gg요', 'ggー', '대박이다', 'ナイスgg', 'โอเคgg'].forEach((s) => assert.ok(tc(s), s));
   ['eggs', 'nicely', 'ggпривет', 'ggé', 'xgg', 'gg2'].forEach((s) => assert.ok(!tc(s), s));
-  // A Turkish dotted capital I: config.js keeps 'İyi' as 'i̇yi' (toLowerCase), which the text in lower case matches.
+  // A Turkish dotted capital I: config.js keeps 'İyi' as 'i̇yi' (toLowerCase), and the i flag never takes 'İ' for 'i'. The
+  // keyword and the text both fold it to 'i', so any letter case matches, on either side.
   const tr = { keywords: config.coerce('keywords', 'İyi') };
   assert.ok(hlCls(tr, { text: 'İyi oyun' }) === 'line keyword' && hlCls(tr, { text: 'çok İyi!' }) === 'line keyword');
   assert.strictEqual(hlCls(tr, { text: 'İyilik' }), 'line', 'still whole words');
+  const tk = (kw, text) => hlCls({ keywords: config.coerce('keywords', kw) }, { text: text });
+  [['İyi', 'İYİ'], ['İyi', 'çok İYİ oyun'], ['İyi', 'iyi'], ['İyi', 'IYI'], ['iyi', 'İyi'], ['iyi', 'İYİ'], ['İYİ', 'İyi'],
+    ['İYİ', 'iyi'], ['istanbul', 'İSTANBUL'], ['istanbul', 'İstanbul'], ['İstanbul', 'istanbul'], ['İstanbul', 'İSTANBUL']]
+    .forEach(([kw, text]) => assert.strictEqual(tk(kw, text), 'line keyword', kw + ' in ' + text));
+  [['İyi', 'İYİLİK'], ['iyi', 'İyilik'], ['İYİ', 'xİYİ'], ['spoiler', 'İspoiler']].forEach(([kw, text]) =>
+    assert.strictEqual(tk(kw, text), 'line', kw + ' is no whole word in ' + text));
+  // block_words, the same way.
+  const trBlock = renderer.filtersFor({ block_words: config.coerce('block_words', 'istanbul, İyi') }).block;
+  assert.deepStrictEqual(['İstanbul', 'İSTANBUL', 'iyi', 'İYİ', 'İyilik', 'Istanbullu'].map((t) => renderer.hasWords(t, trBlock)),
+    [true, true, true, true, false, false]);
   assert.strictEqual(hlCls({ keywords: [] }, { text: 'gg' }), 'line');
   assert.strictEqual(hlCls({ keywords: ['', '  ', 5, null] }, { text: 'gg 5' }), 'line', 'only strings, and never an empty one');
   // highlight_users: the login, on Twitch and Kick alike; another tint slot, the same color.
@@ -875,6 +886,15 @@ test('links=shorten: each link as its host name, as text; what follows a link st
   assert.strictEqual(s('https://[nope/x'), 'https://[nope/x', 'a link the parser rejects stays');
   assert.strictEqual(s('file:///etc/x'), 'file:///etc/x', 'no host: as it is');
   assert.strictEqual(s('steam://run/123 or C://Users'), 'steam://run/123 or C://Users', 'other schemes are no site: as they are');
+  // Two links joined by a ',', ';' or '|' (another link straight after the sign) are two links: each as its host, the
+  // sign kept. A scheme inside a link with no such sign before it (a redirect) is still part of that link.
+  assert.strictEqual(s('https://a.com,https://b.com'), 'a.com,b.com');
+  assert.strictEqual(s('see https://a.com/x,https://b.com/y ok'), 'see a.com,b.com ok');
+  assert.strictEqual(s('https://a.com/x;HTTPS://b.com'), 'a.com;b.com');
+  assert.strictEqual(s('links: https://a.com|www.b.com/y'), 'links: a.com|www.b.com');
+  assert.strictEqual(s('https://a.com,www.b.com, and more'), 'a.com,www.b.com, and more');
+  assert.strictEqual(s('https://x.com/r?u=https://y.com'), 'x.com', 'a redirect is one link');
+  assert.strictEqual(s('https://x.com/?q=1,2;3|4'), 'x.com', 'signs inside a link stay in it');
   assert.strictEqual(s('no links here'), 'no links here');
   assert.strictEqual(s(undefined), undefined);
   // The items: text only, copied when changed, the rest as they were.

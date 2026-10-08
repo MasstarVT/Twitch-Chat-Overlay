@@ -1246,7 +1246,9 @@ test('Quick look: a row of five buttons at the top of Look, Default pressed at t
   assert.match(help.textContent, new RegExp('^Sets text size, weight and color, shadow, outline, box, name-color bar, spacing, ' +
     'whether the name has a line of its own, and emote and badge size\\.'));
   assert.match(help.textContent, /Your font, name colors, layout and position stay\./);
-  assert.match(help.textContent, /Big & bold’s bigger emotes can reach into the line above, and it can be cut off in a 1920 × 100 horizontal source\./);
+  // Its bigger emotes make their lines taller (css/overlay.css), so only the row's height is worth a word.
+  assert.match(help.textContent, /Big & bold can be cut off in a 1920 × 100 horizontal source\.$/);
+  assert.doesNotMatch(help.textContent, /reach into the line above/);
   assert.deepStrictEqual(L.btns.map((b) => [b.tagName, b.type, b.textContent]),
     [['BUTTON', 'button', 'Default'], ['BUTTON', 'button', 'Boxed'], ['BUTTON', 'button', 'Outlined'], ['BUTTON', 'button', 'Cards'],
       ['BUTTON', 'button', 'Big & bold']]);

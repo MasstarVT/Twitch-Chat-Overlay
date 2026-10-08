@@ -97,8 +97,12 @@
   // emote_only: how many times as tall an emote-only line draws its emotes (--eo). normal draws them as any other.
   var EMOTE_ONLY = { big: 2, huge: 3 };
   // gif_size: a GIF's height in emote heights (--gif-mul); 3x is the stylesheet's. At 1x a GIF also takes an emote's
-  // margins (--gif-margin), so its line is no taller than one with emotes.
+  // margins (--gif-margin), so its line is no taller than one with emotes: as css/overlay.css gives an emote in a column,
+  // -.3em .05em, except that one taller than its line (emote_scale above 100) never reaches above it and at most .2em
+  // below it (a row draws GIFs with its own margins).
   var GIF_MUL = { '1x': '1', '2x': '2' };
+  var TALL_ROOM = '2.05em - var(--emote-h, 1.75em)';
+  var GIF_1X_MARGIN = 'calc(-1 * max(0em, min(.3em, ' + TALL_ROOM + '))) .05em calc(-1 * max(.2em, min(.3em, ' + TALL_ROOM + ')))';
   // name_sep: what goes between the name and the message (a /me line keeps its space). Never '': the name and
   // the message would run together.
   var NAME_SEPS = { colon: ': ', space: ' ', dash: ' – ', arrow: ' › ' };
@@ -599,6 +603,11 @@
   // with its variation sign, or a phrase with a joiner in it, still matches.
   var IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/gu;
   function visibleText(t) { return t.replace(IGNORABLE_RE, ''); }
+  // The i flag never takes a Turkish dotted capital I ('İ') for an 'i', and lower case makes it an 'i' and a dot above
+  // (as config.js keeps the keywords and block_words). The keywords and the text both have each of these folded to a
+  // plain 'i', so 'İyi', 'İYİ' and 'iyi' are one word in any letter case on either side.
+  var DOTTED_I_RE = /\u0130|[iI]\u0307/g;
+  function foldDottedI(t) { return t.replace(DOTTED_I_RE, 'i'); }
 
   // What lineClasses matches chat lines against, built once per cfg object (setConfig makes a new one for every
   // change), in a WeakMap: nothing is stored on the cfg. mention: the channel's names (the Twitch login and the Kick
@@ -626,7 +635,7 @@
     }
     var kw = Array.isArray(c.keywords) ? c.keywords : [], pats = [];
     for (var i = 0; i < kw.length && pats.length < MAX_PHRASES; i++) {
-      var p = typeof kw[i] === 'string' ? visibleText(kw[i]).trim() : '';
+      var p = typeof kw[i] === 'string' ? foldDottedI(visibleText(kw[i])).trim() : '';
       if (p) pats.push(phrasePattern(p));
     }
     if (pats.length) out.keyword = makeRe(pats.join('|'));
@@ -657,13 +666,13 @@
     return typeof msg.text === 'string' && m.mention.test(visibleText(msg.text));
   }
 
-  // The text (as drawn: visibleText) has a keyword. config.js keeps the keywords in lower case, where a Turkish 'İ'
-  // becomes 'i' and a dot above, which the i flag never matches to 'İ': the text in lower case is tried as well.
+  // The text (as drawn: visibleText) has a keyword (a pattern of keywords folded by foldDottedI): as it is, or with a
+  // Turkish 'İ' folded the same way.
   function hasKeyword(text, re) {
     text = visibleText(text);
     if (re.test(text)) return true;
-    var low = text.toLowerCase();
-    return low !== text && re.test(low);
+    var folded = foldDottedI(text);
+    return folded !== text && re.test(folded);
   }
 
   // The chatter's role, from the badges the message carries (the tags, not what is drawn, so it works with badges
@@ -736,10 +745,12 @@
   }
 
   // ---------- filters (overlay.js shouldShow, quotesHidden and tokensFor) ----------
-  // A link: 'https://', 'http://' or 'www.' where a word starts, up to the next space (any letter case). A bare domain
-  // never is one ('e.g.', 'lol.exe' and 'ok.so' are words), nor another scheme: 'steam://run/1' or 'C://Users' would
-  // shorten to a word that is no site.
-  var LINK_SRC = '(?:\\bhttps?:\\/\\/|\\bwww\\.)\\S+';
+  // A link: 'https://', 'http://' or 'www.' where a word starts, up to the next space (any letter case), or up to a ',',
+  // ';' or '|' with another link straight after it ('https://a.com,https://b.com' is two links; a link inside one with
+  // no such sign before it, as in a redirect's '?u=https://...', is still part of it). A bare domain never is one ('e.g.',
+  // 'lol.exe' and 'ok.so' are words), nor another scheme: 'steam://run/1' or 'C://Users' would shorten to a word that is
+  // no site.
+  var LINK_SRC = '(?:\\bhttps?:\\/\\/|\\bwww\\.)(?:(?![,;|](?:https?:\\/\\/|www\\.))\\S)+';
   var LINK_RE = new RegExp(LINK_SRC, 'i');
   var LINKS_RE = new RegExp(LINK_SRC, 'gi');
   function hasLink(text) { return typeof text === 'string' && LINK_RE.test(text); }
@@ -784,7 +795,7 @@
     var out = { block: null, command: null };
     var bw = Array.isArray(c.block_words) ? c.block_words : [], pats = [];
     for (var i = 0; i < bw.length && pats.length < MAX_PHRASES; i++) {
-      var p = typeof bw[i] === 'string' ? visibleText(bw[i]).trim() : '';
+      var p = typeof bw[i] === 'string' ? foldDottedI(visibleText(bw[i])).trim() : '';
       if (p) pats.push(phrasePattern(p));
     }
     if (pats.length) out.block = makeRe(pats.join('|'));
@@ -1397,11 +1408,27 @@
         set.add(line);
       }
     }
+    // row_sep: a line's mark, and the space after it, is drawn only after another line (.line + .line). When the first
+    // line of a row leaves while out of view past the left edge (trimmed, or its fade ran out there), the line after it
+    // would lose them in view, its box narrowing at once: it keeps them instead (.keep-sep, put back on a rerender). A
+    // first line that leaves in view takes the mark after it along, as before.
+    function keepSepAfter(line) {
+      var next = line.nextElementSibling;
+      if (!next || line !== linesEl.firstElementChild || cfg.layout !== 'horizontal') return;
+      if (cfg.row_sep !== 'dot' && cfg.row_sep !== 'bar' && cfg.row_sep !== 'diamond') return;
+      var nrec = recs.get(next);
+      if (!nrec || nrec.keepSep) return;
+      var view = rootEl.getBoundingClientRect();
+      if (!(view.width > 0) || !(line.getBoundingClientRect().right <= view.left)) return;
+      nrec.keepSep = true;
+      next.classList.add('keep-sep');
+    }
     // The single place a line leaves the DOM; clears every index.
     function removeLine(line) {
       if (!line) return;
       var rec = recs.get(line);
       if (rec) {
+        keepSepAfter(line);
         for (var i = 0; i < rec.ids.length; i++) {
           if (byId.get(rec.ids[i]) === line) byId.delete(rec.ids[i]);
         }
@@ -1853,7 +1880,7 @@
       setVar(st, '--badge-h', c.badge_size === 100 ? null : c.badge_size / 100 + 'em');
       setVar(st, '--eo', EMOTE_ONLY[c.emote_only] ? String(EMOTE_ONLY[c.emote_only]) : null);
       setVar(st, '--gif-mul', GIF_MUL[c.gif_size] || null);
-      setVar(st, '--gif-margin', c.gif_size === '1x' ? '-.3em .05em' : null);
+      setVar(st, '--gif-margin', c.gif_size === '1x' ? GIF_1X_MARGIN : null);
       setVar(st, '--text-weight', c.text_weight === 'semibold' ? null : WEIGHTS[c.text_weight]);
       setVar(st, '--name-weight', c.name_weight === 'heavy' ? null : WEIGHTS[c.name_weight]);
       setVar(st, '--text-color', hexColor(c.text_color));
@@ -2012,6 +2039,7 @@
           var sig = sigOf(model);
           if (sig === rec.sig) continue; // unchanged: keep the DOM (animated images don't restart)
           renderInto(line, model);
+          if (rec.keepSep) line.classList.add('keep-sep');
           rec.sig = sig;
           n++;
         } catch (e) {

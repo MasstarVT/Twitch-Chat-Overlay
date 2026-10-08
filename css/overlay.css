@@ -3,7 +3,7 @@
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .time .badges .badge .name .colon .message
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
    .platform-kick .accent .emote-only .mention .keyword .user-hl .role-broadcaster .role-mod .role-vip .role-bar
-   .role-tint, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel), #chat
+   .role-tint .keep-sep, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel), #chat
    modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg .bg-full .no-names .name-line
    .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static .text-center .text-right .has-maxw
    .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
@@ -114,6 +114,9 @@ body {
    message font. A name inside a notice is part of the notice's text and keeps the message font. */
 :where(.has-name-font) .name,
 :where(.has-name-font) .reply-name { font-family: var(--name-font), var(--font, 'Inter'), 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; }
+/* A name or a word wider than its line (a narrow source, line_width, a big text_px) breaks where it reaches the end of
+   the line, instead of running out of its box and off the column. A row never wraps (nowrap): it ends in an ellipsis. */
+.name,
 .message { overflow-wrap: anywhere; }
 /* timestamps=12h/24h: when the message was sent, before its badges (on a notice, before its text) */
 .time {
@@ -182,10 +185,10 @@ body {
   padding-left: .3em;
   padding-right: .3em;
 }
-/* accent_bar=1: room for the bar, over .highlight's .3em. :where keeps this at the specificity of .line.highlight,
-   so Custom CSS written as `.line.highlight { ... }` wins here too. */
-.line.highlight:where(.accent) { padding-left: .4em; }
-.line.highlight:where(.role-bar) { padding-left: .4em; }
+/* A bar beside the line (accent_bar, role_style=bar, a first message's) keeps its room, over .highlight's .3em, as with
+   the tints below. :where keeps this at the specificity of .line.highlight, so Custom CSS written as
+   `.line.highlight { ... }` wins here too. */
+.line.highlight:where(.accent, .first-msg, .role-bar) { padding-left: .4em; }
 /* With bg set, the tint goes over the dark box instead of replacing it. :where keeps this at the
    specificity of .line.highlight, so Custom CSS written as `.line.highlight { ... }` still wins. */
 :where(.has-bg) .line.highlight {
@@ -304,17 +307,27 @@ body {
 }
 .emote-stack.big { --eh: calc(var(--emote-h, 1.75em) * 3); }
 /* emote_only=big/huge: a message of emotes alone (.emote-only, a column only) draws them --eo times as tall. A
-   gigantified emote (.big) keeps its own 3x. A very wide emote is fitted to the column: its box keeps the height
-   (so zero-width layers still line up) and the image is letterboxed in it. */
+   gigantified emote (.big) keeps its own 3x. */
 :where(.line.emote-only) .emote-stack:not(.big) { --eh: calc(var(--emote-h, 1.75em) * var(--eo, 2)); }
-:where(.line.emote-only) .emote-stack:not(.big) > .emote { max-width: 100%; object-fit: contain; }
+/* An emote taller than its line (gigantified, emote_only, emote_scale above 100) reaches at most .2em below its line
+   and never above it, in a column: the line grows instead (as for a GIF), so the emote keeps clear of the name above it
+   (name_line), a reply header, the row of text above it and its bg box. Up to the usual 1.75em the margins stay -.3em. */
+:where(.layout-vertical) .emote-stack {
+  margin-top: calc(-1 * max(0em, min(.3em, 2.05em - var(--eh))));
+  margin-bottom: calc(-1 * max(.2em, min(.3em, 2.05em - var(--eh))));
+}
+/* An emote wider than its line (line_width, a big emote_scale or text_px, a narrow source) is fitted to it: its box
+   keeps the height (so zero-width layers still line up) and the image is letterboxed in it. A w! emote (its base image
+   has its width set inline) still stretches to its box. */
 .emote-stack > .emote {
   grid-area: 1 / 1;
   margin: auto;
   height: var(--eh);
   width: auto;
-  max-width: none;
+  max-width: 100%;
+  object-fit: contain;
 }
+.emote-stack > .emote[style] { object-fit: fill; }
 /* FlipX/FlipY/rotate compose through CSS vars (no individual scale/rotate properties in Chromium 103) */
 .emote-stack.fx { transform: rotate(var(--rot, 0deg)) scale(var(--sx, 1), var(--sy, 1)); }
 /* Turned a quarter (r!/l!): a square box, so a wide emote can't reach over the lines above and below */
@@ -333,6 +346,11 @@ body {
   width: auto;
   vertical-align: middle;
   margin: -.3em .05em;
+}
+/* Taller than its line (emote_scale above 100): as an emote's, in a column */
+:where(.layout-vertical) .cheer-img {
+  margin-top: calc(-1 * max(0em, min(.3em, 2.05em - var(--emote-h, 1.75em))));
+  margin-bottom: calc(-1 * max(.2em, min(.3em, 2.05em - var(--emote-h, 1.75em))));
 }
 .cheer-amount { font-weight: 800; }
 
@@ -392,30 +410,41 @@ body {
    flex items, so it is drawn in the message (in its box, with bg), before its first inline part: after a reply
    header, whose block would put it on a row of its own. Fixed glyphs in the text color (a notice's own text is
    lavender); an empty badge holder shows to carry one. Without a box the row's gap comes before the mark, so the
-   same gap follows it. A notice draws its mark, and the space after it, in its own smaller text. */
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .reply + *::before,
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > :first-child:not(.reply)::before {
+   same gap follows it. A line whose line before it left out of view at the left edge keeps its mark (.keep-sep, set by
+   renderer.js), so a mark in view never vanishes when the row trims a line it has slid past. :is() keeps these at the
+   specificity of .line + .line. */
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before {
   margin-right: .5em;
   color: var(--text-color, #fff);
   opacity: .6;
 }
-:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .reply + *::before,
-:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > :first-child:not(.reply)::before {
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal:not(.has-bg)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before {
   margin-right: var(--row-gap, 1em);
 }
-:where(.layout-horizontal.sep-dot) .line + .line > .reply + *::before,
-:where(.layout-horizontal.sep-dot) .line + .line > :first-child:not(.reply)::before { content: '\2022'; }
-:where(.layout-horizontal.sep-bar) .line + .line > .reply + *::before,
-:where(.layout-horizontal.sep-bar) .line + .line > :first-child:not(.reply)::before { content: '|'; }
-:where(.layout-horizontal.sep-diamond) .line + .line > .reply + *::before,
-:where(.layout-horizontal.sep-diamond) .line + .line > :first-child:not(.reply)::before { content: '\25C6'; }
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .badges:empty { display: inline; }
+:where(.layout-horizontal.sep-dot) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal.sep-dot) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before { content: '\2022'; }
+:where(.layout-horizontal.sep-bar) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal.sep-bar) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before { content: '|'; }
+:where(.layout-horizontal.sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + *::before,
+:where(.layout-horizontal.sep-diamond) :is(.line + .line, .line.keep-sep) > :first-child:not(.reply)::before { content: '\25C6'; }
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .badges:empty { display: inline; }
 /* timestamps: a line's time comes first (after a reply header), so it carries the mark. Its smaller, fainter text is
    undone for the mark and the gap after it: 1.25 x .8em is the line's 1em, and .857 x .7 is the .6 above. */
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .reply + .time::before,
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .time:first-child::before {
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .reply + .time::before,
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > .time:first-child::before {
   font-size: 1.25em;
   opacity: .857;
+}
+/* A notice's text is smaller (notice_size), but its mark, and the space after it, are the row's like every other one:
+   --row-em is #chat's 1em in px (a registered length, so it is worked out on #chat and inherited as it is). line-height: 0
+   keeps the bigger mark from making the notice's line taller. After the time's rule, which it ties. */
+@property --row-em { syntax: '<length>'; inherits: true; initial-value: 0px; }
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) { --row-em: 1em; }
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child::before {
+  font-size: var(--row-em);
+  line-height: 0;
 }
 
 /* line_width=5..100: no message wider than --line-max, in either layout (a longer one wraps in a column and ends in
