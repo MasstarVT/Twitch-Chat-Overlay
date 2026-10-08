@@ -97,6 +97,13 @@ test('tshadowRoom: how far --tshadow reaches past the letters; null when it has 
   assert.ok(0.08 * R.FONT_PX.large < 3);
   assert.strictEqual(t({ outline: 1, shadow_style: 'text', shadow: 3 }), '11px');
   [1, 2, 3].forEach((o) => [0, 1, 2, 3].forEach((s) => assert.match(String(t({ outline: o, shadow_style: 'text', shadow: s })), /^\.?\d+(?:em|px)$/)));
+  // text_px past 37 px: a thick outline reaches further than the light shadow's 3px, so the room is the outline's.
+  assert.strictEqual(t({ outline: 3, shadow_style: 'text', shadow: 1, text_px: 37 }), '3px');
+  assert.strictEqual(t({ outline: 3, shadow_style: 'text', shadow: 1, text_px: 40 }), '4px'); // .08 * 40 = 3.2
+  assert.strictEqual(t({ outline: 3, shadow_style: 'text', shadow: 3, text_px: 96 }), '11px', 'the strong shadow still reaches further');
+  assert.strictEqual(t({ outline: 3, text_px: 96 }), '.08em', 'the outline alone is in em');
+  [8, 24, 40, 96].forEach((px) => [1, 2, 3].forEach((o) => [1, 2, 3].forEach((s) =>
+    assert.match(t({ outline: o, shadow_style: 'text', shadow: s, text_px: px }), /^\d+px$/))));
 });
 
 test('font sizes and want-scale: emotes ceil(fontPx*1.75*dpr/base), badges ceil(fontPx*dpr/18)', () => {
@@ -121,6 +128,147 @@ test('font sizes and want-scale: emotes ceil(fontPx*1.75*dpr/base), badges ceil(
   assert.strictEqual(R.wantEmote(24, false, 2, R.baseHeight(32)), 3); // 84/32 = 2.6
   assert.deepStrictEqual([R.baseHeight(0), R.baseHeight(28), R.baseHeight(30), R.baseHeight(32), R.baseHeight(900)], [28, 28, 28, 32, 32],
     'odd provider heights never pick a smaller file than a 28px base would');
+});
+
+test('pxFor: text_px while it is set (8 at least), else the size step; fontPx(size) stays as it was', () => {
+  assert.deepStrictEqual([{}, { size: 'small' }, { size: 'large' }, { size: 'large', text_px: 0 }, { size: 'bogus' }].map(R.pxFor),
+    [24, 18, 32, 32, 24]);
+  assert.deepStrictEqual([{ text_px: 40 }, { text_px: 8, size: 'large' }, { text_px: 3 }, { text_px: 1 }, { text_px: 96 }, { text_px: 500 },
+    { text_px: 'x' }, { text_px: -4 }, { text_px: '30' }].map(R.pxFor), [40, 8, 8, 8, 96, 96, 24, 24, 30]);
+  assert.strictEqual(R.pxFor(undefined), 24);
+  assert.strictEqual(R.pxFor(null), 24);
+});
+
+test('want-scale with a scale (emote_scale, an emote-only line, badge_size): 1 or none is today\'s file', () => {
+  // A scale of 1, or none (left out, 0, negative, not a number), is exactly the call without one.
+  [18, 24, 32, 8, 40, 96].forEach((px) => [1, 2, 3].forEach((dpr) => [false, true].forEach((big) => [undefined, 28, 32].forEach((bh) => {
+    [1, 0, -1, undefined, NaN].forEach((s) => assert.strictEqual(R.wantEmote(px, big, dpr, bh, s), R.wantEmote(px, big, dpr, bh), px + ' ' + s));
+    [1, 0, undefined].forEach((s) => assert.strictEqual(R.wantBadge(px, dpr, s), R.wantBadge(px, dpr)));
+  }))));
+  assert.strictEqual(R.wantEmote(24, false, 1, 28, 2), 3); // 84/28 = 3 exactly
+  assert.strictEqual(R.wantEmote(24, false, 1, 28, 1.5), 3); // 63/28 = 2.25
+  assert.strictEqual(R.wantEmote(24, false, 1, 28, 0.5), 1); // 21/28
+  assert.strictEqual(R.wantEmote(24, true, 1, 28, 1.25), 6); // gigantified at 125%: 157.5/28 = 5.6
+  assert.strictEqual(R.wantBadge(24, 1, 1.5), 2); // 36/18 = 2 exactly
+  assert.strictEqual(R.wantBadge(24, 1, 2), 3); // 48/18 = 2.67
+  assert.strictEqual(R.wantBadge(24, 1, 0.5), 1);
+  assert.strictEqual(R.wantBadge(R.pxFor({ text_px: 40 }), 1), 3); // 40/18 = 2.2
+  assert.deepStrictEqual([100, 50, 200, 125, 75, undefined, 'x', 300, 10].map(R.sizeScale), [1, 0.5, 2, 1.25, 0.75, 1, 1, 2, 0.5]);
+});
+
+test('scaled emotes and badges are never fetched smaller than drawn while the provider has a big enough file', () => {
+  // Twitch/BTTV/FFZ: 28 px steps up to 4x (112 px); 7TV: 32 px steps up to 4x (128 px); badges: 18 px steps up to 4x (72 px).
+  const urls = (keys) => { const o = {}; keys.forEach((k) => { o[k] = 'https://cdn.example/' + k; }); return o; };
+  const fileKey = (u) => Number(u.split('/').pop());
+  const kinds = [{ base: 28, keys: [1, 2, 4] }, { base: 32, keys: [1, 2, 3, 4] }];
+  let checked = 0;
+  [8, 13, 18, 24, 32, 40, 57, 72, 96].forEach((px) => [1, 2].forEach((dpr) => {
+    for (let pct = 50; pct <= 200; pct += 5) {
+      kinds.forEach((kd) => [1, 2, 3].forEach((eo) => [false, true].forEach((big) => {
+        const s = (pct / 100) * (big ? 1 : eo);
+        const drawn = px * 1.75 * (big ? 3 : 1) * s * dpr;
+        const k = fileKey(R.pickUrl(urls(kd.keys), R.wantEmote(px, big, dpr, kd.base, s)));
+        const max = kd.keys[kd.keys.length - 1];
+        if (drawn <= max * kd.base) assert.ok(k * kd.base >= drawn - 1e-6, px + 'px ' + pct + '% x' + eo + (big ? ' big' : '') + ': file ' + k);
+        else assert.strictEqual(k, max, 'past the largest file: the largest');
+        checked++;
+      })));
+      const b = fileKey(R.pickUrl(urls([1, 2, 4]), R.wantBadge(px, dpr, pct / 100)));
+      const bd = px * (pct / 100) * dpr;
+      if (bd <= 72) assert.ok(b * 18 >= bd - 1e-6, 'badge ' + px + 'px ' + pct + '%');
+      else assert.strictEqual(b, 4);
+    }
+  }));
+  assert.ok(checked > 5000);
+});
+
+test('emoteOnly: emote images alone, with nothing but blanks between them (U+E0000, U+034F, spaces)', () => {
+  const k = { type: 'emote', emote: emote('twitch', 'Kappa'), sp: false, overlays: [] };
+  const sp = (it) => Object.assign({}, it, { sp: true });
+  const text = (s) => ({ type: 'text', text: s, sp: true });
+  assert.strictEqual(R.emoteOnly([k]), true);
+  assert.strictEqual(R.emoteOnly([k, sp(k), sp(k)]), true);
+  assert.strictEqual(R.emoteOnly([k, text('\u{E0000}')]), true, 'Chatterino\'s duplicate suffix');
+  assert.strictEqual(R.emoteOnly([k, text('͏')]), true);
+  assert.strictEqual(R.emoteOnly([k, text('​⁠'), sp(k)]), true);
+  assert.strictEqual(R.emoteOnly([k, text('hi')]), false);
+  assert.strictEqual(R.emoteOnly([k, text('!')]), false);
+  assert.strictEqual(R.emoteOnly([text('\u{E0000}')]), false, 'no emote');
+  assert.strictEqual(R.emoteOnly([]), false);
+  assert.strictEqual(R.emoteOnly(null), false);
+  // Cheers and GIFs are not emotes; an emote without an image is drawn as its name.
+  assert.strictEqual(R.emoteOnly([k, { type: 'cheer', prefix: 'Cheer', amount: 1, urls: {}, sp: true }]), false);
+  assert.strictEqual(R.emoteOnly([k, { type: 'gif', url: 'https://media.giphy.com/media/a/200.webp', title: 'g', sp: true }]), false);
+  assert.strictEqual(R.emoteOnly([k, sp({ type: 'emote', emote: emote('7tv', 'Gone', { urls: {} }), overlays: [] })]), false);
+  // Real tokenizer output: a duplicate-bypass suffix stays a text item, and still counts as blank.
+  const msg = ircParse.toChatMessage(ircParse.parseLine('@id=1;user-id=5;emotes=25:0-4 :u!u@u PRIVMSG #c :Kappa \u{E0000}'));
+  const tk = tokenizer.tokenize(msg, { lookup: () => null });
+  assert.deepStrictEqual(tk.items.map((x) => x.type), ['emote', 'text']);
+  assert.strictEqual(R.emoteOnly(tk.items), true);
+});
+
+test('modelFor: emote_only=big/huge marks an emote-only line in a column and fetches its emotes that much bigger', () => {
+  const msg = { id: 'e', userId: '1', login: 'a', displayName: 'A' };
+  const items = () => [{ type: 'emote', emote: emote('twitch', 'Kappa'), sp: false, overlays: [] },
+    { type: 'emote', emote: emote('twitch', 'Pog'), sp: true, overlays: [emote('7tv', 'Zw', { zw: true })] }];
+  const m = (cfg, its) => R.modelFor(msg, R.normalizeCfg(cfg), { kind: 'chat', items: its || items(), dpr: 1 });
+  const at = (cfg, its) => { const x = m(cfg, its); return [x.cls, x.parts[0].url, x.parts[2].ov[0].url]; }; // [1] is the space
+  // normal: no class, today's files (42 px drawn: the 2x file).
+  assert.deepStrictEqual(at({}), ['line', 'https://cdn.example/Kappa/2', 'https://cdn.example/Zw/2']);
+  assert.strictEqual(R.sigOf(m({})), R.sigOf(m({ emote_only: 'normal' })));
+  // big: 84 px (3 -> the 4x file, 112 px); huge: 126 px (past 4x: the largest).
+  assert.deepStrictEqual(at({ emote_only: 'big' }), ['line emote-only', 'https://cdn.example/Kappa/4', 'https://cdn.example/Zw/4']);
+  assert.deepStrictEqual(at({ emote_only: 'huge', size: 'small' }), ['line emote-only', 'https://cdn.example/Kappa/4', 'https://cdn.example/Zw/4']);
+  // A row has no emote-only lines; nor has a line with words in it.
+  assert.deepStrictEqual(at({ emote_only: 'huge', layout: 'horizontal' }), at({ layout: 'horizontal' }));
+  const words = items().concat({ type: 'text', text: 'lol', sp: true });
+  assert.deepStrictEqual(at({ emote_only: 'huge' }, words), at({}, words));
+  // A gigantified emote keeps its own 3x: the same file with emote_only on as off.
+  const giant = [{ type: 'emote', emote: emote('twitch', 'Kappa'), sp: false, big: true, overlays: [] }];
+  assert.deepStrictEqual(m({ emote_only: 'big', size: 'small' }, giant).parts, m({ size: 'small' }, giant).parts);
+  assert.strictEqual(m({ emote_only: 'big' }, giant).cls, 'line emote-only');
+  // A notice is never one.
+  assert.strictEqual(R.modelFor({ systemMsg: 'x' }, R.normalizeCfg({ emote_only: 'huge' }), { kind: 'notice', items: items() }).cls, 'line notice');
+});
+
+test('modelFor: text_px, badge_size and emote_scale pick the files for the size drawn', () => {
+  const msg = { id: 'x', userId: '1', login: 'a', displayName: 'A' };
+  const d = {
+    kind: 'chat', dpr: 1,
+    items: [{ type: 'emote', emote: emote('twitch', 'Kappa'), sp: false, overlays: [] },
+      { type: 'cheer', prefix: 'Cheer', amount: 1, color: '#979797', urls: { 1: 'https://c/1', 2: 'https://c/2', 3: 'https://c/3', 4: 'https://c/4' }, sp: true }],
+    badges: [{ provider: 'twitch', title: 'VIP', urls: { 1: 'https://v/1', 2: 'https://v/2', 4: 'https://v/4' } }]
+  };
+  const at = (cfg) => { const x = R.modelFor(msg, R.normalizeCfg(cfg), d); return [x.badges[0].url, x.parts[0].url, x.parts[2].url]; };
+  assert.deepStrictEqual(at({}), ['https://v/2', 'https://cdn.example/Kappa/2', 'https://c/2']);
+  assert.deepStrictEqual(at({ text_px: 0, badge_size: 100, emote_scale: 100 }), at({}));
+  assert.deepStrictEqual(at({ text_px: 10 }), ['https://v/1', 'https://cdn.example/Kappa/1', 'https://c/1']); // 17.5 px emotes
+  assert.deepStrictEqual(at({ text_px: 64 }), ['https://v/4', 'https://cdn.example/Kappa/4', 'https://c/4']); // 112 px
+  assert.deepStrictEqual(at({ badge_size: 200 }), ['https://v/4', 'https://cdn.example/Kappa/2', 'https://c/2']);
+  assert.deepStrictEqual(at({ emote_scale: 150 }), ['https://v/2', 'https://cdn.example/Kappa/4', 'https://c/3']); // 63 px
+  assert.deepStrictEqual(at({ emote_scale: 50, size: 'small' }), ['https://v/1', 'https://cdn.example/Kappa/1', 'https://c/1']);
+  // text_px wins over size: 8 px at size=large is 8 px.
+  assert.deepStrictEqual(at({ text_px: 8, size: 'large' }), at({ text_px: 8 }));
+});
+
+test('giant_emotes=0: a gigantified emote is drawn and fetched like any other; partsFor without it is today\'s', () => {
+  const big = () => [{ type: 'emote', emote: emote('twitch', 'K'), big: true, sp: false, overlays: [emote('7tv', 'Z', { zw: true })] }];
+  const today = R.partsFor(big(), { px: 24, dpr: 1, gifs: true });
+  assert.strictEqual(today[0].big, true);
+  assert.strictEqual(today[0].url, 'https://cdn.example/K/4');
+  assert.deepStrictEqual(R.partsFor(big(), { px: 24, dpr: 1, gifs: true, giant: true, scale: 1, eo: 1 }), today, 'the defaults spelled out');
+  assert.deepStrictEqual(R.partsFor(big(), { px: 24, dpr: 1, gifs: true, giant: undefined, scale: 0 }), today);
+  const off = R.partsFor(big(), { px: 24, dpr: 1, gifs: true, giant: false });
+  assert.deepStrictEqual([off[0].big, off[0].url, off[0].ov[0].url], [false, 'https://cdn.example/K/2', 'https://cdn.example/Z/2']);
+  // In a row the class stays (the stylesheet draws it at emote height), and the file is emote height's either way.
+  const row = R.partsFor(big(), { px: 24, dpr: 1, gifs: true, flatBig: true });
+  assert.deepStrictEqual([row[0].big, row[0].url], [true, 'https://cdn.example/K/2']);
+  assert.deepStrictEqual([R.partsFor(big(), { px: 24, dpr: 1, flatBig: true, giant: false })[0].big], [false]);
+  // modelFor passes giant_emotes.
+  const msg = { id: 'g', userId: '1', login: 'a', displayName: 'A' };
+  const parts = (cfg) => R.modelFor(msg, R.normalizeCfg(cfg), { kind: 'chat', items: big(), dpr: 1 }).parts;
+  assert.deepStrictEqual(parts({}), today);
+  assert.deepStrictEqual(parts({ giant_emotes: false }), off);
 });
 
 test('pickUrl uses util.pickScale, fixes protocol-relative urls and rejects unsafe URLs', () => {
@@ -658,10 +806,15 @@ test('every live config key is handled by the renderer', () => {
   const ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
-    'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep'];
+    'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale',
+    'emote_only', 'gif_size'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
   // accent_bar is drawn on each line (a class and the line's own --line-accent), so it rebuilds the lines.
   assert.ok(R.RERENDER_KEYS.indexOf('accent_bar') >= 0 && ROOT_KEYS.indexOf('accent_bar') < 0);
+  // The sizes set #chat and pick new image files (and emote_only marks lines); gif_size is CSS only (a GIF has one
+  // file), and giant_emotes only rebuilds the lines.
+  ['text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes'].forEach((k) => assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0, k));
+  assert.ok(R.RERENDER_KEYS.indexOf('gif_size') < 0 && ROOT_KEYS.indexOf('giant_emotes') < 0);
   const LIVE_KEYS = require('../js/config.js').LIVE_KEYS;
   assert.ok(Array.isArray(LIVE_KEYS) && LIVE_KEYS.length > 0);
   for (const k of LIVE_KEYS) {

@@ -109,6 +109,27 @@ test('tag values round-trip through the IRC parser', () => {
   });
 });
 
+[true, false].forEach((withRoom) => {
+  test('the eighth line is emotes alone, so the preview shows emote_only' + (withRoom ? ' (channel emotes)' : ' (global emotes only)'), () => {
+    const tokenizer = require('../js/tokenizer.js');
+    const R = require('../js/renderer.js')._internal;
+    const st = fakeState(withRoom);
+    const home = st.rooms.home();
+    const maps = (home ? [home.stv.emotes, home.bttv.emotes, home.ffz.emotes] : []).concat([st.stvGlobal, st.bttvGlobal, st.ffzGlobal]);
+    const lookup = (w) => {
+      const m = maps.filter((x) => x.has(w))[0];
+      return m ? Object.assign({ provider: 'x', urls: { 1: 'https://cdn.example/' + w } }, m.get(w)) : null;
+    };
+    const items = (line) => tokenizer.tokenize(ircParse.toChatMessage(ircParse.parseLine(line)), { lookup }).items;
+    const lines = runScript(st);
+    assert.ok(R.emoteOnly(items(lines[7])), lines[7]);
+    // and it is the only one: every other chat line has words in it.
+    lines.forEach((l, i) => {
+      if (i !== 7 && ircParse.parseLine(l).command === 'PRIVMSG') assert.strictEqual(R.emoteOnly(items(l)), false, l);
+    });
+  });
+});
+
 test('demo users get the cosmetics the catalog offers', () => {
   const st = fakeState(false);
   st.stv.paints.set('p1', { id: 'p1', bgImage: 'linear-gradient(red, blue)' });

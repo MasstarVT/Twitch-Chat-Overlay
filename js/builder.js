@@ -46,6 +46,13 @@
   function outlineOn(cfg) { return cfg.outline > 0; }
   function paintsOn(cfg) { return !!cfg.paints; }
   function homiesOn(cfg) { return !!(cfg.badges && cfg.badges_homies); }
+  function gifsOn(cfg) { return !!cfg.gifs; }
+  // Text size applies until Exact text size (text_px) takes over.
+  function sizeOn(cfg) { return !(cfg.text_px > 0); }
+
+  // Each Text size in px (renderer.js FONT_PX): where Exact text size starts from Auto (META.from0).
+  var TEXT_PX = { small: 18, medium: 24, large: 32 };
+  function textPxFrom0(cfg) { return TEXT_PX[cfg && cfg.size] || TEXT_PX.medium; }
 
   // text_weight and name_weight: six steps from light to black, on a slider (a row of six choices wraps
   // unevenly on a phone).
@@ -57,6 +64,7 @@
   // applies to. Either way it is greyed out (syncDisabled) and keeps its value.
   // wrap: a segmented field whose labels may wrap in a narrow panel (like Add to OBS's two routes).
   // swatch: a color field's built-in color, which its picker shows while the setting is '' (Default).
+  // from0(cfg): a stepper's first step up from 0 goes to this value instead of the next number (skipGap).
   var META = {
     kick: { label: 'Kick channel', logo: 'kick', check: true, placeholder: 'yourname or a kick.com link',
       bad: 'That isn’t a valid Kick name. Use letters, numbers, _ and - only.',
@@ -66,7 +74,10 @@
       help: 'Kick’s chat needs this number. Check fills it in when Kick allows the lookup. If it doesn’t, open the link Check shows, and paste that whole page (or the number after "chatroom":{"id":) here.' },
     platform_icons: { label: 'Show a Twitch or Kick icon on each message',
       help: 'Only when both a Twitch and a Kick channel are set. Shows even with badges off.' },
-    size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' } },
+    size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' }, when: sizeOn,
+      help: '18, 24 or 32 px. While Exact text size (Advanced) is set, it decides instead.' },
+    text_px: { label: 'Exact text size', widget: 'stepper', step: 2, unit: 'px', zero: 'Auto', from0: textPxFrom0,
+      help: 'In px, in place of Text size (Look); badges and emotes follow it. Auto uses Text size, and 1 to 7 become 8. Above about 40 px a horizontal row no longer fits the suggested 100 px tall source.' },
     font: { label: 'Font', help: 'Any Google Fonts family, or a font installed on the streaming PC (Arial, Segoe UI…).' },
     text_weight: { label: 'Text weight', widget: 'range', options: WEIGHT_LABELS,
       help: 'Message and notice text. Light and Black load one more weight of the font; a font without it draws the nearest.' },
@@ -139,9 +150,17 @@
     shared: { label: 'Include Shared Chat',
       help: 'During a Shared Chat session, also show the other channels’ messages. Every message is marked with its channel’s avatar.' },
     gifs: { label: 'Show GIFs posted in chat' },
+    gif_size: { label: 'GIF size', options: { '1x': '1×', '2x': '2×', '3x': '3×' }, when: gifsOn, only: 'vertical',
+      help: 'How tall a GIF is, in emote heights (3× by default); at 1× its line is no taller than one with emotes. The demo has no GIF. Vertical layout only (a row draws GIFs at emote height), with Show GIFs posted in chat on (Emotes).' },
     emotes_7tv: { label: '7TV', logo: '7tv', help: 'Channel and global emotes, updated live when the channel changes them. Also shown in Kick chat.' },
     emotes_bttv: { label: 'BetterTTV', logo: 'bttv' },
     emotes_ffz: { label: 'FrankerFaceZ', logo: 'ffz' },
+    emote_scale: { label: 'Emote size', widget: 'range', unit: '%',
+      help: 'Emotes, cheers and GIFs next to the text (100% by default). Images load at the size drawn, up to the largest each emote service has, and GIFs as Giphy’s 200 px file: past that they look soft. Above about 110% emotes reach out of the Line background box.' },
+    emote_only: { label: 'Emote-only messages', options: { normal: 'Normal', big: 'Big', huge: 'Huge' }, only: 'vertical',
+      help: 'A message of emotes alone, drawn two (Big) or three (Huge) times as tall. Gigantified emotes keep their own size, and a very wide emote is fitted to the column. Vertical layout only.' },
+    giant_emotes: { label: 'Gigantified emotes', only: 'vertical',
+      help: 'Twitch’s Gigantify an Emote power-up draws the emote three times as tall. Off draws it like any other emote, from a smaller image. Vertical layout only (a row draws it at emote height either way).' },
     badges: { label: 'Show badges', help: 'Master switch for every badge source below.' },
     badges_twitch: { label: 'Twitch', logo: 'twitch', when: badgesOn },
     badges_kick: { label: 'Kick', logo: 'kick', when: badgesOn },
@@ -161,6 +180,8 @@
     stv_lookup: { label: 'Look up 7TV cosmetics for every chatter',
       help: '7TV only announces paints and badges for people running a 7TV extension. This asks 7TV about everyone else, in small rate-limited batches. The answer isn’t checked against subscriptions, so it can show paints for lapsed 7TV subs.' },
     readable: { label: 'Brighten dark name colors', help: 'Lightens very dark usernames so they stay readable.' },
+    badge_size: { label: 'Badge size', widget: 'range', unit: '%',
+      help: 'Next to the text (100% by default), with the Twitch and Kick icons and Shared Chat avatars, which show even with badges off. Above about 135% lines with badges get taller.' },
     demo: { label: 'Demo messages in OBS too',
       help: 'Plays fake chat in the real overlay, handy for positioning. The preview has its own Demo / Live chat switch.' },
     debug: { label: 'Debug status line', help: 'Shows which providers loaded or failed, and logs details to the browser console.' }
@@ -200,18 +221,18 @@
     { id: 'filters', title: 'Filters', note: 'Who and what stays out of the overlay.',
       keys: ['bots', 'hide_commands', 'block'] },
     { id: 'emotes', title: 'Emotes', note: 'Twitch and Kick emotes are always shown.',
-      keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs'] },
+      keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only'], more: 'adv-emotes' },
     { id: 'badges', title: 'Badges & paints', note: 'Each badge source has its own switch.',
       foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
-      keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable']), more: 'adv-lighter' },
+      keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable', 'badge_size']), more: 'adv-lighter' },
     { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then fine-tuning for every section and lighter-on-PC switches.',
-      keys: ['debug', 'demo', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight', 'bg_shape',
-        'bg_width', 'spacing', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'notice_color', 'notice_size', 'first_msg_color',
-        'shadow_style', 'paint_images', 'homies_lists'],
-      subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'line_height' },
+      keys: ['debug', 'demo', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight',
+        'bg_shape', 'bg_width', 'spacing', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'notice_color', 'notice_size',
+        'first_msg_color', 'gif_size', 'giant_emotes', 'shadow_style', 'paint_images', 'homies_lists'],
+      subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'text_px' },
         { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
         { id: 'adv-layout', title: 'Layout', first: 'line_width' }, { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
-        { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }
+        { id: 'adv-emotes', title: 'Emotes', first: 'gif_size' }, { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }
   ];
 
   // ---------- pure helpers (unit tested) ----------
@@ -558,11 +579,13 @@
     return Math.max(min, Math.min(max, n));
   }
 
-  // A step from `from` to `to` on a setting with SPEC lowest (line_width): 1..lowest-1 isn't a value (config.coerce
-  // raises it to lowest), so a step down into it goes on to 0 and a step up into it goes to lowest. Otherwise
-  // ArrowDown from 5 would land on 4, which is 5 again.
-  function skipGap(key, from, to) {
-    var s = config.SPEC[key];
+  // A step from `from` to `to` on a setting with SPEC lowest (line_width, text_px): 1..lowest-1 isn't a value
+  // (config.coerce raises it to lowest), so a step down into it goes on to 0 and a step up into it goes to lowest.
+  // Otherwise ArrowDown from 5 would land on 4, which is 5 again. With META.from0 (text_px) a step up from 0 goes
+  // to from0(cfg) instead: the px of the Text size it takes over from.
+  function skipGap(key, from, to, cfg) {
+    var s = config.SPEC[key], m = Object.prototype.hasOwnProperty.call(META, key) ? META[key] : {};
+    if (from === 0 && to > 0 && typeof m.from0 === 'function') return m.from0(cfg || {});
     if (!s || !(s.lowest > 0) || !(to > 0 && to < s.lowest)) return to;
     return to < from ? 0 : s.lowest;
   }
@@ -838,11 +861,11 @@
           sv.setAttribute('aria-valuenow', String(B.cfg[key]));
           sv.setAttribute('aria-valuetext', valueText(key, B.cfg[key]));
         };
-        // A step from `from` to n (over line_width's gap, skipGap). say: the Fewer / More buttons keep the focus, so
-        // the new value is spoken through the status region.
+        // A step from `from` to n (over line_width's gap, or from text_px's 0: skipGap). say: the Fewer / More buttons
+        // keep the focus, so the new value is spoken through the status region.
         var jump = function (from, n, say) {
           clearTimeout(stt);
-          update(key, skipGap(key, from, n));
+          update(key, skipGap(key, from, n, B.cfg));
           showStep(B.cfg[key]);
           if (say) announce(valueText(key, B.cfg[key]));
         };
@@ -2238,6 +2261,7 @@
     SUBGRIDS: SUBGRIDS,
     DEMO_INERT: DEMO_INERT,
     LAYOUT_SIZES: LAYOUT_SIZES,
+    TEXT_PX: TEXT_PX,
     RELOAD_KEYS: RELOAD_KEYS,
     GOOGLE_FONTS: GOOGLE_FONTS,
     SYSTEM_FONT_NAMES: SYSTEM_FONT_NAMES,

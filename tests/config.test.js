@@ -7,7 +7,7 @@ describe('spec', () => {
   test('defaults match the plan', () => {
     const d = config.defaults();
     assert.deepEqual(d, {
-      channel: '', kick: '', kick_room: '', platform_icons: true, size: 'medium', font: 'Inter',
+      channel: '', kick: '', kick_room: '', platform_icons: true, size: 'medium', text_px: 0, font: 'Inter',
       text_weight: 'semibold', text_color: '', line_height: 135, text_case: 'none', shadow: 2,
       shadow_color: '', shadow_style: 'filter', outline: 0, outline_color: '',
       names: true, name_weight: 'heavy', name_line: false,
@@ -15,9 +15,9 @@ describe('spec', () => {
       text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
       events: true, notice_color: '', notice_size: 85, replies: true, first_msg: false, first_msg_color: '', history: 5, shared: true, gifs: true,
-      emotes_7tv: true, emotes_bttv: true, emotes_ffz: true,
+      gif_size: '3x', emotes_7tv: true, emotes_bttv: true, emotes_ffz: true, emote_scale: 100, emote_only: 'normal', giant_emotes: true,
       badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
-      badges_ffzap: true, badges_chatterino: true, badges_homies: true, homies_lists: 'all',
+      badges_ffzap: true, badges_chatterino: true, badges_homies: true, homies_lists: 'all', badge_size: 100,
       paints: true, paint_images: 'animated', stv_lookup: true, readable: true, demo: false, debug: false
     });
     assert.deepEqual(config.KEYS, Object.keys(config.SPEC));
@@ -243,11 +243,37 @@ describe('coerce', () => {
     assert.equal(config.coerce('line_width', 'wide'), undefined);
     assert.equal(config.parse('line_width=2').line_width, 5);
     assert.equal(config.parse('', { line_width: 3 }).line_width, 5);
-    // Only line_width has a lowest; the other ints clamp as before (max=0 is 1, pad_x=1 stays 1).
-    assert.deepEqual(config.KEYS.filter((k) => config.SPEC[k].lowest !== undefined), ['line_width']);
+    // Only line_width and text_px have a lowest; the other ints clamp as before (max=0 is 1, pad_x=1 stays 1).
+    assert.deepEqual(config.KEYS.filter((k) => config.SPEC[k].lowest !== undefined), ['text_px', 'line_width']);
     assert.equal(config.coerce('pad_x', 1), 1);
     assert.equal(config.coerce('edge_fade', 1), 1);
     assert.equal(config.coerce('max', 0), 1);
+  });
+
+  test('int lowest: text_px is 0 (use size) or 8 to 96 px; 1 to 7 become 8, so the URL says what is drawn', () => {
+    assert.equal(config.SPEC.text_px.lowest, 8);
+    assert.deepEqual([0, 1, 7, 8, 9, 24, 96, 97, -1].map((v) => config.coerce('text_px', v)), [0, 8, 8, 8, 9, 24, 96, 96, 0]);
+    assert.deepEqual(['0', '3', '40', '200'].map((v) => config.coerce('text_px', v)), [0, 8, 40, 96]);
+    assert.equal(config.coerce('text_px', '28px'), undefined);
+    assert.equal(config.parse('text_px=5').text_px, 8);
+    assert.equal(config.toParams(Object.assign(config.defaults(), { text_px: 8 })).toString(), 'text_px=8');
+  });
+
+  test('sizing: badge and emote size, emote-only messages, GIF size and gigantified emotes', () => {
+    assert.deepEqual([49, 50, 100, 135, 200, 201, '125'].map((v) => config.coerce('badge_size', v)), [50, 50, 100, 135, 200, 200, 125]);
+    assert.deepEqual([0, 50, 125, 300].map((v) => config.coerce('emote_scale', v)), [50, 50, 125, 200]);
+    assert.equal(config.coerce('emote_only', 'HUGE'), 'huge');
+    assert.equal(config.coerce('emote_only', 'hide'), undefined, 'no hide value');
+    assert.equal(config.coerce('gif_size', '1X'), '1x');
+    assert.equal(config.coerce('gif_size', 'small'), undefined);
+    assert.equal(config.coerce('gif_size', 1), undefined, 'the value is 1x, not a number');
+    assert.equal(config.coerce('giant_emotes', 'off'), false);
+    ['text_px', 'badge_size', 'emote_scale', 'emote_only', 'gif_size', 'giant_emotes'].forEach((k) =>
+      assert.ok(config.LIVE_KEYS.includes(k), k + ' is live'));
+    assert.equal(config.toParams(Object.assign(config.defaults(), { text_px: 30, gif_size: '1x', emote_scale: 150, emote_only: 'big',
+      giant_emotes: false, badge_size: 75 })).toString(), 'text_px=30&gif_size=1x&emote_scale=150&emote_only=big&giant_emotes=0&badge_size=75');
+    assert.deepEqual(config.parse('gif_size=2x&giant_emotes=0&emote_only=huge'), Object.assign(config.defaults(),
+      { gif_size: '2x', giant_emotes: false, emote_only: 'huge' }));
   });
 
   test('layout: text alignment, side padding, soft edge and the mark between messages', () => {

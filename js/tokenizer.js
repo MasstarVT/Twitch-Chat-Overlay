@@ -12,7 +12,8 @@
   var KICK_EMOTE_ID_RE = /^\d{1,12}$/;
   var GIPHY_HOST_RE = /(^|\.)giphy\.com$/;
   // Giphy's 'original' rendition (the gifs tag's URL) is the uploaded file at any size. Swap it for the
-  // 200 px fixed-height rendition, still taller than any box we draw (<= 168 px). Only the known shape.
+  // 200 px fixed-height rendition, still taller than the box at every `size` (<= 168 px); text_px or emote_scale
+  // can draw it taller, and soft (the README says so). Only the known shape.
   var GIPHY_ORIG_RE = /^(https:\/\/media\d?\.giphy\.com\/media\/(?:[A-Za-z0-9._-]+\/){1,2})giphy\.gif(\?[^#]*)?$/;
 
   // Hostile-input bounds, far above anything real Twitch chat can send (500 characters per message):

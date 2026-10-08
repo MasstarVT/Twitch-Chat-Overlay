@@ -212,13 +212,17 @@ const PREREQ = {
   outline_color: { outline: 2 },
   paint_images: { paints: true },
   text_align: { layout: 'vertical' },
-  row_sep: { layout: 'horizontal' }
+  row_sep: { layout: 'horizontal' },
+  size: { text_px: 0 },
+  emote_only: { layout: 'vertical' },
+  gif_size: { gifs: true, layout: 'vertical' },
+  giant_emotes: { layout: 'vertical' }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 
-// flip()'s value, except where that changes nothing on the transcript: max 51 caps nothing, and nobody in it
-// is called "someone".
-const SHOWS = { max: 5, block: ['waver'] };
+// flip()'s value, except where that changes nothing on the transcript: max 51 caps nothing, nobody in it is
+// called "someone", and badges and emotes 1% bigger still come from the same files.
+const SHOWS = { max: 5, block: ['waver'], badge_size: 200, emote_scale: 150 };
 function changed(cfg, k) {
   if (!own(SHOWS, k)) return flip(cfg, k);
   const c = Object.assign({}, cfg);
@@ -408,11 +412,17 @@ const LITERALS = [
   ['.reply-name', 'font-weight', '800'],
   ['.badge', 'height', '1em'],
   ['.badge', 'margin-right', '.25em'],
+  ['.badge.icon', 'width', '1em'],
   ['.emote-stack', '--eh', 'var(--emote-h, 1.75em)'],
   ['.emote-stack', 'margin', '-.3em .05em'],
   ['.emote-stack.big', '--eh', 'calc(var(--emote-h, 1.75em) * 3)'],
+  ['.cheer-img', 'height', 'var(--emote-h, 1.75em)'],
   ['.cheer-amount', 'font-weight', '800'],
   ['.gif', 'height', 'calc(var(--emote-h, 1.75em) * 3)'],
+  ['.gif', 'max-height', 'calc(var(--emote-h, 1.75em) * 3)'],
+  ['.gif', 'margin', '.1em 0'],
+  ['.layout-horizontal .emote-stack.big', '--eh', 'var(--emote-h, 1.75em)'],
+  ['.layout-horizontal .gif', 'height', 'var(--emote-h, 1.75em)'],
   ['#chat.layout-horizontal .lines', 'gap', '0 1em'],
   ['#chat.layout-horizontal.has-bg .lines', 'gap', '0 .4em'],
   ['@keyframes tco-in > from', 'transform', 'translateY(.4em)'],

@@ -18,6 +18,7 @@
     kick_room: { type: 'room', def: '' },
     platform_icons: { type: 'bool', def: true },
     size: { type: 'enum', values: ['small', 'medium', 'large'], def: 'medium' },
+    text_px: { type: 'int', min: 0, max: 96, lowest: 8, def: 0 },
     font: { type: 'font', def: 'Inter' },
     text_weight: { type: 'enum', values: WEIGHTS.slice(), def: 'semibold' },
     text_color: { type: 'color', def: '' },
@@ -59,9 +60,13 @@
     history: { type: 'int', min: 0, max: 100, def: 5 },
     shared: { type: 'bool', def: true },
     gifs: { type: 'bool', def: true },
+    gif_size: { type: 'enum', values: ['1x', '2x', '3x'], def: '3x' },
     emotes_7tv: { type: 'bool', def: true },
     emotes_bttv: { type: 'bool', def: true },
     emotes_ffz: { type: 'bool', def: true },
+    emote_scale: { type: 'int', min: 50, max: 200, def: 100 },
+    emote_only: { type: 'enum', values: ['normal', 'big', 'huge'], def: 'normal' },
+    giant_emotes: { type: 'bool', def: true },
     badges: { type: 'bool', def: true },
     badges_twitch: { type: 'bool', def: true },
     badges_kick: { type: 'bool', def: true },
@@ -72,6 +77,7 @@
     badges_chatterino: { type: 'bool', def: true },
     badges_homies: { type: 'bool', def: true },
     homies_lists: { type: 'enum', values: ['all', 'light'], def: 'all' },
+    badge_size: { type: 'int', min: 50, max: 200, def: 100 },
     paints: { type: 'bool', def: true },
     paint_images: { type: 'enum', values: ['animated', 'static'], def: 'animated' },
     stv_lookup: { type: 'bool', def: true },
@@ -90,7 +96,8 @@
     'paints', 'readable', 'shared', 'platform_icons', 'text_weight', 'text_color', 'line_height', 'text_case', 'names',
     'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width', 'spacing', 'notice_color', 'notice_size',
     'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color', 'accent_bar', 'paint_images',
-    'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep'];
+    'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale', 'emote_only',
+    'gif_size', 'giant_emotes'];
 
   // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
   // them), in their canonical spelling.
@@ -200,7 +207,8 @@
         var n = typeof v === 'number' ? Math.round(v) : parseInt(v, 10);
         if (!isFinite(n)) return undefined;
         n = Math.max(spec.min, Math.min(spec.max, n));
-        // lowest: 1..lowest-1 is raised to it (a 3em line_width would wrap a column almost letter by letter).
+        // lowest: 1..lowest-1 is raised to it (a 3em line_width would wrap a column almost letter by letter, and the
+        // overlay draws text_px at 8 px at least, so the URL says what is drawn).
         return spec.lowest && n > 0 && n < spec.lowest ? spec.lowest : n;
       }
       case 'bool':

@@ -116,8 +116,9 @@ test('widgets: switches, segmented choices, steppers, sliders, color pickers', (
     }
   });
   assert.strictEqual(kinds.shadow, 'seg');
-  assert.deepStrictEqual(Object.keys(kinds).filter((k) => kinds[k] === 'range').sort(), ['bg', 'name_weight', 'notice_size', 'text_weight']);
-  ['fade', 'max', 'history', 'line_height', 'line_width', 'pad_x', 'edge_fade'].forEach((k) => assert.strictEqual(kinds[k], 'stepper', k));
+  assert.deepStrictEqual(Object.keys(kinds).filter((k) => kinds[k] === 'range').sort(),
+    ['badge_size', 'bg', 'emote_scale', 'name_weight', 'notice_size', 'text_weight']);
+  ['fade', 'max', 'history', 'line_height', 'line_width', 'pad_x', 'edge_fade', 'text_px'].forEach((k) => assert.strictEqual(kinds[k], 'stepper', k));
   assert.deepStrictEqual(config.SPEC.text_weight.values.map((v) => builder.valueText('text_weight', v)),
     ['Light', 'Regular', 'Semi-bold', 'Bold', 'Heavy', 'Black']);
   assert.strictEqual(builder.valueText('name_weight', 'heavy'), 'Heavy');
@@ -228,18 +229,46 @@ test('the layout steppers: what they show and read back, and line_width\'s steps
   assert.strictEqual(builder.skipGap('constructor', 2, 1), 1);
   // Every press, by button or key, from every value the setting takes, lands on another value it takes (so
   // nothing is stuck, as 5 -> 4 -> coerced to 5 would be), in the direction pressed.
-  ['line_width', 'pad_x', 'edge_fade', 'fade', 'max', 'history', 'line_height'].forEach((k) => {
+  ['line_width', 'pad_x', 'edge_fade', 'fade', 'max', 'history', 'line_height', 'text_px'].forEach((k) => {
     const s = config.SPEC[k], step = (builder.META[k] && builder.META[k].step) || 1;
-    for (let v = s.min; v <= s.max; v++) {
-      if (config.coerce(k, v) !== v) continue;
-      [[1, v + 1], [-1, v - 1], [1, builder.stepValue(v, 1, step, s.min, s.max)], [-1, builder.stepValue(v, -1, step, s.min, s.max)]]
-        .forEach(([dir, to]) => {
-          const n = config.coerce(k, builder.skipGap(k, v, Math.max(s.min, Math.min(s.max, to))));
-          if (dir > 0 && v < s.max) assert.ok(n > v, k + ' up from ' + v);
-          if (dir < 0 && v > s.min) assert.ok(n < v, k + ' down from ' + v);
-        });
-    }
+    ['small', 'medium', 'large'].forEach((size) => {
+      for (let v = s.min; v <= s.max; v++) {
+        if (config.coerce(k, v) !== v) continue;
+        [[1, v + 1], [-1, v - 1], [1, builder.stepValue(v, 1, step, s.min, s.max)], [-1, builder.stepValue(v, -1, step, s.min, s.max)]]
+          .forEach(([dir, to]) => {
+            const n = config.coerce(k, builder.skipGap(k, v, Math.max(s.min, Math.min(s.max, to)), Object.assign(config.defaults(), { size })));
+            if (dir > 0 && v < s.max) assert.ok(n > v, k + ' up from ' + v);
+            if (dir < 0 && v > s.min) assert.ok(n < v, k + ' down from ' + v);
+          });
+      }
+    });
   });
+});
+
+test('Exact text size: what its stepper shows and reads back, and its first step up from Auto', () => {
+  assert.strictEqual(builder.widgetFor('text_px'), 'stepper');
+  assert.deepStrictEqual([0, 8, 24, 96].map((v) => builder.valueText('text_px', v)), ['Auto', '8 px', '24 px', '96 px']);
+  assert.deepStrictEqual(['Auto', 'auto', '24 px', '24px', '3', '0', '120'].map((t) => builder.parseStep('text_px', t)),
+    [0, 0, 24, 24, 8, 0, 96]);
+  [0, 8, 9, 50, 96].forEach((v) => assert.strictEqual(builder.parseStep('text_px', builder.valueText('text_px', v)), v));
+  // From 0 a step up (ArrowUp's 1, PageUp's and More's 2) goes to the Text size's px, which the overlay draws now.
+  const at = (size) => Object.assign(config.defaults(), { size });
+  assert.deepStrictEqual(['small', 'medium', 'large'].map((s) => builder.skipGap('text_px', 0, 1, at(s))), [18, 24, 32]);
+  assert.strictEqual(builder.skipGap('text_px', 0, 2, at('large')), 32);
+  assert.strictEqual(builder.skipGap('text_px', 0, 1), 24, 'no cfg: Medium');
+  // Down from 8 into 1..7 goes to 0; elsewhere a step is a step.
+  assert.strictEqual(builder.skipGap('text_px', 8, 7, at('large')), 0);
+  assert.strictEqual(builder.skipGap('text_px', 8, 6, at('large')), 0);
+  assert.strictEqual(builder.skipGap('text_px', 9, 8, at('large')), 8);
+  assert.strictEqual(builder.skipGap('text_px', 24, 26, at('large')), 26);
+  assert.strictEqual(builder.skipGap('text_px', 8, 0), 0);
+  // Only text_px starts from somewhere else: line_width's 0 -> 1 is its lowest (5), pad_x's is 1.
+  assert.strictEqual(builder.skipGap('line_width', 0, 1, at('large')), 5);
+  assert.strictEqual(builder.skipGap('pad_x', 0, 1, at('large')), 1);
+  assert.deepStrictEqual(Object.keys(builder.META).filter((k) => builder.META[k].from0), ['text_px']);
+  // The Text size steps are the overlay's (renderer.js FONT_PX, which picks the image files).
+  assert.deepStrictEqual(builder.TEXT_PX, require('../js/renderer.js')._internal.FONT_PX);
+  assert.deepStrictEqual(Object.keys(builder.TEXT_PX), config.SPEC.size.values);
 });
 
 test('changedKeys, tagText and groupCounts follow the overlay URL', () => {
@@ -683,17 +712,28 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   ]);
   assert.deepStrictEqual(outline(g('advanced')), [
     ['Troubleshooting #adv-trouble', 'debug', 'demo'],
-    ['Text #adv-text', 'line_height', 'text_case', 'shadow_color', 'outline_color'],
+    ['Text #adv-text', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color'],
     ['Names #adv-names', 'names', 'name_weight'],
     ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
     ['Layout #adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep'],
     ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color'],
+    ['Emotes #adv-emotes', 'gif_size', 'giant_emotes'],
     ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']
   ]);
+  // The common sizes are on their own tabs, after what is there already.
+  assert.deepStrictEqual(g('emotes').keys, ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only']);
+  assert.deepStrictEqual(g('badges').keys.slice(-4), ['paints', 'stv_lookup', 'readable', 'badge_size']);
   assert.strictEqual(g('look').more, 'adv-text');
   assert.strictEqual(g('events').more, 'adv-events');
+  assert.strictEqual(g('emotes').more, 'adv-emotes');
   assert.strictEqual(g('badges').more, 'adv-lighter');
-  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events', 'badges']);
+  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events', 'emotes', 'badges']);
+  assert.deepStrictEqual(builder.META.emote_only.options, { normal: 'Normal', big: 'Big', huge: 'Huge' });
+  assert.deepStrictEqual(builder.segValues('gif_size').map((v) => v.label), ['1×', '2×', '3×']);
+  assert.match(builder.META.gif_size.help, /The demo has no GIF/);
+  assert.match(builder.META.emote_scale.help, /look soft/);
+  assert.match(builder.META.badge_size.help, /even with badges off/);
+  assert.match(builder.META.text_px.help, /100 px tall source/);
   // The lighter-on-PC switches name what they save and what they cost.
   assert.deepStrictEqual(builder.META.shadow_style.options, { filter: 'Whole line', text: 'Text only' });
   assert.deepStrictEqual(builder.META.paint_images.options, { animated: 'Animated', static: 'Still' });
@@ -721,7 +761,9 @@ test('the look options grey out while the setting they need is off, and their he
     shadow_style: [{ shadow: 0 }, { shadow: 1 }, 'Text shadow'],
     outline_color: [{ outline: 0 }, { outline: 1 }, 'Text outline'],
     paint_images: [{ paints: false }, {}, '7TV name paints'],
-    homies_lists: [{ badges_homies: false }, {}, 'Chatterino Homies']
+    homies_lists: [{ badges_homies: false }, {}, 'Chatterino Homies'],
+    size: [{ text_px: 8 }, { text_px: 0 }, 'Exact text size'],
+    gif_size: [{ gifs: false }, {}, 'Show GIFs posted in chat']
   };
   Object.keys(needs).forEach((k) => {
     assert.strictEqual(off(k, needs[k][0]), true, k + ' off');
@@ -729,7 +771,7 @@ test('the look options grey out while the setting they need is off, and their he
     assert.ok(builder.META[k].help.indexOf(needs[k][2]) >= 0, k + ' help names ' + needs[k][2]);
   });
   // Column only: off in a row whatever else is set.
-  ['bg_width', 'name_line', 'text_align'].forEach((k) => {
+  ['bg_width', 'name_line', 'text_align', 'emote_only', 'gif_size', 'giant_emotes'].forEach((k) => {
     assert.strictEqual(builder.META[k].only, 'vertical', k);
     assert.strictEqual(off(k, { bg: 40, layout: 'horizontal' }), true, k);
     assert.match(builder.META[k].help, /Vertical layout only/, k);
@@ -748,6 +790,12 @@ test('the look options grey out while the setting they need is off, and their he
     assert.strictEqual(off(k, { layout: 'horizontal' }), false, k);
   });
   assert.strictEqual(off('text_align'), false);
+  // The sizes apply in both layouts (but the column ones above), and badge size even with badges off: the
+  // platform icons and Shared Chat avatars are badges too.
+  ['text_px', 'badge_size', 'emote_scale'].forEach((k) => {
+    assert.strictEqual(off(k, { layout: 'horizontal', badges: false, gifs: false }), false, k);
+  });
+  assert.strictEqual(off('size', { text_px: 96 }), true);
   // Names off greys out only what draws a name line: name_weight still styles reply headers.
   const namesOff = Object.keys(builder.META).filter((k) => !off(k) && off(k, { names: false }));
   assert.deepStrictEqual(namesOff, ['name_line']);

@@ -58,13 +58,16 @@
   var RERENDER_KEYS = ['size', 'badges', 'badges_twitch', 'badges_kick', 'platform_icons', 'badges_7tv', 'badges_bttv',
     'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs',
     'first_msg', 'shared', 'layout', // layout: a row draws gigantified emotes at emote height, so it picks smaller files
-    'accent_bar'];
+    'accent_bar',
+    // The sizes: images are fetched for the size they are drawn at, and an emote-only line gets its class.
+    'text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes'];
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
   // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
   var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline',
-    'outline_color', 'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep'];
+    'outline_color', 'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size',
+    'emote_scale', 'emote_only', 'gif_size'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -75,6 +78,14 @@
   // leaves 1em between messages, .4em between boxes (the second value).
   var LINE_GAP = { tight: '.05em', loose: '.3em', extra: '.5em' };
   var ROW_GAP = { tight: ['.5em', '.2em'], loose: ['1.5em', '.6em'], extra: ['2em', '.8em'] };
+  // emote_only: how many times as tall an emote-only line draws its emotes (--eo). normal draws them as any other.
+  var EMOTE_ONLY = { big: 2, huge: 3 };
+  // gif_size: a GIF's height in emote heights (--gif-mul); 3x is the stylesheet's. At 1x a GIF also takes an emote's
+  // margins (--gif-margin), so its line is no taller than one with emotes.
+  var GIF_MUL = { '1x': '1', '2x': '2' };
+  // Text that draws nothing: spaces, and format and other invisible characters (U+E0000 and U+034F, the suffixes
+  // chat clients add to send the same message twice). An emote-only line may have them between its emotes.
+  var BLANK_RE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*$/u;
 
   // The values normalizeCfg makes safe, each with its config.js default (tests/parity.test.js checks they
   // match SPEC): values = the enum's choices, min/max = an int's range, bool = missing means the default,
@@ -113,7 +124,13 @@
     line_width: { min: 0, max: 100, def: 0 },
     pad_x: { min: 0, max: 200, def: 8 },
     edge_fade: { min: 0, max: 10, def: 0 },
-    row_sep: { values: ['none', 'dot', 'bar', 'diamond'], def: 'none' }
+    row_sep: { values: ['none', 'dot', 'bar', 'diamond'], def: 'none' },
+    text_px: { min: 0, max: 96, def: 0 }, // 1..7 is drawn as 8 (pxFor), as config.js stores it
+    badge_size: { min: 50, max: 200, def: 100 },
+    emote_scale: { min: 50, max: 200, def: 100 },
+    emote_only: { values: ['normal', 'big', 'huge'], def: 'normal' },
+    gif_size: { values: ['1x', '2x', '3x'], def: '3x' },
+    giant_emotes: { bool: true, def: true }
   };
   var NORM_KEYS = Object.keys(NORM);
   var NORM_DEFAULTS = {};
@@ -175,14 +192,24 @@
   }
 
   function fontPx(size) { return FONT_PX[size] || FONT_PX.medium; }
+  // The text size in px: text_px while it is set (8 at least, as config.js stores 1..7), else the size step's.
+  function pxFor(c) {
+    var n = clampInt(c && c.text_px, 0, 96, 0);
+    return n > 0 ? Math.max(8, n) : fontPx(c && c.size);
+  }
+  // badge_size and emote_scale (percent) as a factor: 1 at 100, or when left out.
+  function sizeScale(v) { return clampInt(v, 50, 200, 100) / 100; }
   function ceilSafe(x) { return Math.ceil(x - 1e-9); }
   // Images are requested at the drawn size times the device pixel ratio. OBS draws at DPR 1, and scaling a
   // source in OBS scales the finished page, so bigger files would only cost download, decode and memory.
-  // baseH: the provider's 1x height (7TV scales in 32 px steps, Twitch/BTTV/FFZ in 28 px ones).
-  function wantEmote(px, big, dpr, baseH) {
-    return ceilSafe(px * EMOTE_EM * (big ? 3 : 1) * (dpr > 0 ? dpr : 1) / (baseH > 0 ? baseH : EMOTE_BASE_PX));
+  // baseH: the provider's 1x height (7TV scales in 32 px steps, Twitch/BTTV/FFZ in 28 px ones). scale: emote_scale
+  // (times an emote-only line's factor) or badge_size; 1 when left out. Past a provider's largest file pickUrl takes
+  // that one, so nothing smaller than the drawn size is fetched while a big enough file exists.
+  function wantEmote(px, big, dpr, baseH, scale) {
+    return ceilSafe(px * EMOTE_EM * (big ? 3 : 1) * (scale > 0 ? scale : 1) * (dpr > 0 ? dpr : 1) /
+      (baseH > 0 ? baseH : EMOTE_BASE_PX));
   }
-  function wantBadge(px, dpr) { return ceilSafe(px * (dpr > 0 ? dpr : 1) / BADGE_BASE_PX); }
+  function wantBadge(px, dpr, scale) { return ceilSafe(px * (scale > 0 ? scale : 1) * (dpr > 0 ? dpr : 1) / BADGE_BASE_PX); }
   // A provider's 1x emote height, kept to the known 28-32 px so odd metadata can't pick a tiny file.
   function baseHeight(h) { return h >= 32 ? 32 : EMOTE_BASE_PX; }
 
@@ -216,10 +243,15 @@
   // --tshadow-room (null without layers): how far --tshadow reaches past the letters, so a row's line and a reply
   // header leave that much room at their clipped edges: the text shadow's reach, or else the outline's width. One
   // plain length, as overflow-clip-margin takes no calc() or max(). With both on, the shadow's 3px or more covers
-  // the outline too (.08em stays under 3px up to a 37px font).
+  // the outline too (.08em stays under 3px up to a 37px font); a bigger text_px takes the outline's width in px.
   function tshadowRoom(c) {
-    if (c.shadow_style === 'text' && c.shadow > 0) return TEXT_SHADOW_ROOM[clampInt(c.shadow, 0, 3, 0)];
-    return OUTLINE_EM[clampInt(c.outline, 0, 3, 0)] || null;
+    var w = OUTLINE_EM[clampInt(c.outline, 0, 3, 0)];
+    if (c.shadow_style === 'text' && c.shadow > 0) {
+      var room = TEXT_SHADOW_ROOM[clampInt(c.shadow, 0, 3, 0)];
+      var o = w ? Math.ceil(parseFloat(w) * pxFor(c) - 1e-9) : 0;
+      return o > parseInt(room, 10) ? o + 'px' : room;
+    }
+    return w || null;
   }
   function bgAlpha(bg) { return clampInt(bg, 0, 100, 0) / 100; }
   // line_width's cap on a notice (--line-max-n), in the notice's own em: notice_size makes that em smaller (or
@@ -435,7 +467,8 @@
     return 'ann-' + (ANN_COLORS.indexOf(s) >= 0 ? s : 'PRIMARY').toLowerCase();
   }
 
-  function lineClasses(msg, cfg, kind, action) {
+  // emoteOnly: the line is one modelFor found to be emotes alone (emote_only=big/huge, in a column).
+  function lineClasses(msg, cfg, kind, action, emoteOnly) {
     var c = ['line'];
     if (kind === 'notice') {
       c.push('notice');
@@ -448,6 +481,7 @@
       // accent_bar: a bar in the name color (renderInto sets it), except on an announcement, whose own bar it
       // would cover. A first message's bar wins in the stylesheet.
       else if (cfg.accent_bar === true) c.push('accent');
+      if (emoteOnly) c.push('emote-only');
     }
     if (msg.mirrored) c.push('mirrored');
     if (typeof msg.platform === 'string' && Object.prototype.hasOwnProperty.call(LINE_PLATFORMS, msg.platform)) c.push('platform-' + msg.platform);
@@ -501,13 +535,37 @@
     else parts.push({ t: 'text', s: s });
   }
 
+  // emote_only: a message of emote images alone (cheers and GIFs are not emotes), with no text but blanks between
+  // them. An emote without a usable image is drawn as its name, which is text.
+  function emoteOnly(items) {
+    if (!Array.isArray(items)) return false;
+    var n = 0;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (!it) continue;
+      if (it.type === 'emote') {
+        if (!pickUrl(it.emote && it.emote.urls, 1)) return false;
+        n++;
+      } else if (it.type !== 'text' || !BLANK_RE.test(it.text === undefined || it.text === null ? '' : String(it.text))) {
+        return false;
+      }
+    }
+    return n > 0;
+  }
+
   // Tokenizer items -> render parts (plain data; urls resolved, spaces folded into text parts).
-  // opts: { px: font px, dpr, flatBig: big emotes drawn at emote height (horizontal row), gifs }
+  // opts: { px: font px, dpr, flatBig: big emotes drawn at emote height (horizontal row), gifs, scale: emote_scale
+  // as a factor (1 when left out), giant: false draws gigantified emotes like any other (the default is true),
+  // eo: an emote-only line's factor (emote_only; 1 when left out) }
   function partsFor(items, opts) {
     var parts = [];
     if (!Array.isArray(items)) return parts;
     var px = opts.px, dpr = opts.dpr;
     var big3 = !opts.flatBig;
+    var giant = opts.giant !== false;
+    var scale = opts.scale > 0 ? opts.scale : 1;
+    // An emote-only line draws its emotes eo times as tall, except a gigantified one, which keeps its 3.
+    var eoScale = opts.eo > 1 ? scale * opts.eo : scale;
     var imgs = 0; // emote images so far; a history line can be far longer than Twitch's 500 chars
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
@@ -516,8 +574,11 @@
       if (it.type === 'emote') {
         var e = it.emote || {};
         var ename = util.capMarks(String(e.name || ''));
-        var big = !!it.big && big3;
-        var url = imgs < MAX_IMAGES ? pickUrl(e.urls, wantEmote(px, big, dpr, baseHeight(dim(e.h)))) : null;
+        // giant_emotes=0: no 3x box and no 3x file. In a row (flatBig) the class stays, and the stylesheet draws it
+        // at emote height.
+        var big = !!it.big && big3 && giant;
+        var es = big ? scale : eoScale;
+        var url = imgs < MAX_IMAGES ? pickUrl(e.urls, wantEmote(px, big, dpr, baseHeight(dim(e.h)), es)) : null;
         if (!url) { addText(parts, (space ? ' ' : '') + ename); continue; }
         imgs++;
         var fx = it.fx || {};
@@ -530,7 +591,7 @@
         var overlays = Array.isArray(it.overlays) ? it.overlays : [];
         for (var j = 0; j < overlays.length && imgs < MAX_IMAGES; j++) {
           var o = overlays[j];
-          var ou = o && pickUrl(o.urls, wantEmote(px, big, dpr, baseHeight(dim(o.h))));
+          var ou = o && pickUrl(o.urls, wantEmote(px, big, dpr, baseHeight(dim(o.h)), es));
           if (!ou || seen.indexOf(ou) >= 0) continue;
           seen.push(ou);
           imgs++;
@@ -538,7 +599,7 @@
         }
         parts.push({
           t: 'emote', name: ename, url: url, w: w, h: h,
-          big: !!it.big, grow: !!fx.grow, cursed: !!fx.cursed, zs: zs,
+          big: !!it.big && giant, grow: !!fx.grow, cursed: !!fx.cursed, zs: zs,
           fx: sx !== 1 || sy !== 1 || rot !== 0 ? { sx: sx, sy: sy, rot: rot } : null,
           ov: ov
         });
@@ -559,7 +620,7 @@
           prefix: String(it.prefix || ''),
           amount: String(it.amount === undefined ? '' : it.amount),
           color: HEX_COLOR_RE.test(it.color || '') ? it.color : null,
-          url: pickUrl(it.urls, wantEmote(px, false, dpr))
+          url: pickUrl(it.urls, wantEmote(px, false, dpr, 0, scale))
         });
       } else {
         var txt = it.text === undefined || it.text === null ? '' : String(it.text);
@@ -583,22 +644,28 @@
       if (marks.length) nm0.badges = marks;
       return nm0;
     }
-    var px = fontPx(cfg.size);
+    var px = pxFor(cfg);
     var action = !!d.action;
     var nm = d.name || {};
     var text = util.capMarks(typeof nm.text === 'string' && nm.text ? nm.text : String(msg.displayName || msg.login || ''));
     var color = typeof nm.color === 'string' && nm.color ? nm.color : util.defaultColor(msg.userId, msg.login);
     var paint = typeof nm.paint === 'string' && PAINT_ID_RE.test(nm.paint) ? nm.paint : null;
     var dpr = d.dpr > 0 ? d.dpr : 1;
+    // emote_only=big/huge, in a column: a message of emotes alone gets its class (the stylesheet draws its emotes
+    // --eo times as tall), and its emotes are fetched that much bigger. Only looked for while it is on.
+    var eo = cfg.layout !== 'horizontal' && Object.prototype.hasOwnProperty.call(EMOTE_ONLY, cfg.emote_only)
+      ? EMOTE_ONLY[cfg.emote_only] : 0;
+    var only = eo > 0 && emoteOnly(d.items);
     return {
       kind: 'chat',
-      cls: lineClasses(msg, cfg, 'chat', action),
+      cls: lineClasses(msg, cfg, 'chat', action, only),
       reply: cfg.replies === false || d.noReply ? null : replyModel(msg.reply),
-      badges: badgeModels(visibleBadges(d.badges, cfg), wantBadge(px, dpr)),
+      badges: badgeModels(visibleBadges(d.badges, cfg), wantBadge(px, dpr, sizeScale(cfg.badge_size))),
       name: { text: text, color: color, paint: paint },
       colon: action ? ' ' : ': ',
       msgColor: action ? color : null,
-      parts: partsFor(d.items, { px: px, dpr: dpr, flatBig: cfg.layout === 'horizontal', gifs: cfg.gifs !== false })
+      parts: partsFor(d.items, { px: px, dpr: dpr, flatBig: cfg.layout === 'horizontal', gifs: cfg.gifs !== false,
+        scale: sizeScale(cfg.emote_scale), giant: cfg.giant_emotes !== false, eo: only ? eo : 1 })
     };
   }
 
@@ -1358,7 +1425,15 @@
       setVar(st, '--bg-alpha', bgAlpha(c.bg));
       setVar(st, '--tshadow', tshadow(c));
       setVar(st, '--tshadow-room', tshadowRoom(c));
-      // --emote-h is left to the stylesheet (1.75em = EMOTE_EM), so OBS Custom CSS can change it.
+      // text_px: the text size in px, over the size-* class (badges and emotes are in em, so they follow).
+      setVar(st, 'font-size', c.text_px > 0 ? pxFor(c) + 'px' : null);
+      // --emote-h only while emote_scale is changed: else the stylesheet's 1.75em (EMOTE_EM), which OBS Custom CSS
+      // can set instead.
+      setVar(st, '--emote-h', c.emote_scale === 100 ? null : Math.round(EMOTE_EM * c.emote_scale * 100) / 10000 + 'em');
+      setVar(st, '--badge-h', c.badge_size === 100 ? null : c.badge_size / 100 + 'em');
+      setVar(st, '--eo', EMOTE_ONLY[c.emote_only] ? String(EMOTE_ONLY[c.emote_only]) : null);
+      setVar(st, '--gif-mul', GIF_MUL[c.gif_size] || null);
+      setVar(st, '--gif-margin', c.gif_size === '1x' ? '-.3em .05em' : null);
       setVar(st, '--text-weight', c.text_weight === 'semibold' ? null : WEIGHTS[c.text_weight]);
       setVar(st, '--name-weight', c.name_weight === 'heavy' ? null : WEIGHTS[c.name_weight]);
       setVar(st, '--text-color', hexColor(c.text_color));
@@ -1615,6 +1690,10 @@
       WEIGHTS: WEIGHTS,
       changedAny: changedAny,
       fontPx: fontPx,
+      pxFor: pxFor,
+      sizeScale: sizeScale,
+      emoteOnly: emoteOnly,
+      EMOTE_ONLY: EMOTE_ONLY,
       wantEmote: wantEmote,
       wantBadge: wantBadge,
       baseHeight: baseHeight,

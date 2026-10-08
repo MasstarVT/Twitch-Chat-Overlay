@@ -896,3 +896,112 @@ test('overlay.css: the stage-2 rules keep today\'s look by default and stay over
   // No new rule starts with #chat (Custom CSS on the documented selectors keeps winning).
   ['bg-full', 'no-names', 'name-line', 'case-'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
 });
+
+// ---------- sizes (stage 5) ----------
+
+test('the sizes: a font-size or variable on #chat only while changed, gone again when set back', (t) => {
+  const s = setup(t, {});
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  const one = (k, v) => { s.r.setConfig({ [k]: v }); return rootExtras(s).style; };
+  assert.deepStrictEqual([0, 8, 30, 96].map((v) => one('text_px', v)), [{}, { 'font-size': '8px' }, { 'font-size': '30px' }, { 'font-size': '96px' }]);
+  assert.deepStrictEqual(one('text_px', 3), { 'font-size': '8px' }, 'a partial cfg\'s 1..7 is drawn as 8');
+  assert.deepStrictEqual([50, 99, 100, 125, 200].map((v) => one('badge_size', v)),
+    [{ '--badge-h': '0.5em' }, { '--badge-h': '0.99em' }, {}, { '--badge-h': '1.25em' }, { '--badge-h': '2em' }]);
+  assert.deepStrictEqual([50, 100, 115, 125, 200].map((v) => one('emote_scale', v)),
+    [{ '--emote-h': '0.875em' }, {}, { '--emote-h': '2.0125em' }, { '--emote-h': '2.1875em' }, { '--emote-h': '3.5em' }]);
+  assert.deepStrictEqual(['normal', 'big', 'huge'].map((v) => one('emote_only', v)), [{}, { '--eo': '2' }, { '--eo': '3' }]);
+  assert.deepStrictEqual(['1x', '2x', '3x'].map((v) => one('gif_size', v)),
+    [{ '--gif-mul': '1', '--gif-margin': '-.3em .05em' }, { '--gif-mul': '2' }, {}]);
+  assert.deepStrictEqual(one('giant_emotes', false), {}, 'giant_emotes is drawn on the lines only');
+  // No class for any of them, in either layout.
+  s.r.setConfig({ text_px: 40, badge_size: 150, emote_scale: 150, emote_only: 'huge', gif_size: '2x', layout: 'horizontal' });
+  assert.deepStrictEqual(rootExtras(s).cls, []);
+  s.r.setConfig({ layout: 'horizontal' });
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+});
+
+test('the sizes re-pick image files on lines already shown; set back, the lines are as before', (t) => {
+  const tw = (name) => ({ provider: 'twitch', name: name, w: 28, h: 28,
+    urls: { 1: 'https://e/' + name + '/1', 2: 'https://e/' + name + '/2', 4: 'https://e/' + name + '/4' } });
+  const badge = { provider: 'twitch', title: 'VIP', urls: { 1: 'https://b/1', 2: 'https://b/2', 4: 'https://b/4' } };
+  const s = setup(t, {}, {
+    tokensFor: (m) => (m.text === 'only' ? [{ type: 'emote', emote: tw('Kappa'), sp: false, overlays: [] },
+      { type: 'emote', emote: tw('Pog'), sp: true, overlays: [] }, { type: 'text', text: '\u{E0000}', sp: true }]
+      : m.text === 'giant' ? [{ type: 'text', text: 'so big', sp: false }, { type: 'emote', emote: tw('Kappa'), sp: true, big: true, overlays: [] }]
+        : [{ type: 'text', text: 'hi', sp: false }, { type: 'emote', emote: tw('Kappa'), sp: true, overlays: [] }]),
+    badgesFor: () => [badge]
+  });
+  s.r.push(chat('amy', 'only'));
+  s.r.push(chat('bob', 'giant'));
+  s.r.push(chat('cy', 'words'));
+  s.r.flush();
+  const snap = () => s.lines().map((l) => [l.className, l.byClass('badge')[0].src]
+    .concat(l.byClass('emote-stack').map((e) => e.className + ' ' + e.firstElementChild.src)));
+  const lines = () => JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  const before = lines();
+  assert.deepStrictEqual(snap(), [
+    ['line', 'https://b/2', 'emote-stack https://e/Kappa/2', 'emote-stack https://e/Pog/2'],
+    ['line', 'https://b/2', 'emote-stack big https://e/Kappa/4'],
+    ['line', 'https://b/2', 'emote-stack https://e/Kappa/2']
+  ]);
+  s.r.setConfig({ emote_only: 'big' });
+  assert.deepStrictEqual(snap(), [
+    ['line emote-only', 'https://b/2', 'emote-stack https://e/Kappa/4', 'emote-stack https://e/Pog/4'],
+    ['line', 'https://b/2', 'emote-stack big https://e/Kappa/4'],
+    ['line', 'https://b/2', 'emote-stack https://e/Kappa/2']
+  ], 'only the emote-only line (its U+E0000 suffix is blank) gets the class and bigger files');
+  s.r.setConfig({ emote_only: 'big', layout: 'horizontal' });
+  assert.deepStrictEqual(snap().map((l) => l[0]), ['line', 'line', 'line'], 'not in a row');
+  s.r.setConfig({ giant_emotes: false });
+  assert.deepStrictEqual(snap()[1], ['line', 'https://b/2', 'emote-stack https://e/Kappa/2'], 'no .big, no 3x file');
+  s.r.setConfig({ text_px: 64, badge_size: 50 });
+  assert.deepStrictEqual(snap(), [
+    ['line', 'https://b/2', 'emote-stack https://e/Kappa/4', 'emote-stack https://e/Pog/4'],
+    ['line', 'https://b/2', 'emote-stack big https://e/Kappa/4'],
+    ['line', 'https://b/2', 'emote-stack https://e/Kappa/4']
+  ], '64 px text: 112 px emotes; half-size badges are 32 px');
+  s.r.setConfig({ emote_scale: 50, size: 'small' });
+  assert.deepStrictEqual(snap()[2], ['line', 'https://b/1', 'emote-stack https://e/Kappa/1']);
+  s.r.setConfig({});
+  assert.strictEqual(lines(), before);
+  assert.deepStrictEqual(snap()[0], ['line', 'https://b/2', 'emote-stack https://e/Kappa/2', 'emote-stack https://e/Pog/2']);
+  // The img attributes stay the provider's 1x size: the stylesheet sets the drawn size.
+  const img = s.lines()[0].byClass('badge')[0];
+  assert.deepStrictEqual([img.getAttribute('width'), img.getAttribute('height')], ['18', '18']);
+});
+
+test('overlay.css: the size rules keep today\'s values as fallbacks and stay overridable', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8')
+    .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  // badge_size: the badge's height and the built-in icon's width, a square slot with no width cap.
+  const badge = /\n\.badge \{([^}]*)\}/.exec(css)[1];
+  assert.match(badge, /\n  height: var\(--badge-h, 1em\);/);
+  assert.match(badge, /aspect-ratio: 1 \/ 1;/);
+  assert.doesNotMatch(badge, /max-width/);
+  assert.match(css, /\n\.badge\.icon \{ width: var\(--badge-h, 1em\); overflow: visible; \}/);
+  // gif_size: 3 emote heights unless --gif-mul says otherwise; at 1x an emote's margins. A row keeps emote height.
+  const gif = /\n\.gif \{([^}]*)\}/.exec(css)[1];
+  assert.match(gif, /\n  height: calc\(var\(--emote-h, 1\.75em\) \* var\(--gif-mul, 3\)\);/);
+  assert.match(gif, /\n  max-height: calc\(var\(--emote-h, 1\.75em\) \* var\(--gif-mul, 3\)\);/);
+  assert.match(gif, /\n  margin: var\(--gif-margin, \.1em 0\);/);
+  const row = /\n\.layout-horizontal \.gif \{([^}]*)\}/.exec(css)[1];
+  assert.match(row, /height: var\(--emote-h, 1\.75em\);[\s\S]*max-height: var\(--emote-h, 1\.75em\);[\s\S]*margin: -\.3em \.05em;/);
+  // emote_only: only .emote-only lines, never a gigantified emote (.big keeps its 3x), at (0,2,0) like .emote-stack.big.
+  const eo = Array.from(css.matchAll(/([^{}]+)\{[^}]*var\(--eo/g), (m) => m[1].trim());
+  assert.deepStrictEqual(eo, [':where(.line.emote-only) .emote-stack:not(.big)']);
+  assert.match(css, /\n:where\(\.line\.emote-only\) \.emote-stack:not\(\.big\) \{ --eh: calc\(var\(--emote-h, 1\.75em\) \* var\(--eo, 2\)\); \}/);
+  // A very wide emote on such a line is fitted to the column (letterboxed in its box), only there: everywhere else
+  // an emote keeps max-width: none, as before.
+  assert.match(css, /\n:where\(\.line\.emote-only\) \.emote-stack:not\(\.big\) > \.emote \{ max-width: 100%; object-fit: contain; \}/);
+  const caps = Array.from(css.matchAll(/([^{}]+)\{[^}]*max-width: 100%/g), (m) => m[1].trim())
+    .filter((s) => /\.emote(?![\w-])/.test(s));
+  assert.deepStrictEqual(caps, [':where(.line.emote-only) .emote-stack:not(.big) > .emote']);
+  assert.match(/\n\.emote-stack > \.emote \{([^}]*)\}/.exec(css)[1], /\n  max-width: none;/);
+  assert.match(css, /\n\.emote-stack\.big \{ --eh: calc\(var\(--emote-h, 1\.75em\) \* 3\); \}/);
+  assert.match(css, /\n\.layout-horizontal \.emote-stack\.big \{ --eh: var\(--emote-h, 1\.75em\); \}/);
+  // emote_scale is --emote-h, which every emote, cheer and GIF size already reads.
+  assert.match(css, /\n\.emote-stack \{\n  --eh: var\(--emote-h, 1\.75em\);/);
+  assert.match(css, /\n\.cheer-img \{\n  height: var\(--emote-h, 1\.75em\);/);
+  // No new rule starts with #chat.
+  ['emote-only', '--badge-h', '--gif-mul', '--eo'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
+});

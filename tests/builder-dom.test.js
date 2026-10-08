@@ -335,7 +335,8 @@ test('Badges & paints: the sources are one labelled grid under Show badges, with
   const p = open(t, HREF);
   const body = p.$('group-badges').children.filter((e) => e.className === 'fields')[0];
   assert.deepStrictEqual(body.children.map((e) => e.className + (e.getAttribute('data-key') ? ' ' + e.getAttribute('data-key') : '')),
-    ['field field-check badges', 'subgrid', 'field field-check paints', 'field field-check stv_lookup', 'field field-check readable']);
+    ['field field-check badges', 'subgrid', 'field field-check paints', 'field field-check stv_lookup', 'field field-check readable',
+      'field field-range badge_size']);
   const grid = body.children[1];
   assert.deepStrictEqual([grid.tagName, grid.getAttribute('role'), grid.getAttribute('aria-label')], ['DIV', 'group', 'Badge sources']);
   const rows = grid.children.slice(0, -1), help = grid.children[grid.children.length - 1];
@@ -423,10 +424,14 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   });
   assert.deepStrictEqual(outline('group-look'), ['Layout', 'layout', 'align', 'text_align', 'Text', 'size', 'font', 'text_weight',
     'text_color', 'shadow', 'outline', 'Names', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate']);
-  assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'line_height',
-    'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'Box#adv-box', 'bg_shape', 'bg_width',
-    'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'Chat events#adv-events', 'notice_color',
-    'notice_size', 'first_msg_color', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']);
+  assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'text_px',
+    'line_height', 'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'Box#adv-box', 'bg_shape',
+    'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'Chat events#adv-events', 'notice_color',
+    'notice_size', 'first_msg_color', 'Emotes#adv-emotes', 'gif_size', 'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style',
+    'paint_images', 'homies_lists']);
+  // Emotes: no sub-heading, the two sizes after the GIF switch, and its foot links Advanced's Emotes.
+  assert.deepStrictEqual(outline('group-emotes'), ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only']);
+  assert.strictEqual(p.$('group-emotes').children[2].children[0].href, '#adv-emotes');
   const adv = fields('group-advanced').filter((e) => e.tagName === 'H3');
   adv.forEach((e) => assert.strictEqual(e.tabIndex, -1, e.id));
   // The link is the section's foot: an <a> to the heading's anchor. Chat events has one too.
@@ -715,4 +720,110 @@ test('the layout options: live in the preview; text alignment greys out in a row
   assert.deepStrictEqual(state(), ['text_align']);
   p.$('reset').dispatch('click');
   assert.deepStrictEqual(state(), ['row_sep']);
+});
+
+test('Exact text size: up from Auto to that size\'s px, down from 8 to 0 (never 7); Text size greys out meanwhile', (t) => {
+  const p = open(t, HREF);
+  const tp = p.$('f-text_px');
+  const [less, , more] = tp.parentNode.children;
+  const key = (k) => tp.dispatch('keydown', { key: k, preventDefault() {} });
+  const size = (v) => {
+    const r = p.doc.querySelectorAll('input[name="f-size"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  const sizeOff = () => [rowOf(p, 'size').classList.contains('disabled'), p.doc.querySelectorAll('input[name="f-size"]').every((r) => r.disabled)];
+  assert.deepStrictEqual([tp.value, tp.getAttribute('aria-valuetext'), less.getAttribute('aria-label')], ['Auto', 'Auto', 'Less']);
+  assert.deepStrictEqual(sizeOff(), [false, false]);
+  assert.match(p.$('h-size').textContent, /Exact text size \(Advanced\)/, 'the help says what takes over');
+  more.dispatch('click');
+  assert.deepStrictEqual([tp.value, p.text('bar-url')], ['24 px', OVERLAY + '?text_px=24'], 'Medium is 24 px: More starts there');
+  assert.deepStrictEqual(sizeOff(), [true, true], 'Text size does nothing while it is set');
+  more.dispatch('click');
+  assert.strictEqual(tp.value, '26 px');
+  less.dispatch('click');
+  less.dispatch('click');
+  assert.strictEqual(tp.value, '22 px');
+  // A number typed in 1 to 7 reads as 8; a step down from 8 goes to 0, not 7 (which would be 8 again).
+  tp.value = '3';
+  tp.dispatch('input');
+  t.mock.timers.tick(400);
+  assert.deepStrictEqual([tp.getAttribute('aria-valuetext'), p.text('bar-url')], ['8 px', OVERLAY + '?text_px=8']);
+  key('ArrowDown');
+  assert.deepStrictEqual([tp.value, p.text('bar-url')], ['Auto', OVERLAY]);
+  assert.deepStrictEqual(sizeOff(), [false, false], 'Text size counts again');
+  // From 0, ArrowUp and PageUp go to the chosen Text size's px.
+  size('large');
+  key('ArrowUp');
+  assert.strictEqual(tp.value, '32 px');
+  key('ArrowDown');
+  assert.strictEqual(tp.value, '31 px');
+  key('PageDown');
+  assert.strictEqual(tp.value, '30 px');
+  tp.value = '8';
+  tp.dispatch('input');
+  t.mock.timers.tick(400);
+  less.dispatch('click');
+  assert.strictEqual(tp.value, 'Auto', 'Less from 8 (step 2): 0');
+  size('small');
+  key('PageUp');
+  assert.deepStrictEqual([tp.value, p.text('bar-url')], ['18 px', OVERLAY + '?size=small&text_px=18']);
+  // A paste and Reset follow too.
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([tp.value, sizeOff()], ['Auto', [false, false]]);
+  p.$('paste').value = '?text_px=40';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([tp.value, sizeOff()], ['40 px', [true, true]]);
+});
+
+test('the sizes: live in the preview; emote-only and GIF size grey out in a row, GIF size without GIFs; badge size never', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const off = (key) => rowOf(p, key).classList.contains('disabled');
+  const keys = ['text_px', 'badge_size', 'emote_scale', 'emote_only', 'gif_size', 'giant_emotes'];
+  const state = () => keys.filter(off);
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  const flip = (id, v) => { const e = p.$(id); e.checked = v; e.dispatch('change'); };
+  assert.deepStrictEqual(state(), []);
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-emote_only"]').map((r) => r.value), ['normal', 'big', 'huge']);
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-gif_size"]').map((r) => r.value), ['1x', '2x', '3x']);
+  // The two percentages are sliders from 50% to 200%.
+  const bs = p.$('f-badge_size'), es = p.$('f-emote_scale');
+  [bs, es].forEach((r) => {
+    assert.deepStrictEqual([r.type, r.min, r.max, r.step, r.value], ['range', '50', '200', '1', '100']);
+    assert.strictEqual(r.parentNode.byClass('range-value')[0].textContent, '100%');
+  });
+  es.value = '150';
+  es.dispatch('input');
+  bs.value = '75';
+  bs.dispatch('input');
+  assert.strictEqual(bs.getAttribute('aria-valuetext'), '75%');
+  seg('emote_only', 'huge');
+  seg('gif_size', '1x');
+  flip('f-giant_emotes', false);
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.emote_scale, last.badge_size, last.emote_only, last.gif_size, last.giant_emotes], [150, 75, 'huge', '1x', false]);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?gif_size=1x&emote_scale=150&emote_only=huge&giant_emotes=0&badge_size=75');
+  // GIF size needs GIFs; badge size stays with badges off (the platform icons and Shared Chat avatars use it).
+  flip('f-gifs', false);
+  flip('f-badges', false);
+  assert.deepStrictEqual(state(), ['gif_size']);
+  flip('f-gifs', true);
+  seg('layout', 'horizontal');
+  assert.deepStrictEqual(state(), ['emote_only', 'gif_size', 'giant_emotes'], 'a row: none of the three');
+  assert.ok(p.doc.querySelectorAll('input[name="f-emote_only"]').every((r) => r.disabled));
+  seg('layout', 'vertical');
+  assert.deepStrictEqual(state(), []);
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([state(), es.value, bs.value, p.text('bar-url')], [[], '100', '100', OVERLAY]);
 });
