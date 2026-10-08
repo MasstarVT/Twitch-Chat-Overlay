@@ -229,7 +229,7 @@ test('the layout steppers: what they show and read back, and line_width\'s steps
   assert.strictEqual(builder.skipGap('constructor', 2, 1), 1);
   // Every press, by button or key, from every value the setting takes, lands on another value it takes (so
   // nothing is stuck, as 5 -> 4 -> coerced to 5 would be), in the direction pressed.
-  ['line_width', 'pad_x', 'edge_fade', 'fade', 'max', 'history', 'line_height', 'text_px'].forEach((k) => {
+  ['line_width', 'pad_x', 'edge_fade', 'fade', 'max', 'history', 'line_height', 'text_px', 'readable_level'].forEach((k) => {
     const s = config.SPEC[k], step = (builder.META[k] && builder.META[k].step) || 1;
     ['small', 'medium', 'large'].forEach((size) => {
       for (let v = s.min; v <= s.max; v++) {
@@ -269,6 +269,35 @@ test('Exact text size: what its stepper shows and reads back, and its first step
   // The Text size steps are the overlay's (renderer.js FONT_PX, which picks the image files).
   assert.deepStrictEqual(builder.TEXT_PX, require('../js/renderer.js')._internal.FONT_PX);
   assert.deepStrictEqual(Object.keys(builder.TEXT_PX), config.SPEC.size.values);
+});
+
+test('Name contrast: a stepper over the ratio (45 shows 4.5:1), which reads the ratio back', () => {
+  const m = builder.META.readable_level;
+  assert.deepStrictEqual([m.scale, m.step, m.unit], [10, 5, ':1']);
+  assert.deepStrictEqual([30, 45, 50, 61, 70].map((v) => builder.valueText('readable_level', v)), ['3.0:1', '4.5:1', '5.0:1', '6.1:1', '7.0:1']);
+  assert.deepStrictEqual([30, 45, 70].map((v) => builder.stepText('readable_level', v)), ['3.0', '4.5', '7.0']);
+  // What is shown, or typed with or without the ':1', is read back; out of range is clamped like any stepper.
+  assert.deepStrictEqual(['4.5', '4.5:1', ' 4.5 :1 ', '5', '5:1', '6.1', '2', '9.9', '0.5'].map((t) => builder.parseStep('readable_level', t)),
+    [45, 45, 45, 50, 50, 61, 30, 70, 30]);
+  // A phone keypad's decimal comma is a point. A number alone reads as in a URL or settings.js (config.coerce): 30
+  // to 70 are the field's own values (its tag shows readable_level=30), and under 30 it is the ratio. With ':1' it is
+  // always the ratio.
+  assert.deepStrictEqual(['4,5', '6,1:1', '30', '45', '50', '70', '21', '8', '45.5', '45:1', '30:1'].map((t) => builder.parseStep('readable_level', t)),
+    [45, 61, 30, 45, 50, 70, 70, 70, 46, 70, 70]);
+  assert.strictEqual(config.SPEC.readable_level.scale, m.scale, 'config reads the same ratio');
+  for (let v = 30; v <= 70; v++) {
+    assert.strictEqual(builder.parseStep('readable_level', builder.valueText('readable_level', v)), v);
+    assert.strictEqual(builder.parseStep('readable_level', builder.stepText('readable_level', v)), v);
+  }
+  // One decimal only (the scale's), and nothing but the ratio's own ':1' after it.
+  ['4.55', '4,55', '4,', '4.', '.5', '4.5:2', '4.5 x', '4.5%', '-4', '1,000', 'soon', ''].forEach((t) =>
+    assert.strictEqual(builder.parseStep('readable_level', t), undefined, JSON.stringify(t)));
+  // Every other stepper reads and shows as before: no scale, whole numbers only.
+  assert.deepStrictEqual(Object.keys(builder.META).filter((k) => builder.META[k].scale), ['readable_level']);
+  assert.strictEqual(builder.stepText('fade', 30), '30');
+  assert.strictEqual(builder.parseStep('fade', '2.5'), undefined);
+  assert.strictEqual(builder.valueText('fade', 30), '30 s');
+  assert.strictEqual(builder.valueText('bg', 60), '60%');
 });
 
 test('changedKeys, tagText and groupCounts follow the overlay URL', () => {
@@ -706,20 +735,30 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   assert.deepStrictEqual(outline(g('look')), [
     ['Layout', 'layout', 'align', 'text_align'],
     ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline'],
-    ['Names', 'name_line'],
+    ['Names', 'name_color', 'name_line'],
     ['Box', 'bg', 'bg_color', 'accent_bar'],
     ['Animation', 'animate']
   ]);
   assert.deepStrictEqual(outline(g('advanced')), [
     ['Troubleshooting #adv-trouble', 'debug', 'demo'],
     ['Text #adv-text', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color'],
-    ['Names #adv-names', 'names', 'name_weight'],
+    ['Names #adv-names', 'names', 'name_weight', 'name_font', 'name_fallback', 'name_sep', 'readable_level'],
     ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
     ['Layout #adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep'],
-    ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color'],
+    ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style'],
     ['Emotes #adv-emotes', 'gif_size', 'giant_emotes'],
     ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']
   ]);
+  // Chat events: the timestamps last, under a heading of their own (the highlights join them later).
+  assert.deepStrictEqual(g('events').keys, ['events', 'replies', 'first_msg', 'shared', 'timestamps']);
+  assert.deepStrictEqual(g('events').subs, [{ title: 'Highlights & timestamps', first: 'timestamps' }]);
+  assert.deepStrictEqual(builder.META.timestamps.options, { off: 'Off', '12h': '12-hour', '24h': '24-hour' });
+  assert.deepStrictEqual(builder.META.name_sep.options, { colon: 'Colon', space: 'Space', dash: 'Dash', arrow: 'Arrow' });
+  assert.deepStrictEqual(builder.META.reply_style.options, { full: 'Full', name: 'Name only' });
+  assert.strictEqual(builder.META.reply_style.wrap, true);
+  assert.strictEqual(builder.META.name_font.placeholder, 'Same as Font');
+  assert.strictEqual(builder.widgetFor('name_font'), 'font');
+  assert.strictEqual(builder.widgetFor('readable_level'), 'stepper');
   // The common sizes are on their own tabs, after what is there already.
   assert.deepStrictEqual(g('emotes').keys, ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only']);
   assert.deepStrictEqual(g('badges').keys.slice(-4), ['paints', 'stv_lookup', 'readable', 'badge_size']);
@@ -763,13 +802,25 @@ test('the look options grey out while the setting they need is off, and their he
     paint_images: [{ paints: false }, {}, '7TV name paints'],
     homies_lists: [{ badges_homies: false }, {}, 'Chatterino Homies'],
     size: [{ text_px: 8 }, { text_px: 0 }, 'Exact text size'],
-    gif_size: [{ gifs: false }, {}, 'Show GIFs posted in chat']
+    gif_size: [{ gifs: false }, {}, 'Show GIFs posted in chat'],
+    name_fallback: [{ name_color: 'ff8800' }, {}, 'Name color (Look)'],
+    name_sep: [{ names: false }, {}, 'Show names'],
+    readable_level: [{ readable: false }, {}, 'Brighten dark name colors (Badges & paints)'],
+    reply_style: [{ replies: false }, {}, 'Show what replies are answering']
   };
   Object.keys(needs).forEach((k) => {
     assert.strictEqual(off(k, needs[k][0]), true, k + ' off');
     assert.strictEqual(off(k, needs[k][1]), false, k + ' on');
     assert.ok(builder.META[k].help.indexOf(needs[k][2]) >= 0, k + ' help names ' + needs[k][2]);
   });
+  // Two more needs each: no separator is drawn under a name on its own line in a column (overlay.css hides .colon),
+  // and one Name color for everyone is never lightened.
+  assert.strictEqual(off('name_sep', { name_line: true }), true);
+  assert.strictEqual(off('name_sep', { name_line: true, layout: 'horizontal' }), false);
+  assert.match(builder.META.name_sep.help, /Name on its own line \(Look\) in a vertical layout/);
+  assert.strictEqual(off('readable_level', { name_color: 'ff8800' }), true);
+  assert.strictEqual(off('readable_level', { name_fallback: 'ff8800' }), false);
+  assert.match(builder.META.readable_level.help, /not used while a Name color \(Look\) is set/);
   // Column only: off in a row whatever else is set.
   ['bg_width', 'name_line', 'text_align', 'emote_only', 'gif_size', 'giant_emotes'].forEach((k) => {
     assert.strictEqual(builder.META[k].only, 'vertical', k);
@@ -796,9 +847,12 @@ test('the look options grey out while the setting they need is off, and their he
     assert.strictEqual(off(k, { layout: 'horizontal', badges: false, gifs: false }), false, k);
   });
   assert.strictEqual(off('size', { text_px: 96 }), true);
-  // Names off greys out only what draws a name line: name_weight still styles reply headers.
+  // Names off greys out only what draws a name line: name_weight and name_font still style reply headers, and the
+  // name colors still color /me messages.
   const namesOff = Object.keys(builder.META).filter((k) => !off(k) && off(k, { names: false }));
-  assert.deepStrictEqual(namesOff, ['name_line']);
+  assert.deepStrictEqual(namesOff, ['name_line', 'name_sep']);
+  ['name_font', 'name_color', 'name_fallback', 'readable_level', 'timestamps']
+    .forEach((k) => assert.strictEqual(off(k, { names: false, layout: 'horizontal' }), false, k));
   ['text_weight', 'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'spacing']
     .forEach((k) => assert.strictEqual(off(k, { bg: 0, events: false, first_msg: false, layout: 'horizontal' }), false, k));
 });

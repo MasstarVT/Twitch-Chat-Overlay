@@ -156,6 +156,22 @@ describe('colors', () => {
     assert.equal(util.readableColor('#1E90FF').toLowerCase(), '#1e90ff');
   });
 
+  test('readableColor(hex, target): without a target (or a bad one) it aims for 4.5, readable_level 45 exactly', () => {
+    assert.strictEqual(45 / 10, 4.5);
+    util.TWITCH_PALETTE.concat(['#000000', '#0000FF', '#696969', '#9146FF', '#FFFFFF']).forEach((c) => {
+      const today = util.readableColor(c);
+      [4.5, 45 / 10, undefined, 0, -1, NaN, 'x'].forEach((t) => assert.strictEqual(util.readableColor(c, t), today, c + ' ' + t));
+    });
+    // A higher target lightens further (in the same 8 steps of 12%), a lower one less.
+    assert.ok(contrastVsBlack(util.readableColor('#0000FF', 7)) >= 7);
+    assert.ok(contrastVsBlack(util.readableColor('#0000FF', 7)) > contrastVsBlack(util.readableColor('#0000FF')));
+    assert.ok(contrastVsBlack(util.readableColor('#0000FF', 3)) >= 3);
+    assert.ok(contrastVsBlack(util.readableColor('#0000FF', 3)) < contrastVsBlack(util.readableColor('#0000FF')));
+    assert.strictEqual(util.readableColor('#B22222', 3).toLowerCase(), '#b22222', 'already 3:1');
+    // readable_level's 30..70 never runs out of steps: even black reaches 7:1.
+    assert.ok(contrastVsBlack(util.readableColor('#000000', 7)) >= 7);
+  });
+
   test('readableColor passes through unparseable input', () => {
     assert.equal(util.readableColor('red'), 'red');
     assert.equal(util.readableColor(''), '');

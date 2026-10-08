@@ -694,6 +694,80 @@ test('font weights: Light and Black add 300 and 900 to the Google Fonts request,
   assert.deepStrictEqual(hrefs(a).slice(3), [css2('Open+Sans', '400;600;700;800')]);
 });
 
+test('name_font: a second Google Fonts link only while it is set, and asked again wherever the font is', async (t) => {
+  const css2 = (family) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@400;600;700;800&display=swap';
+  const hrefs = (h) => h.links.map((l) => l.href);
+  // (Each boot is a fresh overlay on a fresh document: the live checks below use the last one.)
+  const b = await boot(t, { search: '?channel=home&name_font=press%20start%202p' });
+  assert.deepStrictEqual(hrefs(b), [css2('Inter'), css2('Press+Start+2P')], 'Google\'s spelling, after the message font');
+  for (const nf of ['Arial', 'system-ui', 'Inter']) {
+    const c = await boot(t, { search: '?channel=home&name_font=' + encodeURIComponent(nf) });
+    assert.deepStrictEqual(hrefs(c), [css2('Inter')], nf + ': installed, generic or already asked for');
+  }
+  const a = await boot(t);
+  assert.deepStrictEqual(hrefs(a), [css2('Inter')], 'the default: the one link, as before');
+  // Live from the builder: set, cleared (nothing more to load), set again (loaded once).
+  globalThis.parent = {};
+  const send = (h, cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
+  send(a, { name_font: 'Bangers' });
+  assert.deepStrictEqual(hrefs(a), [css2('Inter'), css2('Bangers')]);
+  assert.strictEqual(a.S().cfg.name_font, 'Bangers');
+  send(a, { name_font: '' });
+  assert.strictEqual(a.S().cfg.name_font, '', 'a cleared field reaches the overlay');
+  send(a, { name_font: 'Bangers' });
+  assert.strictEqual(a.links.length, 2);
+  // A name font that failed (offline) is asked for again when the network is back, and after a reconnect.
+  a.links[1].onerror();
+  a.listeners.online.forEach((fn) => fn());
+  assert.deepStrictEqual(hrefs(a).slice(2), [css2('Bangers')]);
+  a.links[2].onerror();
+  join(a);
+  a.irc.onStatus('closed');
+  t.mock.timers.tick(45000);
+  join(a);
+  assert.deepStrictEqual(hrefs(a).slice(3), [css2('Bangers')]);
+});
+
+test('nameFor: colorless chatters keep Twitch\'s palette (Twitch and Kick); name_color, name_fallback and readable_level', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=1' });
+  const S = h.S();
+  const util = globalThis.TCO.util;
+  const tw = { userId: '1007', login: 'plainviewer', displayName: 'PlainViewer', color: '' };
+  const kick = { platform: 'kick', userId: 'kick:9000002', login: 'kickplain', displayName: 'KickPlain', color: '' };
+  const blue = { userId: '1008', login: 'darkname', displayName: 'DarkName', color: '#0000FF' };
+  const color = (m, over) => {
+    const keep = S.cfg;
+    S.cfg = Object.assign({}, keep, over || {});
+    try { return h.deps.nameFor(m).color; } finally { S.cfg = keep; }
+  };
+  // At the defaults, as in 1.5.2: the palette color by id (or login), then lightened.
+  [tw, kick].forEach((m) => assert.strictEqual(color(m), util.readableColor(util.defaultColor(m.userId, m.login)), m.login));
+  assert.strictEqual(color(blue), util.readableColor('#0000FF'));
+  assert.strictEqual(color(blue, { readable: false }), '#0000FF');
+  // name_fallback: only for the chatters without a color, as picked (never lightened).
+  [tw, kick].forEach((m) => assert.strictEqual(color(m, { name_fallback: '000033' }), '#000033', m.login));
+  assert.strictEqual(color(blue, { name_fallback: '000033' }), util.readableColor('#0000FF'));
+  // name_color: everyone, as picked, over the fallback too; a paint still wins in the renderer (paintId unchanged).
+  [tw, kick, blue].forEach((m) => assert.strictEqual(color(m, { name_color: '101010', name_fallback: '000033' }), '#101010', m.login));
+  // readable_level: the contrast target, times 10.
+  assert.strictEqual(color(blue, { readable_level: 70 }), util.readableColor('#0000FF', 7));
+  assert.notStrictEqual(color(blue, { readable_level: 70 }), color(blue));
+  assert.strictEqual(color(blue, { readable_level: 45 }), color(blue));
+  // Anything but six checked hex digits is no color (config.js never lets one through; this checks again).
+  ['red', '#ff8800', 'ff8800;x', 'fff', '', 5, null, { toString: () => 'ff8800' }].forEach((v) => {
+    assert.strictEqual(color(tw, { name_color: v, name_fallback: v }), util.readableColor(util.defaultColor(tw.userId, tw.login)), String(v));
+  });
+  // Live from the builder (through config.coerce): '#F80' is ff8800, and Default ('') takes it back.
+  globalThis.parent = {};
+  const send = (cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
+  send({ name_color: '#F80', readable_level: 60, name_sep: 'dash', timestamps: '12h', reply_style: 'name' });
+  assert.deepStrictEqual([S.cfg.name_color, S.cfg.readable_level, S.cfg.name_sep, S.cfg.timestamps, S.cfg.reply_style],
+    ['ff8800', 60, 'dash', '12h', 'name']);
+  assert.strictEqual(h.deps.nameFor(tw).color, '#ff8800');
+  send({ name_color: '' });
+  assert.strictEqual(h.deps.nameFor(tw).color, util.readableColor(util.defaultColor(tw.userId, tw.login), 6));
+});
+
 test('emote precedence: 7TV personal > BTTV personal > channel (7TV, BTTV, FFZ) > global (7TV, BTTV, FFZ)', async (t) => {
   const h = await boot(t);
   join(h);

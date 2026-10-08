@@ -767,6 +767,60 @@ test('modelFor: notice line', () => {
   assert.deepStrictEqual(m, { kind: 'notice', cls: 'line notice', system: 'Bob subscribed at Tier 1.' });
 });
 
+test('timeText: the PC\'s clock, 24h zero-padded, 12h without AM/PM; nothing without a usable time', () => {
+  const at = (h, m) => new Date(2026, 0, 1, h, m, 30).getTime(); // local time, whatever the test machine's zone
+  assert.deepStrictEqual([[0, 5], [9, 5], [12, 30], [13, 7], [23, 59]].map(([h, m]) => R.timeText(at(h, m), '24h')),
+    ['00:05', '09:05', '12:30', '13:07', '23:59']);
+  assert.deepStrictEqual([[0, 5], [9, 5], [12, 30], [13, 7], [23, 59]].map(([h, m]) => R.timeText(at(h, m), '12h')),
+    ['12:05', '9:05', '12:30', '1:07', '11:59']);
+  assert.strictEqual(R.timeText(String(at(13, 7)), '24h'), '13:07', 'a ts as a string');
+  [undefined, null, '', 0, -5, NaN, 'soon', Infinity, 9e15].forEach((ts) => {
+    assert.strictEqual(R.timeText(ts, '24h'), '', String(ts));
+  });
+  ['off', undefined, '12H', 'toString'].forEach((mode) => assert.strictEqual(R.timeText(at(13, 7), mode), '', String(mode)));
+});
+
+test('modelFor: name_sep, timestamps and reply_style; at their defaults the model is as before', () => {
+  const ts = new Date(2026, 0, 1, 15, 7).getTime();
+  const msg = { id: 'x', userId: '12', login: 'bob', displayName: 'Bob', ts: ts, reply: { name: 'Alice', login: 'alice', body: 'hi' } };
+  const d = { kind: 'chat', items: [{ type: 'text', text: 'yo', sp: false }], badges: [], name: { text: 'Bob', color: '#FF0000' } };
+  const base = R.modelFor(msg, R.normalizeCfg({}), d);
+  assert.deepStrictEqual(Object.keys(base), ['kind', 'cls', 'reply', 'badges', 'name', 'colon', 'msgColor', 'parts'], 'no time key');
+  assert.deepStrictEqual(base.reply, { name: '@Alice', body: 'hi' });
+  for (const cfg of [{ name_sep: 'colon', timestamps: 'off', reply_style: 'full' }, { name_sep: 'nope', timestamps: 'nope', reply_style: 'nope' }]) {
+    assert.strictEqual(R.sigOf(R.modelFor(msg, R.normalizeCfg(cfg), d)), R.sigOf(base), JSON.stringify(cfg));
+    assert.strictEqual(R.sigOf(R.modelFor(msg, cfg, d)), R.sigOf(base), 'not normalized: ' + JSON.stringify(cfg));
+  }
+  // The separators are fixed strings; a /me line keeps its space whatever is chosen.
+  assert.deepStrictEqual(R.NAME_SEPS, { colon: ': ', space: ' ', dash: ' – ', arrow: ' › ' });
+  Object.keys(R.NAME_SEPS).forEach((k) => {
+    assert.strictEqual(R.modelFor(msg, R.normalizeCfg({ name_sep: k }), d).colon, R.NAME_SEPS[k], k);
+    assert.strictEqual(R.modelFor(msg, R.normalizeCfg({ name_sep: k }), Object.assign({}, d, { action: true })).colon, ' ', k + ' /me');
+  });
+  assert.strictEqual(R.modelFor(msg, { name_sep: 'toString' }, d).colon, ': ');
+  // Timestamps: the time last, on chat and notice lines alike.
+  const t24 = R.modelFor(msg, R.normalizeCfg({ timestamps: '24h' }), d);
+  assert.strictEqual(t24.time, '15:07');
+  assert.deepStrictEqual(Object.assign({}, t24, { time: undefined }), Object.assign({}, base, { time: undefined }));
+  assert.strictEqual(R.modelFor(msg, R.normalizeCfg({ timestamps: '12h' }), d).time, '3:07');
+  assert.ok(!('time' in R.modelFor(Object.assign({}, msg, { ts: undefined }), R.normalizeCfg({ timestamps: '24h' }), d)), 'no ts, no time');
+  const notice = { systemMsg: 'Bob subscribed.', ts: ts };
+  assert.deepStrictEqual(R.modelFor(notice, R.normalizeCfg({ timestamps: '24h' }), { kind: 'notice' }),
+    { kind: 'notice', cls: 'line notice', system: 'Bob subscribed.', time: '15:07' });
+  assert.deepStrictEqual(R.modelFor(notice, R.normalizeCfg({}), { kind: 'notice' }), { kind: 'notice', cls: 'line notice', system: 'Bob subscribed.' });
+  // The user's own line under a notice: none while the notice (which has it) is drawn; its own when it isn't.
+  const part = R.userPart({ kind: 'notice', id: 'n1', type: 'resub', userId: '12', login: 'bob', systemMsg: 'Bob resubscribed.', text: 'hi', ts: ts });
+  assert.ok(!('time' in R.modelFor(part, R.normalizeCfg({ timestamps: '24h' }), d)));
+  const bare = R.userPart({ kind: 'notice', id: 'n2', type: 'resub', userId: '12', login: 'bob', systemMsg: '', text: 'hi', ts: ts });
+  assert.strictEqual(R.modelFor(bare, R.normalizeCfg({ timestamps: '24h' }), d).time, '15:07');
+  // reply_style=name: the name only, marked by its own flag (an empty body still means "@name: ").
+  assert.deepStrictEqual(R.modelFor(msg, R.normalizeCfg({ reply_style: 'name' }), d).reply, { name: '@Alice', short: true });
+  assert.deepStrictEqual(R.replyModel({ name: 'Bob', body: '' }), { name: '@Bob', body: '' });
+  assert.deepStrictEqual(R.replyModel({ name: 'Bob', body: 'x' }, true), { name: '@Bob', short: true });
+  assert.strictEqual(R.replyModel({ body: 'x' }, true), null);
+  assert.strictEqual(R.modelFor(msg, R.normalizeCfg({ reply_style: 'name', replies: false }), d).reply, null);
+});
+
 test('normTokens accepts an items array or {items, action}, else falls back to plain text', () => {
   const items = [{ type: 'text', text: 'a', sp: false }];
   assert.deepStrictEqual(R.normTokens(items, {}), { items: items, action: false });
@@ -807,8 +861,14 @@ test('every live config key is handled by the renderer', () => {
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
     'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale',
-    'emote_only', 'gif_size'];
+    'emote_only', 'gif_size', 'name_font'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
+  // The name colors rebuild the lines (overlay.js nameFor reads them); so do the separator, the timestamps and the
+  // reply header, which are drawn into each line. name_font is CSS on #chat only.
+  ['name_color', 'name_fallback', 'readable_level', 'name_sep', 'timestamps', 'reply_style'].forEach((k) => {
+    assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0 && ROOT_KEYS.indexOf(k) < 0, k);
+  });
+  assert.ok(R.RERENDER_KEYS.indexOf('name_font') < 0);
   // accent_bar is drawn on each line (a class and the line's own --line-accent), so it rebuilds the lines.
   assert.ok(R.RERENDER_KEYS.indexOf('accent_bar') >= 0 && ROOT_KEYS.indexOf('accent_bar') < 0);
   // The sizes set #chat and pick new image files (and emote_only marks lines); gif_size is CSS only (a GIF has one

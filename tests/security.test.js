@@ -402,7 +402,11 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
   const config = require('../js/config.js');
   const { createDocument } = require('./fake-dom.js');
   const COLORS = config.KEYS.filter((k) => config.SPEC[k].type === 'color');
-  assert.deepStrictEqual(COLORS, ['text_color', 'shadow_color', 'outline_color', 'bg_color', 'notice_color', 'first_msg_color']);
+  assert.deepStrictEqual(COLORS, ['text_color', 'shadow_color', 'outline_color', 'name_color', 'name_fallback', 'bg_color',
+    'notice_color', 'first_msg_color']);
+  // The name colors reach the names through overlay.js nameFor (checked at the end); the rest are #chat's.
+  const NAME_COLORS = ['name_color', 'name_fallback'];
+  const ROOT_COLORS = COLORS.filter((k) => NAME_COLORS.indexOf(k) < 0);
   const hostile = ['red;background:url(https://evil.example/x)', 'fff}*{display:none}', '#fff;', 'url(x)', 'var(--x)',
     'expression(1)', '000000 !important', 'ffffff\n;x', 'f\\66', '0x123456', '#ff8800aa', ' #12345', 'ｆｆｆ'].concat(PAYLOADS);
   // config never takes them (so neither the URL, settings.js nor the builder's live messages carry them)...
@@ -439,13 +443,24 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
   // A function's body, up to the brace that closes it at its own indent (2 spaces, 4 inside createRenderer).
   const body = (name, indent) => new RegExp('\\n( {' + (indent || 2) + '})function ' + name + '\\([\\w, ]*\\) \\{([\\s\\S]*?)\\n\\1\\}').exec(src)[2];
   const apply = body('applyRoot', 4) + body('tshadow');
-  COLORS.forEach((k) => {
+  ROOT_COLORS.forEach((k) => {
     const uses = apply.split('\n').filter((l) => l.indexOf('c.' + k) >= 0);
     assert.ok(uses.length > 0, k + ' is applied');
     uses.forEach((l) => assert.match(l, new RegExp('(?:hex(?:Rgb|Color)\\(|shadowCss\\(c\\.shadow, |tint\\([^;]*, )c\\.' + k + '\\)'), l.trim()));
   });
+  NAME_COLORS.forEach((k) => assert.ok(apply.indexOf('.' + k) < 0, k + ' never reaches #chat'));
   assert.match(body('tint'), /var rgb = hexRgb\(hex\);\s*if \(rgb === null\) return s;/);
   assert.match(body('shadowCss'), /return color \? tint\(s, color\) : s;/);
+  // overlay.js reads the name colors only through cfgColor, which takes 6 checked hex digits and nothing else
+  // (tests/overlay.test.js hands nameFor hostile ones).
+  const ov = read('js/overlay.js');
+  const nameFor = /\n {2}function nameFor\(m\) \{([\s\S]*?)\n {2}\}/.exec(ov)[1];
+  assert.match(ov, /\n {2}function cfgColor\(v\) \{ return typeof v === 'string' && \/\^\[0-9a-f\]\{6\}\$\/\.test\(v\) \? '#' \+ v : ''; \}/);
+  NAME_COLORS.forEach((k) => {
+    const uses = ov.split('\n').filter((l) => l.indexOf('.' + k) >= 0);
+    assert.ok(uses.length > 0 && nameFor.indexOf('cfg.' + k) >= 0, k + ' is used by nameFor');
+    uses.forEach((l) => assert.match(l, new RegExp('cfgColor\\(cfg\\.' + k + '\\)'), l.trim()));
+  });
 });
 
 test('pickUrl: https only except the fixed local badge asset', () => {

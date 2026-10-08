@@ -423,12 +423,14 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
     assert.strictEqual(e.id, undefined, 'only Advanced headings are anchors');
   });
   assert.deepStrictEqual(outline('group-look'), ['Layout', 'layout', 'align', 'text_align', 'Text', 'size', 'font', 'text_weight',
-    'text_color', 'shadow', 'outline', 'Names', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate']);
+    'text_color', 'shadow', 'outline', 'Names', 'name_color', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate']);
   assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'text_px',
-    'line_height', 'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'Box#adv-box', 'bg_shape',
-    'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'Chat events#adv-events', 'notice_color',
-    'notice_size', 'first_msg_color', 'Emotes#adv-emotes', 'gif_size', 'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style',
-    'paint_images', 'homies_lists']);
+    'line_height', 'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'name_font', 'name_fallback',
+    'name_sep', 'readable_level', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade',
+    'row_sep', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Emotes#adv-emotes', 'gif_size',
+    'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']);
+  // Chat events: its own heading over the timestamps (no anchor: only Advanced's headings have one).
+  assert.deepStrictEqual(outline('group-events'), ['events', 'replies', 'first_msg', 'shared', 'Highlights & timestamps', 'timestamps']);
   // Emotes: no sub-heading, the two sizes after the GIF switch, and its foot links Advanced's Emotes.
   assert.deepStrictEqual(outline('group-emotes'), ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only']);
   assert.strictEqual(p.$('group-emotes').children[2].children[0].href, '#adv-emotes');
@@ -826,4 +828,166 @@ test('the sizes: live in the preview; emote-only and GIF size grey out in a row,
   assert.deepStrictEqual(state(), []);
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([state(), es.value, bs.value, p.text('bar-url')], [[], '100', '100', OVERLAY]);
+});
+
+// ---------- names, timestamps and the reply header (stage 6) ----------
+
+test('Name font: empty is the same font as Font, typed names get Google\'s spelling, and it clears back to empty', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const nf = p.$('f-name_font'), font = p.$('f-font');
+  assert.deepStrictEqual([nf.value, nf.placeholder, nf.getAttribute('list'), font.placeholder], ['', 'Same as Font', 'font-list', 'Inter']);
+  nf.value = 'press start 2p';
+  nf.dispatch('change');
+  assert.deepStrictEqual([nf.value, p.text('bar-url')], ['Press Start 2P', OVERLAY + '?name_font=Press+Start+2P']);
+  // Cleared (by typing, or on change): '' again, with no error, and out of the URL.
+  nf.value = '';
+  nf.dispatch('input');
+  t.mock.timers.tick(600);
+  assert.deepStrictEqual([p.text('bar-url'), p.$('e-name_font').hidden], [OVERLAY, true]);
+  nf.value = 'Bangers';
+  nf.dispatch('change');
+  nf.value = '  ';
+  nf.dispatch('change');
+  assert.deepStrictEqual([nf.value, p.text('bar-url')], ['', OVERLAY]);
+  // A bad name is refused as in Font; Font itself, emptied, goes back to Inter (it has no empty).
+  nf.value = 'Comic;Sans';
+  nf.dispatch('change');
+  assert.deepStrictEqual([p.$('e-name_font').hidden, p.text('bar-url')], [false, OVERLAY]);
+  font.value = '';
+  font.dispatch('change');
+  assert.strictEqual(font.value, 'Inter');
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  assert.strictEqual(posted[posted.length - 1].cfg.name_font, '');
+  // A paste gets the spelling fixed too.
+  p.$('paste').value = '?name_font=roboto%20slab';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([nf.value, p.text('bar-url')], ['Roboto Slab', OVERLAY + '?name_font=Roboto+Slab']);
+  // Names off leaves it on: reply headers keep their names.
+  const nm = p.$('f-names');
+  nm.checked = false;
+  nm.dispatch('change');
+  assert.strictEqual(rowOf(p, 'name_font').classList.contains('disabled'), false);
+});
+
+test('Name contrast reads 4.5:1 and steps by 0.5; typed as 6.1 or 6.1:1; greyed out with Brighten dark name colors off', (t) => {
+  const p = open(t, HREF);
+  const rl = p.$('f-readable_level');
+  rl.select = () => {};
+  const [less, , more] = rl.parentNode.children;
+  const key = (k) => rl.dispatch('keydown', { key: k, preventDefault() {} });
+  assert.deepStrictEqual([rl.value, rl.getAttribute('aria-valuetext'), rl.getAttribute('aria-valuenow'), rl.inputMode], ['4.5:1', '4.5:1', '45', 'decimal']);
+  more.dispatch('click');
+  assert.deepStrictEqual([rl.value, p.text('bar-url')], ['5.0:1', OVERLAY + '?readable_level=50']);
+  less.dispatch('click');
+  less.dispatch('click');
+  assert.strictEqual(rl.value, '4.0:1');
+  // Typing: the box holds the number alone, and what is typed reads as a ratio.
+  rl.dispatch('focus');
+  assert.strictEqual(rl.value, '4.0');
+  rl.value = '6.1';
+  key('Enter');
+  assert.deepStrictEqual([rl.getAttribute('aria-valuetext'), p.text('bar-url')], ['6.1:1', OVERLAY + '?readable_level=61']);
+  key('ArrowDown');
+  assert.strictEqual(rl.value, '6.0');
+  rl.value = '3:1';
+  rl.dispatch('blur');
+  assert.deepStrictEqual([rl.value, p.text('bar-url')], ['3.0:1', OVERLAY + '?readable_level=30']);
+  // The URL's own number (the tag shows readable_level=30) and a phone keypad's decimal comma read as meant.
+  rl.dispatch('focus');
+  rl.value = '50';
+  key('Enter');
+  assert.deepStrictEqual([rl.getAttribute('aria-valuetext'), p.text('bar-url')], ['5.0:1', OVERLAY + '?readable_level=50']);
+  rl.value = '4,5';
+  key('Enter');
+  assert.deepStrictEqual([rl.getAttribute('aria-valuetext'), p.text('bar-url')], ['4.5:1', OVERLAY]);
+  rl.dispatch('blur');
+  // One Name color for everyone is never lightened: greyed out then too.
+  const nc = p.$('f-name_color');
+  nc.value = 'f80';
+  nc.dispatch('change');
+  assert.deepStrictEqual([rowOf(p, 'readable_level').classList.contains('disabled'), rl.disabled], [true, true]);
+  assert.match(p.$('h-readable_level').textContent, /not used while a Name color \(Look\) is set/);
+  nc.value = '';
+  nc.dispatch('change');
+  assert.strictEqual(rl.disabled, false);
+  const rd = p.$('f-readable');
+  rd.checked = false;
+  rd.dispatch('change');
+  assert.deepStrictEqual([rowOf(p, 'readable_level').classList.contains('disabled'), rl.disabled, more.disabled], [true, true, true]);
+  assert.match(p.$('h-readable_level').textContent, /Brighten dark name colors \(Badges & paints\)/);
+});
+
+test('the name colors, the separator, timestamps and the reply header: live, and greyed out while they can\'t apply', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const off = (key) => rowOf(p, key).classList.contains('disabled');
+  const keys = ['name_color', 'name_fallback', 'name_sep', 'readable_level', 'timestamps', 'reply_style', 'name_font'];
+  const state = () => keys.filter(off);
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  const flip = (id, v) => { const e = p.$(id); e.checked = v; e.dispatch('change'); };
+  assert.deepStrictEqual(state(), []);
+  const nc = colorField(p, 'name_color'), fb = colorField(p, 'name_fallback');
+  // A mid-grey swatch while unset (no one color is drawn then), so picking white is a change the picker reports.
+  assert.deepStrictEqual([nc.hex.placeholder, fb.hex.placeholder, nc.pick.value, fb.pick.value, nc.dflt.disabled],
+    ['Their own', 'Twitch colors', '#808080', '#808080', true]);
+  assert.deepStrictEqual([nc.pick.getAttribute('aria-describedby'), fb.pick.getAttribute('aria-describedby')], ['h-name_color', 'h-name_fallback']);
+  assert.strictEqual(colorField(p, 'text_color').pick.getAttribute('aria-describedby'), null, 'a built-in color: as before');
+  nc.pick.value = '#ffffff';
+  nc.pick.dispatch('input');
+  assert.deepStrictEqual([nc.hex.value, p.text('bar-url')], ['#ffffff', OVERLAY + '?name_color=ffffff']);
+  nc.dflt.dispatch('click');
+  assert.deepStrictEqual([nc.hex.value, nc.pick.value, p.text('bar-url')], ['', '#808080', OVERLAY]);
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-name_sep"]').map((r) => r.value), ['colon', 'space', 'dash', 'arrow']);
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-timestamps"]').map((r) => r.value), ['off', '12h', '24h']);
+  assert.strictEqual(p.$('l-reply_style').parentNode.parentNode.byClass('seg')[0].className, 'seg wrap field-control');
+  fb.hex.value = '#336699';
+  fb.hex.dispatch('change');
+  seg('name_sep', 'arrow');
+  seg('timestamps', '24h');
+  seg('reply_style', 'name');
+  // One Name color for everyone: the color for names without one, and the contrast, have nothing left to do.
+  nc.hex.value = 'f80';
+  nc.hex.dispatch('change');
+  assert.deepStrictEqual(state(), ['name_fallback', 'readable_level']);
+  assert.deepStrictEqual([fb.pick.disabled, fb.hex.disabled, fb.dflt.disabled], [true, true, true]);
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.name_color, last.name_fallback, last.name_sep, last.timestamps, last.reply_style],
+    ['ff8800', '336699', 'arrow', '24h', 'name']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?name_color=ff8800&name_fallback=336699&name_sep=arrow&reply_style=name&timestamps=24h');
+  nc.dflt.dispatch('click');
+  assert.deepStrictEqual([state(), fb.dflt.disabled], [[], false]);
+  // A name on its own line in a column draws no separator; in a row it does.
+  flip('f-name_line', true);
+  assert.deepStrictEqual(state(), ['name_sep']);
+  seg('layout', 'horizontal');
+  assert.deepStrictEqual(state(), []);
+  seg('layout', 'vertical');
+  flip('f-name_line', false);
+  assert.deepStrictEqual(state(), []);
+  // Names off greys out the separator only; replies off, the reply header.
+  flip('f-names', false);
+  flip('f-replies', false);
+  assert.deepStrictEqual(state(), ['name_sep', 'reply_style']);
+  assert.ok(p.doc.querySelectorAll('input[name="f-reply_style"]').every((r) => r.disabled));
+  // A row changes none of them.
+  seg('layout', 'horizontal');
+  assert.deepStrictEqual(state(), ['name_sep', 'reply_style']);
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([state(), p.text('bar-url')], [[], OVERLAY]);
 });

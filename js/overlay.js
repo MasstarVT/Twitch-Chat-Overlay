@@ -110,6 +110,11 @@
     };
     document.head.appendChild(link);
   }
+  // Every font the overlay draws with: font, and name_font only while it is set (one more request then).
+  function applyFonts(cfg) {
+    applyFont(cfg.font, cfg);
+    if (cfg.name_font) applyFont(cfg.name_font, cfg);
+  }
 
   // ---------- loading helpers ----------
   // Starts a retrying load; returns a promise that settles on the first success or failure.
@@ -378,9 +383,18 @@
     return out;
   }
 
+  // A config color (bare rrggbb, which config.js checked) as '#rrggbb'; '' for anything else.
+  function cfgColor(v) { return typeof v === 'string' && /^[0-9a-f]{6}$/.test(v) ? '#' + v : ''; }
+
+  // The name color: name_color for everyone, else the chatter's own (Twitch's palette for one without, or
+  // name_fallback), lightened by readable. A color picked in the settings is drawn as picked.
   function nameFor(m) {
-    var color = m.color || T.util.defaultColor(m.userId, m.login);
-    if (S.cfg.readable) color = T.util.readableColor(color);
+    var cfg = S.cfg;
+    var color = cfgColor(cfg.name_color) || (m.color ? '' : cfgColor(cfg.name_fallback));
+    if (!color) {
+      color = m.color || T.util.defaultColor(m.userId, m.login);
+      if (cfg.readable) color = T.util.readableColor(color, cfg.readable_level / 10);
+    }
     var paintId = null;
     if (S.cfg.paints && m.userId && !isKick(m)) {
       var eff = effective(m.userId);
@@ -894,7 +908,7 @@
         // for a socket that is connected.
         if (S.stvEvents) S.stvEvents.kick();
         if (S.bttvLive) S.bttvLive.kick();
-        applyFont(S.cfg.font, S.cfg);
+        applyFonts(S.cfg);
       }
       S.closedAt = 0;
       hideHint();
@@ -1070,7 +1084,7 @@
     }
     var prev = S.cfg;
     S.cfg = next;
-    applyFont(next.font, next);
+    applyFonts(next);
     S.renderer.setConfig(next);
     // Data for badge providers / paints that were off at boot was never loaded: load it now.
     var turnedOn = ['badges', 'paints'].concat(keys.filter(function (k) { return k.indexOf('badges_') === 0; }))
@@ -1150,7 +1164,7 @@
         shouldShow: shouldShow }
     });
     S.renderer.hold(true);
-    applyFont(cfg.font, cfg);
+    applyFonts(cfg);
 
     var sErr = settingsError();
     if (sErr) showHint('settings.js has an error: ' + sErr, true, true);
@@ -1209,7 +1223,7 @@
       if (S.stvEvents) S.stvEvents.kick();
       if (S.bttvLive) S.bttvLive.kick();
       S.loads.forEach(function (ctl) { if (ctl.status === 'failed') ctl.retryNow(); });
-      applyFont(S.cfg.font, S.cfg); // a font stylesheet that failed offline
+      applyFonts(S.cfg); // a font stylesheet that failed offline
     });
     // (The renderer itself flushes on visibilitychange / obsSourceVisibleChanged.)
     setInterval(function () {

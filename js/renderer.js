@@ -60,14 +60,16 @@
     'first_msg', 'shared', 'layout', // layout: a row draws gigantified emotes at emote height, so it picks smaller files
     'accent_bar',
     // The sizes: images are fetched for the size they are drawn at, and an emote-only line gets its class.
-    'text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes'];
+    'text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes',
+    // The name colors come from deps.nameFor (overlay.js reads these); the rest are drawn into the line.
+    'name_color', 'name_fallback', 'readable_level', 'name_sep', 'timestamps', 'reply_style'];
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
   // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
   var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline',
     'outline_color', 'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size',
-    'emote_scale', 'emote_only', 'gif_size'];
+    'emote_scale', 'emote_only', 'gif_size', 'name_font'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -83,6 +85,9 @@
   // gif_size: a GIF's height in emote heights (--gif-mul); 3x is the stylesheet's. At 1x a GIF also takes an emote's
   // margins (--gif-margin), so its line is no taller than one with emotes.
   var GIF_MUL = { '1x': '1', '2x': '2' };
+  // name_sep: what goes between the name and the message (a /me line keeps its space). Never '': the name and
+  // the message would run together.
+  var NAME_SEPS = { colon: ': ', space: ' ', dash: ' – ', arrow: ' › ' };
   // Text that draws nothing: spaces, and format and other invisible characters (U+E0000 and U+034F, the suffixes
   // chat clients add to send the same message twice). An emote-only line may have them between its emotes.
   var BLANK_RE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*$/u;
@@ -130,7 +135,11 @@
     emote_scale: { min: 50, max: 200, def: 100 },
     emote_only: { values: ['normal', 'big', 'huge'], def: 'normal' },
     gif_size: { values: ['1x', '2x', '3x'], def: '3x' },
-    giant_emotes: { bool: true, def: true }
+    giant_emotes: { bool: true, def: true },
+    name_font: { str: true, def: '' },
+    name_sep: { values: ['colon', 'space', 'dash', 'arrow'], def: 'colon' },
+    timestamps: { values: ['off', '12h', '24h'], def: 'off' },
+    reply_style: { values: ['full', 'name'], def: 'full' }
   };
   var NORM_KEYS = Object.keys(NORM);
   var NORM_DEFAULTS = {};
@@ -267,6 +276,19 @@
     var lower = s.toLowerCase();
     if (GENERIC_FONTS.indexOf(lower) >= 0) return lower;
     return '"' + s + '"';
+  }
+
+  // timestamps: when a message was sent (msg.ts: Twitch's tmi-sent-ts, Kick's created_at) on the PC's own clock,
+  // '24h' as 15:07 (09:05 zero-padded), '12h' as 3:07 (no AM/PM; 0:30 is 12:30). '' without a usable ts, never
+  // the time now: a line's signature must not change from one minute to the next.
+  function timeText(ts, mode) {
+    var n = Number(ts);
+    if ((mode !== '12h' && mode !== '24h') || !isFinite(n) || n <= 0) return '';
+    var d = new Date(n), hh = d.getHours(), mm = d.getMinutes();
+    if (!isFinite(hh) || !isFinite(mm)) return '';
+    if (mode === '12h') hh = hh % 12 || 12;
+    else if (hh < 10) hh = '0' + hh;
+    return hh + ':' + (mm < 10 ? '0' : '') + mm;
   }
 
   // Fade: the line disappears `fade` s after it arrived; the last FADE_OUT_MS is the visible fade-out.
@@ -488,10 +510,12 @@
     return c.join(' ');
   }
 
-  function replyModel(reply) {
+  // short (reply_style=name): the header names who is answered, without what they said ({name, short}).
+  function replyModel(reply, short) {
     if (!reply) return null;
     var name = String(reply.name || reply.login || '');
     if (!name) return null;
+    if (short) return { name: '@' + util.capMarks(name), short: true };
     var body = String(reply.body || '').replace(/^\u0001ACTION /, '').replace(/\u0001$/, '').replace(/[\r\n]+/g, ' ');
     return { name: '@' + util.capMarks(name), body: util.capMarks(body) };
   }
@@ -633,17 +657,23 @@
   }
 
   // Everything a line shows, as plain data.
-  // d: {kind, items, action, badges, name:{text, color, paint}, dpr, noReply: the replied-to message was moderated}
+  // d: {kind, items, action, badges, name:{text, color, paint}, dpr, noReply: the replied-to message was moderated,
+  //   alone: a notice's own text line whose notice line is no longer drawn (events turned off)}
   function modelFor(msg, cfg, d) {
     cfg = cfg || {};
     d = d || {};
+    // timestamps: model.time only while they are on and the message has a time, so the model (and its signature)
+    // is as before otherwise. The user's own line under a notice that is drawn shows none: the notice has it.
+    var time = cfg.timestamps === '12h' || cfg.timestamps === '24h' ? timeText(msg.ts, cfg.timestamps) : '';
     if (d.kind === 'notice') {
       var nm0 = { kind: 'notice', cls: lineClasses(msg, cfg, 'notice', false), system: util.capMarks(String(msg.systemMsg || '')) };
       // A notice shows only the platform icon (in a combined Twitch + Kick chat), never the user's badges.
       var marks = badgeModels(Array.isArray(d.badges) ? d.badges.filter(function (b) { return b && b.provider === 'platform'; }) : [], 1);
       if (marks.length) nm0.badges = marks;
+      if (time) nm0.time = time;
       return nm0;
     }
+    if (msg.noticeId !== undefined && msg.systemMsg && !d.alone) time = '';
     var px = pxFor(cfg);
     var action = !!d.action;
     var nm = d.name || {};
@@ -656,17 +686,20 @@
     var eo = cfg.layout !== 'horizontal' && Object.prototype.hasOwnProperty.call(EMOTE_ONLY, cfg.emote_only)
       ? EMOTE_ONLY[cfg.emote_only] : 0;
     var only = eo > 0 && emoteOnly(d.items);
-    return {
+    var model = {
       kind: 'chat',
       cls: lineClasses(msg, cfg, 'chat', action, only),
-      reply: cfg.replies === false || d.noReply ? null : replyModel(msg.reply),
+      reply: cfg.replies === false || d.noReply ? null : replyModel(msg.reply, cfg.reply_style === 'name'),
       badges: badgeModels(visibleBadges(d.badges, cfg), wantBadge(px, dpr, sizeScale(cfg.badge_size))),
       name: { text: text, color: color, paint: paint },
-      colon: action ? ' ' : ': ',
+      // name_sep: one of the fixed NAME_SEPS strings; ': ' for anything else (a partial cfg).
+      colon: action ? ' ' : Object.prototype.hasOwnProperty.call(NAME_SEPS, cfg.name_sep) ? NAME_SEPS[cfg.name_sep] : ': ',
       msgColor: action ? color : null,
       parts: partsFor(d.items, { px: px, dpr: dpr, flatBig: cfg.layout === 'horizontal', gifs: cfg.gifs !== false,
         scale: sizeScale(cfg.emote_scale), giant: cfg.giant_emotes !== false, eo: only ? eo : 1 })
     };
+    if (time) model.time = time;
+    return model;
   }
 
   function sigOf(model) { return JSON.stringify(model); }
@@ -941,6 +974,7 @@
         line.style.removeProperty('--line-accent');
       }
       if (model.kind === 'notice') {
+        if (model.time) line.appendChild(span('time', model.time));
         if (model.badges) {
           var nb = el('span', 'badges');
           for (var n = 0; n < model.badges.length; n++) nb.appendChild(badgeNode(model.badges[n]));
@@ -953,10 +987,15 @@
         var r = el('div', 'reply');
         r.appendChild(doc.createTextNode('↪ '));
         r.appendChild(span('reply-name', model.reply.name));
-        r.appendChild(doc.createTextNode(': '));
-        r.appendChild(span('reply-body', model.reply.body));
+        // reply_style=name: the name alone (an empty body still draws "↪ @name: ", as it always has).
+        if (!model.reply.short) {
+          r.appendChild(doc.createTextNode(': '));
+          r.appendChild(span('reply-body', model.reply.body));
+        }
         line.appendChild(r);
       }
+      // timestamps: after the reply header (a block of its own), before the badges.
+      if (model.time) line.appendChild(span('time', model.time));
       var bs = el('span', 'badges');
       for (var i = 0; i < model.badges.length; i++) bs.appendChild(badgeNode(model.badges[i]));
       line.appendChild(bs);
@@ -970,7 +1009,8 @@
       line.appendChild(ms);
     }
 
-    function buildModel(msg, kind) {
+    // alone: a notice's own text line, rebuilt after its notice line left (see noticeDrawn).
+    function buildModel(msg, kind, alone) {
       if (kind === 'notice') return modelFor(msg, cfg, { kind: 'notice', badges: callDep('badgesFor', msg) });
       var tk = normTokens(callDep('tokensFor', msg), msg);
       // Always asked: with badges off, badgesFor still supplies the Shared Chat avatar (modelFor keeps only that).
@@ -985,8 +1025,19 @@
         badges: Array.isArray(badges) ? badges : [],
         name: { text: nm.text, color: nm.color, paint: paint },
         dpr: dpr,
-        noReply: replyGone(msg.reply, Date.now())
+        noReply: replyGone(msg.reply, Date.now()),
+        alone: !!alone
       });
+    }
+
+    // Whether a group's notice line is on screen. A notice's own text line shows no time under it; once the notice
+    // has gone (events turned off live sweeps notices but keeps chat lines), the text line shows the time itself.
+    function noticeDrawn(gid) {
+      for (var l = linesEl.firstElementChild; l; l = l.nextElementSibling) {
+        var rec = recs.get(l);
+        if (rec && rec.gid === gid && rec.kind === 'notice') return true;
+      }
+      return false;
     }
 
     // The message a reply quotes was deleted, or its author was timed out or banned after sending it:
@@ -1244,13 +1295,18 @@
 
     function sweepFilters() {
       if (typeof deps.shouldShow !== 'function') return;
-      var list = children();
+      var list = children(), notices = false;
       for (var i = 0; i < list.length; i++) {
         var rec = recs.get(list[i]);
         // Each line by its own message: a resub's text line is a chat message (see buildGroup).
-        if (rec && !showable(rec.msg)) removeLine(list[i]);
+        if (rec && !showable(rec.msg)) {
+          if (rec.kind === 'notice') notices = true;
+          removeLine(list[i]);
+        }
       }
       queue.filter(function (en) { return showable(en.msg); });
+      // A resub's text line left without its notice shows the time itself now (timestamps; see noticeDrawn).
+      if (notices && cfg && cfg.timestamps !== 'off') rerender(function (m) { return m.noticeId !== undefined; });
     }
 
     // Runs only while fade > 0 and there are lines, so an empty or idle chat never wakes the page.
@@ -1419,8 +1475,11 @@
       cl.toggle('sep-dot', c.row_sep === 'dot');
       cl.toggle('sep-bar', c.row_sep === 'bar');
       cl.toggle('sep-diamond', c.row_sep === 'diamond');
+      // name_font: names (and reply headers' names) in their own font, only while one is set.
+      cl.toggle('has-name-font', !!c.name_font);
       var st = rootEl.style;
       setVar(st, '--font', fontVar(c.font));
+      setVar(st, '--name-font', c.name_font ? fontVar(c.name_font) : null);
       setVar(st, '--shadow', shadowText ? 'none' : shadowCss(c.shadow, c.shadow_color));
       setVar(st, '--bg-alpha', bgAlpha(c.bg));
       setVar(st, '--tshadow', tshadow(c));
@@ -1568,7 +1627,7 @@
         }
         if (!match) continue;
         try {
-          var model = buildModel(rec.msg, rec.kind);
+          var model = buildModel(rec.msg, rec.kind, rec.kind === 'chat' && rec.msg.noticeId !== undefined && !noticeDrawn(rec.gid));
           var sig = sigOf(model);
           if (sig === rec.sig) continue; // unchanged: keep the DOM (animated images don't restart)
           renderInto(line, model);
@@ -1703,6 +1762,8 @@
       bgAlpha: bgAlpha,
       noticeMax: noticeMax,
       fontVar: fontVar,
+      NAME_SEPS: NAME_SEPS,
+      timeText: timeText,
       fadeTiming: fadeTiming,
       newestFirst: newestFirst,
       animString: animString,

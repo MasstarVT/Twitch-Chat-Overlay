@@ -47,6 +47,14 @@
   function paintsOn(cfg) { return !!cfg.paints; }
   function homiesOn(cfg) { return !!(cfg.badges && cfg.badges_homies); }
   function gifsOn(cfg) { return !!cfg.gifs; }
+  function repliesOn(cfg) { return !!cfg.replies; }
+  function readableOn(cfg) { return !!cfg.readable; }
+  // The color for names without one, and how far dark names are lightened, are moot while one Name color is set
+  // for everyone.
+  function ownNameColors(cfg) { return !cfg.name_color; }
+  function readableOwn(cfg) { return readableOn(cfg) && ownNameColors(cfg); }
+  // What follows the name: hidden under a name on its own line in a column (overlay.css hides .colon there).
+  function sepShown(cfg) { return namesOn(cfg) && !(cfg.name_line && cfg.layout !== 'horizontal'); }
   // Text size applies until Exact text size (text_px) takes over.
   function sizeOn(cfg) { return !(cfg.text_px > 0); }
 
@@ -63,8 +71,12 @@
   // when(cfg): the field only applies while this is true; only: 'vertical' or 'horizontal', the one layout it
   // applies to. Either way it is greyed out (syncDisabled) and keeps its value.
   // wrap: a segmented field whose labels may wrap in a narrow panel (like Add to OBS's two routes).
-  // swatch: a color field's built-in color, which its picker shows while the setting is '' (Default).
+  // swatch: a color field's built-in color, which its picker shows while the setting is '' (Default). A setting with
+  // no one color there (each chatter's own) shows a mid grey: a picker fires only on a change, so picking white
+  // from a white swatch would set nothing.
+  // placeholder: a text, font or color field's empty box (a color field's swatch otherwise).
   // from0(cfg): a stepper's first step up from 0 goes to this value instead of the next number (skipGap).
+  // scale: a stepper shows (and reads) the value divided by this (readable_level 45 is 4.5:1), config.SPEC's scale.
   var META = {
     kick: { label: 'Kick channel', logo: 'kick', check: true, placeholder: 'yourname or a kick.com link',
       bad: 'That isn’t a valid Kick name. Use letters, numbers, _ and - only.',
@@ -95,11 +107,19 @@
     outline_color: { label: 'Outline color', swatch: '#000000', when: outlineOn,
       help: 'Black by default. Needs Text outline (Look).' },
     names: { label: 'Show names',
-      help: 'Off hides the name and colon before each message. Reply headers and sub or raid notices keep their names.' },
+      help: 'Off hides the name, and what follows it (After the name), before each message. Reply headers and sub or raid notices keep their names.' },
     name_weight: { label: 'Name weight', widget: 'range', options: WEIGHT_LABELS,
       help: 'Names before messages and in reply headers. A name inside a sub or raid notice follows Text weight (Look).' },
     name_line: { label: 'Name on its own line', only: 'vertical', when: namesOn,
       help: 'Each message starts on a new line under the name. Vertical layout only, with Show names on (Advanced).' },
+    name_font: { label: 'Name font', placeholder: 'Same as Font',
+      help: 'Names before messages and in reply headers, in a font of their own: any Google Fonts family, or one installed on the streaming PC. Empty uses Font (Look). A name inside a sub or raid notice keeps the message font.' },
+    name_color: { label: 'Name color', swatch: '#808080', placeholder: 'Their own',
+      help: 'One color for every name, in place of each chatter’s own. 7TV name paints still show over it, and /me messages take it too. Brighten dark name colors leaves it as picked.' },
+    name_fallback: { label: 'Color for names without one', swatch: '#808080', placeholder: 'Twitch colors', when: ownNameColors,
+      help: 'For Twitch and Kick chatters who never picked a name color, in place of Twitch’s 15 default colors. Drawn as picked (Brighten dark name colors leaves it alone). Not used while a Name color (Look) is set.' },
+    name_sep: { label: 'After the name', options: { colon: 'Colon', space: 'Space', dash: 'Dash', arrow: 'Arrow' }, when: sepShown,
+      help: 'What sits between the name and the message: “Name: hi”, “Name hi”, “Name – hi” or “Name › hi”. A /me message keeps its space, and a reply header its colon. Needs Show names, and isn’t drawn under Name on its own line (Look) in a vertical layout.' },
     bg: { label: 'Line background', widget: 'range', unit: '%', zero: 'Off',
       help: 'A rounded box behind each message, black unless you pick a Box color. Helps on bright or busy scenes.' },
     bg_color: { label: 'Box color', swatch: '#000000', when: bgOn,
@@ -142,6 +162,8 @@
     notice_size: { label: 'Notice text size', widget: 'range', unit: '%', when: eventsOn,
       help: 'Next to the chat text (85% by default). Above 100% a notice can be cut off in a short horizontal source. Needs Show subs, gifts, raids and announcements (Chat events).' },
     replies: { label: 'Show what replies are answering', help: 'Adds a small “↪ @user: message” line above a reply.' },
+    reply_style: { label: 'Reply header', options: { full: 'Full', name: 'Name only' }, wrap: true, when: repliesOn,
+      help: 'Name only shows “↪ @user” without the message being answered. Needs Show what replies are answering (Chat events).' },
     first_msg: { label: 'Mark first-time chatters', help: 'A colored bar beside someone’s first message in the channel.' },
     first_msg_color: { label: 'First-message bar color', swatch: '#9146ff', when: firstMsgOn,
       help: 'Purple by default. Needs Mark first-time chatters (Chat events).' },
@@ -149,6 +171,8 @@
       help: 'Shows up to this many recent messages (from recent-messages.robotty.de) when the overlay starts.' },
     shared: { label: 'Include Shared Chat',
       help: 'During a Shared Chat session, also show the other channels’ messages. Every message is marked with its channel’s avatar.' },
+    timestamps: { label: 'Timestamps', options: { off: 'Off', '12h': '12-hour', '24h': '24-hour' },
+      help: 'The time each message was sent, by the streaming PC’s clock, before its badges: 3:07 (12-hour, without AM or PM) or 15:07. Recent messages loaded at the start show when they were sent.' },
     gifs: { label: 'Show GIFs posted in chat' },
     gif_size: { label: 'GIF size', options: { '1x': '1×', '2x': '2×', '3x': '3×' }, when: gifsOn, only: 'vertical',
       help: 'How tall a GIF is, in emote heights (3× by default); at 1× its line is no taller than one with emotes. The demo has no GIF. Vertical layout only (a row draws GIFs at emote height), with Show GIFs posted in chat on (Emotes).' },
@@ -180,6 +204,8 @@
     stv_lookup: { label: 'Look up 7TV cosmetics for every chatter',
       help: '7TV only announces paints and badges for people running a 7TV extension. This asks 7TV about everyone else, in small rate-limited batches. The answer isn’t checked against subscriptions, so it can show paints for lapsed 7TV subs.' },
     readable: { label: 'Brighten dark name colors', help: 'Lightens very dark usernames so they stay readable.' },
+    readable_level: { label: 'Name contrast', widget: 'stepper', step: 5, scale: 10, unit: ':1', when: readableOwn,
+      help: 'How light Brighten dark name colors makes a dark name: its contrast with black, from 3:1 to 7:1 (4.5:1 by default). It lightens in steps, so a small change may leave a name as it was. Needs Brighten dark name colors (Badges & paints); not used while a Name color (Look) is set.' },
     badge_size: { label: 'Badge size', widget: 'range', unit: '%',
       help: 'Next to the text (100% by default), with the Twitch and Kick icons and Shared Chat avatars, which show even with badges off. Above about 135% lines with badges get taller.' },
     demo: { label: 'Demo messages in OBS too',
@@ -206,9 +232,9 @@
   // id, linked at the foot of the section as "More in Advanced".
   var GROUPS = [
     { id: 'look', title: 'Look', note: 'Layout, text, names, boxes and how new messages come in.',
-      keys: ['layout', 'align', 'text_align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_line', 'bg',
-        'bg_color', 'accent_bar', 'animate'],
-      subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_line' },
+      keys: ['layout', 'align', 'text_align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_color',
+        'name_line', 'bg', 'bg_color', 'accent_bar', 'animate'],
+      subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_color' },
         { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
       more: 'adv-text' },
     { id: 'platforms', title: 'Kick', note: 'Kick chat alongside Twitch, in one overlay.',
@@ -216,8 +242,9 @@
       keys: ['kick', 'kick_room', 'platform_icons'] },
     { id: 'messages', title: 'Messages', note: 'How many messages show, and for how long.',
       keys: ['fade', 'max', 'history'] },
-    { id: 'events', title: 'Chat events', note: 'Subs, raids, replies and first messages.',
-      keys: ['events', 'replies', 'first_msg', 'shared'], more: 'adv-events' },
+    { id: 'events', title: 'Chat events', note: 'Subs, raids, replies, first messages and timestamps.',
+      keys: ['events', 'replies', 'first_msg', 'shared', 'timestamps'],
+      subs: [{ title: 'Highlights & timestamps', first: 'timestamps' }], more: 'adv-events' },
     { id: 'filters', title: 'Filters', note: 'Who and what stays out of the overlay.',
       keys: ['bots', 'hide_commands', 'block'] },
     { id: 'emotes', title: 'Emotes', note: 'Twitch and Kick emotes are always shown.',
@@ -227,8 +254,9 @@
       keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable', 'badge_size']), more: 'adv-lighter' },
     { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then fine-tuning for every section and lighter-on-PC switches.',
       keys: ['debug', 'demo', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight',
-        'bg_shape', 'bg_width', 'spacing', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'notice_color', 'notice_size',
-        'first_msg_color', 'gif_size', 'giant_emotes', 'shadow_style', 'paint_images', 'homies_lists'],
+        'name_font', 'name_fallback', 'name_sep', 'readable_level', 'bg_shape', 'bg_width', 'spacing', 'line_width', 'pad_x',
+        'edge_fade', 'row_sep', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'gif_size', 'giant_emotes',
+        'shadow_style', 'paint_images', 'homies_lists'],
       subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'text_px' },
         { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
         { id: 'adv-layout', title: 'Layout', first: 'line_width' }, { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
@@ -559,17 +587,30 @@
     if (s && s.type === 'enum') return (m.options && m.options[v]) || String(v);
     if (m.names && s) return m.names[v - s.min] || String(v);
     if (v === 0 && m.zero) return m.zero;
-    return String(v) + (m.unit === '%' ? '%' : m.unit ? ' ' + m.unit : '');
+    // A unit that is a word follows a space ('30 s'); '%' and ':1' follow the number.
+    return stepText(key, v) + (!m.unit ? '' : /^[a-z]/i.test(m.unit) ? ' ' + m.unit : m.unit);
+  }
+
+  // A stepper's number as it is typed: the value, or with META.scale the value divided by it (45 -> '4.5').
+  function stepText(key, v) {
+    var m = META[key] || {};
+    return m.scale > 1 ? (v / m.scale).toFixed(String(m.scale).length - 1) : String(v);
   }
 
   // What someone typed into a stepper -> the setting's value (clamped), or undefined. Takes the shown
-  // form too: '30 s', 'Never'. Anything else that isn't a whole number is no value.
+  // form too: '30 s', 'Never', '4.5:1'. Anything else that isn't a whole number is no value.
   function parseStep(key, text) {
     var s = String(text === undefined || text === null ? '' : text).trim(), m = META[key] || {};
     if (m.zero && s.toLowerCase() === m.zero.toLowerCase()) return config.coerce(key, 0);
     // A whole number, with nothing after it but the field's own unit: '1,000', '2.5' and '1e2' are not 1, 2 and 1.
-    var d = /^(\d+)\s*(\S*)$/.exec(s);
+    // With META.scale, as many decimals as the scale has zeros, and a decimal comma (a phone keypad's) as a point.
+    // With the unit it is the ratio ('4.5:1' is readable_level 45); without, it reads as in a URL: a number under the
+    // setting's min is the ratio ('4.5', '4,5', '5'), and 30 to 70 are the setting's own values.
+    var dec = m.scale > 1 ? String(m.scale).length - 1 : 0;
+    if (dec) s = s.replace(/^(\d+),(\d)/, '$1.$2');
+    var d = (dec ? new RegExp('^(\\d+(?:\\.\\d{1,' + dec + '})?)\\s*(\\S*)$') : /^(\d+)\s*(\S*)$/).exec(s);
     if (!d || (d[2] && d[2].toLowerCase() !== String(m.unit || '').toLowerCase())) return undefined;
+    if (dec && d[2]) return config.coerce(key, Math.round(parseFloat(d[1]) * m.scale));
     return config.coerce(key, d[1]);
   }
 
@@ -837,7 +878,7 @@
         var sv = h('input', 'step-value');
         sv.type = 'text';
         sv.id = id;
-        sv.inputMode = 'numeric';
+        sv.inputMode = m.scale > 1 ? 'decimal' : 'numeric';
         sv.autocomplete = 'off';
         sv.setAttribute('role', 'spinbutton');
         sv.setAttribute('aria-valuemin', String(spec.min));
@@ -848,7 +889,7 @@
         field.helpEl = addHelp(row, key, sv);
         var typing = false, stt = null;
         var showStep = function (v) {
-          sv.value = typing ? String(v) : valueText(key, v);
+          sv.value = typing ? stepText(key, v) : valueText(key, v);
           sv.setAttribute('aria-valuenow', String(v));
           sv.setAttribute('aria-valuetext', valueText(key, v));
         };
@@ -900,7 +941,7 @@
         fi.setAttribute('list', 'font-list');
         fi.autocomplete = 'off';
         fi.spellcheck = false;
-        fi.placeholder = String(spec.def);
+        fi.placeholder = m.placeholder || String(spec.def);
         var fh = addHelp(row, key, fi);
         field.helpEl = fh;
         var bad = h('p', 'status err', 'Use letters, numbers, spaces and dashes only.');
@@ -912,7 +953,8 @@
           clearTimeout(timer);
           var raw = fi.value.trim();
           if (!raw && final) raw = String(spec.def);
-          if (!raw) return;
+          // An emptied box is the default font again, or (spec.empty: name_font) '' itself.
+          if (!raw && !spec.empty) return;
           // Google Fonts only loads the exact spelling: 'roboto' -> 'Roboto', 'press start 2p' -> 'Press Start 2P'.
           var ok = update(key, config.canonicalFont(raw));
           if (!ok && bad.hidden) announce(bad.textContent);
@@ -940,7 +982,7 @@
         hex.id = id;
         hex.autocomplete = 'off';
         hex.spellcheck = false;
-        hex.placeholder = m.swatch;
+        hex.placeholder = m.placeholder || m.swatch;
         var dflt = h('button', 'btn ghost', 'Default');
         dflt.type = 'button';
         dflt.setAttribute('aria-label', 'Default ' + labelFor(key).toLowerCase());
@@ -949,6 +991,8 @@
         crow.appendChild(dflt);
         var ch = addHelp(row, key, hex);
         field.helpEl = ch;
+        // No one built-in color (name_color: each chatter's own): the picker's grey is described by the help too.
+        if (m.placeholder && ch) pick.setAttribute('aria-describedby', ch.id);
         var cbad = h('p', 'status err', 'Use a hex color: 6 digits such as ff8800 (or 3, such as f80), with or without #.');
         cbad.id = 'e-' + key;
         cbad.hidden = true;
@@ -1401,7 +1445,9 @@
   // Swap the whole config (paste, reset, settings.js); reload only if a reload key changed.
   function replaceCfg(next) {
     var prev = B.cfg, reload = false;
-    if (typeof next.font === 'string' && next.font) next.font = config.canonicalFont(next.font);
+    ['font', 'name_font'].forEach(function (k) {
+      if (typeof next[k] === 'string' && next[k]) next[k] = config.canonicalFont(next[k]);
+    });
     B.cfg = next;
     B.fileNote = '';
     RELOAD_KEYS.forEach(function (k) { if (!sameValue(prev[k], next[k])) reload = true; });
@@ -2291,6 +2337,7 @@
     urlParts: urlParts,
     urlNote: urlNote,
     valueText: valueText,
+    stepText: stepText,
     parseStep: parseStep,
     stepValue: stepValue,
     skipGap: skipGap,

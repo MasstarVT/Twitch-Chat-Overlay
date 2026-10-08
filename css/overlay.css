@@ -1,17 +1,17 @@
 /* Twitch Chat Overlay: clean default look (transparent page, white text, drop shadow). Chromium 103 safe. */
 
-/* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .badges .badge .name .colon .message
+/* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .time .badges .badge .name .colon .message
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
    .platform-kick .accent .emote-only, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat
    channel), #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg .bg-full .no-names
    .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static .text-center .text-right
-   .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond.
+   .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
    --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
    --first-color --pad-x --emote-h --badge-h --gif-mul. Outline and shadow_style set --tshadow and --tshadow-room,
    line_width --line-max and --line-max-n (with .has-maxw), edge_fade --edge-fade (with .edge-fade), emote_only --eo
-   (for .emote-only lines), gif_size=1x --gif-margin, text_px #chat's font-size, and accent_bar sets --line-accent on
-   each line */
+   (for .emote-only lines), gif_size=1x --gif-margin, name_font --name-font (with .has-name-font), text_px #chat's
+   font-size, and accent_bar sets --line-accent on each line */
 
 html,
 body {
@@ -106,7 +106,19 @@ body {
 }
 
 .name { font-weight: var(--name-weight, 800); }
+/* name_font: names before messages and in reply headers in their own font (--name-font), falling back to the
+   message font. A name inside a notice is part of the notice's text and keeps the message font. */
+:where(.has-name-font) .name,
+:where(.has-name-font) .reply-name { font-family: var(--name-font), var(--font, 'Inter'), 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; }
 .message { overflow-wrap: anywhere; }
+/* timestamps=12h/24h: when the message was sent, before its badges (on a notice, before its text) */
+.time {
+  opacity: .7;
+  font-size: .8em;
+  margin-right: .35em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 /* Right-to-left text: a name is its own bidi run (an Arabic name can't swap places with the start of the
    message), and a chat message takes its direction from its own first letter. Notices stay LTR: their
    text starts with the display name. */
@@ -352,6 +364,13 @@ body {
 :where(.layout-horizontal.sep-diamond) .line + .line > .reply + *::before,
 :where(.layout-horizontal.sep-diamond) .line + .line > :first-child:not(.reply)::before { content: '\25C6'; }
 :where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .badges:empty { display: inline; }
+/* timestamps: a line's time comes first (after a reply header), so it carries the mark. Its smaller, fainter text is
+   undone for the mark and the gap after it: 1.25 x .8em is the line's 1em, and .857 x .7 is the .6 above. */
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .reply + .time::before,
+:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > .time:first-child::before {
+  font-size: 1.25em;
+  opacity: .857;
+}
 
 /* line_width=5..100: no message wider than --line-max, in either layout (a longer one wraps in a column and ends in
    an ellipsis in a row). After the row's rules, which it beats on order alone. A notice's em is its own smaller

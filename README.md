@@ -86,9 +86,13 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `shadow_style` | `filter` | `filter`, `text` | `text` draws the shadow on the letters only (as `text-shadow`), which takes about half the drawing work while animated emotes are on screen. Emotes, badges, GIFs, the box and painted names then have no shadow. Needs `shadow` above 0. |
 | `outline` | `0` | `0`–`3` | A sharp outline around the letters: thin, medium or thick (`0` = none). It is eight copies of the text, without a filter. Emotes and painted names get none. |
 | `outline_color` | none | hex color | Color of the outline (black when unset). Needs `outline` above 0. |
-| `names` | `1` | bool | Show the name and colon before each message. Reply headers and sub or raid notices keep their names. |
+| `names` | `1` | bool | Show the name and its separator (`name_sep`) before each message. Reply headers and sub or raid notices keep their names. |
 | `name_weight` | `heavy` | as `text_weight` | Weight of the names before messages and in reply headers. A name inside a sub or raid notice follows `text_weight`. `light` and `black` add a weight to the font request, as with `text_weight`. |
 | `name_line` | `0` | bool | Start each message on a line of its own under the name. Vertical layout, with `names=1`. |
+| `name_font` | none | font name | A font for the names before messages and in reply headers, given like `font` (a Google Font is one more request, made only while this is set). Empty uses `font`. A name inside a sub or raid notice is part of the notice's text and keeps `font`. |
+| `name_color` | none | hex color | One color for every name, in place of each chatter's own (Twitch and Kick). 7TV paints still show while `paints=1` (through the clear parts of an image paint this color shows), and `/me` messages take it too. `readable` leaves it as picked. |
+| `name_fallback` | none | hex color | The color for chatters who never picked one (Twitch or Kick), in place of Twitch's 15 default colors. `readable` leaves it as picked. Not used while `name_color` is set. |
+| `name_sep` | `colon` | `colon`, `space`, `dash`, `arrow` | What goes between the name and the message: `Name: hi`, `Name hi`, `Name – hi` or `Name › hi`. A `/me` message keeps its space, and a reply header its colon. Needs `names=1`; not drawn with `name_line=1` in the vertical layout. |
 | `bg` | `0` | `0`–`100` | Opacity of a box behind each message (black, or `bg_color`). |
 | `bg_color` | none | hex color | Color of the box behind each message (black when unset). Needs `bg` above 0. |
 | `accent_bar` | `0` | bool | A bar in the chatter's name color on the left of each chat message. A first-time chatter's bar (`first_msg`) takes its place; announcements keep their own bar, and notices get none. |
@@ -112,10 +116,12 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `notice_color` | none | hex color | Color of the text of sub, gift, raid and bits-badge notices (light purple, `E2D6FF`, when unset). Announcements are chat messages and use `text_color`. |
 | `notice_size` | `85` | `50`–`150` | Size of notice text, in percent of the chat text. Above 100 a notice can be cut off in a short horizontal source. |
 | `replies` | `1` | bool | Show a "↪ @user: message" header on replies. The header is left out when the quoted message was deleted by a mod, or its author was timed out or banned. |
+| `reply_style` | `full` | `full`, `name` | `name` shows only "↪ @user" in a reply's header, without the message it answers. Needs `replies=1`. |
 | `first_msg` | `0` | bool | Highlight first-time chatters. |
 | `first_msg_color` | none | hex color | Color of the bar beside a first-time chatter's message (purple, `9146FF`, when unset). Kick has no first-message flag. |
 | `history` | `5` | `0`–`100` | Load up to this many recent lines on start (from recent-messages.robotty.de). `0` turns it off. Timeouts, deletions, sub and raid notices, deleted messages and hidden bots count toward the limit, so fewer chat messages may appear. |
 | `shared` | `1` | bool | Show messages from other channels during a Shared Chat session. |
+| `timestamps` | `off` | `off`, `12h`, `24h` | Show when each message was sent, by the streaming PC's clock, before its badges (on a notice, before its text): `12h` as 3:07 (no AM or PM), `24h` as 15:07. Lines from `history` show when they were sent. In the horizontal layout each message gets that much wider. |
 | `gifs` | `1` | bool | Show Twitch chat GIFs. They load as Giphy's 200 px animated WebP instead of the full-size original, so a GIF drawn more than 200 px tall (a `3x` GIF past about `text_px=38`, or with a large `emote_scale`) looks soft. |
 | `gif_size` | `3x` | `1x`, `2x`, `3x` | Height of a GIF in emote heights. At `1x` it also takes an emote's margins, so its line is no taller than a line with emotes. Vertical layout only: a row draws GIFs at emote height. |
 | `emotes_7tv`, `emotes_bttv`, `emotes_ffz` | `1` | bool | Turn each emote provider on or off. Kick chat uses 7TV only (BTTV and FFZ don't exist on Kick). |
@@ -130,6 +136,7 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `paint_images` | `animated` | `animated`, `static` | `static` draws animated image paints with their still first frame, so painted names stop redrawing many times a second while chat is quiet. Gradient paints are unchanged. Needs `paints`. |
 | `stv_lookup` | `1` | bool | Look up 7TV paints and badges for chatters who don't run a 7TV client (see notes). |
 | `readable` | `1` | bool | Lighten dark name colors so they stay readable on stream. |
+| `readable_level` | `45` | `30`–`70` | How light `readable` makes a dark name: the contrast with black it aims for, times 10 (`45` is 4.5:1, `70` is 7:1; a number under `30`, such as `4.5`, is read as the ratio itself). It lightens in steps, so nearby values often give the same color. `name_color` and `name_fallback` are left as picked. Needs `readable=1`; not used while `name_color` is set. |
 | `demo` | `0` | bool | Show looping sample messages instead of live chat. The builder preview uses this. |
 | `debug` | `0` | bool | Show a status line with each provider's load state, and log to the console. |
 
@@ -155,6 +162,7 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `#chat.has-maxw` | a cap on the width of a message (`line_width` above 0) |
 | `#chat.edge-fade` | old messages fading out toward the edge they leave by (`edge_fade` above 0) |
 | `#chat.sep-dot`, `#chat.sep-bar`, `#chat.sep-diamond` | a mark between messages (`row_sep`; the horizontal layout only) |
+| `#chat.has-name-font` | names in a font of their own (`name_font` set); the font is the `--name-font` variable |
 | `.lines` | the box that holds the messages |
 | `.line` | one message |
 | `.line.notice` | a sub, raid or other notice |
@@ -167,13 +175,14 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `.line.mirrored` | a message from another channel during Shared Chat |
 | `.line.emote-only` | a message of emotes alone, drawn bigger (`emote_only=big` or `huge`; the vertical layout only) |
 | `.reply` | reply header |
+| `.time` | when the message was sent (`timestamps=12h` or `24h`), before its badges |
 | `.badges`, `.badge` | badge container and badge images |
 | `.badge.platform` | the Twitch or Kick icon at the start of a line |
 | `.badge.icon` | a built-in badge drawn as SVG (the platform icons and Kick's role badges) |
 | `.badge.colored` | an FFZ or FFZ:AP badge drawn on its own background color |
 | `.badge.avatar` | the channel's avatar on a Shared Chat message |
 | `.name` | username |
-| `.colon` | the `: ` between the name and the message (a space after a `/me` name) |
+| `.colon` | the `: ` between the name and the message, or what `name_sep` puts there (a space after a `/me` name) |
 | `.message` | message text |
 | `.emote-stack` | one emote, with any zero-width emotes stacked on it |
 | `.emote` | emote images |
@@ -207,7 +216,7 @@ These options set a variable on `#chat`, and only while they are changed, so Cus
 | `--badge-h` | `badge_size` | `1em` |
 | `--gif-mul` | `gif_size` | `3` (GIF height in emote heights; the horizontal layout keeps GIFs at emote height) |
 
-`line_width` sets the cap as `--line-max` (in em) and, for notices, whose em is their own smaller text, as `--line-max-n`; `edge_fade` sets the length of the fade as `--edge-fade`. Both work only with their class (`#chat.has-maxw`, `#chat.edge-fade`), which the option sets.
+`line_width` sets the cap as `--line-max` (in em) and, for notices, whose em is their own smaller text, as `--line-max-n`; `edge_fade` sets the length of the fade as `--edge-fade`; `name_font` sets the names' font as `--name-font`. Each works only with its class (`#chat.has-maxw`, `#chat.edge-fade`, `#chat.has-name-font`), which the option sets.
 
 `emote_only` sets how many times as tall an emote-only line draws its emotes as `--eo` (`2` or `3`), which works only on `.line.emote-only`. `gif_size=1x` also sets a GIF's margins as `--gif-margin` (an emote's `-.3em .05em`; `.1em 0` otherwise). `text_px` sets `font-size` on `#chat` itself, so while it is set it wins over Custom CSS such as `#chat { font-size: 28px; }`.
 

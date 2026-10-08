@@ -433,13 +433,15 @@
     });
     return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
   }
-  // Lighten dark name colors until they read well over dark/busy video (WCAG contrast vs black >= 4.5).
-  function readableColor(hex) {
+  // Lighten dark name colors until they read well over dark/busy video (WCAG contrast vs black >= target, 4.5
+  // when left out: readable_level / 10).
+  function readableColor(hex, target) {
+    var want = target > 0 ? target : 4.5;
     var rgb = parseHex(hex);
     if (!rgb) return hex;
     for (var i = 0; i < 8; i++) {
       var contrast = (luminance(rgb) + 0.05) / 0.05;
-      if (contrast >= 4.5) break;
+      if (contrast >= want) break;
       rgb = rgb.map(function (c) { return c + (255 - c) * 0.12; });
     }
     return toHex(rgb);

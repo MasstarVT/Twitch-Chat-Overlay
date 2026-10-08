@@ -12,6 +12,8 @@
   // type: channel | kick | room | enum | int | bool | font | list | color
   // color: a hex color stored as bare lowercase rrggbb ('' = the overlay's built-in color).
   // int lowest: 0 is off, and the smallest value that does anything else is lowest (1..lowest-1 is raised to it).
+  // int scale: the value is a ratio times scale, and a number under min is the ratio itself (readable_level 4.5 is 45).
+  // font empty: '' is a value too (name_font: the same font as `font`).
   var SPEC = {
     channel: { type: 'channel', def: '' },
     kick: { type: 'kick', def: '' },
@@ -32,6 +34,10 @@
     names: { type: 'bool', def: true },
     name_weight: { type: 'enum', values: WEIGHTS.slice(), def: 'heavy' },
     name_line: { type: 'bool', def: false },
+    name_font: { type: 'font', empty: true, def: '' },
+    name_color: { type: 'color', def: '' },
+    name_fallback: { type: 'color', def: '' },
+    name_sep: { type: 'enum', values: ['colon', 'space', 'dash', 'arrow'], def: 'colon' },
     bg: { type: 'int', min: 0, max: 100, def: 0 },
     bg_color: { type: 'color', def: '' },
     accent_bar: { type: 'bool', def: false },
@@ -55,10 +61,12 @@
     notice_color: { type: 'color', def: '' },
     notice_size: { type: 'int', min: 50, max: 150, def: 85 },
     replies: { type: 'bool', def: true },
+    reply_style: { type: 'enum', values: ['full', 'name'], def: 'full' },
     first_msg: { type: 'bool', def: false },
     first_msg_color: { type: 'color', def: '' },
     history: { type: 'int', min: 0, max: 100, def: 5 },
     shared: { type: 'bool', def: true },
+    timestamps: { type: 'enum', values: ['off', '12h', '24h'], def: 'off' },
     gifs: { type: 'bool', def: true },
     gif_size: { type: 'enum', values: ['1x', '2x', '3x'], def: '3x' },
     emotes_7tv: { type: 'bool', def: true },
@@ -82,6 +90,8 @@
     paint_images: { type: 'enum', values: ['animated', 'static'], def: 'animated' },
     stv_lookup: { type: 'bool', def: true },
     readable: { type: 'bool', def: true },
+    // The contrast readable lightens dark names to, times 10 (45 = 4.5:1, util.readableColor's own target).
+    readable_level: { type: 'int', min: 30, max: 70, def: 45, scale: 10 },
     demo: { type: 'bool', def: false },
     debug: { type: 'bool', def: false }
   };
@@ -97,7 +107,8 @@
     'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width', 'spacing', 'notice_color', 'notice_size',
     'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color', 'accent_bar', 'paint_images',
     'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale', 'emote_only',
-    'gif_size', 'giant_emotes'];
+    'gif_size', 'giant_emotes', 'name_font', 'name_color', 'name_fallback', 'name_sep', 'readable_level', 'timestamps',
+    'reply_style'];
 
   // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
   // them), in their canonical spelling.
@@ -203,9 +214,12 @@
         return spec.values.indexOf(e) >= 0 ? e : undefined;
       }
       case 'int': {
-        if (typeof v === 'string' && !/^\s*-?\d+\s*$/.test(v)) return undefined;
-        var n = typeof v === 'number' ? Math.round(v) : parseInt(v, 10);
+        // scale: a decimal is a value too, so 4.5 (in settings.js) and '4.5' (in a URL) are readable_level 45.
+        if (typeof v === 'string' && !(spec.scale ? /^\s*-?\d+(?:\.\d+)?\s*$/ : /^\s*-?\d+\s*$/).test(v)) return undefined;
+        var n = typeof v === 'number' || (spec.scale && typeof v === 'string') ? Number(v) : parseInt(v, 10);
         if (!isFinite(n)) return undefined;
+        if (spec.scale && n < spec.min) n *= spec.scale;
+        n = Math.round(n);
         n = Math.max(spec.min, Math.min(spec.max, n));
         // lowest: 1..lowest-1 is raised to it (a 3em line_width would wrap a column almost letter by letter, and the
         // overlay draws text_px at 8 px at least, so the URL says what is drawn).
@@ -215,6 +229,9 @@
         return parseBool(v);
       case 'font': {
         var f = String(v).trim().replace(/\s+/g, ' ');
+        // empty: '' is valid (name_font's "same as font"), so an empty ?name_font= clears settings.js and the
+        // builder's cleared field reaches a live preview.
+        if (f === '' && spec.empty && tv === 'string') return '';
         return /^[A-Za-z0-9][A-Za-z0-9 \-]{0,59}$/.test(f) ? f : undefined;
       }
       // A hex color, '#' optional, 3 or 6 digits ('F80' -> 'ff8800'). '' is valid (the built-in color), so an

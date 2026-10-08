@@ -216,13 +216,18 @@ const PREREQ = {
   size: { text_px: 0 },
   emote_only: { layout: 'vertical' },
   gif_size: { gifs: true, layout: 'vertical' },
-  giant_emotes: { layout: 'vertical' }
+  giant_emotes: { layout: 'vertical' },
+  name_fallback: { name_color: '' },
+  name_sep: { names: true },
+  readable_level: { readable: true },
+  reply_style: { replies: true }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 
 // flip()'s value, except where that changes nothing on the transcript: max 51 caps nothing, nobody in it is
-// called "someone", and badges and emotes 1% bigger still come from the same files.
-const SHOWS = { max: 5, block: ['waver'], badge_size: 200, emote_scale: 150 };
+// called "someone", badges and emotes 1% bigger still come from the same files, and a contrast of 4.6 lightens
+// most names no further than 4.5 does (7:1 lightens every dark one).
+const SHOWS = { max: 5, block: ['waver'], badge_size: 200, emote_scale: 150, readable_level: 70 };
 function changed(cfg, k) {
   if (!own(SHOWS, k)) return flip(cfg, k);
   const c = Object.assign({}, cfg);
@@ -271,6 +276,26 @@ test('(e) every key the renderer handles changes what is drawn (a key listed but
       if (R.RERENDER_KEYS.indexOf(k) >= 0) assert.notDeepStrictEqual(b.lines, a.lines, k + ' changes a line');
       assert.notDeepStrictEqual(b, a, k + ' changes what is drawn');
     });
+  });
+});
+
+// The name colors on the whole transcript (overlay.js nameFor, Twitch and Kick): 1.5.2's at the defaults (the intake
+// fixture pins them too), name_fallback only where a chatter has no color, name_color everywhere.
+test('(e) the name colors: name_fallback reaches only the colorless chatters, name_color every name, both as picked', async () => {
+  await inWorld((w) => {
+    const util = globalThis.TCO.util;
+    const chats = w.msgs.filter((m) => m.kind === 'chat');
+    const colorOf = (over, m) => { w.S.cfg = Object.assign({}, w.cfg0, over); return w.deps.nameFor(m).color; };
+    const plain = chats.filter((m) => !m.color);
+    assert.ok(plain.some((m) => m.platform === 'kick') && plain.some((m) => m.platform !== 'kick'), 'colorless Twitch and Kick chatters');
+    chats.forEach((m) => {
+      const today = util.readableColor(m.color || util.defaultColor(m.userId, m.login));
+      assert.strictEqual(colorOf({}, m), today, m.id);
+      assert.strictEqual(colorOf({ readable_level: 45 }, m), today);
+      assert.strictEqual(colorOf({ name_fallback: '000033' }, m), m.color ? today : '#000033', m.id);
+      assert.strictEqual(colorOf({ name_color: '000033', readable_level: 70 }, m), '#000033', m.id);
+    });
+    w.S.cfg = w.cfg0;
   });
 });
 

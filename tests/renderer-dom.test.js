@@ -863,7 +863,8 @@ test('overlay.css: the layout rules (stage 4) stay off by default, in their own 
   assert.ok(seps.length >= 5);
   seps.forEach((s) => s.split(/,\s*(?=:where)/).forEach((one) => {
     assert.match(one, /^:where\(\.layout-horizontal(?:\)|\.|:not\(\.has-bg\)\))/, one);
-    assert.match(one, / \.line \+ \.line > (?:\.reply \+ \*::before|:first-child:not\(\.reply\)::before|\.badges:empty)$/, one);
+    // (.time: a time that carries the mark, stage 6.)
+    assert.match(one, / \.line \+ \.line > (?:\.reply \+ \*::before|:first-child:not\(\.reply\)::before|\.badges:empty|\.reply \+ \.time::before|\.time:first-child::before)$/, one);
   }));
   assert.doesNotMatch(css, /\.line::before|\.line \+ \.line::before/);
   [['sep-dot', '\'\\2022\''], ['sep-bar', '\'|\''], ['sep-diamond', '\'\\25C6\'']].forEach(([c, glyph]) =>
@@ -1004,4 +1005,158 @@ test('overlay.css: the size rules keep today\'s values as fallbacks and stay ove
   assert.match(css, /\n\.cheer-img \{\n  height: var\(--emote-h, 1\.75em\);/);
   // No new rule starts with #chat.
   ['emote-only', '--badge-h', '--gif-mul', '--eo'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
+});
+
+// ---------- names, timestamps and the reply header (stage 6) ----------
+
+// Each child of a line as 'tag.class' (text nodes as their text), and the line's text.
+function shape(line) {
+  return line.childNodes.map((n) => (n.nodeType === 1 ? n.tagName.toLowerCase() + '.' + n.className : JSON.stringify(n.textContent)));
+}
+
+test('timestamps: a .time span after the reply header and before the badges, before a notice\'s text; gone again when off', (t) => {
+  const ts = new Date(2026, 0, 1, 15, 7).getTime();
+  const s = setup(t, { timestamps: '24h' }, {
+    badgesFor: (m) => [{ provider: 'platform', icon: 'twitch', title: 'Twitch' }],
+    nameFor: (m) => ({ text: m.displayName, color: '#1E90FF' })
+  });
+  const parent = chat('amy', 'first', { ts: ts });
+  s.r.push(parent);
+  s.r.push(replyTo(parent, 'bob', 'answer'));
+  s.r.push(resub('cy', 'still here', { ts: ts }));
+  s.r.push(resub('dee', 'no notice text', { ts: ts, systemMsg: '' }));
+  s.r.push(chat('ed', 'no ts'));
+  s.r.flush();
+  const lines = s.lines();
+  assert.deepStrictEqual(shape(lines[0]), ['span.time', 'span.badges', 'span.name', 'span.colon', 'span.message']);
+  assert.strictEqual(lines[0].byClass('time')[0].textContent, '15:07');
+  // The reply line has no ts of its own here: the header, then no time.
+  assert.deepStrictEqual(shape(lines[1]), ['div.reply', 'span.badges', 'span.name', 'span.colon', 'span.message']);
+  // A notice: its time, its platform icon, its text; the user's own line under it shows none.
+  assert.deepStrictEqual(shape(lines[2]), ['span.time', 'span.badges', 'span.message']);
+  assert.strictEqual(lines[2].className, 'line notice');
+  assert.deepStrictEqual(shape(lines[3]), ['span.badges', 'span.name', 'span.colon', 'span.message']);
+  // A notice with no text of its own isn't drawn, so the user's line carries the time.
+  assert.deepStrictEqual(shape(lines[4]).slice(0, 2), ['span.time', 'span.badges']);
+  assert.deepStrictEqual(shape(lines[5])[0], 'span.badges', 'no ts: no time, never the time now');
+  const withTime = s.lines().map((l) => l.byClass('time').length);
+  s.r.setConfig({ timestamps: '12h' });
+  assert.strictEqual(lines[0].byClass('time')[0].textContent, '3:07');
+  assert.deepStrictEqual(s.lines().map((l) => l.byClass('time').length), withTime);
+  s.r.setConfig({});
+  assert.deepStrictEqual(s.lines().map((l) => l.byClass('time').length), [0, 0, 0, 0, 0, 0]);
+  // A reply with its own ts: the time after the header.
+  s.r.setConfig({ timestamps: '24h' });
+  s.r.push(chat('fay', 'x', { ts: ts, reply: { id: parent.id, userId: parent.userId, login: 'amy', name: 'amy', body: 'first' } }));
+  s.r.flush();
+  assert.deepStrictEqual(shape(s.lines()[s.lines().length - 1]), ['div.reply', 'span.time', 'span.badges', 'span.name', 'span.colon', 'span.message']);
+});
+
+test('timestamps: a resub\'s own line takes the time once its notice is swept (events off live), and keeps it', (t) => {
+  const ts = new Date(2026, 0, 1, 15, 7).getTime();
+  let events = true;
+  const s = setup(t, { timestamps: '24h' }, { shouldShow: (m) => events || (m.kind !== 'notice' && !m.announcement) });
+  s.r.push(resub('cy', 'six months', { ts: ts }));
+  s.r.push(chat('amy', 'hi', { ts: ts }));
+  s.r.flush();
+  const times = () => s.lines().map((l) => (l.byClass('time')[0] || { textContent: '' }).textContent);
+  assert.deepStrictEqual(times(), ['15:07', '', '15:07'], 'the notice carries it');
+  const own = s.lines()[1];
+  events = false;
+  s.r.setConfig({ timestamps: '24h', events: false });
+  assert.deepStrictEqual([s.lines().length, s.lines()[0], times()], [2, own, ['15:07', '15:07']]);
+  // Back on: the swept notice doesn't return, so the line keeps the time, through any later rebuild.
+  events = true;
+  s.r.setConfig({ timestamps: '24h' });
+  s.r.setConfig({ timestamps: '24h', name_sep: 'dash' });
+  assert.deepStrictEqual(times(), ['15:07', '15:07']);
+  // Timestamps off and on again: the same.
+  s.r.setConfig({});
+  s.r.setConfig({ timestamps: '12h' });
+  assert.deepStrictEqual(times(), ['3:07', '3:07']);
+  // A notice that is still drawn keeps its line's time to itself, after a rebuild too.
+  s.r.push(resub('dee', 'one year', { ts: ts }));
+  s.r.flush();
+  s.r.setConfig({ timestamps: '24h' });
+  assert.deepStrictEqual(times(), ['15:07', '15:07', '15:07', '']);
+});
+
+test('reply_style=name: "↪ @user" alone, live; an empty quoted message still reads "↪ @user: " in full', (t) => {
+  const s = setup(t, {});
+  const parent = chat('amy', 'the question');
+  s.r.push(parent);
+  s.r.push(replyTo(parent, 'bob', 'the answer'));
+  s.r.push(chat('cy', 'empty', { reply: { id: 'p0', login: 'dee', name: 'dee', body: '' } }));
+  s.r.flush();
+  assert.deepStrictEqual(s.lines().map(replyText), [null, '↪ @amy: the question', '↪ @dee: ']);
+  const header = s.lines()[1].byClass('reply')[0];
+  assert.deepStrictEqual(shape(header), ['"↪ "', 'span.reply-name', '": "', 'span.reply-body']);
+  s.r.setConfig({ reply_style: 'name' });
+  assert.deepStrictEqual(s.lines().map(replyText), [null, '↪ @amy', '↪ @dee']);
+  assert.deepStrictEqual(shape(s.lines()[1].byClass('reply')[0]), ['"↪ "', 'span.reply-name']);
+  s.r.setConfig({ reply_style: 'name', replies: false });
+  assert.deepStrictEqual(s.lines().map(replyText), [null, null, null]);
+  s.r.setConfig({});
+  assert.deepStrictEqual(s.lines().map(replyText), [null, '↪ @amy: the question', '↪ @dee: ']);
+});
+
+test('name_sep: the fixed text between name and message, live; /me keeps its space', (t) => {
+  const s = setup(t, {}, { tokensFor: (m) => ({ items: [{ type: 'text', text: m.text, sp: false }], action: m.login === 'me' }) });
+  s.r.push(chat('amy', 'hi'));
+  s.r.push(chat('me', 'waves'));
+  s.r.flush();
+  const colons = () => s.lines().map((l) => l.byClass('colon')[0].textContent);
+  assert.deepStrictEqual(colons(), [': ', ' ']);
+  [['space', ' '], ['dash', ' – '], ['arrow', ' › '], ['colon', ': ']].forEach(([k, v]) => {
+    s.r.setConfig({ name_sep: k });
+    assert.deepStrictEqual(colons(), [v, ' '], k);
+  });
+  assert.strictEqual(s.lines()[0].textContent, 'amy: hi');
+});
+
+test('name_font: a class and --name-font on #chat only while set; the lines never change', (t) => {
+  const s = setup(t, {});
+  s.r.push(chat('amy', 'hi'));
+  s.r.flush();
+  const before = JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  s.r.setConfig({ name_font: 'Press Start 2P' });
+  assert.deepStrictEqual(rootExtras(s), { cls: ['has-name-font'], style: { '--name-font': '"Press Start 2P"' } });
+  s.r.setConfig({ name_font: 'monospace', font: 'Roboto' });
+  assert.deepStrictEqual(rootExtras(s), { cls: ['has-name-font'], style: { '--name-font': 'monospace' } });
+  assert.strictEqual(s.root.style['--font'], '"Roboto"');
+  s.r.setConfig({ name_font: 'Bad"; } x{', font: 'Roboto' });
+  assert.strictEqual(s.root.style['--name-font'], '"Bad x"', 'only letters, digits, spaces and dashes reach the value');
+  [{}, { name_font: '' }, { name_font: 5 }].forEach((c) => {
+    s.r.setConfig(c);
+    assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} }, JSON.stringify(c));
+  });
+  assert.strictEqual(JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent])), before);
+});
+
+test('overlay.css: the stage-6 rules (name font, timestamps) are scoped and stay off by default', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8')
+    .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  const selectors = Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim());
+  // name_font: only under .has-name-font, never a bare .reply-name (a comma that loses the scope would reach every
+  // reply header), and the message font after it as the fallback.
+  const fonts = Array.from(css.matchAll(/([^{}]+)\{[^}]*font-family:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]);
+  assert.deepStrictEqual(fonts, [
+    ['#chat', 'var(--font, \'Inter\'), \'Inter\', \'Segoe UI\', Roboto, Arial, sans-serif'],
+    [':where(.has-name-font) .name,\n:where(.has-name-font) .reply-name',
+      'var(--name-font), var(--font, \'Inter\'), \'Inter\', \'Segoe UI\', Roboto, Arial, sans-serif']
+  ]);
+  selectors.filter((s) => /--name-font|has-name-font/.test(s)).forEach((sel) =>
+    sel.split(',').forEach((one) => assert.match(one.trim(), /^:where\(\.has-name-font\) \.(?:name|reply-name)$/, one)));
+  // timestamps: .time only, which nothing draws while they are off.
+  assert.match(css, /\n\.time \{\n  opacity: \.7;\n  font-size: \.8em;\n  margin-right: \.35em;\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;\n\}/);
+  // With row_sep, a line's .time carries the mark between messages: the mark (only it) undoes .time's smaller,
+  // fainter text, so it is as tall, as faint and as far from the message as without timestamps.
+  const sepPre = ':where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) .line + .line > ';
+  assert.deepStrictEqual(selectors.filter((s) => /\.time\b/.test(s)),
+    ['.time', sepPre + '.reply + .time::before,\n' + sepPre + '.time:first-child::before']);
+  assert.match(css, /\.time:first-child::before \{\n  font-size: 1\.25em;\n  opacity: \.857;\n\}/);
+  // It comes after the mark's own rules, which it beats (or ties) on specificity.
+  assert.ok(css.indexOf('.time:first-child::before') > css.indexOf(':first-child:not(.reply)::before { content: \'\\25C6\'; }'));
+  ['has-name-font', '\\.time'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
 });

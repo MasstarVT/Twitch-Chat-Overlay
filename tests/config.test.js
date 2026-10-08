@@ -10,15 +10,16 @@ describe('spec', () => {
       channel: '', kick: '', kick_room: '', platform_icons: true, size: 'medium', text_px: 0, font: 'Inter',
       text_weight: 'semibold', text_color: '', line_height: 135, text_case: 'none', shadow: 2,
       shadow_color: '', shadow_style: 'filter', outline: 0, outline_color: '',
-      names: true, name_weight: 'heavy', name_line: false,
+      names: true, name_weight: 'heavy', name_line: false, name_font: '', name_color: '', name_fallback: '', name_sep: 'colon',
       bg: 0, bg_color: '', accent_bar: false, bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom',
       text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
-      events: true, notice_color: '', notice_size: 85, replies: true, first_msg: false, first_msg_color: '', history: 5, shared: true, gifs: true,
+      events: true, notice_color: '', notice_size: 85, replies: true, reply_style: 'full', first_msg: false, first_msg_color: '',
+      history: 5, shared: true, timestamps: 'off', gifs: true,
       gif_size: '3x', emotes_7tv: true, emotes_bttv: true, emotes_ffz: true, emote_scale: 100, emote_only: 'normal', giant_emotes: true,
       badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
       badges_ffzap: true, badges_chatterino: true, badges_homies: true, homies_lists: 'all', badge_size: 100,
-      paints: true, paint_images: 'animated', stv_lookup: true, readable: true, demo: false, debug: false
+      paints: true, paint_images: 'animated', stv_lookup: true, readable: true, readable_level: 45, demo: false, debug: false
     });
     assert.deepEqual(config.KEYS, Object.keys(config.SPEC));
   });
@@ -186,6 +187,53 @@ describe('coerce', () => {
     ['Roboto;}body{', "Font'x", 'a"b', '-dash', 'a'.repeat(61), '', 'x<y'].forEach((v) => {
       assert.equal(config.coerce('font', v), undefined, JSON.stringify(v));
     });
+  });
+
+  test('name_font: a font name, or empty for the same font as `font` (font itself never takes empty)', () => {
+    assert.strictEqual(config.SPEC.name_font.empty, true);
+    assert.ok(!config.SPEC.font.empty);
+    assert.equal(config.coerce('name_font', '  Press   Start 2P '), 'Press Start 2P');
+    assert.equal(config.coerce('name_font', ''), '', 'same as font');
+    assert.equal(config.coerce('name_font', '   '), '');
+    assert.equal(config.coerce('font', ''), undefined);
+    ['Roboto;}body{', 'a"b', '-dash', 'a'.repeat(61), 'x<y'].forEach((v) =>
+      assert.equal(config.coerce('name_font', v), undefined, JSON.stringify(v)));
+    // An empty one clears settings.js; an invalid one keeps it; at its default it is never written.
+    assert.equal(config.parse('name_font=', { name_font: 'Bangers' }).name_font, '');
+    assert.equal(config.parse('name_font=bad%3B', { name_font: 'Bangers' }).name_font, 'Bangers');
+    assert.equal(config.toParams(config.defaults()).toString(), '');
+    assert.equal(config.toParams(Object.assign(config.defaults(), { name_font: 'Open Sans' })).toString(), 'name_font=Open+Sans');
+    assert.deepEqual(config.toObject(Object.assign(config.defaults(), { name_font: 'Bangers' })), { name_font: 'Bangers' });
+  });
+
+  test('names, timestamps and the reply header: their choices', () => {
+    assert.deepEqual(config.SPEC.name_sep.values, ['colon', 'space', 'dash', 'arrow']);
+    assert.equal(config.coerce('name_sep', 'Arrow'), 'arrow');
+    assert.equal(config.coerce('name_sep', 'none'), undefined, 'space, never nothing');
+    assert.deepEqual(config.SPEC.timestamps.values, ['off', '12h', '24h']);
+    assert.equal(config.coerce('timestamps', '24H'), '24h');
+    assert.equal(config.coerce('timestamps', 'on'), undefined);
+    assert.deepEqual(config.SPEC.reply_style.values, ['full', 'name']);
+    assert.equal(config.coerce('reply_style', 'NAME'), 'name');
+    // readable_level: the contrast times 10, from 3:1 to 7:1. A number under 30 is the ratio itself, so 4.5 written
+    // in settings.js or a URL is 45 (not 5, clamped to 3:1); 30 to 70 are the setting's own values.
+    assert.equal(config.SPEC.readable_level.scale, 10);
+    assert.deepEqual([45, '30', 71, '70', 30.4, '45.6'].map((v) => config.coerce('readable_level', v)), [45, 30, 70, 70, 30, 46]);
+    assert.deepEqual([4.5, '4.5', ' 6.1 ', 5, '3', 2.9, 0, '0.5', 8, '21', -4].map((v) => config.coerce('readable_level', v)),
+      [45, 45, 61, 50, 30, 30, 30, 30, 70, 70, 30]);
+    ['4,5', '4.', '.5', '4.5:1', '1e1', 'x', ''].forEach((v) => assert.equal(config.coerce('readable_level', v), undefined, v));
+    [true, null, NaN, Infinity].forEach((v) => assert.equal(config.coerce('readable_level', v), undefined, String(v)));
+    assert.equal(config.parse('readable_level=4.5').readable_level, 45);
+    assert.equal(config.parse('readable_level=6.5').readable_level, 65);
+    // Only readable_level has a scale: every other int still takes whole numbers only.
+    assert.deepEqual(config.KEYS.filter((k) => config.SPEC[k].scale !== undefined), ['readable_level']);
+    assert.equal(config.coerce('bg', '4.5'), undefined);
+    assert.equal(config.coerce('bg', 4.5), 5);
+    assert.equal(config.coerce('name_color', '#F80'), 'ff8800');
+    assert.equal(config.coerce('name_fallback', 'red'), undefined);
+    assert.equal(config.toParams(Object.assign(config.defaults(), { name_sep: 'dash', timestamps: '12h', reply_style: 'name',
+      readable_level: 60, name_color: 'ff8800', name_fallback: 'abcdef' })).toString(),
+    'name_color=ff8800&name_fallback=abcdef&name_sep=dash&reply_style=name&timestamps=12h&readable_level=60');
   });
 
   test('color: hex, # optional, 3 or 6 digits, stored as bare lowercase rrggbb; empty is the built-in color', () => {
