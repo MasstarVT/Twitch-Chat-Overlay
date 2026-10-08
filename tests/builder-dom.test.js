@@ -336,6 +336,137 @@ test('Kick field: Check fills in the chatroom id; when Kick refuses, it links th
   assert.match(p.text('bar-url'), /kick=someone_else&kick_room=4598$/);
 });
 
+// kick.com's channel API for a few names; with `held` a lookup waits until the test lets it go (release).
+function kickApi(t) {
+  const rooms = { xqc: 668, other: 999, xqcow: 4598 };
+  const api = { calls: [], held: false, waiting: [] };
+  api.release = () => { api.waiting.splice(0).forEach((go) => go()); };
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    api.calls.push(url);
+    if (api.held) await new Promise((go) => api.waiting.push(go));
+    const slug = url.split('/').pop(), id = rooms[slug];
+    const txt = JSON.stringify(id ? { slug, user_id: 1, chatroom: { id }, user: { username: slug } } : {});
+    return { status: id ? 200 : 404, ok: !!id, headers: { get: () => null }, text: async () => txt };
+  });
+  return api;
+}
+const kickLookup = (slug) => 'https://kick.com/api/v2/channels/' + slug;
+
+test('Kick field: a new name typed with a pause in it still drops the old chatroom id and looks the new one up', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF + '?kick=xqc&kick_room=668');
+  await settle();
+  assert.deepStrictEqual(api.calls, [], 'a link with the chatroom id looks nothing up');
+  const input = p.$('f-kick'), room = p.$('f-kick_room');
+  // A pause of more than 600 ms commits what is typed (commitText(false)); leaving the field then is the change.
+  input.value = 'other';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  input.dispatch('change');
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('other')]);
+  assert.strictEqual(room.value, '999');
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=other&kick_room=999$/);
+  // Leaving it again with nothing new typed looks nothing up.
+  input.dispatch('change');
+  await settle();
+  assert.strictEqual(api.calls.length, 1);
+});
+
+test('Kick field: a first name typed with a pause in it is looked up when the field is left', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF);
+  const input = p.$('f-kick'), room = p.$('f-kick_room');
+  input.value = 'xqc';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  input.dispatch('change');
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc')]);
+  assert.strictEqual(room.value, '668');
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=xqc&kick_room=668$/);
+  assert.doesNotMatch(p.text('bar-note'), /chatroom id is missing/);
+});
+
+test('Kick field: a chatroom id typed in before the first channel stays when the channel is typed, with a pause too', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF);
+  const input = p.$('f-kick'), room = p.$('f-kick_room');
+  room.value = '4598';
+  room.dispatch('change');
+  input.value = 'xqcow';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  input.dispatch('change');
+  await settle();
+  assert.deepStrictEqual(api.calls, []);
+  assert.strictEqual(room.value, '4598');
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=xqcow&kick_room=4598$/);
+});
+
+test('Kick field: a lookup still out when another name is typed never fills in its id under the new name', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF);
+  const input = p.$('f-kick'), room = p.$('f-kick_room');
+  const status = p.$('f-kick').parentNode.parentNode.parentNode.children.filter((e) => e.getAttribute('role') === 'status')[0];
+  api.held = true;
+  input.value = 'xqc';
+  input.dispatch('change');
+  await settle();
+  assert.strictEqual(status.className, 'status busy');
+  // Typed over while kick.com is still answering: once the pause commits the new name, xqc's answer is dropped.
+  input.value = 'xqcow';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  assert.deepStrictEqual([status.className, status.textContent], ['status', '']);
+  api.release();
+  await settle();
+  assert.strictEqual(room.value, '', 'xqc\'s chatroom id is not filled in under xqcow');
+  assert.doesNotMatch(p.text('bar-url'), /kick_room/);
+  // Leaving the field looks the new name up.
+  api.held = false;
+  input.dispatch('change');
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc'), kickLookup('xqcow')]);
+  assert.strictEqual(room.value, '4598');
+  // The old name typed back while its lookup is out: that lookup is dropped and done again when the field is left.
+  api.held = true;
+  input.value = 'xqc';
+  input.dispatch('change');
+  await settle();
+  input.value = 'xq';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  input.value = 'xqc';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  api.release();
+  await settle();
+  assert.strictEqual(room.value, '');
+  api.held = false;
+  input.dispatch('change');
+  await settle();
+  assert.deepStrictEqual(api.calls.slice(2), [kickLookup('xqc'), kickLookup('xqc')]);
+  assert.strictEqual(room.value, '668');
+  assert.strictEqual(status.className, 'status ok');
+});
+
+test('builder.html?kick=other over a remembered Kick channel looks the new one up, not the remembered chatroom id', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const storage = memoryStorage();
+  storage.setItem('tco-builder-cfg', JSON.stringify({ kick: 'xqc', kick_room: '668', bg: 50 }));
+  const p = open(t, HREF + '?kick=other', { storage });
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('other')]);
+  assert.deepStrictEqual([p.$('f-kick').value, p.$('f-kick_room').value], ['other', '999']);
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=other&kick_room=999&bg=50$/);
+});
+
 // A field's row, from its label (label < .field-name < .field-head < .field).
 const rowOf = (p, key) => p.$('l-' + key).parentNode.parentNode.parentNode;
 
@@ -939,6 +1070,64 @@ test('Name contrast reads 4.5:1 and steps by 0.5; typed as 6.1 or 6.1:1; greyed 
   rd.dispatch('change');
   assert.deepStrictEqual([rowOf(p, 'readable_level').classList.contains('disabled'), rl.disabled, more.disabled], [true, true, true]);
   assert.match(p.$('h-readable_level').textContent, /Brighten dark name colors \(Badges & paints\)/);
+});
+
+test('Name contrast at either end: an arrow key stays there, and a ratio typed past it is that end', (t) => {
+  const p = open(t, HREF);
+  const rl = p.$('f-readable_level');
+  rl.select = () => {};
+  const key = (k) => rl.dispatch('keydown', { key: k, preventDefault() {} });
+  rl.dispatch('focus');
+  rl.value = '3';
+  key('Enter');
+  assert.deepStrictEqual([rl.value, p.text('bar-url')], ['3.0', OVERLAY + '?readable_level=30']);
+  // 3.0:1 is the lowest: ArrowDown keeps it (29 would read as 29:1, so 7.0:1).
+  key('ArrowDown');
+  assert.deepStrictEqual([rl.value, p.text('bar-url')], ['3.0', OVERLAY + '?readable_level=30']);
+  key('ArrowUp');
+  assert.deepStrictEqual([rl.value, p.text('bar-url')], ['3.1', OVERLAY + '?readable_level=31']);
+  rl.value = '7';
+  key('Enter');
+  key('ArrowUp');
+  assert.deepStrictEqual([rl.value, p.text('bar-url')], ['7.0', OVERLAY + '?readable_level=70']);
+  key('ArrowDown');
+  assert.strictEqual(rl.value, '6.9');
+  // Typed with its ':1', a ratio under 3:1 is 3.0:1.
+  rl.value = '2.9:1';
+  rl.dispatch('blur');
+  assert.deepStrictEqual([rl.value, p.text('bar-url')], ['3.0:1', OVERLAY + '?readable_level=30']);
+});
+
+test('a words field says how many phrases were left out past 50, or over 40 characters', (t) => {
+  const p = open(t, HREF);
+  const bw = p.$('f-block_words');
+  const note = rowOf(p, 'block_words').children.filter((e) => e.tagName === 'P' && e.classList.contains('warn'))[0];
+  assert.ok(note, 'the row has a line for it');
+  assert.strictEqual(note.textContent, '', 'empty (not shown) until something is left out');
+  const words = Array.from({ length: 55 }, (_, i) => 'slur' + i);
+  words.splice(10, 0, 'x'.repeat(41));
+  bw.value = words.join(', ');
+  bw.dispatch('change');
+  assert.strictEqual(bw.value.split(', ').length, 50);
+  assert.strictEqual(note.textContent, '6 phrases were left out: up to 50 are used, each up to 40 characters.');
+  t.mock.timers.tick(30);
+  assert.strictEqual(p.text('sr-status'), note.textContent, 'and said once for a screen reader');
+  // What is kept, left again, leaves nothing out.
+  bw.dispatch('change');
+  assert.strictEqual(note.textContent, '');
+  bw.value = 'gg, ' + 'y'.repeat(41);
+  bw.dispatch('change');
+  assert.deepStrictEqual([bw.value, note.textContent], ['gg', '1 phrase was left out: up to 50 are used, each up to 40 characters.']);
+  // Highlight words has the line too; a new config (here Reset's) takes it away with what it was about.
+  const hw = p.$('f-keywords');
+  const hnote = rowOf(p, 'keywords').children.filter((e) => e.tagName === 'P' && e.classList.contains('warn'))[0];
+  hw.value = 'hype, ' + 'z'.repeat(41);
+  hw.dispatch('change');
+  assert.match(hnote.textContent, /^1 phrase was left out/);
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([note.textContent, hnote.textContent, bw.value, hw.value], ['', '', '', '']);
+  // A list of names has no such line.
+  assert.deepStrictEqual(rowOf(p, 'block').children.filter((e) => e.tagName === 'P' && e.classList.contains('warn')), []);
 });
 
 test('the name colors, the separator, timestamps and the reply header: live, and greyed out while they can\'t apply', (t) => {

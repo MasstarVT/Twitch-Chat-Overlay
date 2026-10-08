@@ -284,6 +284,9 @@ test('Name contrast: a stepper over the ratio (45 shows 4.5:1), which reads the 
   // always the ratio.
   assert.deepStrictEqual(['4,5', '6,1:1', '30', '45', '50', '70', '21', '8', '45.5', '45:1', '30:1'].map((t) => builder.parseStep('readable_level', t)),
     [45, 61, 30, 45, 50, 70, 70, 70, 46, 70, 70]);
+  // A ratio under 3:1 is 3:1, the nearest end, as without the ':1' ('2'): 29 (2.9:1) isn't read again as 29:1.
+  assert.deepStrictEqual(['2.9:1', '2:1', '0.5:1', '0:1', '7.1:1'].map((t) => builder.parseStep('readable_level', t)),
+    [30, 30, 30, 30, 70]);
   assert.strictEqual(config.SPEC.readable_level.scale, m.scale, 'config reads the same ratio');
   for (let v = 30; v <= 70; v++) {
     assert.strictEqual(builder.parseStep('readable_level', builder.valueText('readable_level', v)), v);
@@ -770,6 +773,20 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   assert.strictEqual(builder.valueText('min_length', 5), '5');
   assert.match(builder.META.block_words.help, /Try overlay to see it in the preview/);
   assert.match(builder.META.block_words.help, /settings\.js/);
+  // The cap (config.coerce's words) is said where the list is typed, and holds in settings.js as well.
+  assert.match(builder.META.block_words.help, /Up to 50, each up to 40 characters; more are left out, in settings\.js too/);
+  assert.match(builder.META.keywords.help, /Up to 50, each up to 40 characters/);
+  // What the field says it left out: past the first 50, or over 40 characters; not a repeat, a case or an empty one.
+  const fifty = Array.from({ length: 55 }, (_, i) => 'w' + i);
+  const kept = config.coerce('block_words', fifty.join(','));
+  assert.strictEqual(kept.length, 50);
+  assert.strictEqual(builder.wordsLeftOut('block_words', fifty.join(', '), kept), 5);
+  assert.strictEqual(builder.wordsLeftOut('block_words', 'a, ' + 'x'.repeat(41) + ', b', ['a', 'b']), 1);
+  assert.strictEqual(builder.wordsLeftOut('keywords', 'GG, gg ,  , good  game,,', ['gg', 'good game']), 0);
+  assert.strictEqual(builder.wordsLeftOut('keywords', '', []), 0);
+  // The block list goes by name on both platforms (overlay.js shouldShow; kick.js sets a Kick line's login).
+  assert.match(builder.META.block.help, /Twitch and Kick alike/);
+  assert.doesNotMatch(builder.META.block.help, /Twitch usernames/);
   assert.match(builder.META.links.help, /a demo message has a link/);
   assert.match(builder.META.links.help, /never clickable/);
   assert.match(builder.META.min_length.help, /4 hides gg, o7 and LUL/);
@@ -1070,6 +1087,19 @@ test('startCfg: a ?channel= link keeps the remembered settings; a full link star
   // The overlay's hint links name the Twitch and Kick channels: that still keeps the remembered look.
   const k = builder.startCfg('?channel=a&kick=b&kick_room=1', stored);
   assert.deepStrictEqual([k.cfg.channel, k.cfg.kick, k.cfg.kick_room, k.cfg.size], ['a', 'b', '1', 'large']);
+  // A remembered chatroom id is the remembered Kick channel's: a link naming another channel without an id (the
+  // overlay's hint link) leaves it out, so the builder looks the new channel up. The same channel keeps it.
+  const kstored = { kick: 'xqc', kick_room: '668', bg: 50 };
+  const kick = (q) => { const s = builder.startCfg(q, kstored).cfg; return [s.kick, s.kick_room, s.bg]; };
+  assert.deepStrictEqual(kick('?kick=someone_else'), ['someone_else', '', 50]);
+  assert.deepStrictEqual(kick('?channel=a&kick=https://kick.com/Other'), ['other', '', 50]);
+  assert.deepStrictEqual(kick('?channel=a&kick=XQC'), ['xqc', '668', 50]);
+  assert.deepStrictEqual(kick('?channel=a'), ['xqc', '668', 50]);
+  assert.deepStrictEqual(kick('?kick=b&kick_room=9'), ['b', '9', 50]);
+  assert.deepStrictEqual(kick('?kick='), ['', '', 50]);
+  // An id remembered without a channel stays, as one typed in before the channel does (onKickChanged).
+  assert.strictEqual(builder.startCfg('?kick=b', { kick_room: '7' }).cfg.kick_room, '7');
+  assert.deepStrictEqual(kstored, { kick: 'xqc', kick_room: '668', bg: 50 }, 'the remembered config is left as it is');
   assert.strictEqual(builder.startCfg('?utm=1', null).fromStore, false);
   assert.deepStrictEqual(builder.startCfg('?utm=1', ['x']).cfg, config.defaults());
 });

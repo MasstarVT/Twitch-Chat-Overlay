@@ -181,9 +181,9 @@
     command_prefixes: { label: 'Command prefixes', placeholder: '!', when: commandsOn,
       bad: 'Use up to 8 of these signs, written together: ! $ % & * + - . / : ; = ? @ # ~ ^',
       help: 'The signs a command starts with, written together: !? hides both !points and ?points. Up to 8 of ! $ % & * + - . / : ; = ? @ # ~ ^. With @, a message that starts by naming someone is hidden too (a reply still shows). Needs Hide !commands (Filters).' },
-    block: { label: 'Hide these users', help: 'Twitch usernames, separated by commas.', placeholder: 'username1, username2' },
+    block: { label: 'Hide these users', help: 'Usernames, separated by commas; a name counts on Twitch and Kick alike.', placeholder: 'username1, username2' },
     block_words: { label: 'Hide messages containing', placeholder: 'word, two words',
-      help: 'Hides chat messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t hide eggs. A reply to a hidden message shows without quoting it. Try overlay to see it in the preview. A long list is better kept in settings.js than in the URL.' },
+      help: 'Hides chat messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t hide eggs. Up to 50, each up to 40 characters; more are left out, in settings.js too. A reply to a hidden message shows without quoting it. Try overlay to see it in the preview. A long list makes the URL long, so it is better kept in settings.js.' },
     links: { label: 'Links', options: { show: 'Show', shorten: 'Shorten', hide: 'Hide' },
       help: 'Shorten shows each link as its site’s name (clips.twitch.tv); Hide hides messages with a link. A link starts with https://, http:// or www. (a bare example.com is left as it is), and is never clickable. While it isn’t Show, a demo message has a link.' },
     role_filter: { label: 'Only show messages from', options: { all: 'Everyone', subs: 'Subs+', vips: 'VIPs+', mods: 'Mods' }, wrap: true,
@@ -555,7 +555,15 @@
     var base = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
     if (known.length) {
       var onlyChannel = known.every(function (k) { return k === 'channel' || k === 'kick' || k === 'kick_room'; });
-      return { cfg: config.parse(params, onlyChannel ? base : null), fromQuery: true, fromStore: false };
+      var cfg = config.parse(params, onlyChannel ? base : null);
+      // The remembered chatroom id is the remembered Kick channel's: a link naming another channel without one (the
+      // overlay's hint link) leaves it out, so the new channel is looked up (replaceCfg). As in onKickChanged, an id
+      // remembered without a channel stays.
+      if (onlyChannel && base && known.indexOf('kick_room') < 0) {
+        var was = config.parse('', base).kick;
+        if (was && cfg.kick !== was) cfg.kick_room = '';
+      }
+      return { cfg: cfg, fromQuery: true, fromStore: false };
     }
     if (base) return { cfg: config.parse('', base), fromQuery: false, fromStore: true };
     return { cfg: config.defaults(), fromQuery: false, fromStore: false };
@@ -706,8 +714,26 @@
     if (dec) s = s.replace(/^(\d+),(\d)/, '$1.$2');
     var d = (dec ? new RegExp('^(\\d+(?:\\.\\d{1,' + dec + '})?)\\s*(\\S*)$') : /^(\d+)\s*(\S*)$/).exec(s);
     if (!d || (d[2] && d[2].toLowerCase() !== String(m.unit || '').toLowerCase())) return undefined;
-    if (dec && d[2]) return config.coerce(key, Math.round(parseFloat(d[1]) * m.scale));
+    // The ratio on the setting's own scale, kept within min..max first: '2.9:1' is 29, which coerce would read as 29:1.
+    if (dec && d[2]) {
+      var sp = config.SPEC[key];
+      return config.coerce(key, Math.max(sp.min, Math.min(sp.max, Math.round(parseFloat(d[1]) * m.scale))));
+    }
     return config.coerce(key, d[1]);
+  }
+
+  // How many of the phrases typed into a words field (keywords, block_words) its setting left out: those after the
+  // first 50 and any over 40 characters (config.coerce's words). Each phrase is read as coerce reads it on its own.
+  function wordsLeftOut(key, text, kept) {
+    var have = Object.create(null), out = Object.create(null), n = 0;
+    (kept || []).forEach(function (w) { have[w] = 1; });
+    String(text === undefined || text === null ? '' : text).split(',').forEach(function (part) {
+      var w = config.coerce(key, part) || [];
+      // [] is an empty phrase, or one too long: it has more than spaces and control characters in it.
+      var id = w.length ? w[0] : /[^\s\u0000-\u001f\u007f]/.test(part) ? '\u0000' + part.trim().toLowerCase() : '';
+      if (id && !have[id] && !out[id]) { out[id] = 1; n++; }
+    });
+    return n;
   }
 
   // The next multiple of step above or below v, within min..max (1 -> 5 -> 10 … and back down to 1).
@@ -1037,8 +1063,10 @@
           // Step from what is in the box: a number typed less than 400 ms ago is not in B.cfg yet.
           var n, cur = parseStep(key, sv.value);
           if (cur === undefined) cur = B.cfg[key];
-          if (e.key === 'ArrowUp') n = cur + 1;
-          else if (e.key === 'ArrowDown') n = cur - 1;
+          // Within min..max before config.coerce reads it: with a scale, a number under min is a ratio (29 is 29:1, so
+          // ArrowDown at readable_level's 3.0:1 would go to 7.0:1).
+          if (e.key === 'ArrowUp') n = Math.min(spec.max, cur + 1);
+          else if (e.key === 'ArrowDown') n = Math.max(spec.min, cur - 1);
           else if (e.key === 'PageUp') n = stepValue(cur, 1, step, spec.min, spec.max);
           else if (e.key === 'PageDown') n = stepValue(cur, -1, step, spec.min, spec.max);
           else return;
@@ -1189,17 +1217,30 @@
         field.helpEl = th;
         var lt = null;
         if (isList) {
+          // words (keywords, block_words): a line under the box says when phrases were left out (empty, it isn't shown).
+          var lcut = null;
+          if (spec.type === 'words') {
+            lcut = h('p', 'status warn');
+            row.appendChild(lcut);
+          }
+          var showCut = function (n) {
+            var say = n ? (n === 1 ? '1 phrase was' : n + ' phrases were') + ' left out: up to 50 are used, each up to 40 characters.' : '';
+            if (say && say !== lcut.textContent) announce(say);
+            lcut.textContent = say;
+          };
           li.addEventListener('input', function () {
             clearTimeout(lt);
             lt = setTimeout(function () { update(key, li.value); }, 400);
           });
           li.addEventListener('change', function () {
             clearTimeout(lt);
-            update(key, li.value);
+            var typed = li.value;
+            update(key, typed);
             li.value = (B.cfg[key] || []).join(', ');
+            if (lcut) showCut(wordsLeftOut(key, typed, B.cfg[key]));
           });
           field.inputs.push(li);
-          field.set = function (v) { li.value = (v || []).join(', '); };
+          field.set = function (v) { li.value = (v || []).join(', '); if (lcut) showCut(0); };
           break;
         }
         var tbad = h('p', 'status err', m.bad || 'That value isn’t valid.');
@@ -1226,9 +1267,12 @@
           var before = B.cfg[key];
           var ok = update(key, raw);
           showBad(ok);
+          if (ok && key === 'kick' && B.cfg.kick !== before) dropKickLookup();
           if (!ok || !final) return;
           li.value = B.cfg[key];
-          if (key === 'kick' && B.cfg.kick !== before) onKickChanged(before);
+          // Against the channel the chatroom id is for, not `before`: a pause in typing has usually committed the new
+          // name already (commitText(false)), and the old id would stay with it.
+          if (key === 'kick' && (B.cfg.kick !== B.kickFor || B.kickDropped)) onKickChanged(B.kickFor);
         };
         li.addEventListener('input', function () {
           clearTimeout(lt);
@@ -1619,7 +1663,9 @@
     syncForm();
     if (prev.layout !== next.layout) followLayout(prev.layout, next.layout);
     $('channel').value = next.channel || '';
-    if (next.kick !== prev.kick) checkKick(false);
+    // A whole config's chatroom id is for its own Kick channel.
+    B.kickFor = next.kick;
+    if (next.kick !== prev.kick || B.kickDropped) checkKick(false);
     if (next.channel !== B.ch.login || B.ch.state === 'bad') checkChannel(next.channel);
     else renderChannelStatus(); // the field was rewritten: nothing typed is pending any more
     renderOutputs();
@@ -1826,12 +1872,24 @@
 
   // ---------- Kick ----------
   // A new Kick channel: the old chatroom id belongs to the old channel, so it goes, and the new one is looked up.
+  // before: the channel the chatroom id was for (B.kickFor). An id typed in before there was a channel stays.
   function onKickChanged(before) {
-    if (before && B.cfg.kick_room) {
+    if (before && before !== B.cfg.kick && B.cfg.kick_room) {
       update('kick_room', '');
       B.fields.kick_room.set('');
     }
     checkKick(false);
+  }
+
+  // The Kick channel is being typed over: a lookup still out for the old name is dropped, so it can't fill in that
+  // channel's chatroom id under the new one. It is done again if the old name is typed back (B.kickDropped).
+  function dropKickLookup() {
+    var box = B.fields.kick && B.fields.kick.statusEl;
+    if (!box || box.className !== 'status busy') return;
+    B.kickSeq++;
+    B.kickDropped = true;
+    clear(box);
+    box.className = 'status';
   }
 
   // Look up the Kick channel's chatroom id (kick.com's channel API) and fill in kick_room. Kick may refuse the
@@ -1839,6 +1897,9 @@
   // force: the Check button (looks up even when an id is already set).
   function checkKick(force) {
     var f = B.fields.kick;
+    // From here kick_room and the status line are for this channel (commitText compares a new name with it).
+    B.kickFor = B.cfg.kick;
+    B.kickDropped = false;
     if (!f || !f.statusEl) return;
     var box = f.statusEl, slug = B.cfg.kick;
     var seq = ++B.kickSeq;
@@ -2477,6 +2538,8 @@
       ch: { state: 'empty', login: '', user: null },
       chSeq: 0,
       kickSeq: 0,
+      kickFor: '', // the Kick channel kick_room and the Kick status line are for (checkKick, replaceCfg)
+      kickDropped: false, // a lookup for kickFor was dropped while a new name was typed (dropKickLookup)
       chDraft: '',
       chStatusKey: '',
       chCache: new Map(),
@@ -2578,6 +2641,7 @@
     valueText: valueText,
     stepText: stepText,
     parseStep: parseStep,
+    wordsLeftOut: wordsLeftOut,
     stepValue: stepValue,
     skipGap: skipGap,
     segValues: segValues,
