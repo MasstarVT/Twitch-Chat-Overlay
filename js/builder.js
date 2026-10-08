@@ -72,7 +72,7 @@
     history: { label: 'Recent messages on load', widget: 'stepper', step: 5, zero: 'Off',
       help: 'Shows up to this many recent messages (from recent-messages.robotty.de) when the overlay starts.' },
     shared: { label: 'Include Shared Chat',
-      help: 'During a Shared Chat session, also show the other channels’ messages, marked with their avatar.' },
+      help: 'During a Shared Chat session, also show the other channels’ messages. Every message is marked with its channel’s avatar.' },
     gifs: { label: 'Show GIFs posted in chat' },
     emotes_7tv: { label: '7TV', logo: '7tv', help: 'Channel and global emotes, updated live when the channel changes them. Also shown in Kick chat.' },
     emotes_bttv: { label: 'BetterTTV', tile: 'B' },

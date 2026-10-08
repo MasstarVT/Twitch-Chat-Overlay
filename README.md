@@ -29,7 +29,7 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
   - Sub, resub, gift, raid and announcement notices. Gift bombs collapse into one line.
   - Replies, `/me` messages, first-time chatter and channel-point highlights.
   - Timeouts, bans and deleted messages disappear from the overlay.
-  - Shared Chat messages show the source channel's avatar and badges.
+  - During Shared Chat, every message shows its channel's avatar (your own channel's too, as on Twitch), and partner messages show their badges from that channel.
 - **Vertical or horizontal:** a classic chat column, or a single row that runs sideways like a ticker, for a bar along the top or bottom of the stream.
 - **Clean look by default:** white text with a soft drop shadow on a transparent background. You can change the layout, size, font, shadow, background, alignment, fade-out and line limit.
 - **Config builder** (`builder.html`) with a live preview, a demo mode, and copy or download buttons.
@@ -172,7 +172,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **`stv_lookup`:** 7TV's own clients only learn another user's paint and badge when that user runs a 7TV client. This overlay also asks 7TV's API for each chatter's active paint and badge, so viewers on mobile get their paint too. That API doesn't check whether the cosmetic is still owned, so a lapsed 7TV subscriber may keep showing a paint. Lookups are batched, at most one request every 5 s, so in a busy chat a new chatter's paint or badge may appear a few seconds after their first line (a lone chatter is looked up about 0.3 s after their first message). Set `stv_lookup=0` to use 7TV-client events only.
 - **Third-party services:** Twitch's official badge API needs a login. This overlay uses the community IVR API instead, falling back to Twitch's public GQL endpoint. If both are down, Twitch badges are hidden rather than shown as broken images.
 - **Custom cheermotes:** channel-specific cheermotes can't be loaded without a login, so they show as plain text. Twitch's global cheermotes (Cheer, DoodleCheer, Kappa and others) show as images with a colored amount.
-- **Badges off:** during Shared Chat, messages from the partner channel still show that channel's avatar so you can tell them apart.
+- **Badges off:** during Shared Chat, every message still shows its channel's avatar so you can tell the channels apart.
 - **Homies badges:** when a user is in more than one Homies list, their badges show in list order (itzalex badges, badges2, chatterinohomies), whichever list loads first.
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.

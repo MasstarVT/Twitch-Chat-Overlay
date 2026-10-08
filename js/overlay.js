@@ -300,7 +300,8 @@
       out.push({ provider: 'beta-tester', title: 'Beta Tester', urls: { 1: betaBadgeUrl, 2: betaBadgeUrl, 4: betaBadgeUrl } });
     }
     // The Shared Chat source avatar marks where a message came from, so it shows even with badges off.
-    if (m.mirrored && room && room.logo) {
+    // During a session Twitch tags every line with its source room, the home channel's own lines included.
+    if (cfg.shared && m.sourceRoomId && room && room.logo) {
       out.push({ provider: 'avatar', title: room.displayName || room.login || 'Shared chat', urls: { 1: room.logo, 2: room.logo, 4: room.logo } });
     }
     if (!cfg.badges) return out;
@@ -546,7 +547,13 @@
     if (S.homeId) {
       if (S.homeId === id && user) {
         var h = S.rooms.home();
-        if (h) { h.logo = user.logo || h.logo; h.displayName = user.displayName || h.displayName; }
+        if (h) {
+          var oldLogo = h.logo;
+          h.logo = user.logo || h.logo;
+          h.displayName = user.displayName || h.displayName;
+          // Home lines already shown during Shared Chat get the avatar once it is known.
+          if (h.logo !== oldLogo) changed({ roomId: id });
+        }
       }
       return;
     }

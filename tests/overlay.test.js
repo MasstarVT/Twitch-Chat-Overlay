@@ -484,6 +484,37 @@ test('Shared Chat rooms stay loaded while their lines are on screen', async (t) 
   assert.strictEqual(h.S().rooms.get(PARTNER), null, 'evicted once its lines are gone and it is idle');
 });
 
+test('Shared Chat source avatar marks every channel in a session, the home channel included', async (t) => {
+  const user = deferred();
+  const h = await boot(t, { stubs(T) { T.twitchBadges.lookupUser = () => user.promise; } }); // slow IVR: ROOMSTATE sets the home first
+  join(h);
+  h.feed(priv('partner', 'partner line', { 'source-room-id': PARTNER }));
+  h.feed(priv('homeviewer', 'home line in session', { 'source-room-id': HOME }));
+  h.feed(priv('homeviewer', 'home line, no session'));
+  await settle();
+
+  h.S().rooms.get(PARTNER).logo = 'https://cdn.example/partner.png';
+  const [mirrored, homeShared, homeSolo] = h.pushed;
+  const avatar = (message) => h.deps.badgesFor(message).find((badge) => badge.provider === 'avatar');
+  assert.strictEqual(avatar(mirrored).urls[1], 'https://cdn.example/partner.png', 'the partner channel is marked');
+  assert.strictEqual(avatar(homeShared), undefined, 'no home avatar until the home logo is known');
+
+  t.mock.timers.tick(200);
+  const before = h.rerenders;
+  user.resolve({ id: HOME, login: 'home', displayName: 'Home', logo: 'https://cdn.example/home.png', banned: false });
+  await settle();
+  t.mock.timers.tick(200);
+  assert.strictEqual(h.rerenders, before + 1, 'lines already shown pick up the home avatar');
+  assert.deepStrictEqual(avatar(homeShared), { provider: 'avatar', title: 'Home',
+    urls: { 1: 'https://cdn.example/home.png', 2: 'https://cdn.example/home.png', 4: 'https://cdn.example/home.png' } },
+    'the home channel\'s own lines are marked during a session');
+  assert.strictEqual(avatar(homeSolo), undefined, 'outside a session home lines stay unmarked');
+
+  h.S().cfg.shared = false;
+  assert.strictEqual(avatar(mirrored), undefined, 'disabling Shared Chat hides the source avatar');
+  assert.strictEqual(avatar(homeShared), undefined);
+});
+
 test('channel lookup: a suspended flag from IVR is not sticky; an answer for another login is ignored', async (t) => {
   let h = await boot(t, { stubs(T) { T.twitchBadges.lookupUser = (l) => Promise.resolve({ id: HOME, login: l, banned: true }); } });
   assert.strictEqual(h.els.hint.hidden, false);
