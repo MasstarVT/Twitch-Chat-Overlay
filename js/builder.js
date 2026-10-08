@@ -300,7 +300,7 @@
   // field `first`; in Advanced its id is an anchor (builder.html#adv-text opens Advanced there). more: such an
   // id, linked at the foot of the section as "More in Advanced".
   var GROUPS = [
-    { id: 'look', title: 'Look', note: 'Layout, text, names, boxes and how new messages come in.',
+    { id: 'look', title: 'Look', note: 'Quick looks, layout, text, names, boxes and how new messages come in.',
       keys: ['layout', 'align', 'text_align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_color',
         'name_line', 'bg', 'bg_color', 'accent_bar', 'animate', 'enter_style'],
       subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_color' },
@@ -336,6 +336,25 @@
         { id: 'adv-filters', title: 'Filters', first: 'allow_users' },
         { id: 'adv-emotes', title: 'Emotes', first: 'gif_size' }, { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }
   ];
+
+  // Quick looks, a row of buttons at the top of Look. Each sets every PRESET_KEYS setting: the ones in its `set` to
+  // those values, the rest to their defaults. So a look never depends on the one picked before it, Default is the
+  // look of an overlay with no settings, and the URL carries only what a look changes. All of them are live keys
+  // (the preview keeps its frame). Font, name colors, layout, position and the channels are never among them.
+  var PRESET_KEYS = ['size', 'text_px', 'text_weight', 'name_weight', 'line_height', 'text_color', 'shadow', 'shadow_color',
+    'outline', 'outline_color', 'bg', 'bg_color', 'bg_shape', 'bg_width', 'spacing', 'accent_bar', 'name_line', 'emote_scale',
+    'badge_size'];
+  var PRESETS = [
+    { id: 'default', label: 'Default', set: {} },
+    { id: 'boxed', label: 'Boxed', set: { bg: 70, shadow: 0 } },
+    { id: 'outlined', label: 'Outlined', set: { shadow: 0, outline: 2 } },
+    { id: 'cards', label: 'Cards', set: { bg: 80, shadow: 0, bg_shape: 'soft', bg_width: 'full', spacing: 'loose', accent_bar: true,
+      name_line: true } },
+    { id: 'big', label: 'Big & bold', set: { size: 'large', text_weight: 'bold', shadow: 3, emote_scale: 125 } }
+  ];
+  var PRESETS_HELP = 'Sets text size, weight and color, shadow, outline, box, spacing, and emote and badge size. Your font, ' +
+    'name colors, layout and position stay. Big & bold’s bigger emotes can reach into the line above, and it can be cut ' +
+    'off in a 1920 × 100 horizontal source.';
 
   // ---------- pure helpers (unit tested) ----------
 
@@ -758,6 +777,28 @@
     var o = {};
     for (var k in cfg) o[k] = Array.isArray(cfg[k]) ? cfg[k].slice() : cfg[k];
     return o;
+  }
+
+  function presetById(id) {
+    for (var i = 0; i < PRESETS.length; i++) if (PRESETS[i].id === id) return PRESETS[i];
+    return null;
+  }
+
+  // cfg with a quick look applied: every PRESET_KEYS setting at the look's value or its default, the rest as they were.
+  function presetCfg(cfg, id) {
+    var p = presetById(id), out = copyCfg(cfg), d = config.defaults();
+    if (!p) return out;
+    PRESET_KEYS.forEach(function (k) { out[k] = Object.prototype.hasOwnProperty.call(p.set, k) ? p.set[k] : d[k]; });
+    return out;
+  }
+
+  // The quick look cfg is at (every PRESET_KEYS setting as it sets them), or ''.
+  function presetOf(cfg) {
+    for (var i = 0; i < PRESETS.length; i++) {
+      var want = presetCfg(cfg, PRESETS[i].id);
+      if (PRESET_KEYS.every(function (k) { return sameValue(cfg[k], want[k]); })) return PRESETS[i].id;
+    }
+    return '';
   }
 
   // ---------- DOM runtime ----------
@@ -1240,6 +1281,42 @@
     return p;
   }
 
+  // The Quick look row at the top of Look: a button per look (the one the settings are at is pressed), then Undo,
+  // off until a click. Undo is always there, so a click never moves the buttons from under the pointer. Like a
+  // field, without a setting's name: it is no setting of its own.
+  function buildPresets() {
+    var row = h('div', 'field field-presets span-all');
+    var head = h('div', 'field-head'), name = h('div', 'field-name');
+    name.appendChild(h('span', 'field-label', 'Quick look'));
+    head.appendChild(name);
+    var btns = h('div', 'btns field-control');
+    btns.setAttribute('role', 'group');
+    btns.setAttribute('aria-label', 'Quick look');
+    btns.setAttribute('aria-describedby', 'h-presets');
+    B.presetBtns = {};
+    PRESETS.forEach(function (p) {
+      var b = h('button', 'btn', p.label);
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function () { applyPreset(p.id); });
+      btns.appendChild(b);
+      B.presetBtns[p.id] = b;
+    });
+    var undo = h('button', 'btn ghost', 'Undo');
+    undo.type = 'button';
+    undo.setAttribute('aria-label', 'Undo quick look');
+    undo.disabled = true;
+    undo.addEventListener('click', undoPreset);
+    btns.appendChild(undo);
+    B.presetUndoBtn = undo;
+    head.appendChild(btns);
+    row.appendChild(head);
+    var help = h('p', 'help', PRESETS_HELP);
+    help.id = 'h-presets';
+    row.appendChild(help);
+    return row;
+  }
+
   // One tab in the rail and one section in the panel per group. "Add to OBS" is in builder.html already.
   function buildGroups() {
     var host = $('groups'), tabs = $('tabs'), rule = $('tab-rule');
@@ -1273,6 +1350,7 @@
       if (g.note) head.appendChild(h('p', 'section-note', g.note));
       sec.appendChild(head);
       var body = h('div', 'fields');
+      if (g.id === 'look') body.appendChild(buildPresets());
       var heads = Object.create(null), grids = Object.create(null);
       g.subs.forEach(function (s) { heads[s.first] = s; });
       g.keys.forEach(function (key) {
@@ -1516,6 +1594,7 @@
   }
 
   function onChanged(key) {
+    dropPresetUndo();
     B.fileNote = '';
     syncDisabled();
     renderOutputs();
@@ -1527,6 +1606,7 @@
   // Swap the whole config (paste, reset, settings.js); reload only if a reload key changed.
   function replaceCfg(next) {
     var prev = B.cfg, reload = false;
+    dropPresetUndo();
     ['font', 'name_font'].forEach(function (k) {
       if (typeof next[k] === 'string' && next[k]) next[k] = config.canonicalFont(next[k]);
     });
@@ -1544,6 +1624,73 @@
     saveCfg();
     postLive();
     if (reload) scheduleReload(RELOAD_DELAY);
+  }
+
+  // ---------- quick looks ----------
+  // Writes the PRESET_KEYS settings of vals over the current ones. Not replaceCfg: the channels and every other
+  // setting stay as they are, nothing is looked up again, and as all of them are live keys the preview keeps its frame.
+  function writePresetKeys(vals) {
+    PRESET_KEYS.forEach(function (k) { B.cfg[k] = vals[k]; });
+    B.fileNote = '';
+    syncForm();
+    renderOutputs();
+    saveCfg();
+    postLive();
+  }
+
+  // A quick look clicked. The settings from before the first click of a run are kept, so Undo goes back to them
+  // however many looks were tried; a click that changes nothing (the look already on) leaves Undo as it is.
+  function applyPreset(id) {
+    var p = presetById(id);
+    if (!p) return;
+    var next = presetCfg(B.cfg, id);
+    if (PRESET_KEYS.some(function (k) { return !sameValue(B.cfg[k], next[k]); })) {
+      if (!B.presetUndo) {
+        B.presetUndo = {};
+        PRESET_KEYS.forEach(function (k) { B.presetUndo[k] = B.cfg[k]; });
+      }
+      writePresetKeys(next);
+      B.presetUndoBtn.disabled = false;
+    }
+    announce('Applied ' + p.label);
+  }
+
+  // Undo: the PRESET_KEYS settings as they were before the run, and only those. The button goes off, so the focus
+  // moves to the look now pressed, or the first.
+  function undoPreset() {
+    var snap = B.presetUndo;
+    if (!snap) return;
+    B.presetUndo = null;
+    writePresetKeys(snap);
+    B.presetUndoBtn.disabled = true;
+    focusPreset();
+    announce('Quick look undone');
+  }
+
+  function focusPreset() {
+    var b = B.presetBtns[presetOf(B.cfg)] || B.presetBtns[PRESETS[0].id];
+    if (b && b.focus) b.focus();
+  }
+
+  // Any other change (a setting edited, a paste, Reset, a settings.js) ends the run: Undo would undo it too.
+  function dropPresetUndo() {
+    B.presetUndo = null;
+    var u = B.presetUndoBtn;
+    if (!u || u.disabled) return;
+    var had = document.activeElement === u;
+    u.disabled = true;
+    if (had) focusPreset(); // a disabled button drops the focus to the page
+  }
+
+  // The look the settings are at is pressed, filled like the main button (aria-pressed says so to assistive tech).
+  function syncPresets() {
+    if (!B.presetBtns) return;
+    var on = presetOf(B.cfg);
+    PRESETS.forEach(function (p) {
+      var b = B.presetBtns[p.id], pressed = p.id === on;
+      b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+      if (pressed) b.classList.add('primary'); else b.classList.remove('primary');
+    });
   }
 
   // ---------- channel ----------
@@ -1784,6 +1931,7 @@
     if (out.textContent !== snippet) out.textContent = snippet;
     renderNote();
     syncTags();
+    syncPresets();
   }
 
   function renderSizes() {
@@ -2346,6 +2494,9 @@
       paused: false,
       storage: undefined,
       subheads: Object.create(null), // Advanced sub-heading id -> its <h3> (buildGroups)
+      presetBtns: null, // quick look id -> its button (buildPresets)
+      presetUndoBtn: null,
+      presetUndo: null, // the PRESET_KEYS settings from before a run of quick looks, while Undo is offered
       started: false // start() is done: a hash from now on comes from the user
     };
     var u = loadStored(STORE_UI);
@@ -2388,6 +2539,8 @@
     BADGE_SUBS: BADGE_SUBS,
     EVENT_SUBS: EVENT_SUBS,
     SUBGRIDS: SUBGRIDS,
+    PRESETS: PRESETS,
+    PRESET_KEYS: PRESET_KEYS,
     DEMO_INERT: DEMO_INERT,
     LAYOUT_SIZES: LAYOUT_SIZES,
     TEXT_PX: TEXT_PX,
@@ -2430,6 +2583,8 @@
     advIds: advIds,
     fieldOff: fieldOff,
     subgridOf: subgridOf,
-    widgetFor: widgetFor
+    widgetFor: widgetFor,
+    presetCfg: presetCfg,
+    presetOf: presetOf
   };
 });

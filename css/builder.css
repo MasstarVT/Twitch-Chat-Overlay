@@ -901,6 +901,12 @@ label.field-label { cursor: pointer; }
   /* selection and focus are drawn with color alone, which forced colors flatten; system colors survive */
   .tab[aria-selected="true"] { border-color: Highlight; }
   .tab[aria-selected="true"] .mark { background: Highlight; }
+  /* the pressed look is filled, as a selected item is, so the focus ring (an outline) still tells the two apart. In
+     its own colors: forced colors would draw a backplate of the canvas color behind the label. */
+  .btn[aria-pressed="true"], .btn[aria-pressed="true"]:hover {
+    forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText;
+  }
+  .btn[aria-pressed="true"]:focus-visible { outline-color: Highlight; }
   .seg input:focus-visible + span { outline: 3px solid Highlight; outline-offset: 2px; }
   /* color samples, and the scene they pick, keep their own colors */
   .sw { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }

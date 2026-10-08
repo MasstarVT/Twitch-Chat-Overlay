@@ -47,7 +47,8 @@ function readPage(doc) {
 
 // A page with builder.js started on it. Timers are the test's (t.mock), so no preview reload runs by itself.
 // opts.app: the window is one that gets the app layout. opts.setup(builder, doc): runs before start(), on this
-// page's own copy of builder.js (to try GROUPS or META entries no release has yet).
+// page's own copy of builder.js (to try GROUPS or META entries no release has yet). opts.storage: the page's
+// localStorage (memoryStorage()); without one the builder remembers nothing, as with storage blocked.
 function open(t, href, opts) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const doc = createDocument();
@@ -77,6 +78,7 @@ function open(t, href, opts) {
     TCO_NO_AUTOBOOT: true
   };
   if (opts && opts.app) put.matchMedia = () => ({ matches: true, addEventListener() {} });
+  if (opts && opts.storage) put.localStorage = opts.storage;
   Object.keys(put).forEach((k) => { keep[k] = Object.getOwnPropertyDescriptor(globalThis, k); globalThis[k] = put[k]; });
   t.after(() => Object.keys(put).forEach((k) => {
     delete globalThis[k];
@@ -93,6 +95,12 @@ function open(t, href, opts) {
 }
 
 const HREF = 'https://masstarvt.github.io/Twitch-Chat-Overlay/builder.html';
+
+// A localStorage kept in a Map, for open()'s opts.storage.
+function memoryStorage() {
+  const m = new Map();
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); } };
+}
 
 test('start: every section has a tab that controls it, and one is open', (t) => {
   const p = open(t, HREF);
@@ -417,12 +425,14 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   const focused = [];
   const p = open(t, HREF, { setup: watchFocus(focused) });
   const fields = (id) => p.$(id).children.filter((e) => e.className === 'fields')[0].children;
-  const outline = (id) => fields(id).map((e) => (e.tagName === 'H3' ? e.textContent + (e.id ? '#' + e.id : '') : e.getAttribute('data-key')));
+  const outline = (id) => fields(id).map((e) => (e.tagName === 'H3' ? e.textContent + (e.id ? '#' + e.id : '')
+    : e.classList.contains('field-presets') ? 'quick looks' : e.getAttribute('data-key')));
   fields('group-look').filter((e) => e.tagName === 'H3').forEach((e) => {
     assert.strictEqual(e.className, 'eyebrow subhead');
     assert.strictEqual(e.id, undefined, 'only Advanced headings are anchors');
   });
-  assert.deepStrictEqual(outline('group-look'), ['Layout', 'layout', 'align', 'text_align', 'Text', 'size', 'font', 'text_weight',
+  // Look starts with the quick looks, above its first heading.
+  assert.deepStrictEqual(outline('group-look'), ['quick looks', 'Layout', 'layout', 'align', 'text_align', 'Text', 'size', 'font', 'text_weight',
     'text_color', 'shadow', 'outline', 'Names', 'name_color', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate',
     'enter_style']);
   assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'text_px',
@@ -1205,4 +1215,262 @@ test('the animation options: live, greyed out while animate or fade is off (fade
   assert.deepStrictEqual(['look', 'messages', 'advanced'].map((g) => p.text('count-' + g)), ['1', '1', '3']);
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([p.text('bar-url'), state(), fo.value, em.value], [OVERLAY, ['fade_out_ms', 'exit_style'], '1000 ms', '180 ms']);
+});
+
+// ---------- quick looks (stage 10) ----------
+
+// The Quick look row: its buttons, Undo (last), and which look is pressed.
+function looks(p) {
+  const row = p.$('group-look').children.filter((e) => e.className === 'fields')[0].children[0];
+  const group = row.byClass('btns')[0];
+  const all = group.children, btns = all.slice(0, -1);
+  return {
+    row, group, btns, undo: all[all.length - 1],
+    pressed: () => btns.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
+    filled: () => btns.filter((b) => b.classList.contains('primary')).map((b) => b.textContent),
+    click: (label) => btns.filter((b) => b.textContent === label)[0].dispatch('click')
+  };
+}
+
+test('Quick look: a row of five buttons at the top of Look, Default pressed at the defaults, Undo off', (t) => {
+  const p = open(t, HREF);
+  const L = looks(p);
+  assert.strictEqual(L.row.className, 'field field-presets span-all');
+  assert.strictEqual(L.row.nextElementSibling.className, 'eyebrow subhead', 'above the first heading');
+  assert.strictEqual(L.row.byClass('field-label')[0].textContent, 'Quick look');
+  assert.deepStrictEqual(L.row.byClass('tag'), [], 'no setting of its own, so no name tag');
+  assert.deepStrictEqual([L.group.tagName, L.group.className, L.group.getAttribute('role'), L.group.getAttribute('aria-label'),
+    L.group.getAttribute('aria-describedby')], ['DIV', 'btns field-control', 'group', 'Quick look', 'h-presets']);
+  const help = p.$('h-presets');
+  assert.strictEqual(help.parentNode, L.row);
+  assert.match(help.textContent, /^Sets text size, weight and color, shadow, outline, box, spacing, and emote and badge size\./);
+  assert.match(help.textContent, /Your font, name colors, layout and position stay\./);
+  assert.match(help.textContent, /Big & bold’s bigger emotes can reach into the line above, and it can be cut off in a 1920 × 100 horizontal source\./);
+  assert.deepStrictEqual(L.btns.map((b) => [b.tagName, b.type, b.textContent]),
+    [['BUTTON', 'button', 'Default'], ['BUTTON', 'button', 'Boxed'], ['BUTTON', 'button', 'Outlined'], ['BUTTON', 'button', 'Cards'],
+      ['BUTTON', 'button', 'Big & bold']]);
+  assert.deepStrictEqual(L.btns.map((b) => [b.className, b.getAttribute('aria-pressed')]),
+    [['btn primary', 'true'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false']]);
+  assert.deepStrictEqual([L.undo.textContent, L.undo.className, L.undo.type, L.undo.getAttribute('aria-label'), L.undo.disabled,
+    !!L.undo.hidden], ['Undo', 'btn ghost', 'button', 'Undo quick look', true, false]);
+  assert.strictEqual(p.text('count-look'), '', 'the row is no changed setting');
+});
+
+test('a quick look click never moves the buttons: Undo is always in the row, only switched on and off', (t) => {
+  const p = open(t, HREF);
+  const L = looks(p);
+  const shape = () => L.group.children.map((b) => [b.textContent, !!b.hidden]);
+  const before = shape();
+  assert.strictEqual(before.length, 6);
+  L.click('Boxed');
+  assert.deepStrictEqual([shape(), L.undo.disabled], [before, false]);
+  L.click('Outlined');
+  L.undo.dispatch('click');
+  assert.deepStrictEqual([shape(), L.undo.disabled], [before, true]);
+  L.click('Cards');
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([shape(), L.undo.disabled], [before, true]);
+});
+
+test('a quick look: the form, the URL and the preview follow, live, with a bad channel name too; nothing else changes', (t) => {
+  const p = open(t, HREF);
+  // Settings no look touches (the channels too), then a Twitch name that isn't valid.
+  p.$('paste').value = '?kick=xqc&kick_room=668&block=a_b,c&badges_7tv=0&align=top&font=Roboto&name_color=f80&shadow_style=text' +
+    '&paint_images=static&homies_lists=light&text_px=20&outline_color=00f';
+  p.$('paste-load').dispatch('click');
+  p.$('channel').value = 'not valid!';
+  p.$('channel').dispatch('change');
+  assert.match(p.text('channel-status'), /isn’t a valid Twitch name/);
+  t.mock.timers.tick(2000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  assert.ok(first, 'the preview frame');
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const L = looks(p);
+  assert.deepStrictEqual(L.pressed(), []);
+  L.click('Cards');
+  // The form.
+  const radio = (key) => p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((r) => r.checked).map((r) => r.value)[0];
+  assert.deepStrictEqual([p.$('f-bg').value, radio('shadow'), radio('bg_shape'), radio('bg_width'), radio('spacing'),
+    p.$('f-accent_bar').checked, p.$('f-name_line').checked, p.$('f-text_px').value, p.$('f-outline_color').value],
+  ['80', '0', 'soft', 'full', 'loose', true, true, 'Auto', '']);
+  assert.strictEqual(rowOf(p, 'bg_color').classList.contains('disabled'), false, 'a box now: its color applies');
+  assert.strictEqual(rowOf(p, 'size').classList.contains('disabled'), false, 'Exact text size is Auto again');
+  assert.strictEqual(p.$('l-bg').parentNode.byClass('tag')[0].textContent, 'bg=80');
+  // The URL: the look's settings, and everything else as it was.
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?kick=xqc&kick_room=668&font=Roboto&shadow=0&shadow_style=text&name_line=1' +
+    '&name_color=ff8800&bg=80&accent_bar=1&bg_shape=soft&bg_width=full&spacing=loose&align=top&block=a_b,c&badges_7tv=0' +
+    '&homies_lists=light&paint_images=static');
+  assert.deepStrictEqual([L.pressed(), L.filled(), L.undo.disabled], [['Cards'], ['Cards'], false]);
+  t.mock.timers.tick(30);
+  assert.strictEqual(p.text('sr-status'), 'Applied Cards');
+  // Live: posted to the frame, which is never reloaded, and the channel is never looked up again.
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.bg, last.shadow, last.bg_shape, last.bg_width, last.spacing, last.accent_bar, last.name_line, last.text_px],
+    [80, 0, 'soft', 'full', 'loose', true, true, 0]);
+  assert.deepStrictEqual([last.kick, last.kick_room, last.block, last.font, last.name_color, last.align, last.badges_7tv,
+    last.shadow_style, last.paint_images, last.homies_lists], ['xqc', '668', ['a_b', 'c'], 'Roboto', 'ff8800', 'top', false, 'text',
+    'static', 'light']);
+  assert.deepStrictEqual([p.$('channel').value, p.text('channel-status').indexOf('isn’t a valid') >= 0], ['not valid!', true]);
+  // Another look, then Default: the same frame still, and the look settings back at their defaults.
+  L.click('Big & bold');
+  L.click('Default');
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?kick=xqc&kick_room=668&font=Roboto&shadow_style=text&name_color=ff8800&align=top' +
+    '&block=a_b,c&badges_7tv=0&homies_lists=light&paint_images=static');
+  assert.deepStrictEqual(L.pressed(), ['Default']);
+  // In a row the layout stays, and the column-only settings Cards sets are kept, greyed out.
+  const row = p.doc.querySelectorAll('input[name="f-layout"]').filter((x) => x.value === 'horizontal')[0];
+  row.checked = true;
+  row.dispatch('change');
+  L.click('Cards');
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first);
+  assert.deepStrictEqual([radio('layout'), radio('bg_width'), rowOf(p, 'bg_width').classList.contains('disabled'),
+    rowOf(p, 'name_line').classList.contains('disabled'), L.pressed()], ['horizontal', 'full', true, true, ['Cards']]);
+  assert.deepStrictEqual([posted[posted.length - 1].cfg.layout, posted[posted.length - 1].cfg.bg_width], ['horizontal', 'full']);
+});
+
+test('Undo after a run of quick looks puts back the look from before the first, and only that; the focus goes to the pressed look', (t) => {
+  const store = memoryStorage();
+  const p = open(t, HREF, { storage: store });
+  const stored = () => JSON.parse(store.getItem('tco-builder-cfg'));
+  const L = looks(p);
+  const focused = [];
+  L.btns.forEach((b) => { b.focus = () => focused.push(b.textContent); });
+  p.$('paste').value = '?size=small&bg=40&bg_color=123&text_color=f00&line_height=150&bots=1';
+  p.$('paste-load').dispatch('click');
+  const mine = p.text('bar-url'), mineStored = stored();
+  assert.deepStrictEqual(mineStored, { size: 'small', bg: 40, bg_color: '112233', text_color: 'ff0000', line_height: 150, bots: true });
+  assert.deepStrictEqual([L.pressed(), L.undo.disabled], [[], true]);
+  L.click('Default');
+  assert.deepStrictEqual([p.text('bar-url'), L.undo.disabled], [OVERLAY + '?bots=1', false]);
+  L.click('Boxed');
+  L.click('Outlined');
+  assert.deepStrictEqual([L.pressed(), p.text('bar-url')], [['Outlined'], OVERLAY + '?shadow=0&outline=2&bots=1']);
+  // Remembered like any change, so a look is still there when the builder opens again.
+  assert.deepStrictEqual(stored(), { shadow: 0, outline: 2, bots: true });
+  L.undo.dispatch('click');
+  // The look from before Default, the form with it; bots (no look setting) as it was all along.
+  assert.deepStrictEqual([p.text('bar-url'), L.undo.disabled, L.pressed()], [mine, true, []]);
+  assert.deepStrictEqual([p.$('f-bg').value, p.$('f-text_color').value, p.$('f-line_height').value, p.$('f-bots').checked],
+    ['40', '#ff0000', '150%', true]);
+  assert.deepStrictEqual(stored(), mineStored, 'and the undone look is remembered too');
+  assert.deepStrictEqual(focused, ['Default'], 'no look is pressed: the first takes the focus from Undo, now off');
+  t.mock.timers.tick(30);
+  assert.strictEqual(p.text('sr-status'), 'Quick look undone');
+  // From the defaults, Undo goes back to Default, pressed again and focused.
+  p.$('reset').dispatch('click');
+  L.click('Big & bold');
+  L.undo.dispatch('click');
+  assert.deepStrictEqual([p.text('bar-url'), L.pressed(), focused], [OVERLAY, ['Default'], ['Default', 'Default']]);
+  L.click('Cards');
+  L.click('Big & bold');
+  L.undo.dispatch('click');
+  assert.deepStrictEqual([p.text('bar-url'), L.pressed(), focused.length], [OVERLAY, ['Default'], 3]);
+  // A click on the look that is on already changes nothing, so it offers no Undo.
+  L.click('Default');
+  assert.strictEqual(L.undo.disabled, true);
+  t.mock.timers.tick(30);
+  assert.strictEqual(p.text('sr-status'), 'Applied Default');
+});
+
+test('Undo goes with any other change: an edit, a look setting set by hand, a paste and Reset', (t) => {
+  const p = open(t, HREF);
+  const L = looks(p);
+  const focused = [];
+  L.btns.forEach((b) => { b.focus = () => focused.push(b.textContent); });
+  const offered = () => !L.undo.disabled;
+  L.click('Boxed');
+  assert.strictEqual(offered(), true);
+  // An edit elsewhere ends the run, and Undo with it.
+  const bots = p.$('f-bots');
+  bots.checked = true;
+  bots.dispatch('change');
+  assert.strictEqual(offered(), false);
+  // The next run starts from there: its Undo is back to Boxed, with bots.
+  L.click('Cards');
+  L.undo.dispatch('click');
+  assert.deepStrictEqual([p.text('bar-url'), L.pressed()], [OVERLAY + '?shadow=0&bg=70&bots=1', ['Boxed']]);
+  // A look setting changed by hand.
+  L.click('Cards');
+  const bg = p.$('f-bg');
+  bg.value = '50';
+  bg.dispatch('input');
+  assert.deepStrictEqual([offered(), L.pressed(), L.filled()], [false, [], []]);
+  // With the focus on Undo as it goes, the focus moves to the look pressed (or the first): never to the page.
+  L.click('Cards');
+  p.doc.activeElement = L.undo;
+  bots.checked = false;
+  bots.dispatch('change');
+  assert.deepStrictEqual([offered(), focused], [false, ['Boxed', 'Cards']], 'Boxed after the Undo above, then Cards');
+  p.doc.activeElement = undefined;
+  // A paste and Reset.
+  L.click('Outlined');
+  p.$('paste').value = '?bots=1';
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(offered(), false);
+  L.click('Outlined');
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([offered(), L.pressed(), p.text('bar-url')], [false, ['Default'], OVERLAY]);
+});
+
+test('the pressed look follows every change: an edit by hand, set back, and a paste', (t) => {
+  const p = open(t, HREF);
+  const L = looks(p);
+  assert.deepStrictEqual(L.pressed(), ['Default']);
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  seg('shadow', '0');
+  assert.deepStrictEqual([L.pressed(), L.filled()], [[], []]);
+  const bg = p.$('f-bg');
+  bg.value = '70';
+  bg.dispatch('input');
+  assert.deepStrictEqual([L.pressed(), L.filled()], [['Boxed'], ['Boxed']], 'by hand, Boxed is what the settings are');
+  assert.strictEqual(L.undo.disabled, true, 'no look was clicked: nothing to undo');
+  seg('outline', '1');
+  assert.deepStrictEqual(L.pressed(), []);
+  seg('outline', '0');
+  seg('layout', 'horizontal');
+  assert.deepStrictEqual(L.pressed(), ['Boxed'], 'the layout is no part of a look');
+  // A paste: Outlined, then with a font and a name color (no look settings), then with an exact text size.
+  p.$('paste').value = '?shadow=0&outline=2';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual(L.pressed(), ['Outlined']);
+  p.$('paste').value = '?shadow=0&outline=2&font=Roboto&name_color=f80';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual(L.pressed(), ['Outlined']);
+  p.$('paste').value = '?shadow=0&outline=2&text_px=20';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([L.pressed(), L.filled()], [[], []]);
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual(L.pressed(), ['Default']);
+});
+
+test('a settings.js loaded from the folder ends a run of quick looks, like a paste; a look then ends its note', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookup
+  const p = open(t, 'file:///E:/tco/builder.html');
+  const script = p.doc.head.children.filter((e) => e.tagName === 'SCRIPT')[0];
+  assert.ok(script && /^settings\.js\?t=\d+$/.test(script.src), 'the builder asks for the folder\'s settings.js');
+  const L = looks(p);
+  L.click('Boxed');
+  assert.strictEqual(L.undo.disabled, false);
+  t.after(() => { delete globalThis.TCO_SETTINGS; });
+  globalThis.TCO_SETTINGS = { channel: 'forsen', shadow: 0, outline: 2 };
+  script.onload();
+  await settle();
+  assert.deepStrictEqual([L.undo.disabled, L.pressed()], [true, ['Outlined']]);
+  assert.match(p.text('file-loaded'), /^Loaded the settings\.js/);
+  assert.strictEqual(p.text('bar-note'), 'Loaded the settings.js from this folder.');
+  // The note beside the URL says what the file did until the first change, and a look is one.
+  L.click('Cards');
+  assert.strictEqual(p.text('bar-note'), 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.');
 });

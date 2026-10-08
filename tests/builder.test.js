@@ -1163,3 +1163,100 @@ test('builder font lists are the config lists', () => {
   assert.strictEqual(builder.GOOGLE_FONTS, config.GOOGLE_FONTS);
   assert.strictEqual(builder.SYSTEM_FONT_NAMES, config.SYSTEM_FONT_NAMES);
 });
+
+// ---------- quick looks (stage 10) ----------
+
+// A config with every setting but the channels off its default, so a quick look's reach shows.
+function busyCfg() {
+  let c = Object.assign(config.defaults(), { channel: 'forsen', kick: 'xqc', kick_room: '668' });
+  config.KEYS.filter((k) => ['channel', 'kick', 'kick_room'].indexOf(k) < 0).forEach((k) => { c = flip(c, k); });
+  return c;
+}
+
+test('quick looks: five, each value one its setting takes, only the 19 look settings, all live', () => {
+  const P = builder.PRESET_KEYS;
+  assert.deepStrictEqual(P, ['size', 'text_px', 'text_weight', 'name_weight', 'line_height', 'text_color', 'shadow', 'shadow_color',
+    'outline', 'outline_color', 'bg', 'bg_color', 'bg_shape', 'bg_width', 'spacing', 'accent_bar', 'name_line', 'emote_scale',
+    'badge_size']);
+  P.forEach((k) => {
+    assert.ok(config.SPEC[k], k + ' is a setting');
+    assert.ok(builder.isLiveKey(k), k + ' is live: a quick look never reloads the preview');
+  });
+  // Font, name colors, layout, position and the channels are never part of a look.
+  ['channel', 'kick', 'kick_room', 'font', 'name_font', 'name_color', 'name_fallback', 'layout', 'align', 'text_align', 'pad_x',
+    'line_width', 'demo', 'debug'].forEach((k) => assert.ok(P.indexOf(k) < 0, k));
+  assert.deepStrictEqual(builder.PRESETS.map((p) => [p.id, p.label]),
+    [['default', 'Default'], ['boxed', 'Boxed'], ['outlined', 'Outlined'], ['cards', 'Cards'], ['big', 'Big & bold']]);
+  const d = config.defaults();
+  builder.PRESETS.forEach((p) => Object.keys(p.set).forEach((k) => {
+    assert.ok(P.indexOf(k) >= 0, p.id + ': ' + k + ' is a look setting');
+    assert.deepStrictEqual(config.coerce(k, p.set[k]), p.set[k], p.id + ': ' + k + ' coerces to itself');
+    assert.notDeepStrictEqual(p.set[k], d[k], p.id + ': ' + k + ' differs from its default, or it would not be listed');
+  }));
+  assert.deepStrictEqual(builder.PRESETS.map((p) => p.set), [
+    {},
+    { bg: 70, shadow: 0 },
+    { shadow: 0, outline: 2 },
+    { bg: 80, shadow: 0, bg_shape: 'soft', bg_width: 'full', spacing: 'loose', accent_bar: true, name_line: true },
+    { size: 'large', text_weight: 'bold', shadow: 3, emote_scale: 125 }
+  ]);
+  // No look asks Google Fonts for another weight (overlay.js fontWeights adds one for light or black only): Big &
+  // bold's 700 is in the usual request.
+  builder.PRESETS.forEach((p) => {
+    const c = builder.presetCfg(d, p.id);
+    assert.ok(['light', 'black'].indexOf(c.text_weight) < 0 && ['light', 'black'].indexOf(c.name_weight) < 0, p.id);
+  });
+});
+
+test('presetCfg: every look setting to the look or its default, nothing else touched, whatever was picked before', () => {
+  const busy = busyCfg(), d = config.defaults();
+  builder.PRESETS.forEach((p) => {
+    const out = builder.presetCfg(busy, p.id);
+    config.KEYS.forEach((k) => {
+      if (builder.PRESET_KEYS.indexOf(k) < 0) assert.deepStrictEqual(out[k], busy[k], p.id + ' leaves ' + k);
+      else assert.deepStrictEqual(out[k], k in p.set ? p.set[k] : d[k], p.id + ' sets ' + k);
+    });
+    // A copy: the config given is left as it was.
+    assert.notStrictEqual(out, busy);
+    assert.notStrictEqual(out.block, busy.block);
+    // Order independence: A then B is B.
+    builder.PRESETS.forEach((q) => assert.deepStrictEqual(builder.presetCfg(builder.presetCfg(busy, q.id), p.id), out, q.id + ' then ' + p.id));
+  });
+  assert.deepStrictEqual(busy, busyCfg());
+  // Default is the defaults on the look settings; on a default config it changes nothing at all.
+  builder.PRESET_KEYS.forEach((k) => assert.deepStrictEqual(builder.presetCfg(busy, 'default')[k], d[k], k));
+  assert.deepStrictEqual(builder.presetCfg(d, 'default'), d);
+  // An unknown look is no look.
+  assert.deepStrictEqual(builder.presetCfg(busy, 'nope'), busy);
+  assert.deepStrictEqual(builder.presetCfg(busy, '__proto__'), busy);
+});
+
+test('presetOf: the look whose 19 settings a config has, whatever else it has; else none', () => {
+  const busy = busyCfg();
+  assert.strictEqual(builder.presetOf(config.defaults()), 'default');
+  assert.strictEqual(builder.presetOf(busy), '');
+  builder.PRESETS.forEach((p) => {
+    const on = builder.presetCfg(busy, p.id);
+    assert.strictEqual(builder.presetOf(on), p.id);
+    // Any one look setting changed: no look (no two looks are one setting apart).
+    builder.PRESET_KEYS.forEach((k) => assert.strictEqual(builder.presetOf(flip(on, k)), '', p.id + ' with ' + k + ' changed'));
+  });
+  // Settings outside the looks don't count: font, layout and the name color may be anything.
+  assert.strictEqual(builder.presetOf(Object.assign(config.defaults(), { font: 'Roboto', layout: 'horizontal', name_color: 'ff8800' })), 'default');
+});
+
+test('quick looks in the URL: Default on a default config is today\'s URL; each look carries only what it changes', () => {
+  const base = Object.assign(config.defaults(), { channel: 'forsen' });
+  const hosted = 'https://chat.masstar.org/builder.html';
+  assert.strictEqual(builder.overlayUrl(builder.presetCfg(base, 'default'), hosted), 'https://chat.masstar.org/overlay.html?channel=forsen');
+  assert.strictEqual(builder.overlayUrl(builder.presetCfg(base, 'default'), BASE), builder.overlayUrl(base, BASE));
+  assert.strictEqual(builder.settingsSnippet(builder.presetCfg(base, 'default')), builder.settingsSnippet(base));
+  builder.PRESETS.forEach((p) => {
+    const keys = builder.urlParts(builder.overlayUrl(builder.presetCfg(base, p.id), hosted)).params.map((x) => x.key);
+    assert.deepStrictEqual(keys.slice(1).sort(), Object.keys(p.set).sort(), p.id);
+  });
+  assert.strictEqual(builder.overlayUrl(builder.presetCfg(base, 'cards'), hosted),
+    'https://chat.masstar.org/overlay.html?channel=forsen&shadow=0&name_line=1&bg=80&accent_bar=1&bg_shape=soft&bg_width=full&spacing=loose');
+  assert.strictEqual(builder.overlayUrl(builder.presetCfg(base, 'big'), hosted),
+    'https://chat.masstar.org/overlay.html?channel=forsen&size=large&text_weight=bold&shadow=3&emote_scale=125');
+});

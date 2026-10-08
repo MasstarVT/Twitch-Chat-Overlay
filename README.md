@@ -32,7 +32,7 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
   - During Shared Chat, every message shows its channel's avatar (your own channel's too, as on Twitch), and partner messages show their badges from that channel.
 - **Vertical or horizontal:** a classic chat column, or a single row that runs sideways like a ticker, for a bar along the top or bottom of the stream.
 - **Clean look by default:** white text with a soft drop shadow on a transparent background. You can change the layout, size, font, shadow, background, alignment, fade-out and line limit.
-- **Config builder** (`builder.html`) with a live preview, a demo mode, and copy or download buttons.
+- **Config builder** (`builder.html`) with a live preview, a demo mode, quick looks to start from, and copy or download buttons.
 
 ## Quick start
 
@@ -313,6 +313,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
 - **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-trouble` (Troubleshooting), `#adv-text`, `#adv-names`, `#adv-box`, `#adv-layout`, `#adv-animation`, `#adv-events` (Chat events), `#adv-highlights`, `#adv-filters`, `#adv-emotes` and `#adv-lighter` (Lighter on PC).
+- **Builder quick looks:** Look starts with five one-click looks: Default, Boxed (a dark box, no shadow), Outlined (an outline in place of the shadow), Cards (full-width boxes with a name-color bar and the name on its own line) and Big & bold. Each sets the text size, weight, color and line spacing, the name weight, shadow, outline, box and space between messages, and emote and badge size; what a look doesn't name goes back to its default. It changes the overlay URL like any other setting, so tweak it from there. Your channels, font, name colors, layout and position stay. **Undo** puts back the look you had before the first click, until you change something else. Big & bold makes emotes a quarter bigger, so they can reach into the line above (see `emote_scale`), and it can be cut off in a 1920 × 100 horizontal source.
 - **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
 
