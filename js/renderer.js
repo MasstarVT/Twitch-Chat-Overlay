@@ -60,8 +60,9 @@
     'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs',
     'first_msg', 'shared', 'layout', // layout: a row draws gigantified emotes at emote height, so it picks smaller files
     'accent_bar',
-    // The sizes: images are fetched for the size they are drawn at, and an emote-only line gets its class.
-    'text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes',
+    // The sizes: images are fetched for the size they are drawn at, and an emote-only line gets its class. gif_size
+    // too: a GIF drawn taller than Giphy's 200 px file loads the original (partsFor).
+    'text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes', 'gif_size',
     // The name colors come from deps.nameFor (overlay.js reads these); the rest are drawn into the line.
     'name_color', 'name_fallback', 'readable_level', 'name_sep', 'timestamps', 'reply_style',
     // The highlights are line classes (lineClasses); their colors are #chat variables (ROOT_KEYS).

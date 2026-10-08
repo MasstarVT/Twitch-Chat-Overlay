@@ -14,9 +14,11 @@
   var DEFAULT_BOTS = ['nightbot', 'streamelements', 'streamlabs', 'moobot', 'fossabot', 'wizebot',
     'soundalerts', 'sery_bot', 'kofistreambot', 'botrixoficial', 'botrix', 'blerp', 'pokemoncommunitygame'];
   // The notices shown as notices, each with the switch under events that covers its type. Kick's sub, gift and host
-  // notices use the same names (a Kick host arrives as a raid).
+  // notices use the same names (a Kick host arrives as a raid). A Prime sub upgraded to a paid one is a sub; a gift paid
+  // forward to one viewer or to the community is a gift (Twitch sends the gift's own notice as well).
   var NOTICE_TYPES = { sub: 'event_subs', resub: 'event_subs', subgift: 'event_gifts', submysterygift: 'event_gifts',
-    giftpaidupgrade: 'event_subs', anongiftpaidupgrade: 'event_subs', raid: 'event_raids', bitsbadgetier: 'event_bits_badge' };
+    giftpaidupgrade: 'event_subs', anongiftpaidupgrade: 'event_subs', primepaidupgrade: 'event_subs',
+    standardpayforward: 'event_gifts', communitypayforward: 'event_gifts', raid: 'event_raids', bitsbadgetier: 'event_bits_badge' };
   // role_filter: the roles (renderer.roleOf, the highest a chatter's badges give) each choice lets through. The
   // broadcaster always passes.
   var ROLE_PASS = { subs: { sub: 1, vip: 1, mod: 1, broadcaster: 1 }, vips: { vip: 1, mod: 1, broadcaster: 1 },
@@ -96,12 +98,15 @@
     return w.join(';');
   }
 
-  var loadedFonts = {}; // name + ':' + weights
-  function applyFont(name, cfg) {
+  // name + ':' + weights -> true (asked for) or 'failed'. A failed one is asked for again only with retry (a reconnect
+  // after an outage, the network back): the builder's preview gets every live change, and a font Google Fonts doesn't
+  // host would be asked for, and refused, on each one.
+  var loadedFonts = {};
+  function applyFont(name, cfg, retry) {
     // Google Fonts family names are case-sensitive in the request URL.
     if (name && T.config.canonicalFont) name = T.config.canonicalFont(name);
     var weights = fontWeights(cfg), key = name + ':' + weights;
-    if (!name || T.config.isSystemFont(name) || loadedFonts[key]) return;
+    if (!name || T.config.isSystemFont(name) || loadedFonts[key] === true || (loadedFonts[key] === 'failed' && !retry)) return;
     // Generic families (system-ui, serif, ...) are never Google Fonts: a request for one is a wasted 400.
     if (T.renderer.isGenericFont && T.renderer.isGenericFont(name)) return;
     loadedFonts[key] = true;
@@ -109,17 +114,18 @@
     link.rel = 'stylesheet';
     link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name).replace(/%20/g, '+') +
       ':wght@' + weights + '&display=swap';
-    // A failed request (offline start) is forgotten, so the next reconnect can ask again.
+    // A failed request (offline start, or a family Google doesn't host) is marked, so the next reconnect can ask again.
     link.onerror = function () {
       if (link.parentNode) link.parentNode.removeChild(link);
-      delete loadedFonts[key];
+      loadedFonts[key] = 'failed';
     };
     document.head.appendChild(link);
   }
-  // Every font the overlay draws with: font, and name_font only while it is set (one more request then).
-  function applyFonts(cfg) {
-    applyFont(cfg.font, cfg);
-    if (cfg.name_font) applyFont(cfg.name_font, cfg);
+  // Every font the overlay draws with: font, and name_font only while it is set (one more request then). retry: ask
+  // again for one that failed.
+  function applyFonts(cfg, retry) {
+    applyFont(cfg.font, cfg, retry);
+    if (cfg.name_font) applyFont(cfg.name_font, cfg, retry);
   }
 
   // ---------- loading helpers ----------
@@ -574,16 +580,23 @@
   }
 
   // Runs parts in parallel; each one applies (and rerenders the room) as soon as it lands.
-  // Resolves with the names of the parts that failed.
+  // Resolves with the names of the parts that failed. ctx.parts keeps each one's state: loading, ok, or (failed) none.
   function runParts(ctx, parts) {
     return Promise.all(parts.map(function (p) {
+      ctx.parts[p.name] = 'loading';
       return Promise.resolve().then(p.fn).then(function (res) {
         // A throwing apply counts as that part failing (retried later), not as a rejected Promise.all.
-        try { p.apply(res); } catch (e) { T.util.warn('shared-chat room', ctx.id, p.name, 'apply failed:', e && e.message); return false; }
+        try { p.apply(res); } catch (e) {
+          T.util.warn('shared-chat room', ctx.id, p.name, 'apply failed:', e && e.message);
+          delete ctx.parts[p.name];
+          return false;
+        }
+        ctx.parts[p.name] = 'ok';
         changed({ roomId: ctx.id });
         return true;
       }, function (e) {
         T.util.warn('shared-chat room', ctx.id, p.name, 'failed:', e && e.message);
+        delete ctx.parts[p.name];
         return false;
       });
     })).then(function (ok) {
@@ -977,7 +990,7 @@
         // for a socket that is connected.
         if (S.stvEvents) S.stvEvents.kick();
         if (S.bttvLive) S.bttvLive.kick();
-        applyFonts(S.cfg);
+        applyFonts(S.cfg, true);
       }
       S.closedAt = 0;
       hideHint();
@@ -1159,22 +1172,25 @@
     var turnedOn = ['badges', 'paints'].concat(keys.filter(function (k) { return k.indexOf('badges_') === 0; }))
       .some(function (k) { return next[k] && !prev[k]; });
     // bots=0 needs the home channel's BTTV bot list, which bots=1 does not load.
-    if (turnedOn || (prev.bots && !next.bots)) ensureLoaders();
-    // ... and each Shared Chat partner's, for its own lines: with BTTV emotes off, the rooms loaded so far never fetched it.
-    if (prev.bots && !next.bots && !next.emotes_bttv) loadPartnerBots();
+    if (turnedOn || (prev.bots && !next.bots)) {
+      ensureLoaders();
+      // ... and each Shared Chat partner's data, for its own lines (its channel badges, FFZ room badges, BTTV bot list).
+      loadPartnerParts();
+    }
   }
 
-  // The 'bttv-channel' part of every Shared Chat room already loaded (or loading). One that fails is retried on one of
-  // the room's later messages, as any part (retryParts).
-  function loadPartnerBots() {
+  // Each Shared Chat room already loaded (or loading) fetched the parts the settings used then: now the ones they use
+  // that it has neither loaded nor is loading. The user lookup is wanted whatever the settings (one that failed waits for
+  // its retry). A part that fails is retried on one of the room's later messages, as any part (retryParts).
+  function loadPartnerParts() {
     S.rooms.forEach(function (ctx) {
       if (ctx.id === S.homeId) return;
-      var parts = roomParts(ctx, false).filter(function (p) { return p.name === 'bttv-channel'; });
+      var parts = roomParts(ctx, false).filter(function (p) { return p.name !== 'user' && !ctx.parts[p.name]; });
       if (!parts.length) return;
       runParts(ctx, parts).then(function (failed) {
         if (!failed.length) return;
         var names = ctx.retry ? ctx.retry.names.slice() : [];
-        if (names.indexOf('bttv-channel') < 0) names.push('bttv-channel');
+        for (var i = 0; i < failed.length; i++) if (names.indexOf(failed[i]) < 0) names.push(failed[i]);
         noteFailedParts(ctx, names, PART_RETRY_MS);
       });
     });
@@ -1310,7 +1326,7 @@
       if (S.stvEvents) S.stvEvents.kick();
       if (S.bttvLive) S.bttvLive.kick();
       S.loads.forEach(function (ctl) { if (ctl.status === 'failed') ctl.retryNow(); });
-      applyFonts(S.cfg); // a font stylesheet that failed offline
+      applyFonts(S.cfg, true); // a font stylesheet that failed offline
     });
     // (The renderer itself flushes on visibilitychange / obsSourceVisibleChanged.)
     setInterval(function () {

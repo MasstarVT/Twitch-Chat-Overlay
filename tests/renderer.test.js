@@ -1309,10 +1309,10 @@ test('every live config key is handled by the renderer', () => {
   assert.ok(R.RERENDER_KEYS.indexOf('name_font') < 0);
   // accent_bar is drawn on each line (a class and the line's own --line-accent), so it rebuilds the lines.
   assert.ok(R.RERENDER_KEYS.indexOf('accent_bar') >= 0 && ROOT_KEYS.indexOf('accent_bar') < 0);
-  // The sizes set #chat and pick new image files (and emote_only marks lines); gif_size is CSS only (a GIF has one
-  // file), and giant_emotes only rebuilds the lines.
-  ['text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes'].forEach((k) => assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0, k));
-  assert.ok(R.RERENDER_KEYS.indexOf('gif_size') < 0 && ROOT_KEYS.indexOf('giant_emotes') < 0);
+  // The sizes set #chat and pick new image files (and emote_only marks lines); gif_size too (a GIF drawn taller than
+  // Giphy's 200 px file loads the original), and giant_emotes only rebuilds the lines.
+  ['text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes', 'gif_size'].forEach((k) => assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0, k));
+  assert.ok(ROOT_KEYS.indexOf('gif_size') >= 0 && ROOT_KEYS.indexOf('giant_emotes') < 0);
   const LIVE_KEYS = require('../js/config.js').LIVE_KEYS;
   assert.ok(Array.isArray(LIVE_KEYS) && LIVE_KEYS.length > 0);
   for (const k of LIVE_KEYS) {

@@ -287,8 +287,9 @@
   var EVENT_SUBS = ['event_subs', 'event_gifts', 'event_raids', 'event_bits_badge', 'event_announcements'];
   // What each event switch covers, and what the demo can show of them.
   var EVENT_SUBS_HELP = 'A switch that is off hides those notices only: a resubscriber’s own message still shows. Subs ' +
-    'include gift sub upgrades, and cheers always show. Announcements are hidden whole, as they are with all events ' +
-    'off. Kick’s subs, gifts and hosts follow these too. The demo has a resub and a raid only.';
+    'include upgrades from a gift or Prime sub, gifts include gifts paid forward, and cheers always show. Announcements ' +
+    'are hidden whole, as they are with all events off. Kick’s subs, gifts and hosts follow these too. The demo has a ' +
+    'resub and a raid only.';
 
   // Switches drawn as one grid under the switch that rules them (keyed by it): label names the grid for
   // assistive tech, help goes under it.

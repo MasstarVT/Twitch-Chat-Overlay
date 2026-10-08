@@ -257,6 +257,105 @@ test('bots=0 with BTTV emotes off: a Shared Chat partner\'s BTTV bot list still 
   assert.deepStrictEqual(texts(h), ['partner viewer line']);
 });
 
+// A Shared Chat partner room loads the data the settings use when it is first seen; one turned on later in the builder's
+// preview must reach the partner rooms already loaded too, as a reload would.
+test('a badge switch turned on live loads each Shared Chat partner\'s own badge data too (channel badges, FFZ room badges)', async (t) => {
+  const cdn = (id) => 'https://static-cdn.jtvnw.net/badges/v1/CHANNEL' + id + '/1';
+  const ffzMod = (id) => 'https://cdn.frankerfacez.com/room-badge/mod/' + id + '/1';
+  const stubs = (T) => {
+    const tw = T.twitchBadges.loadChannel;
+    T.twitchBadges.loadChannel = function (id) {
+      tw(id);
+      return Promise.resolve(new Map([['subscriber', new Map([['12', { set: 'subscriber', version: '12', title: 'Sub', urls: { 1: cdn(id) } }]])]]));
+    };
+    const ffz = T.ffz.loadRoom;
+    T.ffz.loadRoom = function (id) {
+      ffz(id);
+      return Promise.resolve({ emotes: new Map(), modUrls: { 1: ffzMod(id) }, vipUrls: null, userBadges: new Map() });
+    };
+  };
+  const rooms = (h, label) => h.called(label).map((c) => c[1]).sort();
+  const badges = (h, provider) => h.deps.badgesFor(h.pushed[h.pushed.length - 1]).filter((b) => b.provider === provider).map((b) => b.urls[1]);
+  const partnerLine = (badge) => priv('partnerfan', 'partner line', { 'source-room-id': PARTNER, 'source-badges': badge });
+
+  // Twitch badges off at boot: the partner room never fetched its channel badges, so its subscriber's badge would be
+  // Twitch's generic one (here none: the global set is empty).
+  let h = await boot(t, { search: '?channel=home&history=0&badges_twitch=0', stubs: stubs });
+  join(h);
+  h.feed(partnerLine('subscriber/12'));
+  await settle();
+  assert.deepStrictEqual(rooms(h, 'twitch-channel'), []);
+  sender(h)({ badges_twitch: true });
+  await settle();
+  assert.deepStrictEqual(rooms(h, 'twitch-channel'), [HOME, PARTNER]);
+  assert.deepStrictEqual(badges(h, 'twitch'), [cdn(PARTNER)], 'the line already shown: the partner channel\'s own badge');
+  h.feed(partnerLine('subscriber/12'));
+  assert.deepStrictEqual(badges(h, 'twitch'), [cdn(PARTNER)], 'and a later line');
+  // Off and on again: what is loaded stays, nothing is fetched twice.
+  sender(h)({ badges_twitch: false });
+  sender(h)({ badges_twitch: true });
+  await settle();
+  assert.deepStrictEqual(rooms(h, 'twitch-channel'), [HOME, PARTNER]);
+
+  // The badges master switch, the same.
+  h = await boot(t, { search: '?channel=home&history=0&badges=0', stubs: stubs });
+  join(h);
+  h.feed(partnerLine('subscriber/12'));
+  await settle();
+  sender(h)({ badges: true });
+  await settle();
+  assert.deepStrictEqual(rooms(h, 'twitch-channel'), [HOME, PARTNER]);
+  assert.deepStrictEqual(badges(h, 'twitch'), [cdn(PARTNER)]);
+
+  // FFZ emotes and badges off at boot: no room fetched its FFZ data. FFZ badges on live: the partner's custom
+  // moderator badge shows on its line.
+  h = await boot(t, { search: '?channel=home&history=0&emotes_ffz=0&badges_ffz=0', stubs: stubs });
+  join(h);
+  h.feed(partnerLine('moderator/1'));
+  await settle();
+  assert.deepStrictEqual(rooms(h, 'ffz-room'), []);
+  sender(h)({ badges_ffz: true });
+  await settle();
+  assert.deepStrictEqual(rooms(h, 'ffz-room'), [HOME, PARTNER]);
+  assert.deepStrictEqual(badges(h, 'ffz'), [ffzMod(PARTNER)]);
+
+  // One that fails is retried on a later line of the partner's, as any part of a room.
+  let down = true;
+  h = await boot(t, { search: '?channel=home&history=0&badges_twitch=0', stubs(T) {
+    stubs(T);
+    const ok = T.twitchBadges.loadChannel;
+    T.twitchBadges.loadChannel = (id) => (id === PARTNER && down ? Promise.reject(new Error('down')) : ok(id));
+  } });
+  join(h);
+  h.feed(partnerLine('subscriber/12'));
+  await settle();
+  sender(h)({ badges_twitch: true });
+  await settle();
+  const room = h.S().rooms.get(PARTNER);
+  assert.deepStrictEqual(room.retry && room.retry.names, ['twitch-channel-badges']);
+  assert.strictEqual(room.parts['twitch-channel-badges'], undefined);
+  down = false;
+  t.mock.timers.tick(30000);
+  h.feed(partnerLine('subscriber/12'));
+  await settle();
+  assert.strictEqual(room.retry, null);
+  assert.strictEqual(room.parts['twitch-channel-badges'], 'ok');
+  assert.deepStrictEqual(badges(h, 'twitch'), [cdn(PARTNER)]);
+
+  // At the defaults every room loaded all of it already: a switch turned on live fetches nothing of the partner's again.
+  h = await boot(t, { search: '?channel=home&history=0', stubs: stubs });
+  join(h);
+  h.feed(partnerLine('subscriber/12'));
+  await settle();
+  const partnerCalls = () => h.calls.filter((c) => c[1] === PARTNER).map((c) => c[0]).sort();
+  assert.deepStrictEqual(partnerCalls(), ['7tv-channel', 'bttv-channel', 'ffz-room', 'lookupUserById', 'twitch-channel']);
+  sender(h)({ badges_7tv: false });
+  sender(h)({ badges_7tv: true });
+  sender(h)({ bots: false });
+  await settle();
+  assert.deepStrictEqual(partnerCalls(), ['7tv-channel', 'bttv-channel', 'ffz-room', 'lookupUserById', 'twitch-channel']);
+});
+
 test('badges_homies=0 and stv_lookup=0 are honoured; hidden chatters are never looked up', async (t) => {
   let h = await boot(t, { search: '?channel=home&hide_commands=1' });
   join(h);
@@ -715,6 +814,40 @@ test('a font stylesheet that failed is requested again when the network returns'
   assert.strictEqual(h.links.length, 2, 'a loaded font is not requested again');
 });
 
+// The builder posts every live change to its preview: a font Google Fonts doesn't host (one installed on the PC, which
+// the help suggests) answers 400, and was asked for again on each slider step, toggle or color pick.
+test('a font stylesheet that failed is not asked for again on every live change, only at a reconnect or back online', async (t) => {
+  const css2 = (family) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@400;600;700;800&display=swap';
+  const hrefs = (h) => h.links.map((l) => l.href);
+  const h = await boot(t, { search: '?channel=home&history=0&font=Gotham' });
+  join(h);
+  assert.deepStrictEqual(hrefs(h), [css2('Gotham')]);
+  h.links[0].onerror();
+  const send = sender(h);
+  for (let i = 1; i <= 5; i++) send({ bg: 10 * i });
+  send({ font: 'Roboto' });
+  send({ font: 'Gotham' });
+  send({ name_font: 'Zzzz Notreal' });
+  h.links[2].onerror();
+  send({ shadow: 1 });
+  send({ name_font: '' });
+  send({ name_font: 'Zzzz Notreal' });
+  assert.deepStrictEqual(hrefs(h), [css2('Gotham'), css2('Roboto'), css2('Zzzz+Notreal')], 'each asked for once');
+  // Back online, both are asked for again, once.
+  h.listeners.online.forEach((fn) => fn());
+  send({ bg: 70 });
+  assert.deepStrictEqual(hrefs(h).slice(3), [css2('Gotham'), css2('Zzzz+Notreal')]);
+  // And after a reconnect that followed an outage.
+  h.links[3].onerror();
+  h.links[4].onerror();
+  send({ bg: 80 });
+  assert.strictEqual(h.links.length, 5);
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(45000);
+  join(h);
+  assert.deepStrictEqual(hrefs(h).slice(5), [css2('Gotham'), css2('Zzzz+Notreal')]);
+});
+
 test('font weights: Light and Black add 300 and 900 to the Google Fonts request, only while one is chosen', async (t) => {
   const css2 = (family, w) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@' + w + '&display=swap';
   const hrefs = (h) => h.links.map((l) => l.href);
@@ -730,9 +863,12 @@ test('font weights: Light and Black add 300 and 900 to the Google Fonts request,
   assert.strictEqual(a.links.length, 3, 'weights it already has ask for nothing');
   send(a, { name_weight: 'black', font: 'Arial' });
   assert.strictEqual(a.links.length, 3, 'an installed font is never requested');
-  // A link that failed is asked for again with the weights of the moment, at reconnect or when back online.
+  // A link that failed is asked for again with the weights of the moment, at reconnect or when back online (not on a
+  // live change: see above).
   a.links[2].onerror();
   send(a, { name_weight: 'heavy', font: 'Open Sans' });
+  assert.strictEqual(a.links.length, 3);
+  a.listeners.online.forEach((fn) => fn());
   assert.deepStrictEqual(hrefs(a).slice(3), [css2('Open+Sans', '400;600;700;800')]);
 });
 
@@ -1139,6 +1275,38 @@ test('event switches: a type that is off keeps its viewer\'s own message as chat
   assert.deepStrictEqual(seen().slice(ann), ['chat:announcement:big news']);
   send({ events: false, event_announcements: true });
   assert.strictEqual(h.deps.shouldShow(h.pushed[ann]), false, 'events=0 still hides every one');
+});
+
+// Twitch sends these without the viewer's own text: dropped from the notice types, nothing showed at all.
+test('event switches: a Prime-to-paid sub upgrade is a sub notice, a pay-it-forward gift a gift notice', async (t) => {
+  const sys = (s) => ({ 'system-msg': s.replace(/ /g, '\\s') }); // an IRC tag value: spaces escaped
+  const feedAll = (h) => {
+    h.feed(usernotice('primepaidupgrade', 'upgrader', '', sys('upgrader converted from a Prime sub to a Tier 1 sub!')));
+    h.feed(usernotice('standardpayforward', 'payer', '', sys('payer is paying forward the Gift they got from gifter to friend!')));
+    h.feed(usernotice('communitypayforward', 'payer2', '', sys('payer2 is paying forward the Gift they got from gifter to the community!')));
+  };
+  const seen = (h) => h.pushed.map((m) => m.kind + ':' + m.type + ':' + m.systemMsg);
+  let h = await boot(t, { search: '?channel=home&history=0' });
+  join(h);
+  feedAll(h);
+  assert.deepStrictEqual(seen(h), ['notice:primepaidupgrade:upgrader converted from a Prime sub to a Tier 1 sub!',
+    'notice:standardpayforward:payer is paying forward the Gift they got from gifter to friend!',
+    'notice:communitypayforward:payer2 is paying forward the Gift they got from gifter to the community!']);
+  // Each goes by its own switch, live too; events=0 hides them all.
+  const send = sender(h);
+  send({ event_subs: false });
+  assert.deepStrictEqual(h.pushed.map((m) => h.deps.shouldShow(m)), [false, true, true]);
+  send({ event_subs: true, event_gifts: false });
+  assert.deepStrictEqual(h.pushed.map((m) => h.deps.shouldShow(m)), [true, false, false]);
+  send({ event_gifts: true, events: false });
+  assert.deepStrictEqual(h.pushed.map((m) => h.deps.shouldShow(m)), [false, false, false]);
+  for (const q of ['events=0', 'event_subs=0', 'event_gifts=0']) {
+    h = await boot(t, { search: '?channel=home&history=0&' + q });
+    join(h);
+    feedAll(h);
+    assert.deepStrictEqual(h.pushed.map((m) => m.type), q === 'events=0' ? [] : q === 'event_subs=0'
+      ? ['standardpayforward', 'communitypayforward'] : ['primepaidupgrade'], q);
+  }
 });
 
 test('chat filters: words, links and length hide chat lines only; a reply quoting a hidden message loses the quote', async (t) => {

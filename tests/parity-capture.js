@@ -276,7 +276,8 @@ function sampleSet() {
 }
 
 // The message a sample stands for, the way overlay.js turns its line into one (handlePrivmsg / handleUsernotice).
-const NOTICE_TYPES = { sub: 1, resub: 1, subgift: 1, submysterygift: 1, giftpaidupgrade: 1, anongiftpaidupgrade: 1, raid: 1, bitsbadgetier: 1 };
+const NOTICE_TYPES = { sub: 1, resub: 1, subgift: 1, submysterygift: 1, giftpaidupgrade: 1, anongiftpaidupgrade: 1, primepaidupgrade: 1,
+  standardpayforward: 1, communitypayforward: 1, raid: 1, bitsbadgetier: 1 };
 function sampleMsg(M, s) {
   if (s.kick) return M.kick.parseEvent('App\\Events\\' + s.kick[0], JSON.stringify(s.kick[1])).msg;
   const p = M.ircParse.parseLine(s.irc);

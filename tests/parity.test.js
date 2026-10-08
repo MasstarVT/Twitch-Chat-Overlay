@@ -263,7 +263,8 @@ const PREREQ = {
   row_sep: { layout: 'horizontal' },
   size: { text_px: 0 },
   emote_only: { layout: 'vertical' },
-  gif_size: { gifs: true, layout: 'vertical' },
+  // 40 px text: the transcript's GIF is drawn 210 px tall at 3x, past Giphy's 200 px file, so gif_size picks its file.
+  gif_size: { gifs: true, layout: 'vertical', text_px: 40 },
   giant_emotes: { layout: 'vertical' },
   name_fallback: { name_color: '' },
   name_sep: { names: true },
@@ -335,6 +336,22 @@ test('(d) a live setting set and set back leaves #chat and .lines as they were, 
       if (drawn && !filterOnly(k) && LIFECYCLE.indexOf(k) < 0) {
         assert.deepStrictEqual(after.lines, before.lines, k + ': the lines');
       }
+    });
+  });
+});
+
+// The builder's preview changes a live setting on the lines already shown; OBS loads the overlay with it. Both must
+// draw the same lines (a key missing from RERENDER_KEYS leaves the lines shown as the old setting drew them).
+test('(d) a live setting changed on lines already shown draws them as a renderer started with it does', async () => {
+  await inWorld((w) => {
+    config.LIVE_KEYS.filter((k) => LIFECYCLE.indexOf(k) < 0 && !filterOnly(k) && MEASURED.indexOf(k) < 0).forEach((k) => {
+      const base = withPrereq(w.cfg0, k);
+      const c = changed(base, k);
+      const live = drive(w, [base, c]);
+      const fresh = drive(w, [c]);
+      assert.deepStrictEqual(live.root, fresh.root, k + ': #chat');
+      assert.deepStrictEqual(live.box, fresh.box, k + ': .lines');
+      assert.deepStrictEqual(live.lines, fresh.lines, k + ': the lines');
     });
   });
 });

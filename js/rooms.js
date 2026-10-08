@@ -19,6 +19,7 @@
       bttv: { emotes: new Map(), bots: new Set() },
       ffz: { emotes: new Map(), modUrls: null, vipUrls: null, userBadges: new Map() },
       retry: null, // Shared Chat rooms: parts that failed, retried on a later message (set by the overlay)
+      parts: {}, // Shared Chat rooms: each part loading ('loading') or loaded ('ok'), by name (set by the overlay)
       lastSeen: util.now()
     };
   }

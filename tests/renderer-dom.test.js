@@ -1110,6 +1110,24 @@ test('gifs: a big GIF\'s original WebP falls back to the 200 px file, then to th
   assert.strictEqual(s.lines()[0].byClass('gif')[0].src, 'https://media.giphy.com/media/a/200.webp');
 });
 
+test('gifs: a live gif_size change redraws a GIF already shown from the file that size needs, and back', (t) => {
+  const tok = () => [{ type: 'gif', url: 'https://media.giphy.com/media/a/200.webp', orig: 'https://media.giphy.com/media/a/giphy.gif',
+    title: 'party', sp: false }];
+  // 40 px text: an emote is 70 px tall, so a GIF is 140 px at 2x (the 200 px file) and 210 px at 3x (the original).
+  const s = setup(t, { gifs: true, text_px: 40, gif_size: '2x' }, { tokensFor: tok });
+  s.r.push(chat('amy', 'g'));
+  s.r.flush();
+  const src = () => s.lines().map((l) => l.byClass('gif')[0].src);
+  assert.deepStrictEqual(src(), ['https://media.giphy.com/media/a/200.webp']);
+  s.r.setConfig({ gifs: true, text_px: 40, gif_size: '3x' });
+  s.r.push(chat('bob', 'g'));
+  s.r.flush();
+  assert.deepStrictEqual(src(), ['https://media.giphy.com/media/a/giphy.webp', 'https://media.giphy.com/media/a/giphy.webp'],
+    'the line shown before the change and a new one alike');
+  s.r.setConfig({ gifs: true, text_px: 40, gif_size: '1x' });
+  assert.deepStrictEqual(src(), ['https://media.giphy.com/media/a/200.webp', 'https://media.giphy.com/media/a/200.webp']);
+});
+
 test('refilter drops lines the filters now reject', (t) => {
   let bots = [];
   const s = setup(t, {}, { shouldShow: (m) => bots.indexOf(m.login) < 0 });

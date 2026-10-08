@@ -25,6 +25,8 @@ test('newContext returns an empty RoomContext', function () {
   assert.strictEqual(c.ffz.modUrls, null);
   assert.strictEqual(c.ffz.vipUrls, null);
   assert.strictEqual(c.retry, null);
+  assert.deepStrictEqual(c.parts, {});
+  assert.notStrictEqual(rooms.newContext(1).parts, rooms.newContext(2).parts, 'each room its own');
   assert.strictEqual(typeof c.lastSeen, 'number');
 });
 
