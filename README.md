@@ -122,6 +122,17 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `history` | `5` | `0`–`100` | Load up to this many recent lines on start (from recent-messages.robotty.de). `0` turns it off. Timeouts, deletions, sub and raid notices, deleted messages and hidden bots count toward the limit, so fewer chat messages may appear. |
 | `shared` | `1` | bool | Show messages from other channels during a Shared Chat session. |
 | `timestamps` | `off` | `off`, `12h`, `24h` | Show when each message was sent, by the streaming PC's clock, before its badges (on a notice, before its text): `12h` as 3:07 (no AM or PM), `24h` as 15:07. Lines from `history` show when they were sent. In the horizontal layout each message gets that much wider. |
+| `mentions` | `off` | `off`, `at`, `name` | Tint chat messages that mention the channel: `at` looks for `@name`, `name` for the name on its own too (but not after `/` or `.`, so not in a twitch.tv link). Only a Latin letter, a digit or `_` makes it part of a longer name, so `@nameさん` and `@name님` count. The names are the `channel` login and the `kick` channel (where `_` and `-` count as the same); a reply to the channel counts too, and the channel's own messages never do. Without a channel nothing is tinted. While it is on, the demo's first message mentions the channel. Which tint wins on a line: see `role_style`. |
+| `mention_color` | none | hex color | Color of the mention tint (red, `E91916`, at 35% when unset). Needs `mentions`. |
+| `keywords` | none | comma-separated words or phrases | Tint chat messages that contain any of these, in any letter case and as whole words (`gg` doesn't match `eggs`; in Chinese, Japanese, Korean, Thai and other text without spaces between words, a keyword matches inside it, and `gg` matches `ggです`); a phrase may have spaces. Up to 50, each up to 40 characters (a longer one is left out). |
+| `highlight_users` | none | comma-separated logins | Tint these users' chat messages with the `keywords` tint. A name counts on Twitch and Kick alike. |
+| `keyword_color` | none | hex color | Color of the `keywords` and `highlight_users` tint (amber, `FFB31A`, at 35% when unset). |
+| `points_highlight` | `1` | bool | Tint messages highlighted with channel points. `0` shows them like any other message. |
+| `points_color` | none | hex color | Color of the channel-points tint (purple, `9146FF`, at 35% when unset). Needs `points_highlight=1`. |
+| `role_style` | `off` | `off`, `bar`, `tint` | Mark the broadcaster's, moderators' and VIPs' chat messages with a bar on the left (`bar`) or a tint (`tint`), in a color per role. It reads their badges as Twitch or Kick sends them, so it works with `badges=0` (a Shared Chat line from another channel goes by the badges there); subscribers aren't marked. A line gets one tint at most: channel points, then a mention, then a keyword or highlight user, then the role's. A first-time chatter's bar wins over the role bar, which wins over `accent_bar`'s. Announcements get no tint and no role bar. |
+| `broadcaster_color` | none | hex color | The broadcaster's color for `role_style` (red, `E91916`, when unset). |
+| `mod_color` | none | hex color | The moderators' color for `role_style` (green, `00AD03`, when unset). |
+| `vip_color` | none | hex color | The VIPs' color for `role_style` (pink, `E005B9`, when unset). |
 | `gifs` | `1` | bool | Show Twitch chat GIFs. They load as Giphy's 200 px animated WebP instead of the full-size original, so a GIF drawn more than 200 px tall (a `3x` GIF past about `text_px=38`, or with a large `emote_scale`) looks soft. |
 | `gif_size` | `3x` | `1x`, `2x`, `3x` | Height of a GIF in emote heights. At `1x` it also takes an emote's margins, so its line is no taller than a line with emotes. Vertical layout only: a row draws GIFs at emote height. |
 | `emotes_7tv`, `emotes_bttv`, `emotes_ffz` | `1` | bool | Turn each emote provider on or off. Kick chat uses 7TV only (BTTV and FFZ don't exist on Kick). |
@@ -170,7 +181,11 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `.line.action` | a `/me` message |
 | `.line.first-msg` | a first-time chatter's message (with `first_msg=1`) |
 | `.line.accent` | a message with a bar in the chatter's name color (`accent_bar=1`); the color is the line's `--line-accent` variable |
-| `.line.highlight` | a message highlighted with channel points |
+| `.line.highlight` | a message highlighted with channel points (with `points_highlight=1`) |
+| `.line.mention` | a message that mentions the channel (`mentions`) |
+| `.line.keyword`, `.line.user-hl` | a message with one of the `keywords`, or from one of the `highlight_users` |
+| `.line.role-broadcaster`, `.line.role-mod`, `.line.role-vip` | a message from the broadcaster, a moderator or a VIP, while `role_style` is `bar` or `tint`; the role's color is the line's `--role-rgb` variable (`r, g, b`) |
+| `.line.role-bar`, `.line.role-tint` | the role's bar (`role_style=bar`), or its tint (`role_style=tint`, on a line no other tint took) |
 | `.line.announcement` | an `/announce` message (its bar color is one of `.ann-primary`, `.ann-blue`, `.ann-green`, `.ann-orange` or `.ann-purple`) |
 | `.line.mirrored` | a message from another channel during Shared Chat |
 | `.line.emote-only` | a message of emotes alone, drawn bigger (`emote_only=big` or `huge`; the vertical layout only) |
@@ -215,6 +230,12 @@ These options set a variable on `#chat`, and only while they are changed, so Cus
 | `--emote-h` | `emote_scale` | `1.75em` |
 | `--badge-h` | `badge_size` | `1em` |
 | `--gif-mul` | `gif_size` | `3` (GIF height in emote heights; the horizontal layout keeps GIFs at emote height) |
+| `--mention-rgb` | `mention_color`, written `r, g, b` | `233, 25, 22` |
+| `--kw-rgb` | `keyword_color`, written `r, g, b` | `255, 179, 26` |
+| `--hl-rgb` | `points_color`, written `r, g, b` | `145, 70, 255` |
+| `--role-broadcaster-rgb`, `--role-mod-rgb`, `--role-vip-rgb` | `broadcaster_color`, `mod_color`, `vip_color`, written `r, g, b` | `233, 25, 22`, `0, 173, 3`, `224, 5, 185` |
+
+The tints (`.highlight`, `.mention`, `.keyword`, `.user-hl`, `.role-tint`) are their color at 35%. With `bg` above 0 they are drawn as a `background-image` over the box, so Custom CSS that recolors one sets `background-image` too (or sets the variable above instead).
 
 `line_width` sets the cap as `--line-max` (in em) and, for notices, whose em is their own smaller text, as `--line-max-n`; `edge_fade` sets the length of the fade as `--edge-fade`; `name_font` sets the names' font as `--name-font`. Each works only with its class (`#chat.has-maxw`, `#chat.edge-fade`, `#chat.has-name-font`), which the option sets.
 
@@ -274,7 +295,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Still paints:** `paint_images=static` takes an animated paint's still frame from 7TV's own list of its images. A paint that arrives in 7TV's older format (one image URL: when 7TV's paint list can't be loaded, or for a paint newer than the list) doesn't say whether it is animated, so it stays as it is.
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
-- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-trouble` (Troubleshooting), `#adv-text`, `#adv-names`, `#adv-box`, `#adv-layout`, `#adv-events` (Chat events), `#adv-emotes` and `#adv-lighter` (Lighter on PC).
+- **Builder:** each setting shows its option name, and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-trouble` (Troubleshooting), `#adv-text`, `#adv-names`, `#adv-box`, `#adv-layout`, `#adv-events` (Chat events), `#adv-highlights`, `#adv-emotes` and `#adv-lighter` (Lighter on PC).
 - **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
 

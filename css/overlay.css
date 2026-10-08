@@ -2,16 +2,19 @@
 
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .time .badges .badge .name .colon .message
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
-   .platform-kick .accent .emote-only, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat
-   channel), #chat modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg .bg-full .no-names
-   .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static .text-center .text-right
-   .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
+   .platform-kick .accent .emote-only .mention .keyword .user-hl .role-broadcaster .role-mod .role-vip .role-bar
+   .role-tint, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel), #chat
+   modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .has-bg .bg-full .no-names .name-line
+   .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static .text-center .text-right .has-maxw
+   .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
    --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
-   --first-color --pad-x --emote-h --badge-h --gif-mul. Outline and shadow_style set --tshadow and --tshadow-room,
+   --first-color --pad-x --emote-h --badge-h --gif-mul --mention-rgb --kw-rgb --hl-rgb --role-broadcaster-rgb
+   --role-mod-rgb --role-vip-rgb. Outline and shadow_style set --tshadow and --tshadow-room,
    line_width --line-max and --line-max-n (with .has-maxw), edge_fade --edge-fade (with .edge-fade), emote_only --eo
    (for .emote-only lines), gif_size=1x --gif-margin, name_font --name-font (with .has-name-font), text_px #chat's
-   font-size, and accent_bar sets --line-accent on each line */
+   font-size, and accent_bar sets --line-accent on each line. The rules below give a role's line its color as
+   --role-rgb, and a tinted line its tint as --line-tint */
 
 html,
 body {
@@ -154,15 +157,26 @@ body {
   padding-left: .4em;
 }
 
+/* role_style=bar/tint: a broadcaster's, mod's or VIP's line carries its role's color as --role-rgb (#chat's
+   --role-*-rgb, 'r, g, b', while one is picked). The bar comes after .accent and before .first-msg: it takes the
+   name-color bar's place, and a first message's bar takes its place. The tint is with the others, below. */
+.line.role-broadcaster { --role-rgb: var(--role-broadcaster-rgb, 233, 25, 22); }
+.line.role-mod { --role-rgb: var(--role-mod-rgb, 0, 173, 3); }
+.line.role-vip { --role-rgb: var(--role-vip-rgb, 224, 5, 185); }
+.line.role-bar {
+  box-shadow: inset .2em 0 0 rgb(var(--role-rgb, 233, 25, 22));
+  padding-left: .4em;
+}
+
 /* first-msg=1 (only when first_msg is enabled) */
 .line.first-msg {
   box-shadow: inset .2em 0 0 var(--first-color, #9146FF);
   padding-left: .4em;
 }
 
-/* channel-points highlighted message */
+/* channel-points highlighted message (points_highlight=1; points_color sets --hl-rgb) */
 .line.highlight {
-  background-color: rgba(145, 70, 255, .35);
+  background-color: rgba(var(--hl-rgb, 145, 70, 255), .35);
   border-radius: .3em;
   padding-left: .3em;
   padding-right: .3em;
@@ -170,11 +184,42 @@ body {
 /* accent_bar=1: room for the bar, over .highlight's .3em. :where keeps this at the specificity of .line.highlight,
    so Custom CSS written as `.line.highlight { ... }` wins here too. */
 .line.highlight:where(.accent) { padding-left: .4em; }
+.line.highlight:where(.role-bar) { padding-left: .4em; }
 /* With bg set, the tint goes over the dark box instead of replacing it. :where keeps this at the
    specificity of .line.highlight, so Custom CSS written as `.line.highlight { ... }` still wins. */
 :where(.has-bg) .line.highlight {
   background-color: rgba(var(--bg-rgb, 0, 0, 0), var(--bg-alpha, 0));
-  background-image: linear-gradient(rgba(145, 70, 255, .35), rgba(145, 70, 255, .35));
+  background-image: linear-gradient(rgba(var(--hl-rgb, 145, 70, 255), .35), rgba(var(--hl-rgb, 145, 70, 255), .35));
+  border-radius: var(--bg-radius, .3em);
+}
+
+/* mentions, keywords and highlight_users, and role_style=tint: tinted like a channel-points highlight, in their own
+   colors (--mention-rgb, --kw-rgb, the role's), as the line's --line-tint. renderer.js gives a line one tint at most
+   (highlight, then mention, then keyword or user-hl, then role-tint) and none to an announcement. A bar beside the
+   line keeps its room, and with bg set the tint goes over the box, as .highlight's does. */
+.line.mention { --line-tint: rgba(var(--mention-rgb, 233, 25, 22), .35); }
+.line.keyword,
+.line.user-hl { --line-tint: rgba(var(--kw-rgb, 255, 179, 26), .35); }
+.line.role-tint { --line-tint: rgba(var(--role-rgb, 233, 25, 22), .35); }
+.line.mention,
+.line.keyword,
+.line.user-hl,
+.line.role-tint {
+  background-color: var(--line-tint);
+  border-radius: .3em;
+  padding-left: .3em;
+  padding-right: .3em;
+}
+.line.mention:where(.accent, .first-msg, .role-bar),
+.line.keyword:where(.accent, .first-msg, .role-bar),
+.line.user-hl:where(.accent, .first-msg, .role-bar),
+.line.role-tint:where(.accent, .first-msg) { padding-left: .4em; }
+:where(.has-bg) .line.mention,
+:where(.has-bg) .line.keyword,
+:where(.has-bg) .line.user-hl,
+:where(.has-bg) .line.role-tint {
+  background-color: rgba(var(--bg-rgb, 0, 0, 0), var(--bg-alpha, 0));
+  background-image: linear-gradient(var(--line-tint), var(--line-tint));
   border-radius: var(--bg-radius, .3em);
 }
 

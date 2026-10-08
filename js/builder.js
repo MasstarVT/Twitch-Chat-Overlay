@@ -57,6 +57,13 @@
   function sepShown(cfg) { return namesOn(cfg) && !(cfg.name_line && cfg.layout !== 'horizontal'); }
   // Text size applies until Exact text size (text_px) takes over.
   function sizeOn(cfg) { return !(cfg.text_px > 0); }
+  // The highlight colors: each only while what it colors is on.
+  function mentionsOn(cfg) { return !!cfg.mentions && cfg.mentions !== 'off'; }
+  function wordsOrUsersOn(cfg) {
+    return !!((cfg.keywords && cfg.keywords.length) || (cfg.highlight_users && cfg.highlight_users.length));
+  }
+  function pointsOn(cfg) { return !!cfg.points_highlight; }
+  function rolesOn(cfg) { return !!cfg.role_style && cfg.role_style !== 'off'; }
 
   // Each Text size in px (renderer.js FONT_PX): where Exact text size starts from Auto (META.from0).
   var TEXT_PX = { small: 18, medium: 24, large: 32 };
@@ -173,6 +180,28 @@
       help: 'During a Shared Chat session, also show the other channels’ messages. Every message is marked with its channel’s avatar.' },
     timestamps: { label: 'Timestamps', options: { off: 'Off', '12h': '12-hour', '24h': '24-hour' },
       help: 'The time each message was sent, by the streaming PC’s clock, before its badges: 3:07 (12-hour, without AM or PM) or 15:07. Recent messages loaded at the start show when they were sent.' },
+    mentions: { label: 'Highlight channel mentions', options: { off: 'Off', at: '@name', name: 'Plain too' }, wrap: true,
+      help: 'Tints messages that mention your channel: @name, or with Plain too the bare name as well (not in a link). Replies to you count, your own messages don’t. Needs a Twitch or Kick channel; the preview’s first demo message then mentions you. The color is under Advanced.' },
+    mention_color: { label: 'Mention color', swatch: '#e91916', when: mentionsOn,
+      help: 'Red by default, see-through over the message. Needs Highlight channel mentions (Chat events).' },
+    keywords: { label: 'Highlight words', placeholder: 'word, two words',
+      help: 'Tints messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t match eggs. Up to 50, each up to 40 characters. Try overlay to see it in the preview.' },
+    highlight_users: { label: 'Highlight these users', placeholder: 'username1, username2',
+      help: 'Their messages get the Highlight words tint. Usernames, separated by commas; a name counts on Twitch and Kick alike. Try paintedpal to see it in the preview.' },
+    keyword_color: { label: 'Highlight word color', swatch: '#ffb31a', when: wordsOrUsersOn,
+      help: 'Amber by default, for Highlight words and Highlight these users. Needs one of them.' },
+    points_highlight: { label: 'Channel-points highlights',
+      help: 'A purple tint on messages highlighted with channel points. Off shows them like any other message (a mention or a highlight word still tints one).' },
+    points_color: { label: 'Points highlight color', swatch: '#9146ff', when: pointsOn,
+      help: 'Purple by default. Needs Channel-points highlights.' },
+    role_style: { label: 'Mark broadcaster, mods, VIPs', options: { off: 'Off', bar: 'Bar', tint: 'Tint' },
+      help: 'A bar beside their messages, or a tint behind them, in a color for each role (below). Read from their badges, so it works with badges off; subscribers aren’t marked. A first-time chatter’s bar wins over the role bar, and the tints above win over the role tint. Announcements keep their own look.' },
+    broadcaster_color: { label: 'Broadcaster color', swatch: '#e91916', when: rolesOn,
+      help: 'Red by default. Needs Mark broadcaster, mods, VIPs.' },
+    mod_color: { label: 'Moderator color', swatch: '#00ad03', when: rolesOn,
+      help: 'Green by default. Needs Mark broadcaster, mods, VIPs.' },
+    vip_color: { label: 'VIP color', swatch: '#e005b9', when: rolesOn,
+      help: 'Pink by default. Needs Mark broadcaster, mods, VIPs.' },
     gifs: { label: 'Show GIFs posted in chat' },
     gif_size: { label: 'GIF size', options: { '1x': '1×', '2x': '2×', '3x': '3×' }, when: gifsOn, only: 'vertical',
       help: 'How tall a GIF is, in emote heights (3× by default); at 1× its line is no taller than one with emotes. The demo has no GIF. Vertical layout only (a row draws GIFs at emote height), with Show GIFs posted in chat on (Emotes).' },
@@ -242,9 +271,9 @@
       keys: ['kick', 'kick_room', 'platform_icons'] },
     { id: 'messages', title: 'Messages', note: 'How many messages show, and for how long.',
       keys: ['fade', 'max', 'history'] },
-    { id: 'events', title: 'Chat events', note: 'Subs, raids, replies, first messages and timestamps.',
-      keys: ['events', 'replies', 'first_msg', 'shared', 'timestamps'],
-      subs: [{ title: 'Highlights & timestamps', first: 'timestamps' }], more: 'adv-events' },
+    { id: 'events', title: 'Chat events', note: 'Subs, raids, replies, highlights and timestamps.',
+      keys: ['events', 'replies', 'first_msg', 'shared', 'mentions', 'timestamps'],
+      subs: [{ title: 'Highlights & timestamps', first: 'mentions' }], more: 'adv-events' },
     { id: 'filters', title: 'Filters', note: 'Who and what stays out of the overlay.',
       keys: ['bots', 'hide_commands', 'block'] },
     { id: 'emotes', title: 'Emotes', note: 'Twitch and Kick emotes are always shown.',
@@ -255,11 +284,13 @@
     { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then fine-tuning for every section and lighter-on-PC switches.',
       keys: ['debug', 'demo', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight',
         'name_font', 'name_fallback', 'name_sep', 'readable_level', 'bg_shape', 'bg_width', 'spacing', 'line_width', 'pad_x',
-        'edge_fade', 'row_sep', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'gif_size', 'giant_emotes',
-        'shadow_style', 'paint_images', 'homies_lists'],
+        'edge_fade', 'row_sep', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'mention_color', 'keywords',
+        'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color', 'mod_color',
+        'vip_color', 'gif_size', 'giant_emotes', 'shadow_style', 'paint_images', 'homies_lists'],
       subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'text_px' },
         { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
         { id: 'adv-layout', title: 'Layout', first: 'line_width' }, { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
+        { id: 'adv-highlights', title: 'Highlights', first: 'mention_color' },
         { id: 'adv-emotes', title: 'Emotes', first: 'gif_size' }, { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }
   ];
 
@@ -757,7 +788,7 @@
     if (s.type === 'int') return 'stepper';
     if (s.type === 'font') return 'font';
     if (s.type === 'color') return 'color';
-    return 'text'; // list, kick, room
+    return 'text'; // list, words, kick, room
   }
 
   // The provider mark beside a field: the images are css/builder.css backgrounds, so no URL is set here.
@@ -985,7 +1016,9 @@
         hex.placeholder = m.placeholder || m.swatch;
         var dflt = h('button', 'btn ghost', 'Default');
         dflt.type = 'button';
-        dflt.setAttribute('aria-label', 'Default ' + labelFor(key).toLowerCase());
+        // 'Default text color', but 'Default VIP color': an acronym keeps its capitals.
+        var dl = labelFor(key);
+        dflt.setAttribute('aria-label', 'Default ' + (/^[A-Z][a-z]/.test(dl) ? dl.charAt(0).toLowerCase() + dl.slice(1) : dl));
         crow.appendChild(pick);
         crow.appendChild(hex);
         crow.appendChild(dflt);
@@ -1049,9 +1082,9 @@
         };
         break;
       }
-      default: { // text: a list of names (block), or one value (kick, kick_room)
+      default: { // text: a list of names (block, highlight_users) or words (keywords), or one value (kick, kick_room)
         addLabel(true);
-        var isList = spec.type === 'list';
+        var isList = spec.type === 'list' || spec.type === 'words';
         var li = h('input', 'text');
         li.type = 'text';
         li.id = id;

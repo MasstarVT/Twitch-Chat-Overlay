@@ -220,14 +220,21 @@ const PREREQ = {
   name_fallback: { name_color: '' },
   name_sep: { names: true },
   readable_level: { readable: true },
-  reply_style: { replies: true }
+  reply_style: { replies: true },
+  mention_color: { mentions: 'at' },
+  keyword_color: { keywords: ['nice'] },
+  points_color: { points_highlight: true },
+  broadcaster_color: { role_style: 'tint' },
+  mod_color: { role_style: 'tint' },
+  vip_color: { role_style: 'bar' }
 };
 function withPrereq(cfg, k) { return Object.assign({}, cfg, PREREQ[k] || {}); }
 
 // flip()'s value, except where that changes nothing on the transcript: max 51 caps nothing, nobody in it is
-// called "someone", badges and emotes 1% bigger still come from the same files, and a contrast of 4.6 lightens
-// most names no further than 4.5 does (7:1 lightens every dark one).
-const SHOWS = { max: 5, block: ['waver'], badge_size: 200, emote_scale: 150, readable_level: 70 };
+// called "someone" or says "some words", badges and emotes 1% bigger still come from the same files, and a
+// contrast of 4.6 lightens most names no further than 4.5 does (7:1 lightens every dark one).
+const SHOWS = { max: 5, block: ['waver'], badge_size: 200, emote_scale: 150, readable_level: 70, keywords: ['nice'],
+  highlight_users: ['waver'] };
 function changed(cfg, k) {
   if (!own(SHOWS, k)) return flip(cfg, k);
   const c = Object.assign({}, cfg);
@@ -295,6 +302,54 @@ test('(e) the name colors: name_fallback reaches only the colorless chatters, na
       assert.strictEqual(colorOf({ name_fallback: '000033' }, m), m.color ? today : '#000033', m.id);
       assert.strictEqual(colorOf({ name_color: '000033', readable_level: 70 }, m), '#000033', m.id);
     });
+    w.S.cfg = w.cfg0;
+  });
+});
+
+// The highlights on the whole transcript, through the overlay's own intake (the Twitch tags as irc-parse reads them,
+// the Kick badges as kick.js does): only the channel-points highlight at the defaults, as in 1.5.2, and with an
+// option on, exactly the lines it should mark. Notices and announcements never get one.
+test('(e) the highlights mark exactly their lines of the transcript, Twitch and Kick; at the defaults only channel points', async () => {
+  await inWorld((w) => {
+    const HL = /^(?:highlight|mention|keyword|user-hl|role-[a-z]+)$/;
+    const marks = (over) => {
+      const d = drive(w, [Object.assign({}, w.cfg0, { max: 200 }, over)]);
+      const out = {};
+      d.lines.forEach((l, i) => {
+        const c = (l.cls || '').split(' ').filter((x) => HL.test(x));
+        const m = d.msgs[i];
+        if (c.length) out[m.id || m.kind + ': ' + m.systemMsg] = c.join(' ');
+      });
+      return out;
+    };
+    assert.deepStrictEqual(marks({}), { 'm-points': 'highlight' });
+    assert.deepStrictEqual(marks({ points_highlight: false }), {});
+    // The channel is home (and kickname on Kick): '@home you rock' is the one mention, also as a bare name (no other
+    // line says home). Off, or with no channel at all, nothing.
+    assert.deepStrictEqual(marks({ mentions: 'at' }), { 'm-points': 'highlight', 'm-mention': 'mention' });
+    assert.deepStrictEqual(marks({ mentions: 'name' }), { 'm-points': 'highlight', 'm-mention': 'mention' });
+    assert.deepStrictEqual(marks({ mentions: 'name', channel: '', kick: '' }), { 'm-points': 'highlight' });
+    // Words in any case, as whole words and phrases; users by login on Twitch and Kick (kickplain's sub notice is a
+    // notice: not marked).
+    assert.deepStrictEqual(marks({ keywords: ['nice', 'kappa HOW'], highlight_users: ['waver', 'kickplain'] }), {
+      'h-1': 'user-hl', 'm-chat': 'keyword', 'm-action': 'user-hl', 'm-points': 'highlight', 'kick:a1b2c3d4-0002': 'user-hl',
+      'm-gif': 'keyword', 'm-link': 'user-hl', 'm-mod': 'keyword'
+    });
+    // The roles from the badge tags (and Kick's badge types): the mod's announcement is left alone, the partner
+    // channel's subscriber isn't marked, and the developer's and ffzbot's moderator tags count as they are.
+    const bar = 'role-bar';
+    assert.deepStrictEqual(marks({ role_style: 'bar' }), {
+      'm-reply': 'role-vip ' + bar, 'm-reply-gone': 'role-vip ' + bar, 'm-points': 'highlight',
+      'kick:a1b2c3d4-0001': 'role-mod ' + bar, 'kick:a1b2c3d4-0003': 'role-vip ' + bar, 'm-homeshared': 'role-mod ' + bar,
+      'm-cheer': 'role-vip ' + bar, 'm-caster': 'role-broadcaster ' + bar, 'm-mod': 'role-mod ' + bar, 'm-dev': 'role-mod ' + bar,
+      'x-reply-troll': 'role-vip ' + bar, 'x-reply-cmd': 'role-vip ' + bar, 'x-ffzbot': 'role-mod ' + bar,
+      'x-extras': 'role-vip ' + bar, 'x-bitsbadge:m': 'role-vip ' + bar
+    });
+    // One tint per line: the mod's "please be nice" takes the keyword's, not its role's; a plain mod line the role's.
+    const tint = marks({ role_style: 'tint', keywords: ['nice'], mentions: 'at' });
+    assert.deepStrictEqual([tint['m-mod'], tint['m-dev'], tint['m-mention'], tint['m-points']],
+      ['keyword role-mod', 'role-mod role-tint', 'mention', 'highlight']);
+    assert.strictEqual(Object.keys(tint).filter((k) => /^(?:n-|notice)/.test(k)).length, 0, 'no notice or announcement');
     w.S.cfg = w.cfg0;
   });
 });

@@ -131,8 +131,18 @@
       return tagString(tags) + ' :tmi.twitch.tv USERNOTICE #' + channel() + (text ? ' :' + text : '');
     }
 
+    // mentions on, with a Twitch or Kick channel set: the name the first line mentions, so the preview shows the
+    // mention tint. '' otherwise, and the loop is as it always was.
+    function mentioned() {
+      var c = S().cfg;
+      return c.mentions && c.mentions !== 'off' ? c.channel || c.kick || '' : '';
+    }
+
     var SCRIPT = [
-      function () { return privmsg(USERS[0], 'Welcome in, chat! Kappa'); },
+      function () {
+        var who = mentioned();
+        return privmsg(USERS[0], who ? 'Welcome in, @' + who + '! Kappa' : 'Welcome in, chat! Kappa');
+      },
       function () {
         var e = pick('7tv', 2);
         return privmsg(USERS[1], (e[0] || 'PogChamp') + ' this overlay looks clean ' + (e[1] || 'LUL'));

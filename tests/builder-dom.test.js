@@ -427,10 +427,13 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'text_px',
     'line_height', 'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'name_font', 'name_fallback',
     'name_sep', 'readable_level', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade',
-    'row_sep', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Emotes#adv-emotes', 'gif_size',
-    'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']);
-  // Chat events: its own heading over the timestamps (no anchor: only Advanced's headings have one).
-  assert.deepStrictEqual(outline('group-events'), ['events', 'replies', 'first_msg', 'shared', 'Highlights & timestamps', 'timestamps']);
+    'row_sep', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Highlights#adv-highlights',
+    'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color',
+    'mod_color', 'vip_color', 'Emotes#adv-emotes', 'gif_size', 'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images',
+    'homies_lists']);
+  // Chat events: its own heading over the mentions and timestamps (no anchor: only Advanced's headings have one).
+  assert.deepStrictEqual(outline('group-events'), ['events', 'replies', 'first_msg', 'shared', 'Highlights & timestamps', 'mentions',
+    'timestamps']);
   // Emotes: no sub-heading, the two sizes after the GIF switch, and its foot links Advanced's Emotes.
   assert.deepStrictEqual(outline('group-emotes'), ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only']);
   assert.strictEqual(p.$('group-emotes').children[2].children[0].href, '#adv-emotes');
@@ -990,4 +993,66 @@ test('the name colors, the separator, timestamps and the reply header: live, and
   assert.deepStrictEqual(state(), ['name_sep', 'reply_style']);
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([state(), p.text('bar-url')], [[], OVERLAY]);
+});
+
+// ---------- highlights (stage 7) ----------
+
+test('the highlights: live, the words and users as typed lists, and each color greyed out until what it colors is on', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const colors = ['mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color', 'vip_color'];
+  const state = () => colors.filter((k) => rowOf(p, k).classList.contains('disabled'));
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  const type = (key, v) => { const e = p.$('f-' + key); e.value = v; e.dispatch('change'); };
+  // At the defaults only the channel-points color applies (its highlight is on).
+  assert.deepStrictEqual(state(), ['mention_color', 'keyword_color', 'broadcaster_color', 'mod_color', 'vip_color']);
+  assert.deepStrictEqual(colorField(p, 'mod_color').pick.value, '#00ad03', 'the built-in color as the swatch');
+  // Default's name keeps an acronym's capitals.
+  assert.deepStrictEqual(['vip_color', 'mention_color', 'points_color'].map((k) => colorField(p, k).dflt.getAttribute('aria-label')),
+    ['Default VIP color', 'Default mention color', 'Default points highlight color']);
+  const mentions = p.doc.querySelectorAll('input[name="f-mentions"]');
+  assert.deepStrictEqual(mentions.map((r) => [r.value, r.parentNode.textContent]), [['off', 'Off'], ['at', '@name'], ['name', 'Plain too']]);
+  assert.strictEqual(p.$('l-mentions').parentNode.parentNode.byClass('seg')[0].className, 'seg wrap field-control');
+  seg('mentions', 'at');
+  assert.deepStrictEqual(state(), ['keyword_color', 'broadcaster_color', 'mod_color', 'vip_color']);
+  // A words field: phrases kept, lowercased and deduped, shown back with ', '; a users field takes logins.
+  type('keywords', 'Good  Game, GG,gg ,');
+  assert.strictEqual(p.$('f-keywords').value, 'good game, gg');
+  assert.deepStrictEqual(state(), ['broadcaster_color', 'mod_color', 'vip_color']);
+  type('keywords', '');
+  assert.deepStrictEqual(state(), ['keyword_color', 'broadcaster_color', 'mod_color', 'vip_color']);
+  type('highlight_users', '@PaintedPal not valid!, kick_fan');
+  assert.strictEqual(p.$('f-highlight_users').value, 'paintedpal, not, kick_fan');
+  assert.deepStrictEqual(state(), ['broadcaster_color', 'mod_color', 'vip_color']);
+  type('keywords', 'overlay');
+  seg('role_style', 'tint');
+  assert.deepStrictEqual(state(), []);
+  const pf = p.$('f-points_highlight');
+  pf.checked = false;
+  pf.dispatch('change');
+  assert.deepStrictEqual(state(), ['points_color']);
+  const vip = colorField(p, 'vip_color');
+  vip.hex.value = '#123';
+  vip.hex.dispatch('change');
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.mentions, last.keywords, last.highlight_users, last.points_highlight, last.role_style, last.vip_color],
+    ['at', ['overlay'], ['paintedpal', 'not', 'kick_fan'], false, 'tint', '112233']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?mentions=at&keywords=overlay&highlight_users=paintedpal,not,kick_fan' +
+    '&points_highlight=0&role_style=tint&vip_color=112233');
+  // Advanced's Highlights has a link of its own; the Chat events count takes the mentions.
+  assert.strictEqual(p.$('adv-highlights').textContent, 'Highlights');
+  assert.strictEqual(p.text('count-events'), '1');
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([state(), p.text('bar-url'), p.$('f-keywords').value, p.$('f-highlight_users').value],
+    [['mention_color', 'keyword_color', 'broadcaster_color', 'mod_color', 'vip_color'], OVERLAY, '', '']);
 });

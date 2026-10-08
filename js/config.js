@@ -9,7 +9,8 @@
   // Font weights, lightest first: 300, 400, 600, 700, 800 and 900 (renderer.js WEIGHTS).
   var WEIGHTS = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
 
-  // type: channel | kick | room | enum | int | bool | font | list | color
+  // type: channel | kick | room | enum | int | bool | font | list | words | color
+  // list: Twitch/Kick logins. words: words or phrases, separated by commas only (a phrase keeps its spaces).
   // color: a hex color stored as bare lowercase rrggbb ('' = the overlay's built-in color).
   // int lowest: 0 is off, and the smallest value that does anything else is lowest (1..lowest-1 is raised to it).
   // int scale: the value is a ratio times scale, and a number under min is the ratio itself (readable_level 4.5 is 45).
@@ -67,6 +68,17 @@
     history: { type: 'int', min: 0, max: 100, def: 5 },
     shared: { type: 'bool', def: true },
     timestamps: { type: 'enum', values: ['off', '12h', '24h'], def: 'off' },
+    mentions: { type: 'enum', values: ['off', 'at', 'name'], def: 'off' },
+    mention_color: { type: 'color', def: '' },
+    keywords: { type: 'words', def: [] },
+    highlight_users: { type: 'list', def: [] },
+    keyword_color: { type: 'color', def: '' },
+    points_highlight: { type: 'bool', def: true },
+    points_color: { type: 'color', def: '' },
+    role_style: { type: 'enum', values: ['off', 'bar', 'tint'], def: 'off' },
+    broadcaster_color: { type: 'color', def: '' },
+    mod_color: { type: 'color', def: '' },
+    vip_color: { type: 'color', def: '' },
     gifs: { type: 'bool', def: true },
     gif_size: { type: 'enum', values: ['1x', '2x', '3x'], def: '3x' },
     emotes_7tv: { type: 'bool', def: true },
@@ -108,7 +120,11 @@
     'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color', 'accent_bar', 'paint_images',
     'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale', 'emote_only',
     'gif_size', 'giant_emotes', 'name_font', 'name_color', 'name_fallback', 'name_sep', 'readable_level', 'timestamps',
-    'reply_style'];
+    'reply_style', 'mentions', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight',
+    'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color'];
+
+  // words: at most this many phrases, each at most this many characters (a longer one is left out).
+  var MAX_WORDS = 50, MAX_WORD_LEN = 40;
 
   // Fonts every Windows 10/11 PC has (never requested from Google Fonts, which doesn't host
   // them), in their canonical spelling.
@@ -188,11 +204,10 @@
   function coerce(key, v) {
     var spec = own(SPEC, key) ? SPEC[key] : null;
     if (!spec || v === undefined || v === null) return undefined;
-    // Strings, numbers and booleans only (arrays too for a list): String() on an object or symbol can throw.
+    // Strings, numbers and booleans only (arrays too for a list or words): String() on an object or symbol can throw.
     var tv = typeof v;
-    if (tv !== 'string' && tv !== 'number' && tv !== 'boolean' && !(spec.type === 'list' && Array.isArray(v))) {
-      return undefined;
-    }
+    var many = spec.type === 'list' || spec.type === 'words';
+    if (tv !== 'string' && tv !== 'number' && tv !== 'boolean' && !(many && Array.isArray(v))) return undefined;
     switch (spec.type) {
       case 'channel': {
         var c = normalizeChannel(v);
@@ -252,6 +267,24 @@
         }
         return out;
       }
+      // Words or phrases, separated by commas only ('good game, gg'), so a phrase keeps its spaces (runs of them, and
+      // control characters, become one space). Stored lowercased (the overlay matches any letter case) and deduped. A
+      // phrase over MAX_WORD_LEN characters is left out, and so is every phrase after the first MAX_WORDS. An array
+      // item may hold commas too (settings.js), so the value always reads back the same from the URL.
+      case 'words': {
+        if (tv === 'boolean') return undefined;
+        var items = Array.isArray(v) ? v : [v];
+        var words = [], had = Object.create(null);
+        for (var j = 0; j < items.length && words.length < MAX_WORDS; j++) {
+          if (typeof items[j] !== 'string' && typeof items[j] !== 'number') continue;
+          var parts = String(items[j]).split(',');
+          for (var p = 0; p < parts.length && words.length < MAX_WORDS; p++) {
+            var w = parts[p].replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim().toLowerCase();
+            if (w && Array.from(w).length <= MAX_WORD_LEN && !had[w]) { had[w] = 1; words.push(w); }
+          }
+        }
+        return words;
+      }
     }
     return undefined;
   }
@@ -308,7 +341,7 @@
   function serialize(key, value) {
     var t = SPEC[key].type;
     if (t === 'bool') return value ? '1' : '0';
-    if (t === 'list') return (value || []).join(',');
+    if (t === 'list' || t === 'words') return (value || []).join(',');
     return String(value);
   }
 

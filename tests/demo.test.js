@@ -185,3 +185,28 @@ test('with a Kick channel set, every third line is a Kick event that kick.js par
   // The Twitch script carries on where it was: the first six Twitch lines are the usual first six.
   assert.deepStrictEqual(on.lines.map((l) => ircParse.parseLine(l).command), off.lines.slice(0, 6).map((l) => ircParse.parseLine(l).command));
 });
+
+test('mentions on, with a channel: the first line mentions it (Twitch login, else the Kick slug); otherwise as always', () => {
+  const first = (cfg) => {
+    const st = fakeState(true);
+    st.cfg = cfg;
+    return ircParse.toChatMessage(ircParse.parseLine(runScript(st)[0]));
+  };
+  const usual = first({ channel: 'forsen' });
+  assert.strictEqual(usual.text, 'Welcome in, chat! Kappa');
+  ['off', undefined].forEach((v) => assert.strictEqual(first({ channel: 'forsen', mentions: v }).text, usual.text, String(v)));
+  ['at', 'name'].forEach((v) => {
+    const m = first({ channel: 'forsen', kick: 'kick-slug', mentions: v });
+    assert.strictEqual(m.text, 'Welcome in, @forsen! Kappa', v);
+    assert.strictEqual(m.login, 'streamer');
+    // The emote range follows the text.
+    assert.deepStrictEqual(ircParse.parseEmotesTag(m.emotes).map((e) => Array.from(m.text).slice(e.start, e.end + 1).join('')), ['Kappa']);
+  });
+  assert.strictEqual(first({ channel: '', kick: 'kick-slug', mentions: 'at' }).text, 'Welcome in, @kick-slug! Kappa');
+  assert.strictEqual(first({ channel: '', kick: '', mentions: 'at' }).text, usual.text, 'no channel: nothing to mention');
+  // Every other line is the usual one.
+  const st = (cfg) => Object.assign(fakeState(true), { cfg: cfg });
+  const on = runScript(st({ channel: 'forsen', mentions: 'at' })).map((l) => ircParse.parseLine(l).params[1]);
+  const off = runScript(st({ channel: 'forsen' })).map((l) => ircParse.parseLine(l).params[1]);
+  assert.deepStrictEqual(on.slice(1), off.slice(1));
+});

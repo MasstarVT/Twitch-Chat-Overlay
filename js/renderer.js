@@ -62,14 +62,17 @@
     // The sizes: images are fetched for the size they are drawn at, and an emote-only line gets its class.
     'text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes',
     // The name colors come from deps.nameFor (overlay.js reads these); the rest are drawn into the line.
-    'name_color', 'name_fallback', 'readable_level', 'name_sep', 'timestamps', 'reply_style'];
+    'name_color', 'name_fallback', 'readable_level', 'name_sep', 'timestamps', 'reply_style',
+    // The highlights are line classes (lineClasses); their colors are #chat variables (ROOT_KEYS).
+    'mentions', 'keywords', 'highlight_users', 'points_highlight', 'role_style'];
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared'];
   // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
   var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline',
     'outline_color', 'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size',
-    'emote_scale', 'emote_only', 'gif_size', 'name_font'];
+    'emote_scale', 'emote_only', 'gif_size', 'name_font', 'mention_color', 'keyword_color', 'points_color',
+    'broadcaster_color', 'mod_color', 'vip_color'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -139,7 +142,16 @@
     name_font: { str: true, def: '' },
     name_sep: { values: ['colon', 'space', 'dash', 'arrow'], def: 'colon' },
     timestamps: { values: ['off', '12h', '24h'], def: 'off' },
-    reply_style: { values: ['full', 'name'], def: 'full' }
+    reply_style: { values: ['full', 'name'], def: 'full' },
+    mentions: { values: ['off', 'at', 'name'], def: 'off' },
+    mention_color: { hex: true, def: '' },
+    keyword_color: { hex: true, def: '' },
+    points_highlight: { bool: true, def: true },
+    points_color: { hex: true, def: '' },
+    role_style: { values: ['off', 'bar', 'tint'], def: 'off' },
+    broadcaster_color: { hex: true, def: '' },
+    mod_color: { hex: true, def: '' },
+    vip_color: { hex: true, def: '' }
   };
   var NORM_KEYS = Object.keys(NORM);
   var NORM_DEFAULTS = {};
@@ -489,6 +501,146 @@
     return 'ann-' + (ANN_COLORS.indexOf(s) >= 0 ? s : 'PRIMARY').toLowerCase();
   }
 
+  // ---------- highlights (mentions, keywords, highlight_users, role_style) ----------
+  // A letter, mark, digit or underscore: what a word is made of, in a regex with the u flag (Chromium 103 has \p{}
+  // and lookbehind). A name or phrase matches only where it isn't part of a longer word.
+  var WORD_CH = '[\\p{L}\\p{M}\\p{N}_]';
+  var WORD_CH_RE = /^[\p{L}\p{M}\p{N}_]$/u;
+  // Scripts written without spaces between words (Chinese, Japanese, Thai, ...; Korean's particles join the word
+  // before them): a letter of theirs beside a keyword doesn't make it part of a longer word.
+  var NOSP = '\\p{scx=Han}\\p{scx=Hiragana}\\p{scx=Katakana}\\p{scx=Hangul}\\p{scx=Thai}\\p{scx=Lao}\\p{scx=Khmer}\\p{scx=Myanmar}';
+  var NOSP_RE = new RegExp('^[' + NOSP + ']$', 'u');
+  var SPACED_CH = '(?:(?![' + NOSP + '])' + WORD_CH + ')';
+  // What can continue a Twitch login or a Kick slug, which are ASCII: a Latin letter (é too: @homé is another word),
+  // a mark, a digit or '_'. A Japanese or Korean suffix (@homeさん, @home님) or a word before the '@' doesn't.
+  var LOGIN_CH = '[\\p{Script=Latin}\\p{M}\\p{Nd}_]';
+  var MAX_PHRASES = 50; // config.js keeps keywords to as many
+  // Literal text in a regex. Only the syntax characters: the u flag rejects any other escaped one ('\-').
+  function escapeRe(s) { return String(s).replace(/[\\^$.*+?()[\]{}|\/]/g, '\\$&'); }
+  // Kick writes a username's '_' as '-' in its channel slug: either one names the same channel.
+  function slugKey(s) { return String(s).toLowerCase().replace(/-/g, '_'); }
+
+  // A keyword as a pattern: whole words at its ends (a phrase that starts or ends with a sign, or with a letter of a
+  // script without spaces, matches there as it is; a letter of such a script beside it doesn't count as more word),
+  // any run of spaces where it has one.
+  function wordEnd(ch) { return WORD_CH_RE.test(ch) && !NOSP_RE.test(ch); }
+  function phrasePattern(p) {
+    var cps = Array.from(p);
+    return (wordEnd(cps[0]) ? '(?<!' + SPACED_CH + ')' : '') + escapeRe(p).replace(/ +/g, '\\s+') +
+      (wordEnd(cps[cps.length - 1]) ? '(?!' + SPACED_CH + ')' : '');
+  }
+  function makeRe(src) {
+    try { return new RegExp(src, 'iu'); } catch (e) { return null; }
+  }
+
+  // What lineClasses matches chat lines against, built once per cfg object (setConfig makes a new one for every
+  // change), in a WeakMap: nothing is stored on the cfg. mention: the channel's names (the Twitch login and the Kick
+  // slug, whichever are set) after an '@' (mentions=at), or also on their own (name), but not after '/' or '.' (a
+  // twitch.tv/name link, a domain); null while mentions is off or there is no channel. keyword: any of the keywords.
+  // users: the highlight_users logins.
+  var MATCHERS = new WeakMap();
+  var NO_MATCHERS = { mention: null, channel: '', kickKey: '', keyword: null, users: null };
+  function buildMatchers(c) {
+    var out = { mention: null, channel: '', kickKey: '', keyword: null, users: null };
+    if (c.mentions === 'at' || c.mentions === 'name') {
+      var ch = typeof c.channel === 'string' ? c.channel.toLowerCase() : '';
+      var kk = typeof c.kick === 'string' ? c.kick.toLowerCase() : '';
+      if (!/^[a-z0-9_]{1,25}$/.test(ch)) ch = '';
+      if (!/^[a-z0-9_-]{1,40}$/.test(kk)) kk = '';
+      var names = [];
+      if (ch) names.push(ch);
+      if (kk) names.push(kk.split(/[-_]/).map(escapeRe).join('[-_]'));
+      if (names.length) {
+        out.channel = ch;
+        out.kickKey = kk ? slugKey(kk) : '';
+        out.mention = makeRe((c.mentions === 'at' ? '(?<!' + LOGIN_CH + ')@' : '(?<![\\p{Script=Latin}\\p{M}\\p{Nd}_/.@])@?') +
+          '(?:' + names.join('|') + ')(?!-?' + LOGIN_CH + ')');
+      }
+    }
+    var kw = Array.isArray(c.keywords) ? c.keywords : [], pats = [];
+    for (var i = 0; i < kw.length && pats.length < MAX_PHRASES; i++) {
+      var p = typeof kw[i] === 'string' ? kw[i].trim() : '';
+      if (p) pats.push(phrasePattern(p));
+    }
+    if (pats.length) out.keyword = makeRe(pats.join('|'));
+    var hu = Array.isArray(c.highlight_users) ? c.highlight_users : [];
+    for (var j = 0; j < hu.length; j++) {
+      if (typeof hu[j] === 'string' && hu[j]) (out.users = out.users || Object.create(null))[hu[j].toLowerCase()] = 1;
+    }
+    return out;
+  }
+  function matchersFor(c) {
+    if (!c || typeof c !== 'object') return NO_MATCHERS;
+    var m = MATCHERS.get(c);
+    if (!m) {
+      m = buildMatchers(c);
+      MATCHERS.set(c, m);
+    }
+    return m;
+  }
+
+  // A chat line that mentions the channel: its name in the text, or a reply to the channel. The channel's own lines
+  // don't count (on Twitch its login, on Kick its slug).
+  function mentionsChannel(msg, m) {
+    var kick = msg.platform === 'kick';
+    var login = typeof msg.login === 'string' ? msg.login.toLowerCase() : '';
+    if (kick ? m.kickKey && slugKey(login) === m.kickKey : m.channel && login === m.channel) return false;
+    var to = msg.reply && typeof msg.reply === 'object' && typeof msg.reply.login === 'string' ? msg.reply.login.toLowerCase() : '';
+    if (to && (kick ? m.kickKey && slugKey(to) === m.kickKey : m.channel && to === m.channel)) return true;
+    return typeof msg.text === 'string' && m.mention.test(msg.text);
+  }
+
+  // The text has a keyword. config.js keeps the keywords in lower case, where a Turkish 'İ' becomes 'i' and a dot
+  // above, which the i flag never matches to 'İ': the text in lower case is tried as well.
+  function hasKeyword(text, re) {
+    if (re.test(text)) return true;
+    var low = text.toLowerCase();
+    return low !== text && re.test(low);
+  }
+
+  // The chatter's role, from the badges the message carries (the tags, not what is drawn, so it works with badges
+  // off): 'broadcaster', 'mod' (lead_moderator too), 'vip', 'sub' (subscriber, founder) or null, the highest when
+  // there are several. A Shared Chat line from another channel goes by its badges there (source-badges), a Kick line
+  // by its Kick badge types.
+  var ROLE_OF_BADGE = { broadcaster: 'broadcaster', lead_moderator: 'mod', moderator: 'mod', vip: 'vip', subscriber: 'sub',
+    founder: 'sub' };
+  var ROLE_RANK = { broadcaster: 4, mod: 3, vip: 2, sub: 1 };
+  function roleOf(msg) {
+    if (!msg || typeof msg !== 'object') return null;
+    var kick = msg.platform === 'kick';
+    var list = kick ? msg.kickBadges : msg.mirrored ? msg.sourceBadges : msg.badges;
+    if (!Array.isArray(list)) return null;
+    var best = null;
+    for (var i = 0; i < list.length; i++) {
+      var name = list[i] && (kick ? list[i].type : list[i].set);
+      var r = typeof name === 'string' && Object.prototype.hasOwnProperty.call(ROLE_OF_BADGE, name) ? ROLE_OF_BADGE[name] : null;
+      if (r && (!best || ROLE_RANK[r] > ROLE_RANK[best])) best = r;
+    }
+    return best;
+  }
+  // The roles role_style marks (subscribers are not).
+  var MARKED_ROLES = { broadcaster: 1, mod: 1, vip: 1 };
+
+  // A chat line's highlight classes (never an announcement's: it has a bar of its own). One tint at most, the first
+  // of: the channel-points highlight (lineClasses adds it), a mention of the channel (mention), a keyword (keyword) or
+  // highlight user (user-hl), and role_style=tint's tint (role-tint). role_style also adds role-<role>, and with bar
+  // role-bar (the stylesheet puts a first message's bar over it, and it over the name-color bar).
+  function highlightClasses(msg, cfg, highlighted) {
+    var out = [], m = matchersFor(cfg);
+    var tint = highlighted ? 'highlight' : '';
+    if (!tint && m.mention && mentionsChannel(msg, m)) tint = 'mention';
+    if (!tint && m.keyword && typeof msg.text === 'string' && hasKeyword(msg.text, m.keyword)) tint = 'keyword';
+    if (!tint && m.users && typeof msg.login === 'string' && m.users[msg.login.toLowerCase()] === 1) tint = 'user-hl';
+    if (tint && !highlighted) out.push(tint);
+    var role = cfg.role_style === 'bar' || cfg.role_style === 'tint' ? roleOf(msg) : null;
+    if (role && MARKED_ROLES[role] === 1) {
+      out.push('role-' + role);
+      if (cfg.role_style === 'bar') out.push('role-bar');
+      else if (!tint) out.push('role-tint');
+    }
+    return out;
+  }
+
   // emoteOnly: the line is one modelFor found to be emotes alone (emote_only=big/huge, in a column).
   function lineClasses(msg, cfg, kind, action, emoteOnly) {
     var c = ['line'];
@@ -497,12 +649,17 @@
     } else {
       if (action) c.push('action');
       if (cfg.first_msg && msg.firstMsg) c.push('first-msg');
-      if (msg.highlight || msg.msgId === 'highlighted-message') c.push('highlight');
+      // points_highlight=0: a channel-points highlighted message is drawn like any other (another tint may take it).
+      var highlighted = cfg.points_highlight !== false && (msg.highlight || msg.msgId === 'highlighted-message');
+      if (highlighted) c.push('highlight');
       var ann = annClass(msg.announcement);
       if (ann) c.push('announcement', ann);
-      // accent_bar: a bar in the name color (renderInto sets it), except on an announcement, whose own bar it
-      // would cover. A first message's bar wins in the stylesheet.
-      else if (cfg.accent_bar === true) c.push('accent');
+      else {
+        // accent_bar: a bar in the name color (renderInto sets it), except on an announcement, whose own bar it
+        // would cover. A first message's bar wins in the stylesheet.
+        if (cfg.accent_bar === true) c.push('accent');
+        c.push.apply(c, highlightClasses(msg, cfg, highlighted));
+      }
       if (emoteOnly) c.push('emote-only');
     }
     if (msg.mirrored) c.push('mirrored');
@@ -1510,6 +1667,13 @@
       setVar(st, '--line-max-n', c.line_width > 0 ? noticeMax(c.line_width, c.notice_size) : null);
       setVar(st, '--pad-x', c.pad_x === 8 ? null : c.pad_x + 'px');
       setVar(st, '--edge-fade', c.edge_fade > 0 ? c.edge_fade + 'em' : null);
+      // The highlight colors, as 'r, g, b' for the tints and bars (the line classes come from lineClasses).
+      setVar(st, '--mention-rgb', hexRgb(c.mention_color));
+      setVar(st, '--kw-rgb', hexRgb(c.keyword_color));
+      setVar(st, '--hl-rgb', hexRgb(c.points_color));
+      setVar(st, '--role-broadcaster-rgb', hexRgb(c.broadcaster_color));
+      setVar(st, '--role-mod-rgb', hexRgb(c.mod_color));
+      setVar(st, '--role-vip-rgb', hexRgb(c.vip_color));
     }
 
     function setConfig(next) {
@@ -1717,6 +1881,7 @@
   return {
     createRenderer: createRenderer,
     isGenericFont: isGenericFont,
+    roleOf: roleOf,
     _internal: {
       FONT_PX: FONT_PX,
       EMOTE_EM: EMOTE_EM,
@@ -1776,6 +1941,9 @@
       reverseGroups: reverseGroups,
       pickUrl: pickUrl,
       annClass: annClass,
+      roleOf: roleOf,
+      matchersFor: matchersFor,
+      escapeRe: escapeRe,
       lineClasses: lineClasses,
       replyModel: replyModel,
       badgeModels: badgeModels,

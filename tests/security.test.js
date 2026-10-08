@@ -403,7 +403,8 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
   const { createDocument } = require('./fake-dom.js');
   const COLORS = config.KEYS.filter((k) => config.SPEC[k].type === 'color');
   assert.deepStrictEqual(COLORS, ['text_color', 'shadow_color', 'outline_color', 'name_color', 'name_fallback', 'bg_color',
-    'notice_color', 'first_msg_color']);
+    'notice_color', 'first_msg_color', 'mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color',
+    'vip_color']);
   // The name colors reach the names through overlay.js nameFor (checked at the end); the rest are #chat's.
   const NAME_COLORS = ['name_color', 'name_fallback'];
   const ROOT_COLORS = COLORS.filter((k) => NAME_COLORS.indexOf(k) < 0);
@@ -435,6 +436,10 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
     ['#ff8800', '16, 32, 48', '#abcdef', '#000000']);
   assert.strictEqual(root.style['--shadow'], 'drop-shadow(0 0 1px rgba(0,0,255,.9)) drop-shadow(1px 2px 2px rgba(0,0,255,.75))');
   assert.match(root.style['--tshadow'], /^(?:-?(?:\.04em|0) -?(?:\.04em|0) 0 #00ff00(?:, |$)){8}$/);
+  r.setConfig({ mention_color: 'e91916', keyword_color: 'ffb31a', points_color: '000000', broadcaster_color: 'ffffff',
+    mod_color: '00ad03', vip_color: '0a0b0c' });
+  assert.deepStrictEqual(['--mention-rgb', '--kw-rgb', '--hl-rgb', '--role-broadcaster-rgb', '--role-mod-rgb', '--role-vip-rgb']
+    .map((k) => root.style[k]), ['233, 25, 22', '255, 179, 26', '0, 0, 0', '255, 255, 255', '0, 173, 3', '10, 11, 12']);
   r.destroy();
   // Every color variable is set through hexRgb/hexColor, never from the cfg value as it came. The shadow and
   // outline colors are built into --shadow and --tshadow by shadowCss, tshadow and tint, which check them the
@@ -461,6 +466,32 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
     assert.ok(uses.length > 0 && nameFor.indexOf('cfg.' + k) >= 0, k + ' is used by nameFor');
     uses.forEach((l) => assert.match(l, new RegExp('cfgColor\\(cfg\\.' + k + '\\)'), l.trim()));
   });
+});
+
+test('highlights: keywords are matched as literal text (regex syntax, payloads, long hostile lines), and only add fixed classes', () => {
+  const config = require('../js/config.js');
+  const hostile = ['(a+)+$', '.*', '[', '\\', '(?<=x)', '$1', '^', 'a|b', '{2}', '/', 'x-y', '\\p{L}', '+'].concat(PAYLOADS);
+  const kw = config.coerce('keywords', hostile);
+  assert.strictEqual(kw.length, hostile.length - 1, 'every one is kept as typed (lowercased), but the one over 40 characters');
+  const cfg = R.normalizeCfg({ keywords: kw, highlight_users: ['<b>', 'a b', 'ok_user'], mentions: 'name', channel: 'x)|(.*', kick: '.*' });
+  const cls = (text, login) => R.lineClasses({ text: text, login: login || 'someone' }, cfg, 'chat', false);
+  // Each phrase matches itself, never as a pattern.
+  ['(a+)+$', '.*', '[', '\\', 'a|b', '{2}', '/', 'x-y', '+'].forEach((p) => assert.strictEqual(cls('say ' + p + ' now'), 'line keyword', p));
+  ['abc', 'aaaa', 'b', 'xy', 'pl', 'hello'].forEach((t) => assert.strictEqual(cls(t), 'line', t));
+  assert.strictEqual(cls(PAYLOADS[0]), 'line keyword');
+  // A channel that isn't a login (config never lets one through) is no name to look for; a list item that isn't one,
+  // no user.
+  assert.strictEqual(cls('anything at all .* x)|(.*'), 'line keyword', 'the .* phrase, not a mention');
+  assert.strictEqual(cls('plain words'), 'line');
+  assert.strictEqual(cls('hi', 'ok_user'), 'line user-hl');
+  // A long hostile line is fast (no catastrophic backtracking).
+  const t0 = Date.now();
+  for (let i = 0; i < 200; i++) cls('a'.repeat(400) + '!' + ' (a'.repeat(100), 'u' + i);
+  assert.ok(Date.now() - t0 < 1000);
+  // roleOf takes only the known badge names, and its classes are fixed strings.
+  assert.strictEqual(R.roleOf({ badges: [{ set: 'constructor' }, { set: '__proto__' }, { set: 'toString' }] }), null);
+  assert.strictEqual(R.lineClasses({ text: 'hi', badges: [{ set: 'vip onmouseover=x' }, { set: 'moderator' }] },
+    R.normalizeCfg({ role_style: 'bar' }), 'chat', false), 'line role-mod role-bar');
 });
 
 test('pickUrl: https only except the fixed local badge asset', () => {

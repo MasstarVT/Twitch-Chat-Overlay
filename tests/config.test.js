@@ -15,7 +15,9 @@ describe('spec', () => {
       text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true,
       fade: 0, max: 50, bots: false, hide_commands: false, block: [],
       events: true, notice_color: '', notice_size: 85, replies: true, reply_style: 'full', first_msg: false, first_msg_color: '',
-      history: 5, shared: true, timestamps: 'off', gifs: true,
+      history: 5, shared: true, timestamps: 'off', mentions: 'off', mention_color: '', keywords: [], highlight_users: [],
+      keyword_color: '', points_highlight: true, points_color: '', role_style: 'off', broadcaster_color: '', mod_color: '',
+      vip_color: '', gifs: true,
       gif_size: '3x', emotes_7tv: true, emotes_bttv: true, emotes_ffz: true, emote_scale: 100, emote_only: 'normal', giant_emotes: true,
       badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
       badges_ffzap: true, badges_chatterino: true, badges_homies: true, homies_lists: 'all', badge_size: 100,
@@ -234,6 +236,51 @@ describe('coerce', () => {
     assert.equal(config.toParams(Object.assign(config.defaults(), { name_sep: 'dash', timestamps: '12h', reply_style: 'name',
       readable_level: 60, name_color: 'ff8800', name_fallback: 'abcdef' })).toString(),
     'name_color=ff8800&name_fallback=abcdef&name_sep=dash&reply_style=name&timestamps=12h&readable_level=60');
+  });
+
+  test('highlights: their choices, live, and nothing in the URL at the defaults', () => {
+    assert.deepEqual(config.SPEC.mentions.values, ['off', 'at', 'name']);
+    assert.equal(config.coerce('mentions', 'AT'), 'at');
+    assert.equal(config.coerce('mentions', 'on'), undefined);
+    assert.deepEqual(config.SPEC.role_style.values, ['off', 'bar', 'tint']);
+    assert.equal(config.coerce('role_style', 'name'), undefined, 'no name mode');
+    assert.equal(config.coerce('points_highlight', '0'), false);
+    assert.deepEqual(config.coerce('highlight_users', '@PaintedPal, kick_user'), ['paintedpal', 'kick_user'], 'logins, like block');
+    ['mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color', 'vip_color'].forEach((k) => {
+      assert.equal(config.SPEC[k].type, 'color', k);
+      assert.equal(config.coerce(k, '#E91916'), 'e91916', k);
+    });
+    ['mentions', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style',
+      'broadcaster_color', 'mod_color', 'vip_color'].forEach((k) => assert.ok(config.LIVE_KEYS.includes(k), k + ' is live'));
+    assert.equal(config.toParams(config.defaults()).toString(), '');
+    assert.equal(config.toParams(Object.assign(config.defaults(), { mentions: 'name', keywords: ['good game', 'gg'],
+      highlight_users: ['a', 'b'], points_highlight: false, role_style: 'tint', vip_color: 'e005b9' })).toString(),
+    'mentions=name&keywords=good+game%2Cgg&highlight_users=a%2Cb&points_highlight=0&role_style=tint&vip_color=e005b9');
+    assert.deepEqual(config.toObject(Object.assign(config.defaults(), { keywords: ['gg'], points_highlight: false })),
+      { keywords: ['gg'], points_highlight: false });
+  });
+
+  test('words: comma-separated words and phrases, trimmed, lowercased, deduped and capped', () => {
+    assert.deepEqual(config.coerce('keywords', 'Good  Game, gg ,GG, overlay,,'), ['good game', 'gg', 'overlay']);
+    assert.deepEqual(config.coerce('keywords', ' Tab\there\nnow '), ['tab here now'], 'any run of spaces is one space');
+    assert.deepEqual(config.coerce('keywords', 'c++, a.b, (x), !!, ünïcode, 日本語'), ['c++', 'a.b', '(x)', '!!', 'ünïcode', '日本語']);
+    // Arrays too (settings.js), and an item may hold commas of its own: the value reads back the same from the URL.
+    assert.deepEqual(config.coerce('keywords', ['a,b', 'C', 5, '', true, { a: 1 }, ['x'], null]), ['a', 'b', 'c', '5']);
+    assert.deepEqual(config.coerce('keywords', ''), [], 'an empty one clears settings.js');
+    assert.deepEqual(config.parse('keywords=', { keywords: ['gg'] }).keywords, []);
+    [true, false, null, undefined, { a: 1 }].forEach((v) => assert.equal(config.coerce('keywords', v), undefined, String(v)));
+    // At most 50, each at most 40 characters (counted as characters, so an emoji is one); a longer one is left out.
+    const many = Array.from({ length: 60 }, (_, i) => 'w' + i);
+    assert.deepEqual(config.coerce('keywords', many.join(',')), many.slice(0, 50));
+    assert.deepEqual(config.coerce('keywords', 'x'.repeat(41) + ',' + 'y'.repeat(40) + ',' + '😀'.repeat(40)),
+      ['y'.repeat(40), '😀'.repeat(40)]);
+    assert.equal(config.serialize('keywords', ['good game', 'gg']), 'good game,gg');
+    assert.equal(config.serialize('keywords', undefined), '');
+    const v = config.coerce('keywords', ['Good Game', 'gg!', 'a b c']);
+    assert.deepEqual(config.coerce('keywords', config.serialize('keywords', v)), v);
+    assert.deepEqual(config.parse(config.toParams(Object.assign(config.defaults(), { keywords: v }))).keywords, v);
+    assert.equal(config.isDefault('keywords', []), true);
+    assert.equal(config.isDefault('keywords', ['gg']), false);
   });
 
   test('color: hex, # optional, 3 or 6 digits, stored as bare lowercase rrggbb; empty is the built-in color', () => {

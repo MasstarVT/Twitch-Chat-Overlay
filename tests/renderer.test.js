@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const renderer = require('../js/renderer.js');
 const tokenizer = require('../js/tokenizer.js');
 const ircParse = require('../js/irc-parse.js');
+const config = require('../js/config.js');
 
 const R = renderer._internal;
 
@@ -579,6 +580,175 @@ test('line classes: accent_bar marks chat lines only, never a notice or an annou
   assert.strictEqual(m.name.color, '#123456');
 });
 
+// ---------- highlights (stage 7) ----------
+
+const hlCls = (cfg, msg, kind) => R.lineClasses(Object.assign({ login: 'viewer', text: '' }, msg), R.normalizeCfg(cfg), kind || 'chat', false);
+
+test('points_highlight: on by default (also for a cfg without it), off draws the line like any other', () => {
+  const hl = { msgId: 'highlighted-message' };
+  assert.strictEqual(R.lineClasses(hl, {}, 'chat', false), 'line highlight', 'a partial cfg: as before');
+  assert.strictEqual(R.lineClasses({ highlight: true }, { points_highlight: undefined }, 'chat', false), 'line highlight');
+  assert.strictEqual(R.lineClasses(hl, { points_highlight: true }, 'chat', false), 'line highlight');
+  assert.strictEqual(R.lineClasses(hl, { points_highlight: false }, 'chat', false), 'line');
+  assert.strictEqual(hlCls({ points_highlight: false }, { highlight: true }), 'line');
+  assert.strictEqual(R.normalizeCfg({}).points_highlight, true);
+});
+
+test('mentions: @name (at), or the bare name too (name), of the Twitch login and the Kick slug; whole names only', () => {
+  const at = { mentions: 'at', channel: 'home', kick: 'kick-name' };
+  const name = Object.assign({}, at, { mentions: 'name' });
+  const t = (cfg, text) => hlCls(cfg, { text: text }) === 'line mention';
+  // at: an @ before the name, any letter case, not inside a longer name or an address.
+  ['@home', 'hi @home!', '@HOME you rock', '(@home)', '@home, hi', '@home\'s stream', 'yo @kick-name', '@kick_name', '@KICK_NAME',
+    '@home- dash after'].forEach((s) => assert.ok(t(at, s), s));
+  ['home', 'hi home', '@homes', '@home_x', '@home1', 'x@home', 'mail@home.com', '@kick-names', '@kick-name-x', '@kickname', '',
+    '@hom'].forEach((s) => assert.ok(!t(at, s), s));
+  // name: the bare word too, but not after / or . (a link or a domain), and still whole names only.
+  ['home', 'hi home!', 'HOME', 'go home.', 'kick-name', 'kick_name', '@home'].forEach((s) => assert.ok(t(name, s), s));
+  ['homes', 'twitch.tv/home', 'www.home', 'x@home', 'hometown', 'myhome', 'kick-named', 'kick'].forEach((s) => assert.ok(!t(name, s), s));
+  // Unicode boundaries: a Latin letter (é too), a digit or a combining mark makes it part of a longer word; a letter of
+  // another script can't be part of a login, so a Japanese or Korean suffix, or a word before the '@', is no bar.
+  assert.ok(!t(name, 'éhome') && !t(name, 'homeé') && !t(name, 'homé') && !t(name, 'homé') && !t(name, 'home2'));
+  assert.ok(t(name, 'ほ home') && t(name, '👋home') && t(name, 'ほhome') && t(name, 'homeさん') && t(name, 'さんhome'));
+  ['@homeさん こんにちは', '@home님 안녕하세요', '@home你好', 'こんにちは@home', '@home，你好', 'привет@home', '@kick-nameさん', '@home-さん']
+    .forEach((s) => assert.ok(t(at, s) && t(name, s), s));
+  ['@homeless', '@homé', '@home-made', '@home_', '@home2', 'éx@home'].forEach((s) => assert.ok(!t(at, s) && !t(name, s), s));
+  // Only the names that are set: a Kick-only overlay looks for the slug, one with neither looks for nothing.
+  assert.ok(t({ mentions: 'at', kick: 'kick-name' }, '@kick_name') && !t({ mentions: 'at', kick: 'kick-name' }, '@home'));
+  assert.ok(t({ mentions: 'at', channel: 'home' }, '@home') && !t({ mentions: 'at', channel: 'home' }, '@kick-name'));
+  ['', '@', 'anything', '@ hi'].forEach((s) => assert.ok(!t({ mentions: 'name', channel: '', kick: '' }, s), s));
+  assert.ok(!t({ mentions: 'name' }, 'undefined'), 'a cfg without channels');
+  // Off (the default, and a partial cfg): nothing.
+  [{ channel: 'home' }, { mentions: 'off', channel: 'home' }, { mentions: 'nope', channel: 'home' }].forEach((c) =>
+    assert.ok(!t(c, '@home'), JSON.stringify(c)));
+});
+
+test('mentions: a reply to the channel counts; the channel\'s own lines never do (Twitch login, Kick slug with _ or -)', () => {
+  const cfg = { mentions: 'at', channel: 'home', kick: 'kick-name' };
+  assert.strictEqual(hlCls(cfg, { text: 'thanks!', reply: { login: 'home' } }), 'line mention');
+  assert.strictEqual(hlCls(cfg, { text: 'thanks!', reply: { login: 'someone' } }), 'line');
+  assert.strictEqual(hlCls(cfg, { platform: 'kick', text: 'yes', reply: { login: 'kick_name' } }), 'line mention platform-kick');
+  assert.strictEqual(hlCls(cfg, { platform: 'kick', text: 'yes', reply: { login: 'home' } }), 'line platform-kick', 'a Kick reply to a Kick user');
+  // The channel's own lines: on Twitch by login, on Kick by the username its slug comes from.
+  assert.strictEqual(hlCls(cfg, { login: 'home', text: 'welcome @home' }), 'line');
+  assert.strictEqual(hlCls(cfg, { login: 'home', text: 'hi', reply: { login: 'home' } }), 'line');
+  assert.strictEqual(hlCls(cfg, { platform: 'kick', login: 'kick_name', text: '@kick-name' }), 'line platform-kick');
+  assert.strictEqual(hlCls(cfg, { platform: 'kick', login: 'home', text: '@home' }), 'line mention platform-kick', 'home is a Kick viewer there');
+  // Notices and announcements are never tinted, whoever they name.
+  assert.strictEqual(hlCls(cfg, { text: '@home', systemMsg: 'x' }, 'notice'), 'line notice');
+  assert.strictEqual(hlCls(cfg, { text: '@home', announcement: 'BLUE' }), 'line announcement ann-blue');
+});
+
+test('keywords: any letter case, whole words at word ends, phrases with any run of spaces; highlight_users by login', () => {
+  const cfg = { keywords: ['gg', 'good game', 'c++', '!!', 'ünï', 'こんにちは'] };
+  const t = (text) => hlCls(cfg, { text: text }) === 'line keyword';
+  ['gg', 'GG wp', 'that was gg.', 'good game', 'Good   Game!', 'i love c++', 'wow!!', 'hey!! there', 'ÜNÏ', 'こんにちは 世界', '(gg)']
+    .forEach((s) => assert.ok(t(s), s));
+  ['eggs', 'ggs', 'gg_', 'goodgame', 'good games', 'c+', 'ünïcode', 'xünï', 'gǵ', ''].forEach((s) => assert.ok(!t(s), s));
+  // A phrase that starts or ends with a sign matches there as it is: '!!' right after a word, 'c++' before a sign.
+  assert.ok(t('c++!') && t('a!!'));
+  // Scripts without spaces between words (and Korean, whose particles join the word): a keyword in them matches
+  // inside a run of their letters, and one of their letters beside a Latin keyword doesn't make it a longer word.
+  const cjk = { keywords: config.coerce('keywords', 'かわいい, 草, ナイス, gg, nice, 대박') };
+  const tc = (text) => hlCls(cjk, { text: text }) === 'line keyword';
+  ['めっちゃかわいい！', '草草草', '草', 'ナイス！', 'ggです', 'gg요', 'ggー', '대박이다', 'ナイスgg', 'โอเคgg'].forEach((s) => assert.ok(tc(s), s));
+  ['eggs', 'nicely', 'ggпривет', 'ggé', 'xgg', 'gg2'].forEach((s) => assert.ok(!tc(s), s));
+  // A Turkish dotted capital I: config.js keeps 'İyi' as 'i̇yi' (toLowerCase), which the text in lower case matches.
+  const tr = { keywords: config.coerce('keywords', 'İyi') };
+  assert.ok(hlCls(tr, { text: 'İyi oyun' }) === 'line keyword' && hlCls(tr, { text: 'çok İyi!' }) === 'line keyword');
+  assert.strictEqual(hlCls(tr, { text: 'İyilik' }), 'line', 'still whole words');
+  assert.strictEqual(hlCls({ keywords: [] }, { text: 'gg' }), 'line');
+  assert.strictEqual(hlCls({ keywords: ['', '  ', 5, null] }, { text: 'gg 5' }), 'line', 'only strings, and never an empty one');
+  // highlight_users: the login, on Twitch and Kick alike; another tint slot, the same color.
+  const users = { highlight_users: ['waver', 'kick_fan'] };
+  assert.strictEqual(hlCls(users, { login: 'waver', text: 'hi' }), 'line user-hl');
+  assert.strictEqual(hlCls(users, { login: 'WAVER', text: 'hi' }), 'line user-hl');
+  assert.strictEqual(hlCls(users, { platform: 'kick', login: 'kick_fan', text: 'hi' }), 'line user-hl platform-kick');
+  assert.strictEqual(hlCls(users, { login: 'wave', text: 'waver' }), 'line', 'by login, not by text');
+  assert.strictEqual(hlCls({ highlight_users: ['constructor'] }, { login: '__proto__' }), 'line');
+});
+
+test('roleOf: Twitch badge tags (source badges on a mirrored line), Kick badge types; the highest role', () => {
+  const tw = (sets, extra) => R.roleOf(Object.assign({ badges: sets.map((s) => ({ set: s, version: '1' })) }, extra || {}));
+  assert.strictEqual(tw(['broadcaster', 'subscriber']), 'broadcaster');
+  assert.strictEqual(tw(['subscriber', 'moderator']), 'mod');
+  assert.strictEqual(tw(['lead_moderator']), 'mod');
+  assert.strictEqual(tw(['vip', 'subscriber']), 'vip');
+  assert.strictEqual(tw(['moderator', 'vip', 'broadcaster']), 'broadcaster');
+  assert.strictEqual(tw(['subscriber']), 'sub');
+  assert.strictEqual(tw(['founder']), 'sub');
+  assert.strictEqual(tw(['premium', 'bits', 'glhf-pledge']), null);
+  assert.strictEqual(tw([]), null);
+  // Shared Chat: a line from another channel by its badges there; the home channel's own by its own.
+  assert.strictEqual(tw(['broadcaster'], { mirrored: true, sourceBadges: [{ set: 'subscriber' }] }), 'sub');
+  assert.strictEqual(tw(['subscriber'], { mirrored: true, sourceBadges: [{ set: 'moderator' }] }), 'mod');
+  assert.strictEqual(tw(['moderator'], { mirrored: false, sourceBadges: [{ set: 'broadcaster' }] }), 'mod');
+  // Kick: its badge types (kick.js keeps the known ones); Twitch's tags on a Kick line don't count.
+  const kick = (types) => R.roleOf({ platform: 'kick', badges: [{ set: 'broadcaster' }], kickBadges: types.map((t) => ({ type: t })) });
+  assert.strictEqual(kick(['og', 'moderator', 'subscriber']), 'mod');
+  assert.strictEqual(kick(['broadcaster', 'verified']), 'broadcaster');
+  assert.strictEqual(kick(['vip', 'og']), 'vip');
+  assert.strictEqual(kick(['subscriber', 'sub_gifter']), 'sub');
+  assert.strictEqual(kick(['og', 'verified', 'staff', 'sub_gifter']), null);
+  [null, undefined, 'x', {}, { badges: 'moderator/1' }, { badges: [null, 5, { set: 7 }] }].forEach((m) => assert.strictEqual(R.roleOf(m), null));
+  assert.strictEqual(renderer.roleOf, R.roleOf, 'exported for overlay.js');
+});
+
+test('role_style: role-<role> with role-bar or role-tint on chat lines; subscribers, notices and announcements get none', () => {
+  const mod = { badges: [{ set: 'moderator' }], text: 'hi' };
+  assert.strictEqual(hlCls({}, mod), 'line', 'off by default');
+  assert.strictEqual(hlCls({ role_style: 'bar' }, mod), 'line role-mod role-bar');
+  assert.strictEqual(hlCls({ role_style: 'tint' }, mod), 'line role-mod role-tint');
+  assert.strictEqual(hlCls({ role_style: 'tint' }, { badges: [{ set: 'broadcaster' }] }), 'line role-broadcaster role-tint');
+  assert.strictEqual(hlCls({ role_style: 'bar' }, { platform: 'kick', kickBadges: [{ type: 'vip' }] }), 'line role-vip role-bar platform-kick');
+  assert.strictEqual(hlCls({ role_style: 'tint' }, { badges: [{ set: 'subscriber' }] }), 'line');
+  assert.strictEqual(hlCls({ role_style: 'bar' }, Object.assign({ systemMsg: 'x' }, mod), 'notice'), 'line notice');
+  assert.strictEqual(hlCls({ role_style: 'bar' }, Object.assign({ announcement: 'BLUE' }, mod)), 'line announcement ann-blue');
+  // Works with badges off: the tags, not what is drawn.
+  assert.strictEqual(hlCls({ role_style: 'bar', badges: false }, mod), 'line role-mod role-bar');
+});
+
+test('one tint per line: points > mention > keyword/user > role; bars stack (the stylesheet orders them); bg on or off alike', () => {
+  const all = { mentions: 'at', channel: 'home', keywords: ['gg'], highlight_users: ['vipfan'], role_style: 'tint', first_msg: true,
+    accent_bar: true };
+  const msg = (extra) => Object.assign({ login: 'vipfan', text: '@home gg', badges: [{ set: 'vip' }], firstMsg: true }, extra);
+  [0, 40].forEach((bg) => {
+    const c = Object.assign({ bg: bg }, all);
+    assert.strictEqual(hlCls(c, msg({ highlight: true })), 'line first-msg highlight accent role-vip', 'points');
+    assert.strictEqual(hlCls(c, msg({})), 'line first-msg accent mention role-vip', 'mention');
+    assert.strictEqual(hlCls(c, msg({ text: 'gg' })), 'line first-msg accent keyword role-vip', 'keyword');
+    assert.strictEqual(hlCls(c, msg({ text: 'hi' })), 'line first-msg accent user-hl role-vip', 'user');
+    assert.strictEqual(hlCls(c, msg({ text: 'hi', login: 'x' })), 'line first-msg accent role-vip role-tint', 'role');
+    assert.strictEqual(hlCls(Object.assign({}, c, { points_highlight: false }), msg({ highlight: true })),
+      'line first-msg accent mention role-vip', 'points off: the next tint takes it');
+    // role_style=bar: the role's bar beside any tint (first-msg and accent are bars too: the stylesheet picks one).
+    assert.strictEqual(hlCls(Object.assign({}, c, { role_style: 'bar' }), msg({})), 'line first-msg accent mention role-vip role-bar');
+    // An announcement: no tint and no role, whatever it says (its own bar stays).
+    assert.strictEqual(hlCls(c, msg({ announcement: 'BLUE', firstMsg: false })), 'line announcement ann-blue');
+  });
+});
+
+test('the matchers: built once per cfg object, never stored on it; a new cfg (a live change) builds new ones', () => {
+  const c1 = R.normalizeCfg({ mentions: 'at', channel: 'home', keywords: ['gg'], highlight_users: ['a'] });
+  const before = Object.keys(c1).sort();
+  const m1 = R.matchersFor(c1);
+  assert.strictEqual(R.matchersFor(c1), m1, 'cached');
+  assert.deepStrictEqual(Object.keys(c1).sort(), before, 'nothing added to the cfg');
+  assert.ok(m1.mention instanceof RegExp && m1.keyword instanceof RegExp && m1.users.a === 1);
+  assert.ok(!m1.mention.global && !m1.keyword.global, 'no g flag: test() keeps no state between lines');
+  const c2 = R.normalizeCfg(Object.assign({}, c1, { keywords: ['wp'], mentions: 'off' }));
+  const m2 = R.matchersFor(c2);
+  assert.notStrictEqual(m2, m1);
+  assert.strictEqual(m2.mention, null);
+  assert.ok(m2.keyword.test('WP') && !m2.keyword.test('gg'));
+  // Nothing on: nothing built that matches.
+  assert.deepStrictEqual(R.matchersFor(R.normalizeCfg({})), { mention: null, channel: '', kickKey: '', keyword: null, users: null });
+  assert.strictEqual(R.matchersFor(null).mention, null);
+  // The live renderer: a changed keyword list re-marks the lines already drawn (tests/renderer-dom.test.js has the DOM).
+  assert.ok(R.RERENDER_KEYS.indexOf('keywords') >= 0);
+  assert.strictEqual(R.escapeRe('a.b*c(d)[e]{f}|g^h$i+j?k\\l/m-n'), 'a\\.b\\*c\\(d\\)\\[e\\]\\{f\\}\\|g\\^h\\$i\\+j\\?k\\\\l\\/m-n');
+});
+
 test('line classes: a whitelisted platform class for Kick lines; Twitch lines and unknown platforms get none', () => {
   assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'chat', false), 'line platform-kick');
   assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'notice', false), 'line notice platform-kick');
@@ -861,8 +1031,16 @@ test('every live config key is handled by the renderer', () => {
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
     'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale',
-    'emote_only', 'gif_size', 'name_font'];
+    'emote_only', 'gif_size', 'name_font', 'mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color',
+    'vip_color'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
+  // The highlights are line classes, so they rebuild the lines; their colors are #chat variables only.
+  ['mentions', 'keywords', 'highlight_users', 'points_highlight', 'role_style'].forEach((k) => {
+    assert.ok(R.RERENDER_KEYS.indexOf(k) >= 0 && ROOT_KEYS.indexOf(k) < 0, k);
+  });
+  ['mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color', 'vip_color'].forEach((k) => {
+    assert.ok(R.RERENDER_KEYS.indexOf(k) < 0, k);
+  });
   // The name colors rebuild the lines (overlay.js nameFor reads them); so do the separator, the timestamps and the
   // reply header, which are drawn into each line. name_font is CSS on #chat only.
   ['name_color', 'name_fallback', 'readable_level', 'name_sep', 'timestamps', 'reply_style'].forEach((k) => {

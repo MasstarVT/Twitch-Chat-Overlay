@@ -1160,3 +1160,84 @@ test('overlay.css: the stage-6 rules (name font, timestamps) are scoped and stay
   assert.ok(css.indexOf('.time:first-child::before') > css.indexOf(':first-child:not(.reply)::before { content: \'\\25C6\'; }'));
   ['has-name-font', '\\.time'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
 });
+
+// ---------- highlights (stage 7) ----------
+
+test('highlight colors: a variable on #chat only while picked (r, g, b), gone again at Default; the lines never change', (t) => {
+  const s = setup(t, {});
+  s.r.push(chat('amy', 'hi', { msgId: 'highlighted-message' }));
+  s.r.flush();
+  const before = JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  s.r.setConfig({ mention_color: 'ff0000', keyword_color: '00ff00', points_color: '0000ff', broadcaster_color: '010203',
+    mod_color: 'aabbcc', vip_color: 'fFfFfF' });
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: { '--mention-rgb': '255, 0, 0', '--kw-rgb': '0, 255, 0',
+    '--hl-rgb': '0, 0, 255', '--role-broadcaster-rgb': '1, 2, 3', '--role-mod-rgb': '170, 187, 204' } }, 'only checked hex: fFfFfF is not one');
+  assert.strictEqual(JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent])), before);
+  s.r.setConfig({ mention_color: '' });
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+});
+
+test('highlights live: turning one on re-marks the lines already drawn, and off again leaves them as they were', (t) => {
+  const s = setup(t, { channel: 'home' });
+  s.r.push(chat('amy', 'hello @home'));
+  s.r.push(chat('bob', 'gg wp', { badges: [{ set: 'moderator', version: '1' }] }));
+  s.r.push(chat('cy', 'points!', { msgId: 'highlighted-message' }));
+  s.r.push(chat('dee', 'Stream starts soon', { announcement: 'BLUE', badges: [{ set: 'moderator', version: '1' }] }));
+  s.r.flush();
+  const cls = () => s.lines().map((l) => l.className);
+  const snap = () => JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  const before = snap();
+  assert.deepStrictEqual(cls(), ['line', 'line', 'line highlight', 'line announcement ann-blue']);
+  s.r.setConfig({ channel: 'home', mentions: 'at' });
+  assert.deepStrictEqual(cls(), ['line mention', 'line', 'line highlight', 'line announcement ann-blue']);
+  s.r.setConfig({ channel: 'home', mentions: 'at', keywords: ['GG'], role_style: 'tint' });
+  assert.deepStrictEqual(cls(), ['line mention', 'line keyword role-mod', 'line highlight', 'line announcement ann-blue']);
+  s.r.setConfig({ channel: 'home', keywords: ['gg'], highlight_users: ['amy'], role_style: 'bar', points_highlight: false });
+  assert.deepStrictEqual(cls(), ['line user-hl', 'line keyword role-mod role-bar', 'line', 'line announcement ann-blue']);
+  s.r.setConfig({ channel: 'home', role_style: 'tint' });
+  assert.deepStrictEqual(cls(), ['line', 'line role-mod role-tint', 'line highlight', 'line announcement ann-blue']);
+  s.r.setConfig({ channel: 'home' });
+  assert.strictEqual(snap(), before);
+  // A new line after a change is marked at once (the matchers of the new cfg).
+  s.r.setConfig({ channel: 'home', keywords: ['later'] });
+  s.r.push(chat('eve', 'see you later'));
+  s.r.flush();
+  assert.strictEqual(s.lines()[4].className, 'line keyword');
+});
+
+test('overlay.css: the stage-7 rules (tints, role bar) are class-only, ordered, and keep 1.5.2\'s channel-points look', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8')
+    .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  const at = (s) => css.indexOf('\n' + s);
+  // The channel-points tint: today's purple as the fallback, in the color and in both gradient stops, the selector
+  // kept at (0,2,0).
+  assert.match(css, /\n\.line\.highlight \{\n  background-color: rgba\(var\(--hl-rgb, 145, 70, 255\), \.35\);/);
+  assert.match(css, /\n:where\(\.has-bg\) \.line\.highlight \{[^}]*background-image: linear-gradient\(rgba\(var\(--hl-rgb, 145, 70, 255\), \.35\), rgba\(var\(--hl-rgb, 145, 70, 255\), \.35\)\);/);
+  assert.doesNotMatch(css, /rgba\(145, 70, 255/, 'no purple left that --hl-rgb misses');
+  // The role bar: after the name-color bar, before the first-message bar (the same specificity, so the later wins).
+  assert.ok(at('.line.accent {') < at('.line.role-bar {') && at('.line.role-bar {') < at('.line.first-msg {'));
+  assert.match(css, /\n\.line\.role-bar \{\n  box-shadow: inset \.2em 0 0 rgb\(var\(--role-rgb, 233, 25, 22\)\);\n  padding-left: \.4em;\n\}/);
+  [['broadcaster', '233, 25, 22'], ['mod', '0, 173, 3'], ['vip', '224, 5, 185']].forEach(([r, rgb]) =>
+    assert.ok(css.indexOf('\n.line.role-' + r + ' { --role-rgb: var(--role-' + r + '-rgb, ' + rgb + '); }') >= 0, r));
+  // The tints: their colors' fallbacks, the shape .highlight has, over the box with bg, room for a bar; after the
+  // channel-points rules and before the announcement's.
+  assert.ok(css.indexOf('\n.line.mention { --line-tint: rgba(var(--mention-rgb, 233, 25, 22), .35); }') >= 0);
+  assert.ok(css.indexOf('\n.line.keyword,\n.line.user-hl { --line-tint: rgba(var(--kw-rgb, 255, 179, 26), .35); }') >= 0);
+  assert.ok(css.indexOf('\n.line.role-tint { --line-tint: rgba(var(--role-rgb, 233, 25, 22), .35); }') >= 0);
+  assert.match(css, /\n\.line\.mention,\n\.line\.keyword,\n\.line\.user-hl,\n\.line\.role-tint \{\n  background-color: var\(--line-tint\);\n  border-radius: \.3em;\n  padding-left: \.3em;\n  padding-right: \.3em;\n\}/);
+  assert.match(css, /\n:where\(\.has-bg\) \.line\.mention,\n:where\(\.has-bg\) \.line\.keyword,\n:where\(\.has-bg\) \.line\.user-hl,\n:where\(\.has-bg\) \.line\.role-tint \{\n  background-color: rgba\(var\(--bg-rgb, 0, 0, 0\), var\(--bg-alpha, 0\)\);\n  background-image: linear-gradient\(var\(--line-tint\), var\(--line-tint\)\);\n  border-radius: var\(--bg-radius, \.3em\);\n\}/);
+  assert.ok(at(':where(.has-bg) .line.highlight {') < at('.line.mention {') && at(':where(.has-bg) .line.mention,') < at('.line.announcement {'));
+  assert.ok(at('.line.highlight:where(.role-bar) { padding-left: .4em; }') > at('.line.highlight {'));
+  assert.ok(at('.line.mention:where(.accent, .first-msg, .role-bar),') > at('.line.mention,\n.line.keyword'));
+  // Every rule that names a new class is (0,2,0) at most: classes only (a :where() adds nothing), never #chat.
+  const sels = Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim())
+    .filter((s) => /mention|keyword|user-hl|role-/.test(s));
+  assert.ok(sels.length >= 10, 'the scan finds them');
+  sels.forEach((sel) => sel.split(/,\n/).forEach((one) => {
+    const bare = one.replace(/:where\([^()]*\)/g, '');
+    assert.doesNotMatch(bare, /#|\[|:/, one);
+    assert.ok((bare.match(/\.[\w-]+/g) || []).length <= 2, one + ' is (0,2,0) at most');
+  }));
+  ['mention', 'keyword', 'user-hl', 'role-'].forEach((c) => assert.doesNotMatch(css, new RegExp('#chat[^{]*' + c)));
+});

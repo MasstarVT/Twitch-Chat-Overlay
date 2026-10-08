@@ -746,12 +746,26 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
     ['Layout #adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep'],
     ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style'],
+    ['Highlights #adv-highlights', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color',
+      'role_style', 'broadcaster_color', 'mod_color', 'vip_color'],
     ['Emotes #adv-emotes', 'gif_size', 'giant_emotes'],
     ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']
   ]);
-  // Chat events: the timestamps last, under a heading of their own (the highlights join them later).
-  assert.deepStrictEqual(g('events').keys, ['events', 'replies', 'first_msg', 'shared', 'timestamps']);
-  assert.deepStrictEqual(g('events').subs, [{ title: 'Highlights & timestamps', first: 'timestamps' }]);
+  // Chat events: the mentions and the timestamps last, under a heading of their own.
+  assert.deepStrictEqual(g('events').keys, ['events', 'replies', 'first_msg', 'shared', 'mentions', 'timestamps']);
+  assert.deepStrictEqual(g('events').subs, [{ title: 'Highlights & timestamps', first: 'mentions' }]);
+  // The highlights: short labels that wrap in a narrow panel, the help naming the demo words that show them.
+  assert.deepStrictEqual(builder.META.mentions.options, { off: 'Off', at: '@name', name: 'Plain too' });
+  assert.strictEqual(builder.META.mentions.wrap, true);
+  assert.deepStrictEqual(builder.META.role_style.options, { off: 'Off', bar: 'Bar', tint: 'Tint' });
+  assert.deepStrictEqual(['keywords', 'highlight_users'].map(builder.widgetFor), ['text', 'text']);
+  assert.match(builder.META.keywords.help, /Try overlay to see it in the preview/);
+  assert.match(builder.META.highlight_users.help, /Try paintedpal to see it in the preview/);
+  assert.match(builder.META.mentions.help, /Needs a Twitch or Kick channel/);
+  assert.match(builder.META.role_style.help, /works with badges off/);
+  assert.deepStrictEqual(['mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color', 'vip_color']
+    .map((k) => [builder.widgetFor(k), builder.META[k].swatch]),
+  [['color', '#e91916'], ['color', '#ffb31a'], ['color', '#9146ff'], ['color', '#e91916'], ['color', '#00ad03'], ['color', '#e005b9']]);
   assert.deepStrictEqual(builder.META.timestamps.options, { off: 'Off', '12h': '12-hour', '24h': '24-hour' });
   assert.deepStrictEqual(builder.META.name_sep.options, { colon: 'Colon', space: 'Space', dash: 'Dash', arrow: 'Arrow' });
   assert.deepStrictEqual(builder.META.reply_style.options, { full: 'Full', name: 'Name only' });
@@ -806,8 +820,18 @@ test('the look options grey out while the setting they need is off, and their he
     name_fallback: [{ name_color: 'ff8800' }, {}, 'Name color (Look)'],
     name_sep: [{ names: false }, {}, 'Show names'],
     readable_level: [{ readable: false }, {}, 'Brighten dark name colors (Badges & paints)'],
-    reply_style: [{ replies: false }, {}, 'Show what replies are answering']
+    reply_style: [{ replies: false }, {}, 'Show what replies are answering'],
+    mention_color: [{}, { mentions: 'at' }, 'Highlight channel mentions (Chat events)'],
+    keyword_color: [{}, { keywords: ['gg'] }, 'Highlight words'],
+    points_color: [{ points_highlight: false }, {}, 'Channel-points highlights'],
+    broadcaster_color: [{ role_style: 'off' }, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
+    mod_color: [{}, { role_style: 'tint' }, 'Mark broadcaster, mods, VIPs'],
+    vip_color: [{}, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs']
   };
+  // The highlight word color is for the users too.
+  assert.strictEqual(off('keyword_color', { highlight_users: ['a'] }), false);
+  assert.strictEqual(off('mention_color', { mentions: 'name' }), false);
+  assert.match(builder.META.keyword_color.help, /Highlight these users/);
   Object.keys(needs).forEach((k) => {
     assert.strictEqual(off(k, needs[k][0]), true, k + ' off');
     assert.strictEqual(off(k, needs[k][1]), false, k + ' on');

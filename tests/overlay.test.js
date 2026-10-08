@@ -768,6 +768,25 @@ test('nameFor: colorless chatters keep Twitch\'s palette (Twitch and Kick); name
   assert.strictEqual(h.deps.nameFor(tw).color, util.readableColor(util.defaultColor(tw.userId, tw.login), 6));
 });
 
+test('highlights live from the builder: through config.coerce, the words and users as lists; the names nameFor gives stay', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=1' });
+  const S = h.S();
+  const tw = { userId: '1006', login: 'helpfulmod', displayName: 'HelpfulMod', color: '#00AD03', badges: [{ set: 'moderator', version: '1' }] };
+  const before = h.deps.nameFor(tw);
+  globalThis.parent = {};
+  const send = (cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
+  send({ mentions: 'NAME', keywords: ['Good  Game', 'gg,wp'], highlight_users: ['@PaintedPal', 'bad name!'], points_highlight: false,
+    role_style: 'bar', mod_color: '#00AD03', keyword_color: 'nope', mention_color: 'f80', channel: 'other' });
+  assert.deepStrictEqual([S.cfg.mentions, S.cfg.keywords, S.cfg.highlight_users, S.cfg.points_highlight, S.cfg.role_style,
+    S.cfg.mod_color, S.cfg.keyword_color, S.cfg.mention_color], ['name', ['good game', 'gg', 'wp'], ['paintedpal'], false, 'bar',
+    '00ad03', '', 'ff8800']);
+  assert.strictEqual(S.cfg.channel, 'home', 'the channel is a reload key: never sent live');
+  // The roles and tints are the renderer's: nameFor (the name and its color) is as before.
+  assert.deepStrictEqual(h.deps.nameFor(tw), before);
+  send({ keywords: '', highlight_users: [] });
+  assert.deepStrictEqual([S.cfg.keywords, S.cfg.highlight_users], [[], []]);
+});
+
 test('emote precedence: 7TV personal > BTTV personal > channel (7TV, BTTV, FFZ) > global (7TV, BTTV, FFZ)', async (t) => {
   const h = await boot(t);
   join(h);
