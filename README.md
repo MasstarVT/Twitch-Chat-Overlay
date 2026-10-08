@@ -31,7 +31,8 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
   - Timeouts, bans and deleted messages disappear from the overlay.
   - During Shared Chat, every message shows its channel's avatar (your own channel's too, as on Twitch), and partner messages show their badges from that channel.
 - **Vertical or horizontal:** a classic chat column, or a single row that runs sideways like a ticker, for a bar along the top or bottom of the stream.
-- **Clean look by default:** white text with a soft drop shadow on a transparent background. You can change the layout, size, font, shadow, background, alignment, fade-out and line limit.
+- **Clean look by default:** white text with a soft drop shadow on a transparent background. You can change the layout, size, font, weight, colors, outline, shadow, the box behind each message, how names look, alignment, emote and badge size, animations, fade-out and line limit.
+- **Highlights and filters:** highlight mentions of your channel, chosen words or users, and the broadcaster, mods and VIPs; add timestamps; hide messages by word, role, length or link; turn each event type on or off.
 - **Config builder** (`builder.html`) with a live preview, a demo mode, quick looks to start from, and copy or download buttons.
 
 ## Quick start

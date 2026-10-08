@@ -9,12 +9,12 @@
   <meta name="description" content="A browser-source chat overlay for OBS with Twitch and Kick chat in one, 7TV, BetterTTV and FrankerFaceZ emotes, 7TV name paints and badges from seven sources. No login and no server of your own.">
   <link rel="icon" href="data:,">
   <!-- Old builder links (this page used to be the builder) are passed on before anything is drawn. -->
-  <script src="js/config.js?v=1.5.3"></script>
-  <script src="js/home.js?v=1.5.3"></script>
+  <script src="js/config.js?v=1.6.0"></script>
+  <script src="js/home.js?v=1.6.0"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&amp;family=Figtree:ital,wght@0,400..800;1,600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
-  <link rel="stylesheet" href="css/home.css?v=1.5.3">
+  <link rel="stylesheet" href="css/home.css?v=1.6.0">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -262,8 +262,8 @@
         <div>
           <p class="ask"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2v5.5a3 3 0 0 0 3 3h7M10 7l3.5 3.5L10 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><b class="u-mod">@HelpfulMod</b> can you make the text bigger?</p>
           <h2>White text, soft shadow, transparent background. Change any of it.</h2>
-          <p class="copy">Pick the size, the font (any Google Font or a stock Windows font), the shadow strength, a dark box behind each message, the alignment, the fade-out and the line limit. Every option goes in the overlay URL, and OBS's Custom CSS box can restyle the rest through stable class names.</p>
-          <p class="copy">Known bots such as Nightbot and StreamElements are hidden unless you set <code>bots=1</code>. <code>hide_commands=1</code> hides messages that start with an exclamation mark, and <code>block</code> hides chosen users.</p>
+          <p class="copy">Pick the size, the font (any Google Font or a stock Windows font), the weight and colors, an outline or shadow, a box behind each message in any color and shape, the alignment, how messages come in and fade out, and the line limit. Or start from a quick look in the builder. Every option goes in the overlay URL, and OBS's Custom CSS box can restyle the rest through stable class names.</p>
+          <p class="copy">Known bots such as Nightbot and StreamElements are hidden unless you set <code>bots=1</code>. <code>hide_commands=1</code> hides messages that start with an exclamation mark, <code>block</code> hides chosen users, and <code>block_words</code> hides chosen words. Mentions of your channel, chosen words and your mods can be highlighted.</p>
         </div>
         <div>
           <div class="ladder">
