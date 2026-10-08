@@ -138,3 +138,16 @@ test('README: a Custom CSS example on #chat outweighs the stylesheet\'s own #cha
   });
   assert.ok(checked > 0, 'the README gives a Custom CSS example that changes a #chat property the stylesheet sets');
 });
+
+test('README: the URL length note gives the limit the builder warns at, and the word lists point to it', () => {
+  const builder = require('../js/builder.js');
+  const opts = section('Options');
+  const note = /^- \*\*URL length:\*\* (.*)$/m.exec(opts);
+  assert.ok(note, 'Options has a URL length note');
+  assert.match(note[1], new RegExp('over about ' + builder.MAX_URL_BYTES.toLocaleString('en-US') + ' characters'));
+  assert.match(note[1], /settings\.js/);
+  ['block_words', 'keywords'].forEach((k) => {
+    const row = opts.split('\n').filter((l) => l.indexOf('| `' + k + '` |') === 0)[0];
+    assert.match(row, /see \*\*URL length\*\* above/, k);
+  });
+});

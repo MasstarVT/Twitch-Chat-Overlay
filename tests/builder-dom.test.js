@@ -467,6 +467,144 @@ test('builder.html?kick=other over a remembered Kick channel looks the new one u
   assert.match(p.text('bar-url'), /overlay\.html\?kick=other&kick_room=999&bg=50$/);
 });
 
+// The Kick status line under the Kick channel field.
+const kickStatus = (p) => p.$('f-kick').parentNode.parentNode.parentNode.children.filter((e) => e.getAttribute('role') === 'status')[0];
+
+test('Kick field: a pasted config for the same channel without its chatroom id looks it up; with another id, the old status goes', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF + '?kick=xqc');
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc')]);
+  const room = p.$('f-kick_room'), status = kickStatus(p);
+  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  // An older URL whose lookup had been refused: the same channel, no chatroom id.
+  p.$('paste').value = 'https://chat.masstar.org/overlay.html?kick=xqc&size=large';
+  p.$('paste-load').dispatch('click');
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc'), kickLookup('xqc')], 'looked up again, as a new name would be');
+  assert.strictEqual(room.value, '668');
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=xqc&kick_room=668&size=large$/);
+  assert.doesNotMatch(p.text('bar-note'), /chatroom id is missing/);
+  // The same channel with another chatroom id: kept as pasted, and the line no longer says 668 was filled in.
+  p.$('paste').value = '?kick=xqc&kick_room=999';
+  p.$('paste-load').dispatch('click');
+  await settle();
+  assert.strictEqual(api.calls.length, 2);
+  assert.strictEqual(room.value, '999');
+  assert.deepStrictEqual([status.className, status.textContent], ['status', '']);
+  // The same channel and id again: nothing to look up, and nothing to clear.
+  p.$('f-kick').nextElementSibling.dispatch('click'); // Check
+  await settle();
+  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  p.$('paste').value = '?kick=xqc&kick_room=668&bg=40';
+  p.$('paste-load').dispatch('click');
+  await settle();
+  assert.strictEqual(api.calls.length, 3);
+  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+});
+
+test('Kick field: Check with a name that is not valid looks nothing up and leaves no status for another channel', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF);
+  const input = p.$('f-kick'), check = input.nextElementSibling, status = kickStatus(p);
+  assert.strictEqual(check.textContent, 'Check');
+  input.value = 'xqc';
+  input.dispatch('keydown', { key: 'Enter', preventDefault() {} });
+  await settle();
+  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  input.value = 'my channel!';
+  check.dispatch('click');
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc')], 'the old channel is not looked up again');
+  assert.strictEqual(p.$('e-kick').hidden, false);
+  assert.deepStrictEqual([status.className, status.textContent], ['status', ''], 'no word about xqc under the error');
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=xqc&kick_room=668$/, 'the URL keeps the last valid channel');
+  // Left with Enter too: the line is cleared. A lookup still out for the old channel is dropped, and done again once a
+  // valid name is committed.
+  input.value = 'xqc';
+  input.dispatch('change');
+  p.$('f-kick_room').value = '';
+  p.$('f-kick_room').dispatch('change');
+  api.held = true;
+  check.dispatch('click');
+  await settle();
+  assert.strictEqual(status.className, 'status busy');
+  input.value = 'bad name';
+  input.dispatch('keydown', { key: 'Enter', preventDefault() {} });
+  assert.deepStrictEqual([status.className, status.textContent], ['status', '']);
+  api.release();
+  await settle();
+  assert.deepStrictEqual([status.className, status.textContent], ['status', ''], 'the dropped lookup never writes');
+  assert.strictEqual(p.$('f-kick_room').value, '');
+  api.held = false;
+  input.value = 'xqc';
+  input.dispatch('change');
+  await settle();
+  assert.strictEqual(p.$('f-kick_room').value, '668');
+  assert.strictEqual(status.className, 'status ok');
+  // A valid new name: Check looks it up, once.
+  const before = api.calls.length;
+  input.value = 'other';
+  check.dispatch('click');
+  await settle();
+  assert.deepStrictEqual(api.calls.slice(before), [kickLookup('other')]);
+  assert.strictEqual(p.$('f-kick_room').value, '999');
+  assert.match(status.textContent, /other found\. Chatroom id 999/);
+  // The same name again: Check looks it up again (an id may have changed).
+  check.dispatch('click');
+  await settle();
+  assert.deepStrictEqual(api.calls.slice(before), [kickLookup('other'), kickLookup('other')]);
+});
+
+// n phrases of len CJK characters, each one different (9 bytes a character once percent-encoded).
+function cjkPhrases(n, len) {
+  return Array.from({ length: n }, (_, i) =>
+    Array.from({ length: len }, (_, j) => String.fromCharCode(0x4e00 + i * len + j)).join(''));
+}
+
+test('word lists too long for the host: the bar and Add to OBS say so, and the preview loads, the lists sent to it', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const long = p.$('url-long');
+  assert.strictEqual(long.hidden, true);
+  assert.match(long.textContent, /GitHub Pages/);
+  assert.match(long.textContent, /Local file route with settings\.js/);
+  assert.strictEqual(p.builder.urlTooLong(frame().src), false);
+  const words = cjkPhrases(50, 10);
+  p.$('paste').value = 'https://chat.masstar.org/overlay.html?kick=xqc&kick_room=668&emotes_bttv=0&block_words=' +
+    encodeURIComponent(words.join(',')) + '&keywords=' + encodeURIComponent(words.slice().reverse().join(','));
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(p.builder.urlTooLong(p.text('bar-url')), true);
+  assert.strictEqual(p.$('bar-note').className, 'status warn');
+  assert.match(p.text('bar-note'), /too long/);
+  assert.strictEqual(long.hidden, false);
+  t.mock.timers.tick(30);
+  assert.match(p.text('sr-status'), /too long/);
+  // emotes_bttv reloads the preview: its URL leaves the lists empty, and they arrive once the frame has loaded.
+  t.mock.timers.tick(1000);
+  const f = frame(), posted = [];
+  assert.strictEqual(p.builder.urlTooLong(f.src), false);
+  const q = new URL(f.src).searchParams;
+  assert.deepStrictEqual([q.get('emotes_bttv'), q.get('block_words'), q.get('keywords')], ['0', '', '']);
+  f.contentWindow = { postMessage: (m) => posted.push(m) };
+  f.dispatch('load');
+  t.mock.timers.tick(30);
+  assert.deepStrictEqual(posted[posted.length - 1].cfg.block_words, words);
+  assert.strictEqual(posted[posted.length - 1].cfg.keywords.length, 50);
+  // Shortened: the warnings go.
+  const bw = p.$('f-block_words'), kw = p.$('f-keywords');
+  bw.value = 'gg';
+  bw.dispatch('change');
+  kw.value = '';
+  kw.dispatch('change');
+  assert.strictEqual(p.builder.urlTooLong(p.text('bar-url')), false);
+  assert.strictEqual(long.hidden, true);
+  assert.notStrictEqual(p.$('bar-note').className, 'status warn');
+});
+
 // A field's row, from its label (label < .field-name < .field-head < .field).
 const rowOf = (p, key) => p.$('l-' + key).parentNode.parentNode.parentNode;
 
@@ -1105,6 +1243,94 @@ test('Name font: empty is the same font as Font, typed names get Google\'s spell
   nm.checked = false;
   nm.dispatch('change');
   assert.strictEqual(rowOf(p, 'name_font').classList.contains('disabled'), false);
+});
+
+test('Font and Name font: a refused name\'s error leaves their description too, after Reset, a paste, a quick look', (t) => {
+  const p = open(t, HREF);
+  const font = p.$('f-font'), nf = p.$('f-name_font');
+  const state = (el, key) => [el.value, el.getAttribute('aria-invalid'), p.$('e-' + key).hidden, el.getAttribute('aria-describedby')];
+  assert.strictEqual(font.getAttribute('aria-describedby'), 'h-font', 'as addHelp wrote it');
+  assert.strictEqual(nf.getAttribute('aria-describedby'), 'h-name_font');
+  const refuse = (el) => { el.value = 'Bad!'; el.dispatch('change'); };
+  refuse(font);
+  assert.deepStrictEqual(state(font, 'font'), ['Bad!', 'true', false, 'h-font e-font']);
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual(state(font, 'font'), ['Inter', 'false', true, 'h-font']);
+  refuse(nf);
+  assert.deepStrictEqual(state(nf, 'name_font'), ['Bad!', 'true', false, 'h-name_font e-name_font']);
+  p.$('paste').value = '?bg=40';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual(state(nf, 'name_font'), ['', 'false', true, 'h-name_font']);
+  refuse(font);
+  looks(p).click('Boxed');
+  assert.deepStrictEqual(state(font, 'font'), ['Inter', 'false', true, 'h-font']);
+  // A valid name typed after a refused one: the help alone again.
+  refuse(font);
+  font.value = 'arial';
+  font.dispatch('change');
+  assert.deepStrictEqual(state(font, 'font'), ['Arial', 'false', true, 'h-font']);
+  // A Reset with a debounced commit still pending: the typed name never lands after it.
+  font.value = 'Bangers';
+  font.dispatch('input');
+  p.$('reset').dispatch('click');
+  t.mock.timers.tick(1000);
+  assert.deepStrictEqual([font.value, p.text('bar-url')], ['Inter', OVERLAY]);
+});
+
+test('Font and Name font: a name Google Fonts doesn\'t load gets a warning; a listed or installed one is not asked about', (t) => {
+  const p = open(t, HREF);
+  const font = p.$('f-font'), nf = p.$('f-name_font'), miss = p.$('w-font');
+  const probes = () => p.doc.head.children.filter((e) => e.tagName === 'LINK');
+  const css2 = (family) => 'https://fonts.googleapis.com/css2?family=' + family + '&display=swap';
+  assert.deepStrictEqual([miss.hidden, probes().length], [true, 0], 'Inter at start: nothing asked');
+  const type = (el, v) => { el.value = v; el.dispatch('change'); };
+  // Lower case, a family with a word in capitals: Google's spelling, which is listed, so nothing to ask.
+  type(font, 'dm serif text');
+  assert.deepStrictEqual([font.value, probes().length], ['DM Serif Text', 0]);
+  ['roboto', 'segoe ui', 'monospace', 'Inter'].forEach((f) => type(font, f));
+  assert.strictEqual(probes().length, 0, 'listed, installed and generic names');
+  // A guess at the spelling: asked for, as a print stylesheet that is never applied.
+  type(font, 'robotto');
+  const [a] = probes();
+  assert.deepStrictEqual([a.href, a.rel, a.media], [css2('Robotto'), 'stylesheet', 'print']);
+  a.dispatch('error');
+  assert.deepStrictEqual(probes(), [], 'the probe goes once it has answered');
+  assert.strictEqual(miss.hidden, false);
+  assert.strictEqual(miss.className, 'status warn');
+  assert.match(miss.textContent, /Google Fonts didn’t load “Robotto”\. Check its spelling and capitals/);
+  assert.strictEqual(font.getAttribute('aria-describedby'), 'h-font w-font');
+  assert.strictEqual(font.getAttribute('aria-invalid'), 'false', 'a warning: the value stays in the URL');
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?font=Robotto');
+  t.mock.timers.tick(30);
+  assert.strictEqual(p.text('sr-status'), miss.textContent);
+  // A name that loads: no warning, and it is not asked about again.
+  type(font, 'my font');
+  assert.deepStrictEqual([miss.hidden, font.getAttribute('aria-describedby')], [true, 'h-font']);
+  probes()[0].dispatch('load');
+  assert.deepStrictEqual([miss.hidden, probes().length], [true, 0]);
+  type(font, 'Robotto');
+  type(font, 'My Font');
+  assert.strictEqual(probes().length, 1, 'My Font loaded already: only Robotto is asked for');
+  // An answer for a name that is no longer in the box says nothing.
+  probes()[0].dispatch('error');
+  assert.strictEqual(miss.hidden, true);
+  // A paste is checked too; Reset takes the warning away.
+  p.$('paste').value = '?font=gotham%20rounded&name_font=Bangers';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual(probes().map((l) => l.href), [css2('Gotham+Rounded')]);
+  probes()[0].dispatch('error');
+  assert.match(miss.textContent, /“Gotham Rounded”/);
+  looks(p).click('Cards');
+  assert.strictEqual(miss.hidden, false, 'a quick look leaves the font, and its warning');
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([miss.hidden, font.getAttribute('aria-describedby')], [true, 'h-font']);
+  // Name font has its own line.
+  type(nf, 'comic neu');
+  probes()[0].dispatch('error');
+  assert.deepStrictEqual([p.$('w-name_font').hidden, miss.hidden], [false, true]);
+  assert.strictEqual(nf.getAttribute('aria-describedby'), 'h-name_font w-name_font');
+  type(nf, '');
+  assert.deepStrictEqual([p.$('w-name_font').hidden, probes().length], [true, 0]);
 });
 
 test('Name contrast reads 4.5:1 and steps by 0.5; typed as 6.1 or 6.1:1; greyed out with Brighten dark name colors off', (t) => {

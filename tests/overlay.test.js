@@ -961,6 +961,13 @@ test('name_font: a second Google Fonts link only while it is set, and asked agai
   assert.deepStrictEqual(hrefs(a).slice(3), [css2('Bangers')]);
 });
 
+test('a Google family with a word in capitals, typed in lower case, is asked for in Google\'s spelling', async (t) => {
+  const css2 = (family) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@400;600;700;800&display=swap';
+  const h = await boot(t, { search: '?channel=home&font=dm%20serif%20text&name_font=noto+serif+sc' });
+  // Not Dm+Serif+Text or Noto+Serif+Sc, which Google Fonts answers with 400.
+  assert.deepStrictEqual(h.links.map((l) => l.href), [css2('DM+Serif+Text'), css2('Noto+Serif+SC')]);
+});
+
 test('nameFor: colorless chatters keep Twitch\'s palette (Twitch and Kick); name_color, name_fallback and readable_level', async (t) => {
   const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=1' });
   const S = h.S();

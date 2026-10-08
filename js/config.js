@@ -175,10 +175,22 @@
     'EB Garamond', 'IBM Plex Mono', 'IBM Plex Serif', 'DM Serif Display', 'DM Mono', 'Amatic SC'];
 
   // Lowercased name -> canonical spelling. No prototype, so 'constructor' etc. never match.
-  // Google families that capitalize a joining word canonicalFont() otherwise leaves lowercase
-  // ('covered by your grace' must become 'Covered By Your Grace'). Spelling fixes only, not
-  // offered as builder suggestions.
-  var FONT_CANON_EXTRA = ['Covered By Your Grace', 'Love Ya Like A Sister', 'Black And White Picture'];
+  // Google families canonicalFont() would otherwise misspell, typed in lower case: a joining word
+  // it leaves lowercase ('covered by your grace' must become 'Covered By Your Grace'), or a word
+  // in capitals or with a capital inside it ('dm serif text' must become 'DM Serif Text', not
+  // 'Dm Serif Text', which Google Fonts refuses). Each spelling checked against fonts.googleapis.com.
+  // Spelling fixes only, not offered as builder suggestions.
+  var FONT_CANON_EXTRA = ['Covered By Your Grace', 'Love Ya Like A Sister', 'Black And White Picture',
+    'DM Serif Text', 'PT Sans Caption', 'PT Serif Caption', 'IBM Plex Sans Condensed', 'IBM Plex Sans JP',
+    'IBM Plex Sans KR', 'IBM Plex Sans Arabic', 'IBM Plex Sans Thai', 'IBM Plex Sans Hebrew', 'IBM Plex Sans Devanagari',
+    'Noto Serif SC', 'Noto Serif TC', 'Noto Serif HK', 'Noto Serif KR', 'ZCOOL KuaiLe', 'ZCOOL XiaoWei',
+    'ZCOOL QingKe HuangYou', 'IM Fell English', 'IM Fell English SC', 'IM Fell DW Pica', 'IM Fell DW Pica SC',
+    'IM Fell Double Pica', 'IM Fell French Canon', 'IM Fell Great Primer', 'M PLUS 1p', 'M PLUS 1', 'M PLUS 2',
+    'M PLUS 1 Code', 'M PLUS Code Latin', 'BIZ UDGothic', 'BIZ UDPGothic', 'BIZ UDMincho', 'BIZ UDPMincho',
+    'Alegreya SC', 'Alegreya Sans SC', 'Cormorant SC', 'Playfair Display SC', 'Mate SC', 'Marcellus SC', 'Spectral SC',
+    'Overlock SC', 'Encode Sans SC', 'LXGW WenKai TC', 'LXGW WenKai Mono TC', 'DotGothic16', 'DynaPuff',
+    'MedievalSharp', 'UnifrakturMaguntia', 'UnifrakturCook', 'BenchNine', 'BioRhyme', 'RocknRoll One', 'MuseoModerno',
+    'WindSong', 'NTR', 'REM', 'SUSE', 'GFS Didot', 'GFS Neohellenic', 'ADLaM Display'];
   var FONT_CANON = Object.create(null);
   GOOGLE_FONTS.concat(SYSTEM_FONT_NAMES, GENERIC_FONT_NAMES, FONT_CANON_EXTRA).forEach(function (f) { FONT_CANON[f.toLowerCase()] = f; });
 
@@ -437,6 +449,12 @@
     return words.join(' ');
   }
 
+  // A name spelled exactly as one canonicalFont knows: a listed Google font (GOOGLE_FONTS, FONT_CANON_EXTRA), a stock
+  // Windows font or a generic name. Any other name is only a guess at Google's spelling (the builder checks it).
+  function isKnownFont(name) {
+    return typeof name === 'string' && FONT_CANON[name.toLowerCase()] === name;
+  }
+
   return {
     SPEC: SPEC,
     KEYS: KEYS,
@@ -445,6 +463,7 @@
     SYSTEM_FONT_NAMES: SYSTEM_FONT_NAMES,
     GENERIC_FONT_NAMES: GENERIC_FONT_NAMES,
     GOOGLE_FONTS: GOOGLE_FONTS,
+    FONT_CANON_EXTRA: FONT_CANON_EXTRA,
     PREFIX_CHARS: PREFIX_CHARS,
     MAX_PREFIXES: MAX_PREFIXES,
     defaults: defaults,
@@ -460,6 +479,7 @@
     normalizeLogin: normalizeLogin,
     parseBool: parseBool,
     isSystemFont: isSystemFont,
+    isKnownFont: isKnownFont,
     canonicalFont: canonicalFont
   };
 });

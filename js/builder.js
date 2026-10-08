@@ -103,7 +103,7 @@
       help: '18, 24 or 32 px. While Exact text size (Advanced) is set, it decides instead.' },
     text_px: { label: 'Exact text size', widget: 'stepper', step: 2, unit: 'px', zero: 'Auto', from0: textPxFrom0,
       help: 'In px, in place of Text size (Look); badges and emotes follow it. Auto uses Text size, and 1 to 7 become 8. Above about 40 px a horizontal row no longer fits the suggested 100 px tall source.' },
-    font: { label: 'Font', help: 'Any Google Fonts family, or a font installed on the streaming PC (Arial, Segoe UI…).' },
+    font: { label: 'Font', help: 'Any Google Fonts family, spelled as Google does (DM Serif Text), or a font installed on the streaming PC (Arial, Segoe UI…).' },
     text_weight: { label: 'Text weight', widget: 'range', options: WEIGHT_LABELS,
       help: 'Message and notice text. Light and Black load one more weight of the font; a font without it draws the nearest.' },
     text_color: { label: 'Text color', swatch: '#ffffff',
@@ -183,7 +183,7 @@
       help: 'The signs a command starts with, written together: !? hides both !points and ?points. Up to 8 of ! $ % & * + - . / : ; = ? @ # ~ ^. With @, a message that starts by naming someone is hidden too (a reply still shows). Needs Hide !commands (Filters).' },
     block: { label: 'Hide these users', help: 'Usernames, separated by commas; a name counts on Twitch and Kick alike.', placeholder: 'username1, username2' },
     block_words: { label: 'Hide messages containing', placeholder: 'word, two words',
-      help: 'Hides chat messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t hide eggs. Up to 50, each up to 40 characters; more are left out, in settings.js too. A reply to a hidden message shows without quoting it. Try overlay to see it in the preview. A long list makes the URL long, so it is better kept in settings.js.' },
+      help: 'Hides chat messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t hide eggs. Up to 50, each up to 40 characters; more are left out, in settings.js too. A reply to a hidden message shows without quoting it. Try overlay to see it in the preview. A URL can be about 8,000 characters long, and a letter outside A–Z takes 6 to 9 of them, so a long list (above all one in Japanese or Korean) is better kept in settings.js.' },
     links: { label: 'Links', options: { show: 'Show', shorten: 'Shorten', hide: 'Hide' },
       help: 'Shorten shows each link as its site’s name (clips.twitch.tv); Hide hides messages with a link. A link starts with https://, http:// or www. (a bare example.com is left as it is), and is never clickable. While it isn’t Show, a demo message has a link.' },
     role_filter: { label: 'Only show messages from', options: { all: 'Everyone', subs: 'Subs+', vips: 'VIPs+', mods: 'Mods' }, wrap: true,
@@ -220,7 +220,7 @@
     mention_color: { label: 'Mention color', swatch: '#e91916', when: mentionsOn,
       help: 'Red by default, see-through over the message. Needs Highlight channel mentions (Chat events).' },
     keywords: { label: 'Highlight words', placeholder: 'word, two words',
-      help: 'Tints messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t match eggs. Up to 50, each up to 40 characters. Try overlay to see it in the preview.' },
+      help: 'Tints messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t match eggs. Up to 50, each up to 40 characters. Try overlay to see it in the preview. A URL can be about 8,000 characters long, and a letter outside A–Z takes 6 to 9 of them, so a long list (above all one in Japanese or Korean) is better kept in settings.js.' },
     highlight_users: { label: 'Highlight these users', placeholder: 'username1, username2',
       help: 'Their messages get the Highlight words tint. Usernames, separated by commas; a name counts on Twitch and Kick alike. Try paintedpal to see it in the preview.' },
     keyword_color: { label: 'Highlight word color', swatch: '#ffb31a', when: wordsOrUsersOn,
@@ -425,6 +425,34 @@
     u.search = '?' + tidyQuery(p.toString());
     u.hash = '';
     return u.href;
+  }
+
+  // GitHub Pages, which hosts the overlay, answers 414 "URI Too Long" once a request's path and query pass about
+  // 8 KB, and OBS then shows that error in place of chat. A letter outside A-Z takes 6 to 12 bytes in a URL, so word
+  // lists in Japanese or Korean get there inside their caps. A file: URL is read from disk and has no such limit.
+  var MAX_URL_BYTES = 8000;
+  var URL_LONG_NOTE = 'This URL is too long for the overlay’s host: OBS would show “URI Too Long”. Shorten the lists, or use settings.js.';
+  function urlTooLong(url) {
+    var u;
+    try { u = new URL(String(url)); } catch (e) { return false; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    return (u.pathname + u.search).length > MAX_URL_BYTES;
+  }
+
+  // The settings that can make a URL long: the lists of names and words. All are live keys.
+  var LIST_KEYS = config.KEYS.filter(function (k) {
+    var t = config.SPEC[k].type;
+    return (t === 'list' || t === 'words') && isLiveKey(k);
+  });
+
+  // The preview frame's URL: previewUrl, unless the host would refuse it. Then the lists are written empty (still
+  // there, so a settings.js can't fill them in) and reach the frame with the other live settings once it has loaded.
+  function previewSrc(pc, baseHref) {
+    var url = previewUrl(pc, baseHref);
+    if (!urlTooLong(url)) return url;
+    var c = copyCfg(pc);
+    LIST_KEYS.forEach(function (k) { c[k] = []; });
+    return previewUrl(c, baseHref);
   }
 
   // The preview frame's sandbox. An opaque-origin frame may not load file: resources, so from disk the
@@ -675,6 +703,9 @@
     }
     if (ch && ch.state === 'notfound' && ch.login === cfg.channel) {
       return { text: 'Twitch has no channel called “' + cfg.channel + '”. Check the spelling.', cls: 'warn' };
+    }
+    if (urlTooLong(url)) {
+      return { text: URL_LONG_NOTE, cls: 'warn' };
     }
     if (/^file:/i.test(String(url))) {
       return { text: 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.', cls: '' };
@@ -1095,6 +1126,50 @@
         bad.id = 'e-' + key;
         bad.hidden = true;
         row.appendChild(bad);
+        // Google Fonts didn't load the name: a warning, not an error, as it may be a font installed on the streaming PC.
+        var miss = h('p', 'status warn');
+        miss.id = 'w-' + key;
+        miss.hidden = true;
+        row.appendChild(miss);
+        // The help, then whichever of the two lines shows ('h-font' alone, as addHelp wrote it, while neither does).
+        var describeFont = function () {
+          fi.setAttribute('aria-describedby', (fh ? fh.id : '') + (bad.hidden ? '' : ' ' + bad.id) + (miss.hidden ? '' : ' ' + miss.id));
+        };
+        var showBadFont = function (ok) {
+          if (!ok && bad.hidden) announce(bad.textContent);
+          bad.hidden = ok;
+          fi.setAttribute('aria-invalid', ok ? 'false' : 'true');
+          describeFont();
+        };
+        // Any name but a listed one is a guess at Google's spelling, which is case-sensitive ('Dm Serif Text' is refused,
+        // 'DM Serif Text' loads), and the overlay then quietly draws its fallback font. So the builder asks Google Fonts
+        // for it too: a stylesheet for print, fetched but never applied, and removed once it answers. again: ask even if
+        // the miss line already speaks for this name (it was committed once more).
+        var probeSeq = 0, probed = null;
+        var probeFont = function (name, again) {
+          if (name === probed && !again) return;
+          probed = name;
+          var seq = ++probeSeq;
+          if (!miss.hidden) { miss.hidden = true; describeFont(); }
+          if (!name || config.isSystemFont(name) || config.isKnownFont(name) || B.fontsOk[name]) return;
+          var link = document.createElement('link');
+          var answer = function (ok) {
+            if (link.parentNode) link.parentNode.removeChild(link);
+            if (ok) B.fontsOk[name] = true;
+            if (ok || seq !== probeSeq) return;
+            miss.textContent = 'Google Fonts didn’t load “' + name + '”. Check its spelling and capitals (such as DM, PT or SC), and ' +
+              'the connection. Unless it is installed on the streaming PC, the overlay draws its fallback font.';
+            miss.hidden = false;
+            describeFont();
+            announce(miss.textContent);
+          };
+          link.rel = 'stylesheet';
+          link.media = 'print';
+          link.addEventListener('load', function () { answer(true); });
+          link.addEventListener('error', function () { answer(false); });
+          link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name).replace(/%20/g, '+') + '&display=swap';
+          document.head.appendChild(link);
+        };
         var timer = null;
         var commitFont = function (final) {
           clearTimeout(timer);
@@ -1104,17 +1179,23 @@
           if (!raw && !spec.empty) return;
           // Google Fonts only loads the exact spelling: 'roboto' -> 'Roboto', 'press start 2p' -> 'Press Start 2P'.
           var ok = update(key, config.canonicalFont(raw));
-          if (!ok && bad.hidden) announce(bad.textContent);
-          bad.hidden = ok;
-          fi.setAttribute('aria-invalid', ok ? 'false' : 'true');
-          fi.setAttribute('aria-describedby', (fh ? fh.id + ' ' : '') + (ok ? '' : bad.id));
-          if (ok && final) fi.value = B.cfg[key];
+          showBadFont(ok);
+          if (ok && final) {
+            fi.value = B.cfg[key];
+            probeFont(B.cfg[key], true);
+          }
         };
         // Debounced so the preview doesn't request a Google Font for every keystroke.
         fi.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { commitFont(false); }, 600); });
         fi.addEventListener('change', function () { commitFont(true); });
         field.inputs.push(fi);
-        field.set = function (v) { fi.value = v; bad.hidden = true; fi.setAttribute('aria-invalid', 'false'); };
+        // A paste, Reset or settings.js: the error goes, from the description too, and a new name is checked.
+        field.set = function (v) {
+          clearTimeout(timer);
+          fi.value = v;
+          showBadFont(true);
+          probeFont(v);
+        };
         break;
       }
       case 'color': {
@@ -1254,6 +1335,7 @@
           li.setAttribute('aria-invalid', ok ? 'false' : 'true');
           li.setAttribute('aria-describedby', (th ? th.id : '') + (ok ? '' : ' ' + tbad.id));
         };
+        // Returns false when the value is refused (its error shows).
         var commitText = function (final) {
           clearTimeout(lt);
           var raw = li.value.trim();
@@ -1262,18 +1344,21 @@
           // An emptied Command prefixes box is the default again once it is left or Enter is pressed ('' is no value for
           // it); while it is still being typed in, it shows no error.
           if (!raw && spec.type === 'chars') {
-            if (!final) { showBad(true); return; }
+            if (!final) { showBad(true); return true; }
             raw = String(spec.def);
           }
           var before = B.cfg[key];
           var ok = update(key, raw);
           showBad(ok);
           if (ok && key === 'kick' && B.cfg.kick !== before) dropKickLookup();
-          if (!ok || !final) return;
+          // A Kick name refused as it is left: the URL keeps the last valid channel, but the status line goes.
+          if (!ok && final && key === 'kick') hushKick();
+          if (!ok || !final) return ok;
           li.value = B.cfg[key];
           // Against the channel the chatroom id is for, not `before`: a pause in typing has usually committed the new
           // name already (commitText(false)), and the old id would stay with it.
           if (key === 'kick' && (B.cfg.kick !== B.kickFor || B.kickDropped)) onKickChanged(B.kickFor);
+          return true;
         };
         li.addEventListener('input', function () {
           clearTimeout(lt);
@@ -1292,7 +1377,11 @@
           kst.setAttribute('aria-live', 'polite');
           row.appendChild(kst);
           field.statusEl = kst;
-          cbtn.addEventListener('click', function () { commitText(true); checkKick(true); });
+          // A refused name looks nothing up: B.cfg still holds the previous channel. A new name's lookup has already
+          // started as it was committed (onKickChanged), so it isn't asked for twice.
+          cbtn.addEventListener('click', function () {
+            if (commitText(true) && kst.className !== 'status busy') checkKick(true);
+          });
           field.inputs.push(cbtn);
         }
       }
@@ -1677,9 +1766,10 @@
     syncForm();
     if (prev.layout !== next.layout) followLayout(prev.layout, next.layout);
     $('channel').value = next.channel || '';
-    // A whole config's chatroom id is for its own Kick channel.
+    // A whole config's chatroom id is for its own Kick channel. A new channel or chatroom id clears the status line
+    // (it spoke of the old one), and a channel without an id is looked up, the same channel as before too.
     B.kickFor = next.kick;
-    if (next.kick !== prev.kick || B.kickDropped) checkKick(false);
+    if (next.kick !== prev.kick || !sameValue(next.kick_room, prev.kick_room) || B.kickDropped) checkKick(false);
     if (next.channel !== B.ch.login || B.ch.state === 'bad') checkChannel(next.channel);
     else renderChannelStatus(); // the field was rewritten: nothing typed is pending any more
     renderOutputs();
@@ -1906,6 +1996,16 @@
     box.className = 'status';
   }
 
+  // A Kick name refused (Enter, leaving the field, Check): the status line goes, so it never speaks for a channel other
+  // than the one in the box. A lookup still out is dropped, and done again once a valid name is committed.
+  function hushKick() {
+    var box = B.fields.kick && B.fields.kick.statusEl;
+    if (!box) return;
+    if (box.className === 'status busy') { dropKickLookup(); return; }
+    clear(box);
+    box.className = 'status';
+  }
+
   // Look up the Kick channel's chatroom id (kick.com's channel API) and fill in kick_room. Kick may refuse the
   // request from another site (Cloudflare): then the status line says how to copy the id by hand.
   // force: the Check button (looks up even when an id is already set).
@@ -2004,6 +2104,12 @@
       });
       $('bar-open').href = url;
       $('out-url').textContent = url;
+      // Add to OBS says why a URL that long won't load, and what to do instead (said aloud as it gets too long).
+      var longNote = $('url-long'), tooLong = urlTooLong(url);
+      if (longNote.hidden === tooLong) {
+        longNote.hidden = !tooLong;
+        if (tooLong) announce(URL_LONG_NOTE);
+      }
     }
     var snippet = settingsSnippet(B.cfg), out = $('out-settings');
     if (out.textContent !== snippet) out.textContent = snippet;
@@ -2154,7 +2260,7 @@
     setHint(hint);
     if (!pc.channel && !pc.kick && !pc.demo) setFrame(null, null);
     // Badge and paint data a source turned on later is loaded by the overlay when the setting arrives.
-    else setFrame(previewUrl(pc, root.location.href), reloadSignature(pc));
+    else setFrame(previewSrc(pc, root.location.href), reloadSignature(pc));
   }
 
   function setFrame(src, sig) {
@@ -2554,6 +2660,7 @@
       kickSeq: 0,
       kickFor: '', // the Kick channel kick_room and the Kick status line are for (checkKick, replaceCfg)
       kickDropped: false, // a lookup for kickFor was dropped while a new name was typed (dropKickLookup)
+      fontsOk: Object.create(null), // font names Google Fonts has loaded for the font fields' check (probeFont)
       chDraft: '',
       chStatusKey: '',
       chCache: new Map(),
@@ -2632,6 +2739,9 @@
     groupLayout: groupLayout,
     overlayUrl: overlayUrl,
     previewUrl: previewUrl,
+    previewSrc: previewSrc,
+    MAX_URL_BYTES: MAX_URL_BYTES,
+    urlTooLong: urlTooLong,
     settingsSnippet: settingsSnippet,
     parsePasted: parsePasted,
     relaxedJson: relaxedJson,

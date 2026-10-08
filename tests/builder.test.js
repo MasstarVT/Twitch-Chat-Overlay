@@ -385,6 +385,67 @@ test('urlNote: a Kick channel alone is enough; without its chatroom id the URL g
   assert.match(warn.text, /Kick chatroom id is missing/);
 });
 
+// n phrases of len CJK characters, each one different (9 bytes a character once percent-encoded).
+function cjkPhrases(n, len) {
+  return Array.from({ length: n }, (_, i) =>
+    Array.from({ length: len }, (_, j) => String.fromCharCode(0x4e00 + i * len + j)).join(''));
+}
+
+test('urlTooLong: the request a host gets (path and query) past 8000 bytes; a file: URL has no such limit', () => {
+  assert.strictEqual(builder.MAX_URL_BYTES, 8000);
+  const at = (n) => 'https://chat.masstar.org/overlay.html?block_words=' + 'a'.repeat(n);
+  const fixed = '/overlay.html?block_words='.length;
+  assert.strictEqual(builder.urlTooLong(at(8000 - fixed)), false);
+  assert.strictEqual(builder.urlTooLong(at(8001 - fixed)), true);
+  // The host and a #fragment are never sent in the request line.
+  assert.strictEqual(builder.urlTooLong('https://' + 'h'.repeat(60) + '.example/overlay.html?x=' + 'a'.repeat(7970) + '#' + 'z'.repeat(500)), false);
+  assert.strictEqual(builder.urlTooLong('file:///C:/overlay/overlay.html?block_words=' + 'a'.repeat(20000)), false);
+  assert.strictEqual(builder.urlTooLong(''), false);
+});
+
+test('a long word list in non-Latin text: the URL says it is too long, the preview frame still loads', () => {
+  const found = { state: 'found', login: 'forsen' };
+  const cfg = Object.assign(config.defaults(), { channel: 'forsen' });
+  // Inside the caps (50 phrases of up to 40 characters): 8-character phrases fit the overlay URL, but the preview's
+  // URL, which names every setting, is past the limit.
+  cfg.block_words = config.coerce('block_words', cjkPhrases(50, 8).join(','));
+  cfg.keywords = config.coerce('keywords', cjkPhrases(50, 8).reverse().join(','));
+  assert.strictEqual(cfg.block_words.length, 50);
+  const url = builder.overlayUrl(cfg, BASE);
+  assert.strictEqual(builder.urlTooLong(url), false);
+  assert.strictEqual(builder.urlNote(cfg, found, url).cls, '');
+  assert.strictEqual(builder.urlTooLong(builder.previewUrl(cfg, BASE)), true, 'the case this covers');
+  const src = builder.previewSrc(cfg, BASE);
+  assert.strictEqual(builder.urlTooLong(src), false);
+  // Every list (all live keys, which reach the frame by postMessage when it loads) is written empty, so a settings.js
+  // next to overlay.html still can't fill one in; everything else is as previewUrl writes it.
+  const p = new URL(src).searchParams;
+  ['block', 'block_words', 'keywords', 'allow_users', 'highlight_users'].forEach((k) => {
+    assert.ok(config.LIVE_KEYS.includes(k), k);
+    assert.strictEqual(p.get(k), '', k);
+  });
+  const parsed = config.parse(p);
+  assert.deepStrictEqual(Object.assign({}, parsed, { block_words: cfg.block_words, keywords: cfg.keywords }), cfg);
+  assert.strictEqual(builder.reloadSignature(parsed), builder.reloadSignature(cfg));
+  // 10 characters: the overlay URL itself is too long for the host, and the note says so and what to do instead.
+  cfg.block_words = config.coerce('block_words', cjkPhrases(50, 10).join(','));
+  cfg.keywords = config.coerce('keywords', cjkPhrases(50, 10).reverse().join(','));
+  const long = builder.overlayUrl(cfg, BASE);
+  assert.strictEqual(builder.urlTooLong(long), true);
+  const note = builder.urlNote(cfg, found, long);
+  assert.strictEqual(note.cls, 'warn');
+  assert.match(note.text, /too long/);
+  assert.match(note.text, /settings\.js/);
+  // A channel or Kick warning still comes first; from disk the URL has no such limit.
+  assert.match(builder.urlNote(Object.assign({}, cfg, { kick: 'xqc' }), found, long).text, /Kick chatroom id is missing/);
+  assert.match(builder.urlNote(cfg, found, builder.overlayUrl(cfg, 'file:///C:/overlay/builder.html')).text, /lists every setting/);
+  // At the defaults (and any URL that fits), the preview is today's previewUrl.
+  const d = config.defaults();
+  assert.strictEqual(builder.previewSrc(d, BASE), builder.previewUrl(d, BASE));
+  d.block_words = ['gg'];
+  assert.strictEqual(builder.previewSrc(d, BASE), builder.previewUrl(d, BASE));
+});
+
 test('builder.css draws the provider logos the fields name, from img/logos', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'builder.css'), 'utf8');
   const logos = new Set();
@@ -776,6 +837,9 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   // The cap (config.coerce's words) is said where the list is typed, and holds in settings.js as well.
   assert.match(builder.META.block_words.help, /Up to 50, each up to 40 characters; more are left out, in settings\.js too/);
   assert.match(builder.META.keywords.help, /Up to 50, each up to 40 characters/);
+  // Inside that cap a list in Japanese or Korean can make a URL the host refuses (urlTooLong): both fields say so.
+  ['block_words', 'keywords'].forEach((k) =>
+    assert.match(builder.META[k].help, /about 8,000 characters long, and a letter outside A–Z takes 6 to 9 of them, .*settings\.js\.$/, k));
   // What the field says it left out: past the first 50, or over 40 characters; not a repeat, a case or an empty one.
   const fifty = Array.from({ length: 55 }, (_, i) => 'w' + i);
   const kept = config.coerce('block_words', fifty.join(','));

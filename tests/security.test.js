@@ -84,7 +84,9 @@ test('every URL property assignment in js/ is a reviewed one', () => {
       /^a\.href = href$/, // builder links on this site
       /^a\.href = kick\.apiUrl\(slug\)$/, // kick.com's channel API for a validated Kick name (config.normalizeKick)
       /^f\.src = src$/, // the preview iframe: overlay.html on this site
-      /^s\.src = 'settings\.js\?t=' \+ Date\.now\(\)$/
+      /^s\.src = 'settings\.js\?t=' \+ Date\.now\(\)$/,
+      // the font fields' check: a font name config.coerce took (letters, digits, spaces, dashes), URI-encoded, on Google Fonts
+      /^link\.href = 'https:\/\/fonts\.googleapis\.com\/css2\?family=' \+ encodeURIComponent\(name\)/
     ],
     'home.js': [
       /^f\.src = src$/ // the demo frames: overlay.html on this site, from the DEMOS constants

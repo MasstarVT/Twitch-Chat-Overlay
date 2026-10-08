@@ -838,4 +838,29 @@ describe('fonts', () => {
       assert.equal(config.coerce('font', config.canonicalFont(f)), config.canonicalFont(f), f);
     });
   });
+
+  test('canonicalFont spells Google families with a word in capitals as Google does, typed in any case', () => {
+    // Title case would give 'Dm Serif Text', 'Pt Sans Caption', 'Noto Serif Sc'…: fonts.googleapis.com answers 400.
+    [['dm serif text', 'DM Serif Text'], ['pt sans caption', 'PT Sans Caption'], ['noto serif sc', 'Noto Serif SC'],
+      ['ibm plex sans condensed', 'IBM Plex Sans Condensed'], ['zcool kuaile', 'ZCOOL KuaiLe'], ['im fell english', 'IM Fell English'],
+      ['m plus 1p', 'M PLUS 1p'], ['biz udpgothic', 'BIZ UDPGothic'], ['dotgothic16', 'DotGothic16'], ['Ibm Plex Sans Jp', 'IBM Plex Sans JP']]
+      .forEach(([k, v]) => assert.equal(config.canonicalFont(k), v, k));
+    const google = new Set(config.GOOGLE_FONTS.map((f) => f.toLowerCase()));
+    const seen = new Set();
+    config.FONT_CANON_EXTRA.forEach((f) => {
+      assert.equal(config.coerce('font', f), f, f);
+      assert.equal(config.isSystemFont(f), false, f);
+      assert.ok(!google.has(f.toLowerCase()) && !seen.has(f.toLowerCase()), 'listed once: ' + f);
+      seen.add(f.toLowerCase());
+      assert.equal(config.canonicalFont(f.toLowerCase()), f, f.toLowerCase());
+      assert.equal(config.canonicalFont(f.toUpperCase()), f, f.toUpperCase());
+    });
+  });
+
+  test('isKnownFont: only a name spelled exactly as a listed font', () => {
+    ['Inter', 'Press Start 2P', 'DM Serif Text', 'Covered By Your Grace', 'Segoe UI', 'serif', 'system-ui'].forEach((f) =>
+      assert.equal(config.isKnownFont(f), true, f));
+    ['inter', 'Dm Serif Text', 'Roboto Slab', 'My Font', '', 'constructor', '__proto__', undefined, null, 7].forEach((f) =>
+      assert.equal(config.isKnownFont(f), false, String(f)));
+  });
 });
