@@ -420,16 +420,16 @@ label.field-label { cursor: pointer; }
 .text-row .btn { flex: none; padding: 0 16px; }
 .field .status a { color: var(--accent-hi); }
 
-/* provider marks: a logo where its license allows one, else an initial (as on the home page) */
+/* provider marks (as on the home page) */
 .logo { flex: none; width: 36px; height: 36px; margin-right: 2px; background: center / contain no-repeat; }
+.logo-twitch { background-image: url(../img/logos/twitch.svg); }
+.logo-kick { background-image: url(../img/logos/kick.svg); }
 .logo-7tv { background-image: url(../img/logos/7tv.svg); filter: invert(1); }
+.logo-bttv { background-image: url(../img/logos/bttv.png); }
+.logo-ffz { background-image: url(../img/logos/ffz.png); }
+.logo-ffzap { background-image: url(../img/logos/ffzap.png); }
 .logo-chatterino { background-image: url(../img/logos/chatterino.svg); }
 .logo-homies { background-image: url(../img/logos/homies.png); }
-.logo.tile {
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-strong); border-radius: 9px; background: var(--panel);
-  font: 800 16px/1 var(--font-display); letter-spacing: -.02em; color: var(--text);
-}
 
 /* the seven badge sources */
 .subgrid { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 24px; padding: 8px 0 12px; border-top: 1px solid var(--border); }
@@ -439,8 +439,6 @@ label.field-label { cursor: pointer; }
 /* one line each: a source's tag in its narrow column, and a block list however long it is */
 .subgrid .tag, .field-text .tag { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .subgrid .logo { width: 28px; height: 28px; margin-right: 0; }
-.subgrid .logo.tile { border-radius: 7px; font-size: 13px; }
-.subgrid .field[data-key="badges_ffzap"] .logo.tile { font-size: 12px; }
 .subgrid > .help { grid-column: 1 / -1; padding-top: 6px; }
 
 /* segmented radios */

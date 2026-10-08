@@ -1,18 +1,24 @@
 # Provider logos
 
-The home page and the builder show three provider logos. Each file is an unmodified copy from the project's own
-repository or website. The licenses below cover copying the files. They do not grant trademark rights:
-the names and logos remain the marks of their owners, and they are used here only to say which services
-the overlay works with. This project is not affiliated with any of them.
-
-Twitch, BetterTTV, FrankerFaceZ and the FFZ Add-On Pack are shown by an initial instead of a logo. Their
-published terms either ask for written consent before their logos are used, or grant no license.
+The home page and the builder show eight provider logos. Each one is an unmodified copy from the project's own
+repository or website, except `twitch.svg` and `kick.svg`, which are drawn from Simple Icons path data (below).
+None of this grants trademark rights: the names and logos remain the marks of their owners, and they are used
+here only to say which services the overlay works with. This project is not affiliated with any of them.
 
 | File | Project | Source | License |
 |---|---|---|---|
+| `twitch.svg` | Twitch | Simple Icons 16.33.0 `icons/twitch.svg` path data, Twitch purple, with a white fill inside the outline (the same shapes as the overlay's platform icon) | CC0 1.0 for the path data |
+| `kick.svg` | Kick | Simple Icons 16.33.0 `icons/kick.svg` path data, in Kick green | CC0 1.0 for the path data |
 | `7tv.svg` | 7TV | https://github.com/SevenTV/Extension/blob/master/public/logo.svg | Apache 2.0 with the Commons Clause (licensor: SEVENTV SARL) |
+| `bttv.png` | BetterTTV | https://github.com/night/betterttv/blob/master/src/assets/logos/bttv_logo.png | NightDev's BetterTTV license: copies are allowed, but distribution needs NightDev's permission (see below) |
+| `ffz.png` | FrankerFaceZ | https://www.frankerfacez.com/static/images/favicon-192.png | none stated |
+| `ffzap.png` | FFZ Add-On Pack | https://github.com/FrankerFaceZ/add-ons/blob/master/src/ffzap-core/logo.png | none stated (the repository has no license file) |
 | `chatterino.svg` | Chatterino | https://chatterino.com/logo.svg (same file as `resources/icon.svg` in https://github.com/Chatterino/chatterino2) | MIT |
 | `homies.png` | Chatterino Homies | https://github.com/itzAlex/chatterino7/blob/upstream-latest/resources/icon.png | MIT |
+
+BetterTTV, FrankerFaceZ and the FFZ Add-On Pack grant no license for their logos (BetterTTV's license asks for
+permission before its files are distributed). Their logos are shown only to identify those
+services.
 
 `7tv.svg` is drawn in `currentColor`, which is black when the file is loaded as an image. Both pages invert
 it with CSS to show it in white; the file itself is unchanged.
@@ -25,7 +31,7 @@ from the path data of the Twitch and Kick icons in [Simple Icons](https://simple
 (`icons/twitch.svg` and `icons/kick.svg`; Simple Icons is released under CC0 1.0). The Twitch icon gets a white
 fill inside its outline, as in Twitch's own logo. The marks remain the property of Twitch and Kick; they are
 used only to identify the platform a message came from, and `platform_icons=0` turns them off. The home page and
-the builder still show Twitch as an initial.
+the builder use the same shapes, as `twitch.svg` and `kick.svg`.
 
 Kick's role badges (broadcaster, moderator, VIP and the others) are simple glyphs on colored tiles, drawn for
 this project in `js/icons.js`; they are not copies of Kick's own badge art.

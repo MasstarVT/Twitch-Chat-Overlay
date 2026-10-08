@@ -263,19 +263,17 @@ test('builder.css draws the provider logos the fields name, from img/logos', () 
   const logos = new Set();
   Object.keys(builder.META).forEach((k) => {
     const m = builder.META[k];
-    assert.ok(!(m.logo && m.tile), k + ' has a logo or an initial, not both');
     if (m.logo) logos.add(m.logo);
-    if (m.tile) assert.match(m.tile, /^[A-Z0-9]{1,2}$/, k);
   });
-  assert.deepStrictEqual([...logos].sort(), ['7tv', 'chatterino', 'homies']);
+  assert.deepStrictEqual([...logos].sort(), ['7tv', 'bttv', 'chatterino', 'ffz', 'ffzap', 'homies', 'kick', 'twitch']);
   logos.forEach((name) => {
     const m = new RegExp('\\.logo-' + name + '\\s*\\{[^}]*url\\(\\.\\./(img/logos/[\\w.-]+)\\)').exec(css);
     assert.ok(m, 'no .logo-' + name + ' rule');
     assert.ok(fs.existsSync(path.join(__dirname, '..', m[1])), m[1]);
   });
   // Every emote and badge provider has a mark; the page may load images from this site.
-  ['emotes_7tv', 'emotes_bttv', 'emotes_ffz'].concat(builder.BADGE_SUBS).forEach((k) =>
-    assert.ok(builder.META[k].logo || builder.META[k].tile, k));
+  ['kick', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz'].concat(builder.BADGE_SUBS).forEach((k) =>
+    assert.ok(builder.META[k].logo, k));
   const html = fs.readFileSync(path.join(__dirname, '..', 'builder.html'), 'utf8');
   // and the channel's picture from Twitch's CDN, nothing else.
   assert.match(html, /img-src 'self' file: https:\/\/\*\.jtvnw\.net data:;/);

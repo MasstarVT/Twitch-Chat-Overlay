@@ -37,9 +37,9 @@
   var SYSTEM_FONT_NAMES = config.SYSTEM_FONT_NAMES;
 
   // Human labels and help text per config key. Widgets default from SPEC types.
-  // logo: a provider logo drawn by css/builder.css (.logo-<name>); tile: an initial where a logo isn't allowed.
+  // logo: a provider logo drawn by css/builder.css (.logo-<name>).
   var META = {
-    kick: { label: 'Kick channel', tile: 'K', check: true, placeholder: 'yourname or a kick.com link',
+    kick: { label: 'Kick channel', logo: 'kick', check: true, placeholder: 'yourname or a kick.com link',
       bad: 'That isn’t a valid Kick name. Use letters, numbers, _ and - only.',
       help: 'Adds this Kick channel’s chat to the overlay, with the Twitch channel above or on its own.' },
     kick_room: { label: 'Kick chatroom id', placeholder: 'Check fills this in', parse: 'kickRoom',
@@ -75,15 +75,15 @@
       help: 'During a Shared Chat session, also show the other channels’ messages. Every message is marked with its channel’s avatar.' },
     gifs: { label: 'Show GIFs posted in chat' },
     emotes_7tv: { label: '7TV', logo: '7tv', help: 'Channel and global emotes, updated live when the channel changes them. Also shown in Kick chat.' },
-    emotes_bttv: { label: 'BetterTTV', tile: 'B' },
-    emotes_ffz: { label: 'FrankerFaceZ', tile: 'F' },
+    emotes_bttv: { label: 'BetterTTV', logo: 'bttv' },
+    emotes_ffz: { label: 'FrankerFaceZ', logo: 'ffz' },
     badges: { label: 'Show badges', help: 'Master switch for every badge source below.' },
-    badges_twitch: { label: 'Twitch', tile: 'T' },
-    badges_kick: { label: 'Kick', tile: 'K' },
+    badges_twitch: { label: 'Twitch', logo: 'twitch' },
+    badges_kick: { label: 'Kick', logo: 'kick' },
     badges_7tv: { label: '7TV', logo: '7tv' },
-    badges_bttv: { label: 'BetterTTV', tile: 'B' },
-    badges_ffz: { label: 'FrankerFaceZ', tile: 'F' },
-    badges_ffzap: { label: 'FFZ:AP', tile: 'AP' },
+    badges_bttv: { label: 'BetterTTV', logo: 'bttv' },
+    badges_ffz: { label: 'FrankerFaceZ', logo: 'ffz' },
+    badges_ffzap: { label: 'FFZ:AP', logo: 'ffzap' },
     badges_chatterino: { label: 'Chatterino', logo: 'chatterino' },
     badges_homies: { label: 'Chatterino Homies', logo: 'homies' },
     paints: { label: '7TV name paints', help: 'Gradient and image name colors from 7TV.' },
@@ -579,8 +579,8 @@
   // The provider mark beside a field: the images are css/builder.css backgrounds, so no URL is set here.
   function logoFor(key) {
     var m = META[key] || {};
-    if (!m.logo && !m.tile) return null;
-    var e = m.logo ? h('span', 'logo logo-' + m.logo) : h('span', 'logo tile', m.tile);
+    if (!m.logo) return null;
+    var e = h('span', 'logo logo-' + m.logo);
     e.setAttribute('aria-hidden', 'true');
     return e;
   }

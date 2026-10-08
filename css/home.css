@@ -216,12 +216,6 @@ h2 + .copy { margin-top: 22px; }
 .table td { font-size: 13px; line-height: 1.3; color: var(--muted); }
 .logo { display: block; width: 44px; height: 44px; margin: 0 auto 10px; object-fit: contain; }
 .logo.inv { filter: invert(1); }
-/* a provider shown by its initial: its terms do not allow its logo here */
-.logo.tile {
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-strong); border-radius: 10px; background: var(--panel);
-  font: 800 19px/1 var(--font-display); letter-spacing: -.02em; color: var(--text);
-}
 .table .logo { width: 40px; height: 40px; }
 .yes { display: block; width: 20px; height: 20px; margin: 0 auto; color: #45d49a; }
 
