@@ -604,6 +604,89 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   assert.deepStrictEqual(focused, [heading]);
 });
 
+// The window's history for one test: replaceState and pushState write the address (location) and are logged.
+// opts.broken: replaceState throws, as where the page may not rewrite its address. location.replace is logged too.
+function fakeHistory(t, opts) {
+  const log = [];
+  const had = Object.getOwnPropertyDescriptor(globalThis, 'history');
+  const go = (u) => {
+    const url = new URL(u, globalThis.location.href);
+    Object.assign(globalThis.location, { href: url.href, hash: url.hash, search: url.search, pathname: url.pathname });
+  };
+  globalThis.history = {
+    state: null,
+    replaceState(s, title, u) {
+      if (opts && opts.broken) throw new Error('SecurityError');
+      log.push(['replace', u]);
+      go(u);
+    },
+    pushState(s, title, u) { log.push(['push', u]); go(u); }
+  };
+  globalThis.location.replace = (u) => { log.push(['location.replace', u]); };
+  t.after(() => {
+    delete globalThis.history;
+    if (had) Object.defineProperty(globalThis, 'history', had);
+  });
+  return log;
+}
+
+test('More in Advanced, clicked: Advanced opens at its heading with no history entry, so Back leaves the builder', (t) => {
+  const focused = [];
+  const storage = memoryStorage();
+  const p = open(t, HREF, { setup: watchFocus(focused), storage: storage });
+  const log = fakeHistory(t);
+  const link = p.$('group-look').children[2].children[0];
+  const heading = p.$('adv-text');
+  let scrolled = false;
+  heading.scrollIntoView = () => { scrolled = true; };
+  // A click with Ctrl (or Shift, or the middle button) is the browser's: a new tab or window.
+  ['ctrlKey', 'shiftKey', 'metaKey', 'altKey'].forEach((k) => {
+    let stopped = false;
+    link.dispatch('click', { [k]: true, preventDefault() { stopped = true; } });
+    assert.strictEqual(stopped, false, k);
+  });
+  let stopped = false;
+  link.dispatch('click', { button: 1, preventDefault() { stopped = true; } });
+  assert.strictEqual(stopped, false, 'middle button');
+  assert.deepStrictEqual(log, []);
+  assert.strictEqual(p.$('group-look').hidden, false);
+  // A plain click: the address is rewritten in place (no new entry), Advanced opens and its heading takes the focus.
+  p.doc.activeElement = link;
+  link.dispatch('click', { button: 0, preventDefault() { stopped = true; } });
+  assert.strictEqual(stopped, true, 'no fragment navigation, which would push an entry');
+  assert.deepStrictEqual(log, [['replace', HREF + '#adv-text']]);
+  assert.strictEqual(globalThis.location.hash, '#adv-text');
+  assert.strictEqual(p.$('group-advanced').hidden, false);
+  assert.strictEqual(p.$('group-look').hidden, true);
+  assert.strictEqual(p.$('tab-advanced').getAttribute('aria-selected'), 'true');
+  assert.strictEqual(scrolled, true);
+  assert.deepStrictEqual(focused, [heading]);
+  assert.strictEqual(JSON.parse(storage.getItem('tco-builder-ui')).section, 'advanced', 'remembered, as a tab click is');
+  // Again, with the hash already in the address bar (where no hashchange would fire): it still goes to the heading.
+  globalThis.history.replaceState = () => {}; // keeps the hash the tab click's dropSectionHash would drop
+  p.$('tabs').dispatch('click', { target: p.$('tab-look') });
+  assert.strictEqual(globalThis.location.hash, '#adv-text');
+  assert.strictEqual(p.$('group-look').hidden, false);
+  scrolled = false;
+  link.dispatch('click', { button: 0, preventDefault() {} });
+  assert.strictEqual(p.$('group-advanced').hidden, false);
+  assert.strictEqual(scrolled, true);
+  assert.ok(log.every((e) => e[0] !== 'push'), 'nothing pushed');
+});
+
+test('More in Advanced, clicked where the address cannot be rewritten: Advanced opens all the same, the address stays', (t) => {
+  const focused = [];
+  const p = open(t, HREF, { setup: watchFocus(focused) });
+  const log = fakeHistory(t, { broken: true });
+  const link = p.$('group-emotes').children[2].children[0];
+  p.doc.activeElement = link;
+  link.dispatch('click', { button: 0, preventDefault() {} });
+  assert.deepStrictEqual(log, [], 'no navigation');
+  assert.strictEqual(globalThis.location.href, HREF);
+  assert.strictEqual(p.$('group-advanced').hidden, false);
+  assert.deepStrictEqual(focused, [p.$('adv-emotes')]);
+});
+
 // A color field's three controls: the picker, the hex box and Default.
 function colorField(p, key) {
   const row = rowOf(p, key);

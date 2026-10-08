@@ -46,8 +46,8 @@ test('sections: one per group plus Add to OBS, each with an id a link can open',
 
 test('a link opens its section when the page loads and when the hash changes', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'builder.js'), 'utf8');
-  // openHashSection reads the page's hash and opens the section it names.
-  assert.match(src, /var s = sectionFromHash\(root\.location\.hash\);\s*if \(!s\) return false;\s*selectSection\(s, false\);/);
+  // openHashSection reads the page's hash (unless More in Advanced passes its own) and opens the section it names.
+  assert.match(src, /if \(hash === undefined\) hash = root\.location\.hash;\s*var s = sectionFromHash\(hash\);\s*if \(!s\) return false;\s*selectSection\(s, false\);/);
   // start() asks the hash first, then falls back to the section that was open last time.
   assert.match(src, /if \(!openHashSection\(\)\) selectSection\(B\.ui\.section, false\);/);
   assert.match(src, /addEventListener\('hashchange', function \(\) \{ if \(openHashSection\(\)\) saveUi\(\); \}\)/);

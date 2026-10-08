@@ -1319,12 +1319,24 @@
     return e;
   }
 
-  // The foot of a section whose finer settings are under an Advanced sub-heading.
+  // The foot of a section whose finer settings are under an Advanced sub-heading. A plain click goes there the
+  // way a tab does, with no history entry: a followed #adv-... link would leave one that Back returns from to
+  // the bare builder.html, which names no section, so Back would leave Advanced open (at the scroll spot of the
+  // page before) and only a second Back would leave. Ctrl-, Shift- or middle-click still open the link anew.
   function moreLink(id) {
     var p = h('p', 'section-foot');
     var a = h('a', 'btn ghost', 'More in Advanced');
     var href = '#' + id;
     a.href = href;
+    a.addEventListener('click', function (e) {
+      if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      try {
+        root.history.replaceState(root.history.state, '', String(root.location.href).split('#')[0] + href);
+      } catch (err) { /* not allowed here: the address stays as it is */ }
+      // replaceState fires no hashchange (nor would a hash the address bar already shows), so it opens here.
+      if (openHashSection(href)) saveUi();
+    });
     p.appendChild(a);
     return p;
   }
@@ -1490,14 +1502,15 @@
   }
 
   // builder.html#obs and the like. In one column the settings are below the preview, so the page goes to
-  // them; the app layout shows both. False when the hash names no section.
-  function openHashSection() {
-    var s = sectionFromHash(root.location.hash);
+  // them; the app layout shows both. False when the hash names no section. hash: the address bar's when left out.
+  function openHashSection(hash) {
+    if (hash === undefined) hash = root.location.hash;
+    var s = sectionFromHash(hash);
     if (!s) return false;
     selectSection(s, false);
     var main = $('settings');
     if (!isAppLayout() && main && main.scrollIntoView) main.scrollIntoView();
-    showSubhead(root.location.hash);
+    showSubhead(hash);
     return true;
   }
 
