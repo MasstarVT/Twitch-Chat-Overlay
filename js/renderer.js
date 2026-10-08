@@ -13,6 +13,7 @@
   var EMOTE_EM = 1.75;        // emote height in em (--emote-h)
   var EMOTE_BASE_PX = 28;     // height of a 1x emote / cheermote
   var BADGE_BASE_PX = 18;     // size of a 1x badge
+  var GIPHY_FIXED_PX = 200;   // height of Giphy's tallest fixed-height GIF file, the one tokenizer.js asks for
   var SHADOWS = [
     'none',
     'drop-shadow(1px 1px 1px rgba(0,0,0,.8))',
@@ -535,12 +536,15 @@
     return out;
   }
 
+  // The app's own badge images (overlay.js badgesFor), allowed as these exact relative paths: off the hosted https page
+  // (a local folder, OBS's "Local file" source, a local http server) they are not made absolute.
+  var LOCAL_BADGES = { 'img/logos/Badge.svg': 1, 'img/logos/Beta.svg': 1 };
   function pickUrl(urls, want) {
     if (!urls || typeof urls !== 'object') return null;
     var raw = util.pickScale(urls, want);
-    if (raw === 'img/logos/Badge.svg') return raw;
+    if (typeof raw === 'string' && Object.prototype.hasOwnProperty.call(LOCAL_BADGES, raw)) return raw;
     var u = util.absUrl(raw);
-    return typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u) ? u : null; // provider images are https; the local app badge is allowlisted above
+    return typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u) ? u : null; // provider images are https; the local app badges are allowlisted above
   }
 
   function num(v, def) {
@@ -589,6 +593,12 @@
   function makeRe(src) {
     try { return new RegExp(src, 'iu'); } catch (e) { return null; }
   }
+  // Text as it is drawn, for the word matchers: without default-ignorable characters (U+034F, the duplicate-bypass
+  // suffix a bare one of which is a mark and would make a word look longer; zero-width spaces and joiners; soft hyphens;
+  // variation signs; U+E0000), which show as nothing. Taken off the keywords and block_words as well, so an emoji keyword
+  // with its variation sign, or a phrase with a joiner in it, still matches.
+  var IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/gu;
+  function visibleText(t) { return t.replace(IGNORABLE_RE, ''); }
 
   // What lineClasses matches chat lines against, built once per cfg object (setConfig makes a new one for every
   // change), in a WeakMap: nothing is stored on the cfg. mention: the channel's names (the Twitch login and the Kick
@@ -616,7 +626,7 @@
     }
     var kw = Array.isArray(c.keywords) ? c.keywords : [], pats = [];
     for (var i = 0; i < kw.length && pats.length < MAX_PHRASES; i++) {
-      var p = typeof kw[i] === 'string' ? kw[i].trim() : '';
+      var p = typeof kw[i] === 'string' ? visibleText(kw[i]).trim() : '';
       if (p) pats.push(phrasePattern(p));
     }
     if (pats.length) out.keyword = makeRe(pats.join('|'));
@@ -636,20 +646,21 @@
     return m;
   }
 
-  // A chat line that mentions the channel: its name in the text, or a reply to the channel. The channel's own lines
-  // don't count (on Twitch its login, on Kick its slug).
+  // A chat line that mentions the channel: its name in the text (as drawn: visibleText), or a reply to the channel. The
+  // channel's own lines don't count (on Twitch its login, on Kick its slug).
   function mentionsChannel(msg, m) {
     var kick = msg.platform === 'kick';
     var login = typeof msg.login === 'string' ? msg.login.toLowerCase() : '';
     if (kick ? m.kickKey && slugKey(login) === m.kickKey : m.channel && login === m.channel) return false;
     var to = msg.reply && typeof msg.reply === 'object' && typeof msg.reply.login === 'string' ? msg.reply.login.toLowerCase() : '';
     if (to && (kick ? m.kickKey && slugKey(to) === m.kickKey : m.channel && to === m.channel)) return true;
-    return typeof msg.text === 'string' && m.mention.test(msg.text);
+    return typeof msg.text === 'string' && m.mention.test(visibleText(msg.text));
   }
 
-  // The text has a keyword. config.js keeps the keywords in lower case, where a Turkish 'İ' becomes 'i' and a dot
-  // above, which the i flag never matches to 'İ': the text in lower case is tried as well.
+  // The text (as drawn: visibleText) has a keyword. config.js keeps the keywords in lower case, where a Turkish 'İ'
+  // becomes 'i' and a dot above, which the i flag never matches to 'İ': the text in lower case is tried as well.
   function hasKeyword(text, re) {
+    text = visibleText(text);
     if (re.test(text)) return true;
     var low = text.toLowerCase();
     return low !== text && re.test(low);
@@ -765,15 +776,15 @@
 
   // What overlay.js's chat filters match against, built once per cfg object in a WeakMap like MATCHERS (onMessage
   // makes a new cfg for every live change, and copies its properties, so nothing is stored on it). block: block_words
-  // as one pattern, matched like keywords (any letter case, whole words at its ends; hasWords). command: a message that
-  // starts with one of command_prefixes after any spaces, every sign escaped in the class, so '-' and '^' stand for
-  // themselves ('!' when there are none, as before the setting).
+  // as one pattern, matched like keywords (any letter case, whole words at its ends, the text as drawn; hasWords).
+  // command: a message that starts with one of command_prefixes after any spaces, every sign escaped in the class, so
+  // '-' and '^' stand for themselves ('!' when there are none, as before the setting).
   var FILTERS = new WeakMap();
   function buildFilters(c) {
     var out = { block: null, command: null };
     var bw = Array.isArray(c.block_words) ? c.block_words : [], pats = [];
     for (var i = 0; i < bw.length && pats.length < MAX_PHRASES; i++) {
-      var p = typeof bw[i] === 'string' ? bw[i].trim() : '';
+      var p = typeof bw[i] === 'string' ? visibleText(bw[i]).trim() : '';
       if (p) pats.push(phrasePattern(p));
     }
     if (pats.length) out.block = makeRe(pats.join('|'));
@@ -867,7 +878,8 @@
   // Tokenizer items -> render parts (plain data; urls resolved, spaces folded into text parts).
   // opts: { px: font px, dpr, flatBig: big emotes drawn at emote height (horizontal row), gifs, scale: emote_scale
   // as a factor (1 when left out), giant: false draws gigantified emotes like any other (the default is true),
-  // eo: an emote-only line's factor (emote_only; 1 when left out) }
+  // eo: an emote-only line's factor (emote_only; 1 when left out), gifMul: a GIF's height in emote heights in a column
+  // (gif_size; 3 when left out) }
   function partsFor(items, opts) {
     var parts = [];
     if (!Array.isArray(items)) return parts;
@@ -877,6 +889,8 @@
     var scale = opts.scale > 0 ? opts.scale : 1;
     // An emote-only line draws its emotes eo times as tall, except a gigantified one, which keeps its 3.
     var eoScale = opts.eo > 1 ? scale * opts.eo : scale;
+    // How tall a GIF is drawn, in CSS px: an emote's height (emote_scale too) times gif_size, or once in a row.
+    var gifPx = px * EMOTE_EM * scale * (opts.flatBig ? 1 : opts.gifMul > 0 ? opts.gifMul : 3);
     var imgs = 0; // emote images so far; a history line can be far longer than Twitch's 500 chars
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
@@ -922,6 +936,14 @@
         // orig: the tag's own URL, tried once when Giphy has no 200 px rendition for this GIF.
         var gorig = it.orig && it.orig !== gurl && util.isSafeUrl(it.orig) ? it.orig : null;
         var gp = { t: 'gif', url: gurl, title: title };
+        // Drawn taller than Giphy's largest fixed-height file (text_px, emote_scale, gif_size), the GIF loads the
+        // original as animated WebP (Giphy has no taller fixed-height one), with the 200 px file (alt) to fall back on.
+        // In CSS px: every default (168 px at most) keeps the 200 px file at any DPR, and OBS draws at DPR 1.
+        var gbig = gorig && gifPx > GIPHY_FIXED_PX ? util.giphyFile(gorig, 'giphy.webp') : null;
+        if (gbig && gbig !== gurl && util.isSafeUrl(gbig)) {
+          gp.url = gbig;
+          gp.alt = gurl;
+        }
         if (gorig) gp.orig = gorig;
         parts.push(gp);
       } else if (it.type === 'cheer') {
@@ -984,7 +1006,8 @@
       colon: action ? ' ' : Object.prototype.hasOwnProperty.call(NAME_SEPS, cfg.name_sep) ? NAME_SEPS[cfg.name_sep] : ': ',
       msgColor: action ? color : null,
       parts: partsFor(d.items, { px: px, dpr: dpr, flatBig: cfg.layout === 'horizontal', gifs: cfg.gifs !== false,
-        scale: sizeScale(cfg.emote_scale), giant: cfg.giant_emotes !== false, eo: only ? eo : 1 })
+        scale: sizeScale(cfg.emote_scale), giant: cfg.giant_emotes !== false, eo: only ? eo : 1,
+        gifMul: Object.prototype.hasOwnProperty.call(GIF_MUL, cfg.gif_size) ? Number(GIF_MUL[cfg.gif_size]) : 3 })
     };
     if (time) model.time = time;
     return model;
@@ -1241,10 +1264,15 @@
       if (p.t === 'emote') return emoteNode(p);
       if (p.t === 'cheer') return cheerNode(p);
       if (p.t === 'gif') {
-        return makeImg('gif', p.url, 0, 0, p.title, function (img) {
-          if (!p.orig) return replaceWithText(img, p.title);
-          img.onerror = function () { img.onerror = null; replaceWithText(img, p.title); };
-          img.src = p.orig;
+        // A GIF that won't load tries its fallbacks in turn: a big GIF's 200 px file (alt), then the tag's own URL
+        // (orig), and then shows its title.
+        var next = [];
+        if (p.alt) next.push(p.alt);
+        if (p.orig) next.push(p.orig);
+        return makeImg('gif', p.url, 0, 0, p.title, function retry(img) {
+          if (!next.length) return replaceWithText(img, p.title);
+          img.onerror = function () { img.onerror = null; retry(img); };
+          img.src = next.shift();
         });
       }
       return doc.createTextNode(p.s || '');
@@ -1528,14 +1556,15 @@
     // A new line at the right end pushes the whole row left; one at the bottom of a column pushes the lines
     // above it up (one at the top, newest first, pushes them down). Measure the newest old line before and
     // after the new lines go in, start the lines that much further right (below, above), and let them glide back.
+    // No slide, where none can be running: slideStart has just cancelled it, or nothing glides (glideOf).
     function clearSlide() {
       slideDx = 0;
       linesEl.style.transition = '';
       linesEl.style.transform = '';
     }
-    // A column's slide stopped where it is: the lines go home now. transition 'none' cancels the running transition at
-    // the style flush, which '' alone would leave running under the initial `transition: all`. Then '' leaves no inline
-    // value behind, and starts nothing: transform is already home.
+    // A slide (a row's or a column's) stopped where it is: the lines go home now. transition 'none' cancels the running
+    // transition at the style flush, which '' alone would leave running under the initial `transition: all`. Then ''
+    // leaves no inline value behind, and starts nothing: transform is already home.
     function stopGlide() {
       slideDx = 0;
       linesEl.style.transition = 'none';
@@ -1865,16 +1894,15 @@
         restart = true; // moving nodes restarts CSS animations
       }
       if (prev.layout !== cfg.layout) {
-        clearSlide();
         // Lines that don't fit the new layout at the old size may fit once the builder resizes the
         // preview (it sends the layout first), so trim once both have landed.
         settleUntil = Date.now() + LAYOUT_SETTLE_MS;
       }
-      if (!cfg.animate) clearSlide();
-      // A column's glide (smooth_scroll) turned off, turned round by an align flip (the lines were just reversed), or
-      // ended by a layout switch or animate=0: the lines go home at once.
+      // A slide that no longer applies stops where it is and the lines go home at once: a row's on a switch to a column
+      // or animate=0, a column's glide (smooth_scroll) turned off, turned round by an align flip (the lines were just
+      // reversed), or ended by a layout switch or animate=0. Left running, a row's would carry the column in sideways.
       var glide = glideOf(prev);
-      if (glide && glide !== 'left' && glide !== glideOf(cfg)) stopGlide();
+      if (glide && glide !== glideOf(cfg)) stopGlide();
       // Switched to still paints: the paints already in use get their still rule now (applyRoot set the class).
       // Back to animated, the rules stay, unused without the class.
       if (cfg.paint_images === 'static' && prev.paint_images !== 'static') {
@@ -1888,8 +1916,9 @@
       if (restart || retime) restartFades(Date.now(), !restart);
       if (changedAny(prev, cfg, FILTER_KEYS)) sweepFilters();
       if (changedAny(prev, cfg, RERENDER_KEYS)) rerender();
-      // block_words decides which reply headers quote a hidden message (deps.quoteHidden): only replies change.
-      else if (changedAny(prev, cfg, ['block_words'])) rerender(function (m) { return !!m.reply; });
+      // block and block_words decide which reply headers quote a blocked user or a hidden message (deps.quoteHidden):
+      // only replies change.
+      else if (changedAny(prev, cfg, ['block_words', 'block'])) rerender(function (m) { return !!m.reply; });
       capLines();
       scheduleTrim();
     }
@@ -1956,9 +1985,9 @@
       queue.clear();
       byId.clear();
       byUser.clear();
-      // A column's glide (smooth_scroll) stops too: left running, it would carry the next line in from below.
-      var glide = glideOf(cfg);
-      if (glide && glide !== 'left') stopGlide();
+      // A row's slide or a column's glide (smooth_scroll) stops too: left running, it would carry the next line in from
+      // the side or from below. Without either nothing can be running (setConfig stops one as it goes).
+      if (glideOf(cfg)) stopGlide();
       else clearSlide();
       linesEl.textContent = '';
     }

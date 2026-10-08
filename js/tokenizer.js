@@ -12,9 +12,9 @@
   var KICK_EMOTE_ID_RE = /^\d{1,12}$/;
   var GIPHY_HOST_RE = /(^|\.)giphy\.com$/;
   // Giphy's 'original' rendition (the gifs tag's URL) is the uploaded file at any size. Swap it for the
-  // 200 px fixed-height rendition, still taller than the box at every `size` (<= 168 px); text_px or emote_scale
-  // can draw it taller, and soft (the README says so). Only the known shape.
-  var GIPHY_ORIG_RE = /^(https:\/\/media\d?\.giphy\.com\/media\/(?:[A-Za-z0-9._-]+\/){1,2})giphy\.gif(\?[^#]*)?$/;
+  // 200 px fixed-height rendition (util.giphyFile; only the known shape), still taller than the box at every `size`
+  // (<= 168 px). A GIF that text_px, emote_scale or gif_size draws taller loads the original as WebP instead
+  // (renderer.js partsFor, from orig).
 
   // Hostile-input bounds, far above anything real Twitch chat can send (500 characters per message):
   // text past MAX_CPS code points is dropped, at most MAX_IMAGES images (emote bases, zero-width
@@ -106,8 +106,7 @@
   }
 
   function smallGif(url) {
-    var m = GIPHY_ORIG_RE.exec(url);
-    return m ? m[1] + '200.webp' + (m[2] || '').replace(/([?&]rid=)giphy\.gif(?=&|$)/, '$1200.webp') : url;
+    return util.giphyFile(url, '200.webp') || url;
   }
 
   // msg: { text, action, emotes, kickEmotes (Kick emote ranges, in the emotes tag format), gifs, bits, msgId }

@@ -39,6 +39,14 @@
     if (!m) return false;
     return hostRe ? hostRe.test(m[1].toLowerCase()) : true;
   }
+  // Giphy: a Twitch gifs tag gives a GIF's 'original' rendition (.../media/<id>/giphy.gif). giphyFile(url, file): the
+  // same GIF's other rendition `file` ('200.webp', 'giphy.webp') in its place, the query's rid as well; null for any
+  // other URL shape.
+  var GIPHY_ORIG_RE = /^(https:\/\/media\d?\.giphy\.com\/media\/(?:[A-Za-z0-9._-]+\/){1,2})giphy\.gif(\?[^#]*)?$/;
+  function giphyFile(url, file) {
+    var m = typeof url === 'string' ? GIPHY_ORIG_RE.exec(url) : null;
+    return m ? m[1] + file + (m[2] || '').replace(/([?&]rid=)giphy\.gif(?=&|$)/, function (s, k) { return k + file; }) : null;
+  }
   // Zalgo: a long run of combining marks stacks glyphs far above and below the line, over other
   // messages. Keep the first 4 marks of a run (enough for Indic, Thai, Vietnamese and emoji sequences);
   // format and other invisible (default-ignorable, e.g. ZWJ, CGJ, unassigned U+E0000) characters between
@@ -485,6 +493,7 @@
     jitter: jitter,
     absUrl: absUrl,
     isSafeUrl: isSafeUrl,
+    giphyFile: giphyFile,
     capMarks: capMarks,
     idStr: idStr,
     LRU: LRU,

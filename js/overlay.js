@@ -301,6 +301,14 @@
     return out;
   }
 
+  // The app's own badge images (img/logos/Badge.svg, Beta.svg): an absolute URL on the hosted https page, as always,
+  // and the relative path anywhere else (a local folder on file:, OBS's "Local file" source on http://absolute/, a local
+  // http server), which renderer.pickUrl allows for exactly these two files.
+  function localBadge(path) {
+    var loc = root.location;
+    return loc && loc.protocol === 'https:' && loc.href ? new URL(path, loc.href).href : path;
+  }
+
   function badgesFor(m) {
     var cfg = S.cfg;
     var out = [];
@@ -311,17 +319,11 @@
     var uid = m.userId;
     var room = roomFor(m);
     if (cfg.badges && m.kind === 'chat' && m.login === 'masstarvt') {
-      var badgeUrl = 'img/logos/Badge.svg';
-      if (root.location && /^https?:$/.test(root.location.protocol) && root.location.href) {
-        badgeUrl = new URL(badgeUrl, root.location.href).href;
-      }
+      var badgeUrl = localBadge('img/logos/Badge.svg');
       out.push({ provider: 'developer', title: 'MasstarVT developer', urls: { 1: badgeUrl, 2: badgeUrl, 4: badgeUrl } });
     }
     if (cfg.badges && m.kind === 'chat' && ['masstarvt', 'evanaxel', 'ray_xash', 'musicalfox30'].indexOf(m.login) >= 0) {
-      var betaBadgeUrl = 'img/logos/Beta.svg';
-      if (root.location && /^https?:$/.test(root.location.protocol) && root.location.href) {
-        betaBadgeUrl = new URL(betaBadgeUrl, root.location.href).href;
-      }
+      var betaBadgeUrl = localBadge('img/logos/Beta.svg');
       out.push({ provider: 'beta-tester', title: 'Beta Tester', urls: { 1: betaBadgeUrl, 2: betaBadgeUrl, 4: betaBadgeUrl } });
     }
     // The Shared Chat source avatar marks where a message came from, so it shows even with badges off.
@@ -443,10 +445,14 @@
 
   // min_length counts the text as shown: without the /me wrapper and the duplicate-bypass suffix (tokenizer.cleanText)
   // and a reply's "@Parent", in characters as they are seen (Intl.Segmenter's graphemes, in Chromium 103 too: an emoji
-  // is one, with a skin tone or as a flag or family as well). Emote codes count as their letters.
+  // is one, with a skin tone or as a flag or family as well). Emote codes count as their letters. Spaces and invisible
+  // (default-ignorable) characters at either end don't count: Chatterino and 7TV send a repeated message with
+  // ' U+E0000' after it, and a zero-width space or word joiner is drawn as nothing too. Only at the ends, so the joiner
+  // inside an emoji sequence stays (and an emoji's own variation sign or tag characters are part of its grapheme anyway).
+  var EDGE_BLANK_RE = /^[\s\p{Default_Ignorable_Code_Point}]+|[\s\p{Default_Ignorable_Code_Point}]+$/gu;
   var graphemes;
   function textLength(m) {
-    var t = replyStripped(m, T.tokenizer.cleanText(m.text || '', m.action).text).trim();
+    var t = replyStripped(m, T.tokenizer.cleanText(m.text || '', m.action).text).replace(EDGE_BLANK_RE, '');
     if (graphemes === undefined) {
       graphemes = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter() : null;
     }
@@ -492,12 +498,15 @@
     return true;
   }
 
-  // A reply's header would quote a message that block_words or links=hide hides: the reply shows without it. The
-  // renderer asks as it draws the line (deps.quoteHidden), so a live change redraws the headers, and the reply itself
-  // stays on the message: its "@Parent" is still left out of its text and of the filters. reply_style=name quotes
-  // nothing.
+  // A reply's header would quote a blocked user (block), or a message that block_words or links=hide hides: the reply
+  // shows without it. The renderer asks as it draws the line (deps.quoteHidden), so a live change redraws the headers,
+  // and the reply itself stays on the message: its "@Parent" is still left out of its text and of the filters.
+  // reply_style=name quotes nothing, but still names the user, so a blocked one's header goes there too.
   function quotesHidden(r) {
     var cfg = S.cfg;
+    if (r && typeof r.login === 'string' && r.login && Array.isArray(cfg.block) && cfg.block.indexOf(r.login.toLowerCase()) >= 0) {
+      return true;
+    }
     if (!r || typeof r.body !== 'string' || !r.body || cfg.reply_style === 'name') return false;
     if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(r.body, T.renderer.filtersFor(cfg).block)) return true;
     return cfg.links === 'hide' && T.renderer.hasLink(r.body);
@@ -541,8 +550,9 @@
         }
       } });
     }
-    // The home channel's BTTV data is also its bot list, so bots=0 loads it even with BTTV emotes off.
-    if (cfg.emotes_bttv || (isHome && !cfg.bots)) {
+    // A room's BTTV data is also its bot list (the home channel's, and a Shared Chat partner's for its own lines), so
+    // bots=0 loads it even with BTTV emotes off.
+    if (cfg.emotes_bttv || !cfg.bots) {
       parts.push({ name: 'bttv-channel', fn: function () { return T.bttv.loadChannel(ctx.id, fresh ? { fresh: true } : undefined); }, apply: function (r) {
         if (!r) return;
         ctx.bttv.bots = r.bots || new Set();
@@ -790,9 +800,8 @@
       return;
     }
     if (m.mirrored && !S.cfg.shared) return;
-    // A reply to a blocked user would quote them in its header: show the reply without it (a reply quoting what
-    // block_words or links=hide hides loses its header as it is drawn: quotesHidden).
-    if (m.reply && m.reply.login && S.cfg.block.indexOf(m.reply.login) >= 0) m.reply = null;
+    // A reply to a blocked user keeps its reply: its header, which would quote them, is left out as it is drawn
+    // (quotesHidden), so its "@Parent" still goes from its text and the filters, and a live block change redraws it.
     // Only lines the renderer accepted (not filtered out) load rooms and queue 7TV lookups.
     if (!S.renderer.push(m)) return;
     if (m.mirrored) noteSourceRoom(m);
@@ -1151,6 +1160,24 @@
       .some(function (k) { return next[k] && !prev[k]; });
     // bots=0 needs the home channel's BTTV bot list, which bots=1 does not load.
     if (turnedOn || (prev.bots && !next.bots)) ensureLoaders();
+    // ... and each Shared Chat partner's, for its own lines: with BTTV emotes off, the rooms loaded so far never fetched it.
+    if (prev.bots && !next.bots && !next.emotes_bttv) loadPartnerBots();
+  }
+
+  // The 'bttv-channel' part of every Shared Chat room already loaded (or loading). One that fails is retried on one of
+  // the room's later messages, as any part (retryParts).
+  function loadPartnerBots() {
+    S.rooms.forEach(function (ctx) {
+      if (ctx.id === S.homeId) return;
+      var parts = roomParts(ctx, false).filter(function (p) { return p.name === 'bttv-channel'; });
+      if (!parts.length) return;
+      runParts(ctx, parts).then(function (failed) {
+        if (!failed.length) return;
+        var names = ctx.retry ? ctx.retry.names.slice() : [];
+        if (names.indexOf('bttv-channel') < 0) names.push('bttv-channel');
+        noteFailedParts(ctx, names, PART_RETRY_MS);
+      });
+    });
   }
 
   function ensureLoaders() {

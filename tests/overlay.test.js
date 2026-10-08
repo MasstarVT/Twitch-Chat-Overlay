@@ -178,16 +178,28 @@ const texts = (h) => h.pushed.map((m) => m.text);
 test('filters: block list, known bots, !commands (also as replies); replies to blocked users lose the quote', async (t) => {
   const h = await boot(t, { search: '?channel=home&block=spammer&hide_commands=1' });
   join(h);
+  const toSpammer = { 'reply-parent-msg-id': 'y', 'reply-parent-user-login': 'spammer', 'reply-parent-display-name': 'Spammer',
+    'reply-parent-msg-body': 'blocked\\swords' };
   h.feed(priv('nightbot', 'bot line'));
   h.feed(priv('spammer', 'spam'));
   h.feed(priv('viewer', '!points'));
   h.feed(priv('viewer', '@Nightbot !discord', { 'reply-parent-msg-id': 'x', 'reply-parent-user-login': 'nightbot', 'reply-parent-display-name': 'Nightbot' }));
   h.feed(priv('viewer', '@Nightbot', { 'reply-parent-msg-id': 'x', 'reply-parent-user-login': 'nightbot', 'reply-parent-display-name': 'Nightbot' }));
-  h.feed(priv('viewer', '@spammer lol', { 'reply-parent-msg-id': 'y', 'reply-parent-user-login': 'spammer', 'reply-parent-display-name': 'spammer', 'reply-parent-msg-body': 'blocked\\swords' }));
+  h.feed(priv('viewer', '@Spammer lol', toSpammer));
+  // A command sent as a reply to a blocked user is hidden like any other reply's.
+  h.feed(priv('viewer', '@Spammer !points', toSpammer));
   h.feed(priv('viewer', 'real line'));
-  assert.deepStrictEqual(texts(h), ['@Nightbot', '@spammer lol', 'real line']);
+  assert.deepStrictEqual(texts(h), ['@Nightbot', '@Spammer lol', 'real line']);
   assert.ok(h.pushed[0].reply, 'a normal reply keeps its header');
-  assert.strictEqual(h.pushed[1].reply, null, 'the blocked user\'s words are not quoted');
+  assert.strictEqual(h.deps.quoteHidden(h.pushed[0].reply), false);
+  // A reply to a blocked user stays a reply: its header is left out as the line is drawn, and its "@Spammer" with it.
+  assert.strictEqual(h.pushed[1].reply.login, 'spammer');
+  assert.strictEqual(h.deps.quoteHidden(h.pushed[1].reply), true, 'the blocked user\'s words are not quoted');
+  assert.deepStrictEqual(h.deps.tokensFor(h.pushed[1]).map((i) => i.text), ['lol']);
+  // reply_style=name quotes nothing, but the blocked user's name is left out too.
+  sender(h)({ reply_style: 'name' });
+  assert.strictEqual(h.deps.quoteHidden(h.pushed[1].reply), true);
+  assert.strictEqual(h.deps.quoteHidden(h.pushed[0].reply), false);
 });
 
 test('bots=0: the BTTV bot lists (home, and a Shared Chat partner\'s) are applied, also to lines already shown', async (t) => {
@@ -213,6 +225,36 @@ test('bots=0: the BTTV bot lists (home, and a Shared Chat partner\'s) are applie
   await settle();
   h.feed(priv('partnerbot', 'second', { 'source-room-id': PARTNER }));
   assert.ok(!texts(h).includes('second'), 'the partner\'s own bot list hides its bot');
+});
+
+test('bots=0 with BTTV emotes off: a Shared Chat partner\'s BTTV bot list still loads, at boot and when bots turns off live', async (t) => {
+  const stubs = (T) => {
+    const orig = T.bttv.loadChannel;
+    T.bttv.loadChannel = function (id, o) {
+      orig(id, o);
+      return Promise.resolve({ emotes: new Map(), bots: new Set(id === PARTNER ? ['partnerbot'] : []) });
+    };
+  };
+  const rooms = (h) => h.called('bttv-channel').map((c) => c[1]).sort();
+  let h = await boot(t, { search: '?channel=home&emotes_bttv=0', stubs: stubs });
+  join(h);
+  h.feed(priv('partnerbot', 'first', { 'source-room-id': PARTNER }));
+  await settle();
+  h.feed(priv('partnerbot', 'second', { 'source-room-id': PARTNER }));
+  assert.deepStrictEqual(rooms(h), [HOME, PARTNER]);
+  assert.deepStrictEqual(texts(h), [], 'a bot line shown before the list landed goes too');
+  // bots=1 with the emotes off loads no BTTV channel data at all, home or partner.
+  h = await boot(t, { search: '?channel=home&emotes_bttv=0&bots=1', stubs: stubs });
+  join(h);
+  h.feed(priv('viewer', 'partner viewer line', { 'source-room-id': PARTNER }));
+  await settle();
+  assert.deepStrictEqual(rooms(h), []);
+  // Turned off live (the builder's preview): the partner rooms already loaded fetch their lists as well.
+  sender(h)({ bots: false });
+  await settle();
+  assert.deepStrictEqual(rooms(h), [HOME, PARTNER]);
+  h.feed(priv('partnerbot', 'after the switch', { 'source-room-id': PARTNER }));
+  assert.deepStrictEqual(texts(h), ['partner viewer line']);
 });
 
 test('badges_homies=0 and stv_lookup=0 are honoured; hidden chatters are never looked up', async (t) => {
@@ -865,6 +907,29 @@ test('Beta Tester badge is assigned to the listed accounts', async (t) => {
   assert.ok(!h.deps.badgesFor(other).some((badge) => badge.provider === 'beta-tester'));
 });
 
+test('the developer and Beta Tester badges are drawn on every origin: hosted https, a local folder, OBS local files, local http', async (t) => {
+  const h = await boot(t);
+  join(h);
+  await settle();
+  const parse = globalThis.TCO.ircParse;
+  const R = globalThis.TCO.renderer._internal;
+  const dev = parse.toChatMessage(parse.parseLine(priv('MasstarVT', 'hello')));
+  const drawn = () => R.badgeModels(h.deps.badgesFor(dev), 1).map((b) => b.title + ' ' + b.url);
+  // Hosted (and the builder's preview there): absolute https URLs, as always.
+  globalThis.location.protocol = 'https:';
+  globalThis.location.href = 'https://chat.masstar.org/overlay.html?channel=home';
+  assert.deepStrictEqual(drawn(), ['MasstarVT developer https://chat.masstar.org/img/logos/Badge.svg',
+    'Beta Tester https://chat.masstar.org/img/logos/Beta.svg']);
+  // Elsewhere the page's own relative files: a local folder (file:), OBS's "Local file" (http://absolute/), a local or
+  // LAN server. The renderer allows exactly these two paths.
+  ['file:///C:/overlay/overlay.html', 'http://absolute/C:/overlay/overlay.html', 'http://localhost:8080/overlay.html',
+    'http://192.168.1.5:8080/overlay.html'].forEach((href) => {
+    globalThis.location.protocol = href.slice(0, href.indexOf(':') + 1);
+    globalThis.location.href = href + '?channel=home';
+    assert.deepStrictEqual(drawn(), ['MasstarVT developer img/logos/Badge.svg', 'Beta Tester img/logos/Beta.svg'], href);
+  });
+});
+
 // ---------- errors.js ----------
 function runErrors(state) {
   const handlers = { error: [], DOMContentLoaded: [] };
@@ -1112,6 +1177,14 @@ test('chat filters: words, links and length hide chat lines only; a reply quotin
   // Characters as seen: an emoji with its variation sign or skin tone, a flag and a family are one each.
   assert.deepStrictEqual(['gg', 'LUL', '  gg  ', '👋👋', '👋👋👋', '❤️❤️', '👍🏽👍🏽', '🇺🇸🇺🇸', '👨‍👩‍👧👨‍👩‍👧', '👍🏽👍🏽👍🏽']
     .map((s) => h.deps.shouldShow(chatMsg(priv('viewer', s)))), [false, true, false, false, true, false, false, false, false, true]);
+  // A repeated message's invisible duplicate suffix (Chatterino and 7TV send ' \u{E0000}') and other invisible characters
+  // at either end are not counted: they are drawn as nothing.
+  const shown = (list) => list.map((s) => h.deps.shouldShow(chatMsg(priv('viewer', s))));
+  assert.deepStrictEqual(shown(['gg \u{E0000}', 'gg\u{E0000}', 'gg \u{E0000}\u{E0000}', '​gg​', 'gg⁠', 'LUL \u{E0000}']),
+    [false, false, false, false, false, true]);
+  send({ min_length: 4 });
+  assert.deepStrictEqual(shown(['gg \u{E0000}', 'o7 \u{E0000}', 'LUL \u{E0000}', 'ggg​', 'okay \u{E0000}', 'okay', '👨‍👩‍👧👨‍👩‍👧 \u{E0000}']),
+    [false, false, false, false, true, true, false]);
   // A reply whose quote goes keeps its parent, so its "@Someone" is still left out of the length and the command check.
   send({ block_words: 'spoiler', links: 'hide', min_length: 4, hide_commands: true });
   const n = h.pushed.length;
@@ -1126,6 +1199,34 @@ test('chat filters: words, links and length hide chat lines only; a reply quotin
   send({ block_words: 'spoiler', reply_style: 'name' });
   assert.strictEqual(h.deps.quoteHidden(h.pushed[n].reply), false);
   assert.strictEqual(h.deps.quoteHidden(undefined), false);
+});
+
+test('block: a reply to a blocked user goes through min_length and the command check like any reply; live, headers follow', async (t) => {
+  const h = await boot(t, { search: '?channel=home&history=0&block=spammer&hide_commands=1&min_length=4' });
+  join(h);
+  const to = (login) => ({ 'reply-parent-msg-id': 'p-' + login, 'reply-parent-user-login': login, 'reply-parent-display-name': login,
+    'reply-parent-msg-body': 'something' });
+  const show = (s, login) => h.deps.shouldShow(chatMsg(priv('viewer', s, to(login))));
+  // The "@name" is left out of the length and the command check, whoever is answered.
+  assert.deepStrictEqual(['@spammer !uptime', '@spammer gg', '@spammer okay then'].map((s) => show(s, 'spammer')), [false, false, true]);
+  assert.deepStrictEqual(['@friend !uptime', '@friend gg', '@friend okay then'].map((s) => show(s, 'friend')), [false, false, true]);
+  // With '@' as a command sign a reply still shows (README), a reply to a blocked user too.
+  const send = sender(h);
+  send({ command_prefixes: '!@', min_length: 0 });
+  assert.deepStrictEqual([show('@spammer that was rude', 'spammer'), show('@friend that was nice', 'friend')], [true, true]);
+  assert.strictEqual(h.deps.shouldShow(chatMsg(priv('viewer', '@spammer hi'))), false, 'naming someone is still hidden');
+  // Live: the block list decides the header as the line is drawn, so adding a user drops it and taking them off
+  // brings it back (as a reload would draw it).
+  h.feed(priv('viewer', '@HelpfulMod gg thanks', { 'reply-parent-msg-id': 'q', 'reply-parent-user-login': 'helpfulmod',
+    'reply-parent-display-name': 'HelpfulMod', 'reply-parent-msg-body': '!uptime' }));
+  const line = h.pushed[h.pushed.length - 1];
+  assert.strictEqual(line.text, '@HelpfulMod gg thanks');
+  assert.strictEqual(h.deps.quoteHidden(line.reply), false);
+  send({ block: 'spammer, HelpfulMod' });
+  assert.strictEqual(h.deps.quoteHidden(line.reply), true);
+  assert.deepStrictEqual(h.deps.tokensFor(line).map((i) => i.text), ['gg thanks']);
+  send({ block: '' });
+  assert.strictEqual(h.deps.quoteHidden(line.reply), false);
 });
 
 test('role_filter and allow_users: chat lines only, from the badge tags (Twitch, Kick, Shared Chat); the broadcaster always', async (t) => {

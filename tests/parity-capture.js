@@ -211,7 +211,8 @@ const B = {
     urls: { 1: STV_BADGE_URL + '1x.webp', 2: STV_BADGE_URL + '2x.webp', 3: STV_BADGE_URL + '3x.webp', 4: STV_BADGE_URL + '4x.webp' } },
   avatar: { provider: 'avatar', title: 'Partner', urls: same3(AVATAR) },
   dev: { provider: 'developer', title: 'MasstarVT developer', urls: same3('img/logos/Badge.svg') },
-  beta: { provider: 'beta-tester', title: 'Beta Tester', urls: same3('img/logos/Beta.svg') }, // relative: the renderer drops it
+  // relative: 1.5.2's renderer drops it, today's draws it (parity.test.js withFixes)
+  beta: { provider: 'beta-tester', title: 'Beta Tester', urls: same3('img/logos/Beta.svg') },
   twitch: { provider: 'platform', icon: 'twitch', title: 'Twitch' },
   kick: { provider: 'platform', icon: 'kick', title: 'Kick' },
   kickMod: { provider: 'kick', icon: 'kick-moderator', title: 'Moderator' },

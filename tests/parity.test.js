@@ -24,10 +24,56 @@ const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 // ---------- the 1.5.2 fixtures ----------
 
-// The same JSON, and the same text (so key order too, which the renderer's line signatures depend on).
+// The fixtures stay what 1.5.2 computed (write-fixtures.js --base 607c343). These are the only changes the current code
+// makes to them on purpose, each a bug fix, applied to the expectation here:
+// - The Beta Tester badge (img/logos/Beta.svg) is drawn, right after the developer badge and as big: renderer.pickUrl
+//   allows both of the app's own badge files, where 1.5.2 let the developer one through only (models, dom).
+// - A reply to a blocked user keeps its reply (overlay.js quotesHidden leaves its header out as the line is drawn), so the
+//   'filtered' boot takes it in as the defaults boot does: with its reply, and without its "@name" in the tokens (intake).
+function withFixes(name, old) {
+  const out = plain(old);
+  if (name === 'models' || name === 'dom') {
+    const isDev = name === 'models' ? (x) => !!x && x.url === 'img/logos/Badge.svg' && x.title === 'MasstarVT developer'
+      : (x) => !!x && x.tag === 'IMG' && !!x.props && x.props.src === 'img/logos/Badge.svg';
+    const betaOf = (dev) => {
+      const b = plain(dev);
+      if (name === 'models') Object.assign(b, { url: 'img/logos/Beta.svg', title: 'Beta Tester' });
+      else Object.assign(b.props, { alt: 'Beta Tester', src: 'img/logos/Beta.svg' });
+      return b;
+    };
+    let added = 0;
+    (function walk(v) {
+      if (Array.isArray(v)) {
+        for (let i = 0; i < v.length; i++) {
+          if (isDev(v[i])) { v.splice(i + 1, 0, betaOf(v[i])); i++; added++; } else walk(v[i]);
+        }
+      } else if (v && typeof v === 'object') Object.keys(v).forEach((k) => walk(v[k]));
+    })(out);
+    assert.ok(added > 0, name + ': the developer sample is there to take the Beta Tester badge');
+  }
+  if (name === 'intake') {
+    const blocked = new URLSearchParams(cap.INTAKE_BOOTS.filtered).get('block').split(',');
+    const atDefaults = new Map(out.defaults.records.filter((r) => r.msg.id).map((r) => [r.msg.id, r]));
+    let kept = 0;
+    out.filtered.records.forEach((r) => {
+      const d = atDefaults.get(r.msg.id);
+      if (r.msg.reply !== null || !d || !d.msg.reply || blocked.indexOf(d.msg.reply.login) < 0) return;
+      r.msg.reply = plain(d.msg.reply);
+      r.tokens = plain(d.tokens);
+      kept++;
+    });
+    assert.ok(kept > 0, 'intake: the transcript has replies to a blocked user');
+  }
+  return out;
+}
+
+// The same JSON, and the same text (so key order too, which the renderer's line signatures depend on): 1.5.2's with the
+// bug fixes above.
 function sameAsFixture(name, now) {
-  assert.deepStrictEqual(plain(now), fixture(name));
-  assert.strictEqual(cap.toJson(now) + '\n', fixtureText(name), 'parity-' + name + '.json: same key order');
+  assert.strictEqual(cap.toJson(fixture(name)) + '\n', fixtureText(name), 'parity-' + name + '.json reads back as written');
+  const want = withFixes(name, fixture(name));
+  assert.deepStrictEqual(plain(now), want);
+  assert.strictEqual(cap.toJson(now), cap.toJson(want), 'parity-' + name + '.json: same key order');
 }
 
 test('parity: the renderer builds the 1.5.2 line models (full and partial configs, DPR 1 and 2)', async () => {

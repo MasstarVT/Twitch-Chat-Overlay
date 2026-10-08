@@ -244,7 +244,7 @@
     emotes_bttv: { label: 'BetterTTV', logo: 'bttv' },
     emotes_ffz: { label: 'FrankerFaceZ', logo: 'ffz' },
     emote_scale: { label: 'Emote size', widget: 'range', unit: '%',
-      help: 'Emotes, cheers and GIFs next to the text (100% by default). Images load at the size drawn, up to the largest each emote service has, and GIFs as Giphy’s 200 px file: past that they look soft. Above about 110% emotes reach out of the Line background box.' },
+      help: 'Emotes, cheers and GIFs next to the text (100% by default). Images load at the size drawn, up to the largest each emote service has: past that they look soft. A GIF drawn taller than 200 px loads Giphy’s original file. Above about 110% emotes reach out of the Line background box.' },
     emote_only: { label: 'Emote-only messages', options: { normal: 'Normal', big: 'Big', huge: 'Huge' }, only: 'vertical',
       help: 'A message of emotes alone, drawn two (Big) or three (Huge) times as tall. Gigantified emotes keep their own size, and a very wide emote is fitted to the column. Vertical layout only.' },
     giant_emotes: { label: 'Gigantified emotes', only: 'vertical',

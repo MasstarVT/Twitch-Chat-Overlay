@@ -178,6 +178,31 @@ test('deps.quoteHidden leaves a reply\'s header out as it is drawn; a block_word
   assert.strictEqual(replyText(s.lines()[3]), null);
 });
 
+// block (overlay.js quotesHidden): a reply to a blocked user has no header, so the builder's live change redraws the
+// replies on screen as a reload would draw them.
+test('a block change redraws the reply headers as well: a user added loses them, a user taken off gets them back', (t) => {
+  let blocked = [];
+  const built = [];
+  const s = setup(t, {}, {
+    tokensFor: (m) => { built.push(m.text); return [{ type: 'text', text: m.text, sp: false }]; },
+    quoteHidden: (r) => blocked.indexOf(r.login) >= 0
+  });
+  const parent = chat('amy', 'type !uptime');
+  s.r.push(parent);
+  s.r.push(replyTo(parent, 'viewer', 'gg thanks'));
+  s.r.push(chat('bob', 'plain'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[1]), '↪ @amy: type !uptime');
+  blocked = ['amy'];
+  built.length = 0;
+  s.r.setConfig({ block: ['amy'] });
+  assert.strictEqual(replyText(s.lines()[1]), null);
+  assert.deepStrictEqual(built, ['gg thanks'], 'only the reply is rebuilt');
+  blocked = [];
+  s.r.setConfig({ block: [] });
+  assert.strictEqual(replyText(s.lines()[1]), '↪ @amy: type !uptime', 'back once the user is taken off');
+});
+
 test('a reply without a usable parent (null, as a blocked parent arrives) renders without a header', (t) => {
   const s = setup(t);
   s.r.push(chat('amy', 'hi', { reply: null }));
@@ -918,6 +943,58 @@ test('smooth_scroll: turning it off, flipping align, switching layout, animate o
   assert.strictEqual(lay.moves.length, k);
 });
 
+// A row (x: another()) W px wide, each line 10 px per character, its slide modelled as colLayout's glide: translateX(n)
+// until the transition starts, then home over SLIDE_MS; transition 'none' cancels a running one at the next style flush
+// (any layout read), transform 'none' at once, and '' leaves it running.
+function rowGlide(s, x, W) {
+  let glide = null, transition = '';
+  const st = x.linesEl.style;
+  Object.defineProperty(st, 'transition', { get: () => transition, set: (v) => { transition = v; } });
+  Object.defineProperty(st, 'transform', {
+    get: () => '',
+    set: (v) => {
+      const m = /^translateX\((-?[\d.]+)px\)$/.exec(v);
+      if (m) glide = { n: Number(m[1]), at: null };
+      else if (v === '' && glide && glide.at === null && /^transform /.test(transition)) glide.at = Date.now();
+      else if (v !== '' || !glide || glide.at === null) glide = null;
+    }
+  });
+  s.doc.layout = (el) => {
+    if (transition === 'none' && glide && glide.at !== null) glide = null; // the style flush
+    if (el === x.root || el === x.linesEl) return { left: 0, right: W, width: W, top: 0, bottom: 50, height: 50 };
+    const list = x.lines();
+    const i = list.indexOf(el);
+    if (i < 0) return null;
+    const w = list.map((l) => l.textContent.length * 10);
+    let right = W;
+    for (let j = w.length - 1; j > i; j--) right -= w[j];
+    return { left: right - w[i], right: right, width: w[i], top: 0, bottom: 50, height: 50 };
+  };
+  return { transition: () => transition, home: () => glide === null };
+}
+
+test('a row\'s slide stops where it is on a live switch to a column, animate off or clearing all; other changes leave it', (t) => {
+  const s = setup(t);
+  const row = { animate: true, layout: 'horizontal' };
+  [{ layout: 'vertical' }, { layout: 'vertical', smooth_scroll: true }, { animate: false }, 'clearAll', { text_color: 'ff0000' },
+    { align: 'top' }].forEach((over) => {
+    const x = another(s, row);
+    const lay = rowGlide(s, x, 300);
+    x.r.push(chat('a', 'x'.repeat(7)));
+    x.r.flush();
+    s.tick(300);
+    x.r.push(chat('b', 'y'.repeat(7)));
+    x.r.flush();
+    assert.ok(!lay.home() && /^transform /.test(lay.transition()), JSON.stringify(over) + ': sliding');
+    s.tick(50);
+    if (over === 'clearAll') x.r.clearAll();
+    else x.r.setConfig(Object.assign({}, row, over));
+    if (over.text_color || over.align) assert.ok(!lay.home(), JSON.stringify(over) + ': the slide plays on');
+    else assert.ok(lay.home() && lay.transition() === '', JSON.stringify(over) + ': home, no inline transition left');
+    x.r.destroy();
+  });
+});
+
 test('smooth_scroll leaves the lines\' own entrances and fades exactly as they are without it', (t) => {
   const s = setup(t);
   const cfg = { animate: true, fade: 30, enter_style: 'pop', fade_out_ms: 2000 };
@@ -1013,6 +1090,24 @@ test('gifs: a missing small rendition falls back once to the original URL, then 
   assert.strictEqual(img.src, 'https://media.giphy.com/media/a/giphy.gif');
   img.onerror();
   assert.strictEqual(s.lines()[0].byClass('message')[0].textContent, 'party');
+});
+
+test('gifs: a big GIF\'s original WebP falls back to the 200 px file, then to the tag\'s URL, then to the title', (t) => {
+  const s = setup(t, { gifs: true, text_px: 96 }, { tokensFor: () => [{ type: 'gif', url: 'https://media.giphy.com/media/a/200.webp',
+    orig: 'https://media.giphy.com/media/a/giphy.gif', title: 'party', sp: false }] });
+  s.r.push(chat('amy', 'g'));
+  s.r.flush();
+  const img = s.lines()[0].byClass('gif')[0];
+  assert.strictEqual(img.src, 'https://media.giphy.com/media/a/giphy.webp');
+  img.onerror();
+  assert.strictEqual(img.src, 'https://media.giphy.com/media/a/200.webp');
+  img.onerror();
+  assert.strictEqual(img.src, 'https://media.giphy.com/media/a/giphy.gif');
+  img.onerror();
+  assert.strictEqual(s.lines()[0].byClass('message')[0].textContent, 'party');
+  // Back to a size the 200 px file covers: the line is drawn with it again.
+  s.r.setConfig({ gifs: true, text_px: 24 });
+  assert.strictEqual(s.lines()[0].byClass('gif')[0].src, 'https://media.giphy.com/media/a/200.webp');
 });
 
 test('refilter drops lines the filters now reject', (t) => {

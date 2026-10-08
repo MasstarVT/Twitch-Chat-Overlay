@@ -74,7 +74,7 @@ test('no code in js/ can turn a string into markup or code', () => {
 });
 
 // Every URL property assignment in js/ (.href, .src, .srcset, .poster, .formAction, or el['src'] and the
-// like) is a reviewed one, keyed on the file and the exact assignment text (not line numbers). A new one must be checked (https only, except the fixed local badge asset; no chat or provider text
+// like) is a reviewed one, keyed on the file and the exact assignment text (not line numbers). A new one must be checked (https only, except the two fixed local badge assets; no chat or provider text
 // reaching it unvalidated) and then added here.
 test('every URL property assignment in js/ is a reviewed one', () => {
   const REVIEWED = {
@@ -94,8 +94,8 @@ test('every URL property assignment in js/ is a reviewed one', () => {
       /^link\.href = 'https:\/\/fonts\.googleapis\.com\/css2\?family=' \+ encodeURIComponent\(/
     ],
     'renderer.js': [
-      /^img\.src = url$/, // url comes from pickUrl (https, except the fixed local badge asset)
-      /^img\.src = p\.orig$/ // a GIF's original URL: partsFor keeps it only when util.isSafeUrl (https)
+      /^img\.src = url$/, // url comes from pickUrl (https, except the two fixed local badge assets)
+      /^img\.src = next\.shift\(\)$/ // a GIF's fallbacks (p.alt, p.orig): partsFor keeps them only when util.isSafeUrl (https)
     ]
   };
   // .action is left out: plain objects use it (m.action); a form's action attribute goes through setAttribute (SINKS).
@@ -494,11 +494,14 @@ test('highlights: keywords are matched as literal text (regex syntax, payloads, 
     R.normalizeCfg({ role_style: 'bar' }), 'chat', false), 'line role-mod role-bar');
 });
 
-test('pickUrl: https only except the fixed local badge asset', () => {
+test('pickUrl: https only except the two fixed local badge assets (developer, Beta Tester), by exact path', () => {
   assert.strictEqual(R.pickUrl({ 1: 'https://cdn.7tv.app/x' }, 1), 'https://cdn.7tv.app/x');
   assert.strictEqual(R.pickUrl({ 1: '//cdn.7tv.app/x' }, 1), 'https://cdn.7tv.app/x');
   assert.strictEqual(R.pickUrl({ 1: 'img/logos/Badge.svg' }, 1), 'img/logos/Badge.svg');
-  ['http://cdn.7tv.app/x', 'javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:image/png,x', 'blob:https://x/y', '/relative.png', 'img/other.svg', 'https://a b'].forEach((u) => {
+  assert.strictEqual(R.pickUrl({ 1: 'img/logos/Beta.svg' }, 1), 'img/logos/Beta.svg');
+  ['http://cdn.7tv.app/x', 'javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:image/png,x', 'blob:https://x/y', '/relative.png', 'img/other.svg', 'https://a b',
+    'img/logos/Other.svg', 'img/logos/Beta.svg?x', '../img/logos/Beta.svg', '/img/logos/Badge.svg', 'IMG/LOGOS/BETA.SVG', 'http://evil/img/logos/Beta.svg',
+    'http://localhost:8080/img/logos/Badge.svg', 'constructor', '__proto__', 'toString'].forEach((u) => {
     assert.strictEqual(R.pickUrl({ 1: u }, 1), null, u);
   });
 });

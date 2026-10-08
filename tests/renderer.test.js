@@ -930,6 +930,30 @@ test('the chat filters\' patterns: built once per cfg object, never stored on it
   assert.strictEqual(renderer.filtersFor(null).block, null);
 });
 
+test('keywords, mentions and block_words go by the text as drawn: an invisible character on or in a word doesn\'t hide it', () => {
+  const cfg = { keywords: config.coerce('keywords', 'hype, ❤️, gg‍wp, می‌خواهم'), mentions: 'at', channel: 'streamer' };
+  const cls = (text) => hlCls(cfg, { text: text });
+  // A repeat's duplicate-bypass suffix (a bare U+034F, which is a mark, or ' U+E0000'), a zero-width space, a soft hyphen
+  // or a word joiner: drawn as nothing, so the word is still there.
+  ['hype͏', 'hype͏!', 'hy​pe', 'hy­pe', 'hy⁠pe', 'hype \u{E0000}', '﻿hype'].forEach((s) =>
+    assert.strictEqual(cls(s), 'line keyword', JSON.stringify(s)));
+  ['@streamer͏', '@stre​amer hi', 'hi @streamer⁠'].forEach((s) => assert.strictEqual(cls(s), 'line mention', JSON.stringify(s)));
+  // Whole words still: what is left once they go is a longer word ('hypes'), or another one (a real accent is no
+  // invisible character).
+  ['hype͏s', 'hy​pes', 'hyṕe', 'hypé', '@streamer​x'].forEach((s) => assert.strictEqual(cls(s), 'line', JSON.stringify(s)));
+  // Emoji and joined words keep matching: with or without the emoji's variation sign, and a phrase with a joiner in it.
+  ['love ❤️ it', 'love ❤ it', 'gg‍wp', 'ggwp', 'می‌خواهم', 'میخواهم'].forEach((s) =>
+    assert.strictEqual(cls(s), 'line keyword', JSON.stringify(s)));
+  // A keyword of invisible characters alone is no keyword (it would match everything).
+  assert.strictEqual(hlCls({ keywords: ['️', '‍‍', ' ͏ '] }, { text: 'anything at all' }), 'line');
+  // block_words, the same way (overlay.js chatShown and quotesHidden).
+  const block = renderer.filtersFor({ block_words: config.coerce('block_words', 'badword, ❤️') }).block;
+  const hw = (s) => renderer.hasWords(s, block);
+  assert.deepStrictEqual(['badword', 'badword͏', 'badword͏ fr', 'bad​word fr', 'bad­word', 'BAD⁠WORD', 'i ❤ it',
+    'badwords', 'bad​words', 'bad word'].map(hw), [true, true, true, true, true, true, true, false, false, false]);
+  assert.strictEqual(renderer.filtersFor({ block_words: ['​', '️'] }).block, null, 'no pattern from invisible words alone');
+});
+
 test('line classes: a whitelisted platform class for Kick lines; Twitch lines and unknown platforms get none', () => {
   assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'chat', false), 'line platform-kick');
   assert.strictEqual(R.lineClasses({ platform: 'kick' }, {}, 'notice', false), 'line notice platform-kick');
@@ -960,13 +984,15 @@ test('icon badges: known icons become icon models, unknown keys are dropped, pla
   assert.deepStrictEqual(n, { kind: 'notice', cls: 'line notice platform-kick', system: 'Fan subscribed!', badges: [{ icon: 'kick', title: 'Kick', platform: true }] });
 });
 
-test('badge URL picker allows the local developer asset but rejects other relative URLs', () => {
+test('badge URL picker allows the local developer and Beta Tester assets but rejects other relative URLs', () => {
   assert.deepStrictEqual(R.badgeModels([
     { title: 'Developer', urls: { 1: 'img/logos/Badge.svg' } },
+    { title: 'Beta Tester', urls: { 1: 'img/logos/Beta.svg' } },
     { title: 'Relative', urls: { 1: 'img/other.svg' } },
     { title: 'Data', urls: { 1: 'data:image/svg+xml,<svg></svg>' } }
   ], 1), [
-    { url: 'img/logos/Badge.svg', title: 'Developer', avatar: false, bg: null }
+    { url: 'img/logos/Badge.svg', title: 'Developer', avatar: false, bg: null },
+    { url: 'img/logos/Beta.svg', title: 'Beta Tester', avatar: false, bg: null }
   ]);
 });
 
@@ -1042,6 +1068,33 @@ test('partsFor: text, spacing, emotes with overlays and effects, cheers, gifs', 
   const p4 = R.partsFor([{ type: 'cheer', prefix: 'Cheer', amount: 5, color: 'red;x', urls: {}, sp: false }], opts);
   assert.deepStrictEqual(p4, [{ t: 'cheer', prefix: 'Cheer', amount: '5', color: null, url: null }]);
   assert.deepStrictEqual(R.partsFor(null, opts), []);
+});
+
+test('a GIF drawn taller than Giphy\'s 200 px file loads the original as WebP, with the 200 px file and the tag\'s URL behind it', () => {
+  const ORIG = 'https://media2.giphy.com/media/abc/giphy.gif?cid=1&rid=giphy.gif&ct=g';
+  const SMALL = 'https://media2.giphy.com/media/abc/200.webp?cid=1&rid=200.webp&ct=g';
+  const BIG = 'https://media2.giphy.com/media/abc/giphy.webp?cid=1&rid=giphy.webp&ct=g';
+  // The tokenizer's own item for a gifs tag: the 200 px file, and the tag's URL as orig.
+  const tok = tokenizer.tokenize({ text: 'look [GIF]', gifs: '5-9|abc|' + ORIG }, { lookup: () => null, gifs: true }).items;
+  assert.deepStrictEqual(tok[1], { type: 'gif', url: SMALL, orig: ORIG, title: '[GIF]', sp: true });
+  const gif = (cfg, dpr, items) => R.modelFor({ id: 'g', login: 'a', displayName: 'A' }, R.normalizeCfg(cfg),
+    { kind: 'chat', items: items || tok, dpr: dpr || 1 }).parts.filter((p) => p.t === 'gif')[0];
+  const small = { t: 'gif', url: SMALL, title: '[GIF]', orig: ORIG };
+  const big = { t: 'gif', url: BIG, title: '[GIF]', alt: SMALL, orig: ORIG };
+  // Drawn height in CSS px: text size x 1.75 (an emote) x emote_scale x gif_size (3 in a column, 1 in a row). Every
+  // default keeps the 200 px file, at any DPR: the largest is size=large's 168 px.
+  [[{}], [{ size: 'large' }], [{ size: 'large' }, 2], [{ size: 'small' }, 3], [{ text_px: 38 }], [{ text_px: 96, gif_size: '1x' }],
+    [{ text_px: 96, layout: 'horizontal' }], [{ size: 'large', emote_scale: 200, gif_size: '1x' }], [{ emote_only: 'huge', size: 'large' }]]
+    .forEach((c) => assert.deepStrictEqual(gif(c[0], c[1]), small, JSON.stringify(c)));
+  // Past 200: 39 x 1.75 x 3 = 204.75, large at 125% = 210, 96 at 2x = 336, a row at 96 px and 150% = 252.
+  [[{ text_px: 39 }], [{ size: 'large', emote_scale: 125 }], [{ text_px: 96, gif_size: '2x' }], [{ text_px: 96 }, 2],
+    [{ text_px: 96, emote_scale: 150, layout: 'horizontal' }], [{ size: 'medium', emote_scale: 200 }]]
+    .forEach((c) => assert.deepStrictEqual(gif(c[0], c[1]), big, JSON.stringify(c)));
+  // Only the known URL shape has an original to swap in; a GIF without one keeps what it has.
+  const other = [{ type: 'gif', url: 'https://media.giphy.com/media/abc/200.webp', orig: 'https://i.giphy.com/abc.gif', title: 'g' }];
+  assert.deepStrictEqual(gif({ text_px: 96 }, 1, other), { t: 'gif', url: other[0].url, title: 'g', orig: other[0].orig });
+  const bare = [{ type: 'gif', url: 'https://media.giphy.com/media/abc/200.webp', title: 'g' }];
+  assert.deepStrictEqual(gif({ text_px: 96 }, 1, bare), { t: 'gif', url: bare[0].url, title: 'g' });
 });
 
 test('partsFor works on real tokenizer output (zero-width stacking, FFZ hidden modifier, BTTV prefix)', () => {
