@@ -302,6 +302,26 @@ describe('coerce', () => {
     assert.equal(config.isDefault('keywords', ['gg']), false);
   });
 
+  test('words: the comma a Chinese, Japanese or Korean input method or an Arabic keyboard types separates phrases too', () => {
+    // A Japanese IME types 、 for the comma key, a Chinese one ，, an Arabic, Persian or Urdu keyboard ،.
+    assert.deepEqual(config.coerce('keywords', '草、www、きた'), ['草', 'www', 'きた']);
+    assert.deepEqual(config.coerce('keywords', '加油，好看'), ['加油', '好看']);
+    assert.deepEqual(config.coerce('keywords', 'مرحبا، شكرا'), ['مرحبا', 'شكرا']);
+    assert.deepEqual(config.coerce('block_words', 'a､b﹐c﹑d, e'), ['a', 'b', 'c', 'd', 'e']);
+    assert.deepEqual(config.coerce('block_words', ['草、www', 'good game']), ['草', 'www', 'good game'], 'settings.js items too');
+    // Every separator splits, and none is ever kept inside a phrase, so the value reads back the same from the URL.
+    assert.ok(config.WORD_SEP instanceof RegExp);
+    [',', '，', '、', '،', '､', '﹐', '﹑'].forEach((s) => {
+      assert.ok(config.WORD_SEP.test(s), 'separator ' + s);
+      assert.deepEqual(config.coerce('keywords', 'x' + s + 'y'), ['x', 'y'], s);
+    });
+    const v = config.coerce('keywords', '草、Good Game，ｗｗ');
+    assert.deepEqual(v, ['草', 'good game', 'ｗｗ']);
+    assert.deepEqual(config.parse(config.toParams(Object.assign(config.defaults(), { keywords: v }))).keywords, v);
+    // A phrase longer than 40 characters is still left out on its own; the ones around it stay.
+    assert.deepEqual(config.coerce('keywords', 'a、' + 'x'.repeat(41) + '、b'), ['a', 'b']);
+  });
+
   test('filters and event switches: their values, live, and nothing in the URL at the defaults', () => {
     assert.deepEqual(config.SPEC.role_filter.values, ['all', 'subs', 'vips', 'mods']);
     assert.deepEqual(config.SPEC.links.values, ['show', 'shorten', 'hide']);
@@ -489,8 +509,27 @@ describe('coerce', () => {
   test('list: normalized, deduped logins from strings or arrays', () => {
     assert.deepEqual(config.coerce('block', 'Nightbot, @StreamElements  #moobot,,'), ['nightbot', 'streamelements', 'moobot']);
     assert.deepEqual(config.coerce('block', 'a,A,a'), ['a']);
-    assert.deepEqual(config.coerce('block', ['Foo', '@bar', 'not valid!', '']), ['foo', 'bar']);
+    assert.deepEqual(config.coerce('block', ['Foo', '@bar', 'not.valid!', '']), ['foo', 'bar']);
     assert.deepEqual(config.coerce('block', ''), []);
+  });
+
+  test('list: an array item holding several names (settings.js) gives each of them, like a string does', () => {
+    ['block', 'allow_users', 'highlight_users'].forEach((k) => {
+      assert.deepEqual(config.coerce(k, ['nightbot, moobot']), ['nightbot', 'moobot'], k);
+      assert.deepEqual(config.coerce(k, ['alice bob']), ['alice', 'bob'], k);
+      assert.deepEqual(config.coerce(k, ['alice', 'bob, carol', 7]), ['alice', 'bob', 'carol', '7'], k);
+      // As in a string: 'not valid!' gives 'not', in an array item too.
+      assert.deepEqual(config.coerce(k, ['not valid!']), config.coerce(k, 'not valid!'), k);
+    });
+    const cfg = config.parse('', { block: ['nightbot, moobot'], allow_users: ['alice bob'] });
+    assert.deepEqual([cfg.block, cfg.allow_users], [['nightbot', 'moobot'], ['alice', 'bob']]);
+    assert.deepEqual(config.parse(config.toParams(cfg)).allow_users, ['alice', 'bob'], 'reads back the same from the URL');
+    // Names typed with a Chinese, Japanese or Korean input method's comma are split too.
+    assert.deepEqual(config.coerce('block', 'nightbot、moobot，fossabot'), ['nightbot', 'moobot', 'fossabot']);
+    // true or false in settings.js is not a list of names (it was the login 'true', which an allow list then showed alone).
+    [true, false].forEach((b) => assert.equal(config.coerce('allow_users', b), undefined, String(b)));
+    assert.deepEqual(config.parse('', { allow_users: true }).allow_users, []);
+    assert.deepEqual(config.coerce('block', 'true'), ['true'], 'the login true, in a URL');
   });
 
   test('list: large lists dedupe in linear time, first occurrence order kept', () => {
@@ -843,8 +882,20 @@ describe('fonts', () => {
     // Title case would give 'Dm Serif Text', 'Pt Sans Caption', 'Noto Serif Sc'…: fonts.googleapis.com answers 400.
     [['dm serif text', 'DM Serif Text'], ['pt sans caption', 'PT Sans Caption'], ['noto serif sc', 'Noto Serif SC'],
       ['ibm plex sans condensed', 'IBM Plex Sans Condensed'], ['zcool kuaile', 'ZCOOL KuaiLe'], ['im fell english', 'IM Fell English'],
-      ['m plus 1p', 'M PLUS 1p'], ['biz udpgothic', 'BIZ UDPGothic'], ['dotgothic16', 'DotGothic16'], ['Ibm Plex Sans Jp', 'IBM Plex Sans JP']]
+      ['m plus 1p', 'M PLUS 1p'], ['biz udpgothic', 'BIZ UDPGothic'], ['dotgothic16', 'DotGothic16'], ['Ibm Plex Sans Jp', 'IBM Plex Sans JP'],
+      // The whole Google Fonts catalog is covered, not a hand-picked part of it (each checked against fonts.googleapis.com).
+      ['k2d', 'K2D'], ['koho', 'KoHo'], ['mclaren', 'McLaren'], ['Mclaren', 'McLaren'], ['abeezee', 'ABeeZee'],
+      ['montecarlo', 'MonteCarlo'], ['tiktok sans', 'TikTok Sans'], ['old standard tt', 'Old Standard TT'],
+      ['stix two text', 'STIX Two Text'], ['charis sil', 'Charis SIL'], ['anton sc', 'Anton SC'],
+      ['patrick hand sc', 'Patrick Hand SC'], ['bowlby one sc', 'Bowlby One SC'], ['rock 3d', 'Rock 3D'],
+      ['line seed jp', 'LINE Seed JP'], ['sn pro', 'SN Pro'], ['playwrite us trad', 'Playwrite US Trad'],
+      ['edu sa beginner', 'Edu SA Beginner'], ['im fell double pica sc', 'IM Fell Double Pica SC'],
+      ['biorhyme expanded', 'BioRhyme Expanded'], ['noto sans linear a', 'Noto Sans Linear A'], ['m plus u', 'M PLUS U'],
+      // Typed in Title Case, a family with a lowercase joining word gets it back.
+      ['Fredericka The Great', 'Fredericka the Great'], ['Waiting For The Sunrise', 'Waiting for the Sunrise'],
+      ['Swanky And Moo Moo', 'Swanky and Moo Moo'], ['Over The Rainbow', 'Over the Rainbow']]
       .forEach(([k, v]) => assert.equal(config.canonicalFont(k), v, k));
+    assert.ok(config.FONT_CANON_EXTRA.length >= 250, 'the complete list, ' + config.FONT_CANON_EXTRA.length);
     const google = new Set(config.GOOGLE_FONTS.map((f) => f.toLowerCase()));
     const seen = new Set();
     config.FONT_CANON_EXTRA.forEach((f) => {

@@ -10,7 +10,7 @@
   var WEIGHTS = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
 
   // type: channel | kick | room | enum | int | bool | font | list | words | color | chars
-  // list: Twitch/Kick logins. words: words or phrases, separated by commas only (a phrase keeps its spaces).
+  // list: Twitch/Kick logins. words: words or phrases, separated by commas only (a phrase keeps its spaces; WORD_SEP).
   // chars: command prefixes, a few signs from PREFIX_CHARS written together ('!?').
   // color: a hex color stored as bare lowercase rrggbb ('' = the overlay's built-in color).
   // int lowest: 0 is off, and the smallest value that does anything else is lowest (1..lowest-1 is raised to it).
@@ -145,6 +145,14 @@
 
   // words: at most this many phrases, each at most this many characters (a longer one is left out).
   var MAX_WORDS = 50, MAX_WORD_LEN = 40;
+  // The commas that separate the items of a words or list value: ',' and the ones a Chinese, Japanese or Korean input
+  // method types for the comma key (fullwidth U+FF0C, ideographic U+3001, and their halfwidth and small forms), the
+  // Arabic, Persian and Urdu comma (U+060C), and the Armenian, NKo, Ethiopic and Mongolian commas. Without them a list
+  // typed with a Japanese IME ('kusa<U+3001>www') would be one phrase that no message ever matches.
+  var SEP_CHARS = ',\uff0c\u3001\uff64\ufe50\ufe51\u060c\u055d\u07f8\u1363\u1802\u1808';
+  var WORD_SEP = new RegExp('[' + SEP_CHARS + ']');
+  // list: logins, separated by commas or spaces.
+  var LIST_SEP = new RegExp('[\\s' + SEP_CHARS + ']+');
   // chars: the signs a command may start with, and how many of them one value holds at most.
   var PREFIX_CHARS = '!$%&*+-./:;=?@#~^', MAX_PREFIXES = 8;
 
@@ -174,23 +182,66 @@
     'M PLUS Rounded 1c', 'Noto Sans TC', 'Noto Sans HK', 'Noto Serif JP', 'PT Serif', 'PT Mono', 'PT Sans Narrow',
     'EB Garamond', 'IBM Plex Mono', 'IBM Plex Serif', 'DM Serif Display', 'DM Mono', 'Amatic SC'];
 
+  // Every Google Fonts family canonicalFont() would otherwise misspell, typed in lower case or in Title Case: a word
+  // in capitals or with a capital inside it ('k2d' must become 'K2D', 'mclaren' 'McLaren', 'dm serif text' 'DM Serif
+  // Text': fonts.googleapis.com refuses 'K2d', 'Mclaren' and 'Dm Serif Text'), a joining word it would leave lowercase
+  // ('covered by your grace' -> 'Covered By Your Grace'), or one Google keeps lowercase ('Fredericka The Great' ->
+  // 'Fredericka the Great'). Spelling fixes only, not offered as builder suggestions. Generated from Google's family
+  // list (fonts.google.com/metadata/fonts, October 2026): each family not in GOOGLE_FONTS whose name, lowercased or
+  // Title Cased, canonicalFont's word-by-word rule (below) doesn't spell back. A family Google adds later may need
+  // adding by hand; the builder warns when a font doesn't load.
+  var FONT_CANON_EXTRA = [
+    'ABeeZee', 'Abyssinica SIL', 'ADLaM Display', 'Alegreya Sans SC', 'Alegreya SC', 'Almendra SC', 'Alumni Sans SC',
+    'Annapurna SIL', 'Anton SC', 'AR One Sans', 'Arsenal SC', 'Baskervville SC', 'BBH Bartle', 'BBH Bogle',
+    'BBH Hegarty', 'BenchNine', 'Betania Patmos GDL', 'Betania Patmos In GDL', 'BhuTuka Expanded One', 'BioRhyme',
+    'BioRhyme Expanded', 'BIZ UDGothic', 'BIZ UDMincho', 'BIZ UDPGothic', 'BIZ UDPMincho', 'BJCree',
+    'Black And White Picture', 'Bodoni Moda SC', 'Bona Nova SC', 'Bowlby One SC', 'Bruno Ace SC', 'Carrois Gothic SC',
+    'Charis SIL', 'Chiron GoRound TC', 'Chiron Hei HK', 'Chiron Sung HK', 'Cormorant SC', 'Covered By Your Grace',
+    'Dai Banna SIL', 'Dawning of a New Day', 'Diplomata SC', 'DM Serif Text', 'DotGothic16', 'DynaPuff',
+    'Edu AU VIC WA NT Arrows', 'Edu AU VIC WA NT Dots', 'Edu AU VIC WA NT Guides', 'Edu AU VIC WA NT Hand',
+    'Edu AU VIC WA NT Pre', 'Edu NSW ACT Cursive', 'Edu NSW ACT Foundation', 'Edu NSW ACT Hand Pre',
+    'Edu QLD Beginner', 'Edu QLD Hand', 'Edu SA Beginner', 'Edu SA Hand', 'Edu TAS Beginner',
+    'Edu VIC WA NT Beginner', 'Edu VIC WA NT Hand', 'Edu VIC WA NT Hand Pre', 'Encode Sans SC',
+    'Fredericka the Great', 'GFS Didot', 'GFS Neohellenic', 'Holtwood One SC', 'IBM Plex Sans Arabic',
+    'IBM Plex Sans Condensed', 'IBM Plex Sans Devanagari', 'IBM Plex Sans Hebrew', 'IBM Plex Sans JP',
+    'IBM Plex Sans KR', 'IBM Plex Sans Thai', 'IBM Plex Sans Thai Looped', 'IM Fell Double Pica',
+    'IM Fell Double Pica SC', 'IM Fell DW Pica', 'IM Fell DW Pica SC', 'IM Fell English', 'IM Fell English SC',
+    'IM Fell French Canon', 'IM Fell French Canon SC', 'IM Fell Great Primer', 'IM Fell Great Primer SC', 'K2D',
+    'Kaisei HarunoUmi', 'KoHo', 'Libre Barcode EAN13 Text', 'LINE Seed JP', 'Love Ya Like A Sister',
+    'Loved by the King', 'LXGW Marker Gothic', 'LXGW WenKai Mono TC', 'LXGW WenKai TC', 'M PLUS 1', 'M PLUS 1 Code',
+    'M PLUS 1p', 'M PLUS 2', 'M PLUS Code Latin', 'M PLUS U', 'Marcellus SC', 'Mate SC', 'McLaren', 'MedievalSharp',
+    'MonteCarlo', 'Mountains of Christmas', 'MuseoModerno', 'Noto Sans Linear A', 'Noto Sans NKo',
+    'Noto Sans NKo Unjoined', 'Noto Sans PhagsPa', 'Noto Sans SignWriting', 'Noto Serif HK', 'Noto Serif KR',
+    'Noto Serif NP Hmong', 'Noto Serif SC', 'Noto Serif TC', 'NTR', 'Nuosu SIL', 'Old Standard TT',
+    'Over the Rainbow', 'Overlock SC', 'Patrick Hand SC', 'Playfair Display SC', 'Playwrite AR',
+    'Playwrite AR Guides', 'Playwrite AT', 'Playwrite AT Guides', 'Playwrite AU NSW', 'Playwrite AU NSW Guides',
+    'Playwrite AU QLD', 'Playwrite AU QLD Guides', 'Playwrite AU SA', 'Playwrite AU SA Guides', 'Playwrite AU TAS',
+    'Playwrite AU TAS Guides', 'Playwrite AU VIC', 'Playwrite AU VIC Guides', 'Playwrite BE VLG',
+    'Playwrite BE VLG Guides', 'Playwrite BE WAL', 'Playwrite BE WAL Guides', 'Playwrite BR', 'Playwrite BR Guides',
+    'Playwrite CA', 'Playwrite CA Guides', 'Playwrite CL', 'Playwrite CL Guides', 'Playwrite CO',
+    'Playwrite CO Guides', 'Playwrite CU', 'Playwrite CU Guides', 'Playwrite CZ', 'Playwrite CZ Guides',
+    'Playwrite DE Grund', 'Playwrite DE Grund Guides', 'Playwrite DE LA', 'Playwrite DE LA Guides',
+    'Playwrite DE SAS', 'Playwrite DE SAS Guides', 'Playwrite DE VA', 'Playwrite DE VA Guides', 'Playwrite DK Loopet',
+    'Playwrite DK Loopet Guides', 'Playwrite DK Uloopet', 'Playwrite DK Uloopet Guides', 'Playwrite ES',
+    'Playwrite ES Deco', 'Playwrite ES Deco Guides', 'Playwrite ES Guides', 'Playwrite FR Moderne',
+    'Playwrite FR Moderne Guides', 'Playwrite FR Trad', 'Playwrite FR Trad Guides', 'Playwrite GB J',
+    'Playwrite GB J Guides', 'Playwrite GB S', 'Playwrite GB S Guides', 'Playwrite HR', 'Playwrite HR Guides',
+    'Playwrite HR Lijeva', 'Playwrite HR Lijeva Guides', 'Playwrite HU', 'Playwrite HU Guides', 'Playwrite ID',
+    'Playwrite ID Guides', 'Playwrite IE', 'Playwrite IE Guides', 'Playwrite IN', 'Playwrite IN Guides',
+    'Playwrite IS', 'Playwrite IS Guides', 'Playwrite IT Moderna', 'Playwrite IT Moderna Guides', 'Playwrite IT Trad',
+    'Playwrite IT Trad Guides', 'Playwrite MX', 'Playwrite MX Guides', 'Playwrite NG Modern',
+    'Playwrite NG Modern Guides', 'Playwrite NL', 'Playwrite NL Guides', 'Playwrite NO', 'Playwrite NO Guides',
+    'Playwrite NZ', 'Playwrite NZ Basic', 'Playwrite NZ Basic Guides', 'Playwrite NZ Guides', 'Playwrite PE',
+    'Playwrite PE Guides', 'Playwrite PL', 'Playwrite PL Guides', 'Playwrite PT', 'Playwrite PT Guides',
+    'Playwrite RO', 'Playwrite RO Guides', 'Playwrite SK', 'Playwrite SK Guides', 'Playwrite TZ',
+    'Playwrite TZ Guides', 'Playwrite US Modern', 'Playwrite US Modern Guides', 'Playwrite US Trad',
+    'Playwrite US Trad Guides', 'Playwrite VN', 'Playwrite VN Guides', 'Playwrite ZA', 'Playwrite ZA Guides',
+    'PT Sans Caption', 'PT Serif Caption', 'REM', 'Rock 3D', 'RocknRoll One', 'Sedan SC', 'SN Pro', 'Spectral SC',
+    'STIX Two Math', 'STIX Two Text', 'SUSE', 'SUSE Mono', 'Swanky and Moo Moo', 'TASA Explorer', 'TASA Orbiter',
+    'TikTok Sans', 'UnifrakturCook', 'UnifrakturMaguntia', 'UoqMunThenKhung', 'Vollkorn SC',
+    'Waiting for the Sunrise', 'WDXL Lubrifont JP N', 'WDXL Lubrifont SC', 'WDXL Lubrifont TC', 'WindSong',
+    'Ysabeau SC', 'Zalando Sans SemiExpanded', 'ZCOOL KuaiLe', 'ZCOOL QingKe HuangYou', 'ZCOOL XiaoWei'];
   // Lowercased name -> canonical spelling. No prototype, so 'constructor' etc. never match.
-  // Google families canonicalFont() would otherwise misspell, typed in lower case: a joining word
-  // it leaves lowercase ('covered by your grace' must become 'Covered By Your Grace'), or a word
-  // in capitals or with a capital inside it ('dm serif text' must become 'DM Serif Text', not
-  // 'Dm Serif Text', which Google Fonts refuses). Each spelling checked against fonts.googleapis.com.
-  // Spelling fixes only, not offered as builder suggestions.
-  var FONT_CANON_EXTRA = ['Covered By Your Grace', 'Love Ya Like A Sister', 'Black And White Picture',
-    'DM Serif Text', 'PT Sans Caption', 'PT Serif Caption', 'IBM Plex Sans Condensed', 'IBM Plex Sans JP',
-    'IBM Plex Sans KR', 'IBM Plex Sans Arabic', 'IBM Plex Sans Thai', 'IBM Plex Sans Hebrew', 'IBM Plex Sans Devanagari',
-    'Noto Serif SC', 'Noto Serif TC', 'Noto Serif HK', 'Noto Serif KR', 'ZCOOL KuaiLe', 'ZCOOL XiaoWei',
-    'ZCOOL QingKe HuangYou', 'IM Fell English', 'IM Fell English SC', 'IM Fell DW Pica', 'IM Fell DW Pica SC',
-    'IM Fell Double Pica', 'IM Fell French Canon', 'IM Fell Great Primer', 'M PLUS 1p', 'M PLUS 1', 'M PLUS 2',
-    'M PLUS 1 Code', 'M PLUS Code Latin', 'BIZ UDGothic', 'BIZ UDPGothic', 'BIZ UDMincho', 'BIZ UDPMincho',
-    'Alegreya SC', 'Alegreya Sans SC', 'Cormorant SC', 'Playfair Display SC', 'Mate SC', 'Marcellus SC', 'Spectral SC',
-    'Overlock SC', 'Encode Sans SC', 'LXGW WenKai TC', 'LXGW WenKai Mono TC', 'DotGothic16', 'DynaPuff',
-    'MedievalSharp', 'UnifrakturMaguntia', 'UnifrakturCook', 'BenchNine', 'BioRhyme', 'RocknRoll One', 'MuseoModerno',
-    'WindSong', 'NTR', 'REM', 'SUSE', 'GFS Didot', 'GFS Neohellenic', 'ADLaM Display'];
   var FONT_CANON = Object.create(null);
   GOOGLE_FONTS.concat(SYSTEM_FONT_NAMES, GENERIC_FONT_NAMES, FONT_CANON_EXTRA).forEach(function (f) { FONT_CANON[f.toLowerCase()] = f; });
 
@@ -292,8 +343,16 @@
         if (/^[0-9a-f]{3}$/.test(x)) x = x.charAt(0) + x.charAt(0) + x.charAt(1) + x.charAt(1) + x.charAt(2) + x.charAt(2);
         return /^[0-9a-f]{6}$/.test(x) ? x : undefined;
       }
+      // Logins separated by commas or spaces, in a string or in each item of an array (settings.js: ['nightbot, moobot']
+      // is two names, as the string is). true or false is no list of names.
       case 'list': {
-        var arr = Array.isArray(v) ? v : String(v).split(/[\s,]+/);
+        if (tv === 'boolean') return undefined;
+        var src = Array.isArray(v) ? v : [v], arr = [];
+        for (var k = 0; k < src.length; k++) {
+          if (typeof src[k] !== 'string' && typeof src[k] !== 'number') continue;
+          var names = String(src[k]).split(LIST_SEP);
+          for (var b = 0; b < names.length; b++) arr.push(names[b]);
+        }
         var out = [], seen = Object.create(null); // linear dedupe: block lists can be long
         for (var i = 0; i < arr.length; i++) {
           var l = normalizeLogin(arr[i]);
@@ -311,7 +370,7 @@
         var words = [], had = Object.create(null);
         for (var j = 0; j < items.length && words.length < MAX_WORDS; j++) {
           if (typeof items[j] !== 'string' && typeof items[j] !== 'number') continue;
-          var parts = String(items[j]).split(',');
+          var parts = String(items[j]).split(WORD_SEP);
           for (var p = 0; p < parts.length && words.length < MAX_WORDS; p++) {
             var w = parts[p].replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim().toLowerCase();
             if (w && Array.from(w).length <= MAX_WORD_LEN && !had[w]) { had[w] = 1; words.push(w); }
@@ -466,6 +525,7 @@
     FONT_CANON_EXTRA: FONT_CANON_EXTRA,
     PREFIX_CHARS: PREFIX_CHARS,
     MAX_PREFIXES: MAX_PREFIXES,
+    WORD_SEP: WORD_SEP,
     defaults: defaults,
     parse: parse,
     applyObject: applyObject,

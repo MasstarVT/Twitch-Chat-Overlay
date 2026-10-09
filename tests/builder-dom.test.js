@@ -1427,6 +1427,10 @@ test('a words field says how many phrases were left out past 50, or over 40 char
   bw.value = 'gg, ' + 'y'.repeat(41);
   bw.dispatch('change');
   assert.deepStrictEqual([bw.value, note.textContent], ['gg', '1 phrase was left out: up to 50 are used, each up to 40 characters.']);
+  // A Japanese or Chinese input method's comma separates phrases: the box shows them apart, the long one is counted.
+  bw.value = '草、www，' + 'y'.repeat(41);
+  bw.dispatch('change');
+  assert.deepStrictEqual([bw.value, note.textContent], ['草, www', '1 phrase was left out: up to 50 are used, each up to 40 characters.']);
   // Highlight words has the line too; a new config (here Reset's) takes it away with what it was about.
   const hw = p.$('f-keywords');
   const hnote = rowOf(p, 'keywords').children.filter((e) => e.tagName === 'P' && e.classList.contains('warn'))[0];

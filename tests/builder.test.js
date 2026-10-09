@@ -848,6 +848,11 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   assert.strictEqual(builder.wordsLeftOut('block_words', 'a, ' + 'x'.repeat(41) + ', b', ['a', 'b']), 1);
   assert.strictEqual(builder.wordsLeftOut('keywords', 'GG, gg ,  , good  game,,', ['gg', 'good game']), 0);
   assert.strictEqual(builder.wordsLeftOut('keywords', '', []), 0);
+  // A Japanese or Chinese input method's comma separates phrases there too: the long one after it is counted.
+  const jp = '草、' + 'x'.repeat(41) + '、www';
+  assert.deepEqual(config.coerce('keywords', jp), ['草', 'www']);
+  assert.strictEqual(builder.wordsLeftOut('keywords', jp, ['草', 'www']), 1);
+  assert.strictEqual(builder.wordsLeftOut('keywords', '加油，好看، شكرا', config.coerce('keywords', '加油，好看، شكرا')), 0);
   // The block list goes by name on both platforms (overlay.js shouldShow; kick.js sets a Kick line's login).
   assert.match(builder.META.block.help, /Twitch and Kick alike/);
   assert.doesNotMatch(builder.META.block.help, /Twitch usernames/);

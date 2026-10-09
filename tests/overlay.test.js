@@ -1015,10 +1015,11 @@ test('highlights live from the builder: through config.coerce, the words and use
   const before = h.deps.nameFor(tw);
   globalThis.parent = {};
   const send = (cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
-  send({ mentions: 'NAME', keywords: ['Good  Game', 'gg,wp'], highlight_users: ['@PaintedPal', 'bad name!'], points_highlight: false,
+  // An item is read as a string is: 'bad name!' is the login 'bad' and 'name!', which is no login.
+  send({ mentions: 'NAME', keywords: ['Good  Game', 'gg,wp'], highlight_users: ['@PaintedPal', 'bad name!', 'not.valid'], points_highlight: false,
     role_style: 'bar', mod_color: '#00AD03', keyword_color: 'nope', mention_color: 'f80', channel: 'other' });
   assert.deepStrictEqual([S.cfg.mentions, S.cfg.keywords, S.cfg.highlight_users, S.cfg.points_highlight, S.cfg.role_style,
-    S.cfg.mod_color, S.cfg.keyword_color, S.cfg.mention_color], ['name', ['good game', 'gg', 'wp'], ['paintedpal'], false, 'bar',
+    S.cfg.mod_color, S.cfg.keyword_color, S.cfg.mention_color], ['name', ['good game', 'gg', 'wp'], ['paintedpal', 'bad'], false, 'bar',
     '00ad03', '', 'ff8800']);
   assert.strictEqual(S.cfg.channel, 'home', 'the channel is a reload key: never sent live');
   // The roles and tints are the renderer's: nameFor (the name and its color) is as before.

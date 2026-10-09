@@ -1039,6 +1039,12 @@ test('keywords, mentions and block_words go by the text as drawn: an invisible c
   assert.deepStrictEqual(['badword', 'badword͏', 'badword͏ fr', 'bad​word fr', 'bad­word', 'BAD⁠WORD', 'i ❤ it',
     'badwords', 'bad​words', 'bad word'].map(hw), [true, true, true, true, true, true, true, false, false, false]);
   assert.strictEqual(renderer.filtersFor({ block_words: ['​', '️'] }).block, null, 'no pattern from invisible words alone');
+  // Lists typed with a Japanese, Chinese or Arabic keyboard's comma (config.WORD_SEP): each word matches on its own.
+  const cjk = renderer.filtersFor({ block_words: config.coerce('block_words', '草、www、きた') }).block;
+  assert.deepStrictEqual(['草', 'www', 'きた', '草、www'].map((s) => renderer.hasWords(s, cjk)), [true, true, true, true]);
+  ['加油', '好看'].forEach((s) =>
+    assert.strictEqual(hlCls({ keywords: config.coerce('keywords', '加油，好看') }, { text: s }), 'line keyword', s));
+  assert.strictEqual(hlCls({ keywords: config.coerce('keywords', 'مرحبا، شكرا') }, { text: 'شكرا' }), 'line keyword');
 });
 
 test('line classes: a whitelisted platform class for Kick lines; Twitch lines and unknown platforms get none', () => {

@@ -755,11 +755,12 @@
   }
 
   // How many of the phrases typed into a words field (keywords, block_words) its setting left out: those after the
-  // first 50 and any over 40 characters (config.coerce's words). Each phrase is read as coerce reads it on its own.
+  // first 50 and any over 40 characters (config.coerce's words). Each phrase is read as coerce reads it on its own,
+  // split where coerce splits it (config.WORD_SEP: a Chinese, Japanese or Korean input method's comma counts too).
   function wordsLeftOut(key, text, kept) {
     var have = Object.create(null), out = Object.create(null), n = 0;
     (kept || []).forEach(function (w) { have[w] = 1; });
-    String(text === undefined || text === null ? '' : text).split(',').forEach(function (part) {
+    String(text === undefined || text === null ? '' : text).split(config.WORD_SEP).forEach(function (part) {
       var w = config.coerce(key, part) || [];
       // [] is an empty phrase, or one too long: it has more than spaces and control characters in it.
       var id = w.length ? w[0] : /[^\s\u0000-\u001f\u007f]/.test(part) ? '\u0000' + part.trim().toLowerCase() : '';
