@@ -280,7 +280,7 @@ describe('zero-width and image caps', () => {
     assert.deepEqual(view(tok('KEKW RainTime SoSnowy ffzOverlay RainTime').items), ['emote:KEKW+RainTime+SoSnowy+ffzOverlay+RainTime']);
   });
 
-  test('at most 300 emote images per message; later emote words stay text', () => {
+  test('at most 300 images (emotes, layers, GIFs, cheermotes) per message reach the renderer; later emote words stay text', () => {
     const ALL2 = new Map([['OK', em('7tv', 'OK')], ['Z', em('7tv', 'Z', { zw: true })]]);
     const ok = (text) => tk.tokenize({ text }, { lookup: (w) => ALL2.get(w) || null });
     const r = ok('OK '.repeat(330).trim()); // 989 characters, from a hostile history line

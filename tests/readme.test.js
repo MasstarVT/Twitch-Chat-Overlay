@@ -18,17 +18,18 @@ function section(title) {
   return end < 0 ? rest : rest.slice(0, end);
 }
 
-// The first cell of every table row in a section (header and separator rows left out). A section may hold
-// several tables.
-function firstCells(text) {
+// The cells of every table row in a section (header and separator rows left out). A section may hold several tables.
+function rows(text) {
   const out = [];
   text.split('\n').forEach((line, i, lines) => {
     if (!/^\|/.test(line) || /^\|[\s|:-]+\|$/.test(line)) return;
     if (i + 1 < lines.length && /^\|[\s|:-]+\|$/.test(lines[i + 1])) return; // a header row
-    out.push(line.split('|')[1]);
+    out.push(line.split('|').slice(1));
   });
   return out;
 }
+// The first cell of every table row in a section.
+const firstCells = (text) => rows(text).map((cells) => cells[0]);
 const codeIn = (cell) => Array.from(cell.matchAll(/`([^`]+)`/g), (m) => m[1]);
 
 test('README: the Options table has a row for every setting, and for nothing else', () => {
@@ -47,21 +48,66 @@ test('README: the Options table has a row for every setting, and for nothing els
   assert.deepStrictEqual(Object.keys(seen).sort(), config.KEYS.slice().sort());
 });
 
-test('README: the Custom CSS table names every class overlay.css lists as stable', () => {
+// overlay.css's stable list and the README's Custom CSS table name the same classes, both ways, so a class the README
+// promises can't be renamed or dropped with no test noticing.
+test('README: the Custom CSS table names the classes overlay.css lists as stable, and no others', () => {
   const css = fs.readFileSync(path.join(ROOT, 'css', 'overlay.css'), 'utf8');
   const m = /Stable class names for OBS "Custom CSS":([\s\S]*?)\*\//.exec(css);
   assert.ok(m, 'overlay.css lists its stable class names');
-  const stable = Array.from(m[1].matchAll(/[.#][\w-]+/g), (x) => x[0]);
-  assert.ok(stable.length > 25, 'the scan finds the names');
-  // Every class and id in the table's selectors: `.line.notice` names .line and .notice.
+  const stable = new Set(Array.from(m[1].matchAll(/[.#][\w-]+/g), (x) => x[0]));
+  assert.ok(stable.size > 25, 'the scan finds the names');
+  // Every class and id in the table's selectors (`.line.notice` names .line and .notice), and a lone class a row's
+  // description names (`.ann-blue`, an announcement's bar color).
   const named = new Set();
-  firstCells(section('Custom CSS')).forEach((cell) => codeIn(cell).forEach((sel) => {
-    for (const x of sel.matchAll(/[.#][\w-]+/g)) named.add(x[0]);
-  }));
+  rows(section('Custom CSS')).forEach((cells) => {
+    codeIn(cells[0]).forEach((sel) => {
+      for (const x of sel.matchAll(/[.#][\w-]+/g)) named.add(x[0]);
+    });
+    codeIn(cells.slice(1).join('|')).forEach((c) => { if (/^\.[a-z][\w-]*$/i.test(c)) named.add(c); });
+  });
   stable.forEach((c) => assert.ok(named.has(c), 'README Custom CSS has no row for ' + c));
-  // and what the table names is in the overlay's stylesheet or drawn by the renderer
-  const drawn = css + fs.readFileSync(path.join(ROOT, 'js', 'renderer.js'), 'utf8');
-  named.forEach((c) => assert.ok(new RegExp('[\\s.\'"#]' + c.slice(1).replace(/-/g, '\\-') + '\\b').test(drawn), c + ' is real'));
+  named.forEach((c) => assert.ok(stable.has(c), c + ' is in the README Custom CSS table but not in overlay.css\'s stable list'));
+  // and what the table names is in the overlay's stylesheet or drawn by the renderer: in code, not just in a comment's
+  // words ("a colored bar"), or built from a quoted prefix ('platform-' + 'kick')
+  const code = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+  const drawn = code(css) + code(fs.readFileSync(path.join(ROOT, 'js', 'renderer.js'), 'utf8'));
+  const esc = (s) => s.replace(/-/g, '\\-');
+  named.forEach((c) => {
+    const pre = /^.([\w]+-)/.exec(c);
+    assert.ok(new RegExp('[\\s.\'"#]' + esc(c.slice(1)) + '\\b').test(drawn) || (pre && drawn.indexOf('\'' + pre[1] + '\'') >= 0), c + ' is real');
+  });
+});
+
+// The Size limits notes (README's and the home page's) give the caps a crafted history line meets, measured on the real
+// code: the tokenizer keeps at most 300 images (emotes, zero-width layers, GIFs and cheermotes), and of those the
+// renderer draws at most its MAX_IMAGES emote images (layers included) and shows later emotes as their names.
+test('README and home page: the size limits are the caps the overlay keeps', () => {
+  const tk = require('../js/tokenizer.js');
+  const R = require('../js/renderer.js')._internal;
+  const ranges = (from, n, tail) => Array.from({ length: n }, (_, i) => (from + i) + '-' + (from + i) + (tail || '')).join(',');
+  const msg = (extra) => Object.assign({ text: 'a'.repeat(400), action: false, emotes: '', gifs: '', bits: 0, msgId: '' }, extra);
+  const zw = { provider: '7tv', id: '7tv:Z', name: 'Z', w: 28, h: 28, zw: true, urls: { 1: 'https://cdn.example/Z/1x.webp' } };
+  const opts = { lookup: (w) => (w === 'Z' ? zw : null), gifs: true, cheers: true };
+  const drawn = (m, types) => R.partsFor(tk.tokenize(msg(m), opts).items, { px: 24, dpr: 1, gifs: true })
+    .filter((p) => types.indexOf(p.t) >= 0).length;
+  const GU = '|id|https://media.giphy.com/media/abc/giphy.gif';
+  const caps = {
+    chars: tk.tokenize(msg({ text: 'b'.repeat(1500) }), opts).items.map((i) => i.text).join('').length,
+    emotes: drawn({ emotes: '25:' + ranges(0, 400) }, ['emote']),
+    images: drawn({ emotes: '25:' + ranges(0, 100), gifs: ranges(100, 300, GU) }, ['emote', 'gif']),
+    zw: tk.tokenize(msg({ text: 'a' + ' Z'.repeat(10), emotes: '25:0-0' }), opts).items[0].overlays.length
+  };
+  assert.deepStrictEqual(caps, { chars: 1000, emotes: R.MAX_IMAGES, images: 300, zw: 4 }, 'the scan measures the caps');
+  const home = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  [['README', /^- \*\*Size limits\.\*\* (.*)$/m.exec(README)], ['home page', /<dt>Size limits<\/dt><dd>([^<]*)<\/dd>/.exec(home)]]
+    .forEach((d) => {
+      assert.ok(d[1], d[0] + ' has a Size limits note');
+      const said = (re) => { const n = re.exec(d[1][1]); return n ? Number(n[1]) : null; };
+      assert.deepStrictEqual({
+        chars: said(/cut at (\d+) characters/), emotes: said(/at most (\d+) emote images/),
+        images: said(/(\d+) images in all/), zw: said(/at most (\d+) zero-width layers/)
+      }, caps, d[0] + '\'s Size limits note');
+    });
 });
 
 // The mentions row says what makes '@name' part of a longer name and gives examples either side of the rule. The
