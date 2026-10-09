@@ -233,7 +233,7 @@ test('a greyed-out field says what it waits for; a greyed-out switch shows off, 
   // Cards turns the shadow off: Shadow color says why it is greyed out.
   p.$('paste').value = '?shadow=0&badges=0';
   p.$('paste-load').dispatch('click');
-  assert.deepStrictEqual([needs('shadow_color').hidden, needs('shadow_color').textContent], [false, 'Needs Text shadow (Look).']);
+  assert.deepStrictEqual([needs('shadow_color').hidden, needs('shadow_color').textContent], [false, 'Needs Text shadow.']);
   // A help whose first line says it already gets no second line (Outline color).
   assert.strictEqual(needs('outline_color').hidden, true);
   // The platform icons: off without both channels, and the help says when they show.
@@ -252,20 +252,28 @@ test('a Needs line links to the setting it names: its tab opens, and the help th
   const links = (el) => el.children.filter((e) => /needs-link/.test(e.className));
   p.$('paste').value = '?shadow=0&outline=0';
   p.$('paste-load').dispatch('click');
-  // Shadow color is in Advanced; its line names Text shadow, on Look.
+  // Shadow color sits under Text shadow; its line names it, and the link goes there.
   const [toShadow] = links(needs('shadow_color'));
-  assert.deepStrictEqual([toShadow.tagName, toShadow.textContent], ['BUTTON', 'Text shadow (Look)']);
-  p.$('tab-advanced').dispatch('click');
+  assert.deepStrictEqual([toShadow.tagName, toShadow.textContent], ['BUTTON', 'Text shadow']);
   toShadow.dispatch('click');
   assert.strictEqual(p.$('tab-look').getAttribute('aria-selected'), 'true');
   assert.strictEqual(row('shadow').classList.contains('arrived'), true);
+  // On another tab, the line names that tab, and the link opens it: Exact text size (Advanced) for Text size.
+  p.$('paste').value = '?text_px=30';
+  p.$('paste-load').dispatch('click');
+  const [toPx] = links(needs('size').hidden ? p.$('h-size').children[0] : needs('size'));
+  assert.deepStrictEqual([toPx.tagName, toPx.textContent], ['BUTTON', 'Exact text size (Advanced)']);
+  toPx.dispatch('click');
+  assert.strictEqual(p.$('tab-advanced').getAttribute('aria-selected'), 'true');
+  p.$('paste').value = '?shadow=0&outline=0';
+  p.$('paste-load').dispatch('click');
   // Outline color's help says it already: the words there become the link, and plain again once outline is on.
   const lead = p.$('h-outline_color').children[0];
-  assert.deepStrictEqual(links(lead).map((b) => b.textContent), ['Text outline (Look)']);
-  assert.strictEqual(lead.textContent, 'Black by default. Needs Text outline (Look).');
+  assert.deepStrictEqual(links(lead).map((b) => b.textContent), ['Text outline']);
+  assert.strictEqual(lead.textContent, 'Black by default. Needs Text outline.');
   p.$('paste').value = '?outline=2';
   p.$('paste-load').dispatch('click');
-  assert.deepStrictEqual([links(lead).length, lead.textContent], [0, 'Black by default. Needs Text outline (Look).']);
+  assert.deepStrictEqual([links(lead).length, lead.textContent], [0, 'Black by default. Needs Text outline.']);
 });
 
 test('a stepper button says the new value, which the button that keeps the focus cannot', (t) => {
@@ -955,8 +963,8 @@ test('Badges & paints: the sources are one labelled grid under Show badges, with
   const p = open(t, HREF);
   const body = p.$('group-badges').children.filter((e) => e.className === 'fields')[0];
   assert.deepStrictEqual(body.children.map((e) => e.className + (e.getAttribute('data-key') ? ' ' + e.getAttribute('data-key') : '')),
-    ['field field-check badges', 'subgrid', 'field field-check paints', 'field field-check stv_lookup', 'field field-check readable',
-      'field field-range badge_size']);
+    ['field field-check badges', 'subgrid', 'field field-seg homies_lists', 'field field-check paints', 'field field-seg paint_images',
+      'field field-check stv_lookup', 'field field-check readable', 'field field-stepper readable_level', 'field field-range badge_size']);
   const grid = body.children[1];
   assert.deepStrictEqual([grid.tagName, grid.getAttribute('role'), grid.getAttribute('aria-label')], ['DIV', 'group', 'Badge sources']);
   // First the line that says what the switches wait for while they are greyed out (hidden till then).
@@ -967,15 +975,13 @@ test('Badges & paints: the sources are one labelled grid under Show badges, with
   rows.forEach((e) => assert.strictEqual(e.className, 'field field-check sub'));
   assert.deepStrictEqual([help.tagName, help.className], ['P', 'help']);
   assert.match(help.textContent, /^Twitch covers sub, mod, VIP and bits badges\./);
-  // No sub-heading here; the DankChat note, then "More in Advanced" to the lighter-on-PC switches.
+  // No sub-heading here, and nothing for it in Advanced: the DankChat note is the foot.
   assert.strictEqual(p.$('group-badges').byClass('subhead').length, 0);
-  assert.deepStrictEqual(p.$('group-badges').children.map((e) => e.className), ['section-head', 'fields', 'help section-foot', 'section-foot']);
+  assert.deepStrictEqual(p.$('group-badges').children.map((e) => e.className), ['section-head', 'fields', 'help section-foot']);
   // One rule over the two: the link's foot drops its own (a section with only one keeps its look).
   const css = fs.readFileSync(path.join(ROOT, 'css', 'builder.css'), 'utf8');
   assert.match(css, /\n\.section-foot \{ padding: 12px 0 4px; border-top: 1px solid var\(--border\); \}/);
   assert.match(css, /\n\.section-foot \+ \.section-foot \{ padding-top: 8px; border-top: 0; \}/);
-  const more = p.$('group-badges').children[3].children[0];
-  assert.deepStrictEqual([more.tagName, more.textContent, more.href], ['A', 'More in Advanced', '#adv-lighter']);
 });
 
 test('a field that only applies while another setting allows it is greyed out and back, after every kind of change', (t) => {
@@ -1030,10 +1036,16 @@ function watchFocus(focused) {
 
 test('a link to an Advanced sub-heading opens Advanced, and leaves the focus alone while the page loads', (t) => {
   const focused = [];
-  const p = open(t, HREF + '#adv-box', { setup: watchFocus(focused) });
+  const p = open(t, HREF + '#adv-layout', { setup: watchFocus(focused) });
   assert.strictEqual(p.$('group-advanced').hidden, false);
   assert.strictEqual(p.$('tab-advanced').getAttribute('aria-selected'), 'true');
   assert.deepStrictEqual(focused, []);
+});
+
+test('a link to a heading Advanced no longer has opens the tab its settings moved to', (t) => {
+  const p = open(t, HREF + '#adv-lighter');
+  assert.strictEqual(p.$('tab-badges').getAttribute('aria-selected'), 'true');
+  assert.strictEqual(p.$('group-advanced').hidden, true);
 });
 
 test('sub-headings go above their field; More in Advanced opens Advanced at its heading and moves the focus there', (t) => {
@@ -1050,26 +1062,26 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   });
   // Look starts with the quick looks, above its first heading.
   assert.deepStrictEqual(outline('group-look'), ['quick looks', 'Layout', 'layout', 'align', 'text_align', 'row_align', 'Text', 'size', 'font', 'text_weight',
-    'text_color', 'shadow', 'outline', 'Names', 'name_color', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate',
-    'enter_style']);
-  assert.deepStrictEqual(outline('group-advanced'), ['Text#adv-text', 'text_px',
-    'line_height', 'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'name_font', 'name_fallback',
-    'name_sep', 'readable_level', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade',
-    'row_sep', 'Animation#adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Highlights#adv-highlights',
-    'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color',
-    'mod_color', 'vip_color', 'Filters#adv-filters', 'allow_users', 'min_length', 'command_prefixes', 'Emotes#adv-emotes', 'gif_size',
-    'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists', 'Troubleshooting#adv-trouble', 'debug',
-    'demo']);
-  // Chat events: the Event types grid under its switch, and a heading over the mentions and timestamps (no anchor:
-  // only Advanced's headings have one).
-  assert.deepStrictEqual(outline('group-events'), ['events', null, 'replies', 'first_msg', 'shared', 'Highlights & timestamps', 'mentions',
-    'timestamps']);
-  // Filters: no heading, and its foot links Advanced's Filters.
-  assert.deepStrictEqual(outline('group-filters'), ['bots', 'hide_commands', 'block', 'block_words', 'links', 'role_filter']);
+    'text_color', 'shadow', 'shadow_color', 'shadow_style', 'outline', 'outline_color', 'Names', 'names', 'name_color', 'name_line',
+    'name_sep', 'Box', 'bg', 'bg_color', 'bg_shape', 'bg_width', 'accent_bar', 'Animation', 'animate', 'enter_style', 'enter_ms',
+    'smooth_scroll']);
+  assert.deepStrictEqual(outline('group-advanced'), ['Text#adv-text', 'text_px', 'line_height', 'text_case', 'Names#adv-names',
+    'name_weight', 'name_font', 'name_fallback', 'Layout#adv-layout', 'spacing', 'line_width', 'pad_x', 'edge_fade', 'row_sep',
+    'Highlights#adv-highlights', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style',
+    'broadcaster_color', 'mod_color', 'vip_color', 'Filters#adv-filters', 'allow_users', 'min_length', 'Emotes#adv-emotes',
+    'giant_emotes', 'Troubleshooting#adv-trouble', 'debug', 'demo']);
+  // Chat events: the Event types grid under its switch, each style and color under its switch, and a heading over the
+  // mentions and timestamps (no anchor: only Advanced's headings have one).
+  assert.deepStrictEqual(outline('group-events'), ['events', null, 'notice_color', 'notice_size', 'replies', 'reply_style', 'first_msg',
+    'first_msg_color', 'shared', 'Highlights & timestamps', 'mentions', 'mention_color', 'timestamps']);
+  // Filters: no heading, Command prefixes under Hide !commands, and its foot links Advanced's Filters.
+  assert.deepStrictEqual(outline('group-filters'), ['bots', 'hide_commands', 'command_prefixes', 'block', 'block_words', 'links',
+    'role_filter']);
   assert.strictEqual(p.$('group-filters').children[2].children[0].href, '#adv-filters');
   // Emotes: no sub-heading, the two sizes after the GIF switch, the row's switch for them after them (1.6.1), and its foot
   // links Advanced's Emotes.
-  assert.deepStrictEqual(outline('group-emotes'), ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only', 'row_grow']);
+  assert.deepStrictEqual(outline('group-emotes'), ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'gif_size', 'emote_scale', 'emote_only',
+    'row_grow']);
   assert.strictEqual(p.$('group-emotes').children[2].children[0].href, '#adv-emotes');
   const adv = fields('group-advanced').filter((e) => e.tagName === 'H3');
   adv.forEach((e) => assert.strictEqual(e.tabIndex, -1, e.id));
@@ -1078,7 +1090,7 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   assert.strictEqual(foot.className, 'section-foot');
   const link = foot.children[0];
   assert.deepStrictEqual([link.tagName, link.className, link.textContent, link.href], ['A', 'btn ghost', 'More in Advanced', '#adv-text']);
-  assert.strictEqual(p.$('group-events').children[2].children[0].href, '#adv-events');
+  assert.strictEqual(p.$('group-events').children[2].children[0].href, '#adv-highlights');
   // Followed: the hash changes, Advanced opens and its heading scrolls into view and takes the focus.
   const heading = adv.filter((e) => e.id === 'adv-text')[0];
   let scrolled = false;
@@ -1972,7 +1984,7 @@ test('Name contrast reads 4.5:1 and steps by 0.5; typed as 6.1 or 6.1:1; greyed 
   rd.checked = false;
   rd.dispatch('change');
   assert.deepStrictEqual([rowOf(p, 'readable_level').classList.contains('disabled'), rl.disabled, more.disabled], [true, true, true]);
-  assert.match(p.$('h-readable_level').textContent, /Brighten dark name colors \(Badges & paints\)/);
+  assert.match(p.$('h-readable_level').textContent, /Needs Brighten dark name colors;/);
 });
 
 test('Name contrast at either end: an arrow key stays there, and a ratio typed past it is that end', (t) => {
@@ -2364,14 +2376,14 @@ test('event types and filters: a labelled grid under Show subs…, greyed out wi
   [false, false, true, '!?#', ['spoiler', 'bad words'], ['kickfan', 'bad'], 'vips', 'shorten', 2]);
   assert.strictEqual(p.text('bar-url'), OVERLAY + '?hide_commands=1&command_prefixes=%21%3F%23&block_words=spoiler,bad+words' +
     '&allow_users=kickfan,bad&role_filter=vips&min_length=2&links=shorten&event_gifts=0&event_announcements=0');
-  // The counts: Filters has its three and Hide !commands, Advanced its three, Chat events the two switches.
-  assert.deepStrictEqual(['filters', 'advanced', 'events'].map((g) => p.text('count-' + g)), ['4', '3', '2']);
+  // The counts: Filters has its three, Hide !commands and Command prefixes, Advanced its two, Chat events the two switches.
+  assert.deepStrictEqual(['filters', 'advanced', 'events'].map((g) => p.text('count-' + g)), ['5', '2', '2']);
   assert.strictEqual(p.$('adv-filters').textContent, 'Filters');
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([p.text('bar-url'), cp.value, cp.disabled, p.$('f-block_words').value, ml.value], [OVERLAY, '!', true, '', 'Off']);
 });
 
-test('the animation options: live, greyed out while animate or fade is off (fade is on another tab), Messages links them', (t) => {
+test('the animation options: live, greyed out while animate or fade is off, each under its switch', (t) => {
   const p = open(t, HREF);
   t.mock.timers.tick(1000); // the demo preview loads
   const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
@@ -2385,16 +2397,15 @@ test('the animation options: live, greyed out while animate or fade is off (fade
   };
   const keys = ['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'];
   const state = () => keys.filter((k) => rowOf(p, k).classList.contains('disabled'));
-  // Messages: its foot links Advanced's Animation heading.
-  const foot = p.$('group-messages').children.filter((e) => e.className === 'section-foot')[0];
-  assert.deepStrictEqual([foot.children[0].textContent, foot.children[0].href], ['More in Advanced', '#adv-animation']);
-  assert.strictEqual(p.$('adv-animation').textContent, 'Animation');
+  // Messages: the fade-out length and the exit under Remove messages after, so nothing for it in Advanced.
+  assert.strictEqual(p.$('group-messages').children.filter((e) => e.className === 'section-foot').length, 0);
+  assert.strictEqual(p.$('adv-animation'), null);
   assert.strictEqual(p.$('l-animate').textContent, 'Animate new messages');
   // At the defaults fade is Never: the fade-out length and the exit wait for it.
   assert.deepStrictEqual(state(), ['fade_out_ms', 'exit_style']);
   const fo = p.$('f-fade_out_ms'), em = p.$('f-enter_ms');
   assert.deepStrictEqual([fo.value, fo.disabled, em.value, em.disabled], ['1000 ms', true, '180 ms', false]);
-  assert.match(p.$('h-fade_out_ms').textContent, /Needs Remove messages after \(Messages\)/);
+  assert.match(p.$('h-fade_out_ms').textContent, /Needs Remove messages after\./);
   p.$('f-fade').parentNode.children[2].dispatch('click');
   assert.deepStrictEqual(state(), []);
   // Off animate: the entrance only; the fade-out and the exit don't need it.
@@ -2423,8 +2434,8 @@ test('the animation options: live, greyed out while animate or fade is off (fade
   const last = posted[posted.length - 1].cfg;
   assert.deepStrictEqual([last.enter_style, last.enter_ms, last.fade_out_ms, last.exit_style, last.fade], ['pop', 200, 0, 'slide', 5]);
   assert.strictEqual(p.text('bar-url'), OVERLAY + '?enter_style=pop&enter_ms=200&fade=5&fade_out_ms=0&exit_style=slide');
-  // The counts: Look its entrance, Messages the fade, Advanced its three.
-  assert.deepStrictEqual(['look', 'messages', 'advanced'].map((g) => p.text('count-' + g)), ['1', '1', '3']);
+  // The counts: Look the entrance and its length, Messages the fade, its fade-out and the exit, Advanced none.
+  assert.deepStrictEqual(['look', 'messages', 'advanced'].map((g) => p.text('count-' + g)), ['2', '3', '']);
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([p.text('bar-url'), state(), fo.value, em.value], [OVERLAY, ['fade_out_ms', 'exit_style'], '1000 ms', '180 ms']);
 });

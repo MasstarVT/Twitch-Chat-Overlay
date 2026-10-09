@@ -809,34 +809,32 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting la
     });
     return out;
   };
+  // A setting that needs a switch sits right under it, on its tab.
   assert.deepStrictEqual(outline(g('look')), [
     ['Layout', 'layout', 'align', 'text_align', 'row_align'],
-    ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline'],
-    ['Names', 'name_color', 'name_line'],
-    ['Box', 'bg', 'bg_color', 'accent_bar'],
-    ['Animation', 'animate', 'enter_style']
+    ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'shadow_color', 'shadow_style', 'outline', 'outline_color'],
+    ['Names', 'names', 'name_color', 'name_line', 'name_sep'],
+    ['Box', 'bg', 'bg_color', 'bg_shape', 'bg_width', 'accent_bar'],
+    ['Animation', 'animate', 'enter_style', 'enter_ms', 'smooth_scroll']
   ]);
   assert.deepStrictEqual(outline(g('advanced')), [
-    ['Text #adv-text', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color'],
-    ['Names #adv-names', 'names', 'name_weight', 'name_font', 'name_fallback', 'name_sep', 'readable_level'],
-    ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
-    ['Layout #adv-layout', 'line_width', 'pad_x', 'edge_fade', 'row_sep'],
-    ['Animation #adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll'],
-    ['Chat events #adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style'],
-    ['Highlights #adv-highlights', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color',
+    ['Text #adv-text', 'text_px', 'line_height', 'text_case'],
+    ['Names #adv-names', 'name_weight', 'name_font', 'name_fallback'],
+    ['Layout #adv-layout', 'spacing', 'line_width', 'pad_x', 'edge_fade', 'row_sep'],
+    ['Highlights #adv-highlights', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color',
       'role_style', 'broadcaster_color', 'mod_color', 'vip_color'],
-    ['Filters #adv-filters', 'allow_users', 'min_length', 'command_prefixes'],
-    ['Emotes #adv-emotes', 'gif_size', 'giant_emotes'],
-    ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists'],
+    ['Filters #adv-filters', 'allow_users', 'min_length'],
+    ['Emotes #adv-emotes', 'giant_emotes'],
     ['Troubleshooting #adv-trouble', 'debug', 'demo']
   ]);
-  // Chat events: the event types right under their switch, the mentions and the timestamps last, under a heading of
-  // their own.
+  // Chat events: the event types right under their switch, each color and style under its switch, the mentions and
+  // the timestamps last, under a heading of their own.
   assert.deepStrictEqual(g('events').keys, ['events', 'event_subs', 'event_gifts', 'event_raids', 'event_bits_badge',
-    'event_announcements', 'replies', 'first_msg', 'shared', 'mentions', 'timestamps']);
+    'event_announcements', 'notice_color', 'notice_size', 'replies', 'reply_style', 'first_msg', 'first_msg_color', 'shared',
+    'mentions', 'mention_color', 'timestamps']);
   assert.deepStrictEqual(g('events').subs, [{ title: 'Highlights & timestamps', first: 'mentions' }]);
-  // Filters: the common three after what is there, the rest under Advanced's Filters.
-  assert.deepStrictEqual(g('filters').keys, ['bots', 'hide_commands', 'block', 'block_words', 'links', 'role_filter']);
+  // Filters: Command prefixes under Hide !commands, the rest under Advanced's Filters.
+  assert.deepStrictEqual(g('filters').keys, ['bots', 'hide_commands', 'command_prefixes', 'block', 'block_words', 'links', 'role_filter']);
   assert.strictEqual(g('filters').more, 'adv-filters');
   assert.deepStrictEqual(builder.META.role_filter.options, { all: 'Everyone', subs: 'Subs+', vips: 'VIPs+', mods: 'Mods' });
   assert.strictEqual(builder.META.role_filter.wrap, true);
@@ -874,7 +872,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting la
   assert.match(builder.META.min_length.help, /4 hides gg, o7 and LUL/);
   assert.match(builder.META.allow_users.help, /notices still show/);
   assert.match(builder.META.role_filter.help, /broadcaster always shows/);
-  assert.match(builder.META.hide_commands.help, /Command prefixes \(Advanced\)/);
+  assert.match(builder.META.hide_commands.help, /Command prefixes \(below\)/);
   // Every sign Command prefixes takes is named in its help and its error text.
   config.PREFIX_CHARS.split('').forEach((ch) => {
     assert.ok(builder.META.command_prefixes.help.indexOf(' ' + ch) >= 0, ch);
@@ -906,16 +904,16 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting la
   assert.strictEqual(builder.widgetFor('name_font'), 'font');
   assert.strictEqual(builder.widgetFor('readable_level'), 'stepper');
   // The common sizes are on their own tabs, after what is there already.
-  assert.deepStrictEqual(g('emotes').keys, ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only', 'row_grow']);
-  assert.deepStrictEqual(g('badges').keys.slice(-4), ['paints', 'stv_lookup', 'readable', 'badge_size']);
+  assert.deepStrictEqual(g('emotes').keys, ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'gif_size', 'emote_scale', 'emote_only',
+    'row_grow']);
+  assert.deepStrictEqual(g('badges').keys.slice(-8), ['badges_homies', 'homies_lists', 'paints', 'paint_images', 'stv_lookup', 'readable',
+    'readable_level', 'badge_size']);
   assert.strictEqual(g('look').more, 'adv-text');
-  assert.strictEqual(g('events').more, 'adv-events');
+  assert.strictEqual(g('events').more, 'adv-highlights');
   assert.strictEqual(g('emotes').more, 'adv-emotes');
-  assert.strictEqual(g('badges').more, 'adv-lighter');
-  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'messages', 'events', 'filters', 'emotes', 'badges']);
-  // Messages: as before, and its foot links Advanced's Animation (the fade-out length and the exit).
-  assert.deepStrictEqual(g('messages').keys, ['fade', 'max', 'history']);
-  assert.strictEqual(g('messages').more, 'adv-animation');
+  assert.deepStrictEqual(builder.GROUPS.filter((x) => x.more).map((x) => x.id), ['look', 'events', 'filters', 'emotes']);
+  // Messages: the fade-out length and the exit right under Remove messages after.
+  assert.deepStrictEqual(g('messages').keys, ['fade', 'fade_out_ms', 'exit_style', 'max', 'history']);
   assert.deepStrictEqual(builder.META.emote_only.options, { normal: 'Normal', big: 'Big', huge: 'Huge' });
   assert.deepStrictEqual(builder.segValues('gif_size').map((v) => v.label), ['1×', '2×', '3×']);
   assert.match(builder.META.gif_size.help, /The demo has no GIF/);
@@ -944,10 +942,16 @@ test('whyOff: every field that can be greyed out says what it waits for, and not
     const cfg = Object.assign({}, d, off);
     if (builder.fieldOff(k, cfg)) assert.match(builder.whyOff(k, cfg), /^(Needs|Not|In a|Only) .*\.$/, k);
   });
-  assert.strictEqual(builder.whyOff('shadow_color', Object.assign({}, d, { shadow: 0 })), 'Needs Text shadow (Look).');
+  // A setting waits on a switch of its own tab: none of them sends you to another tab (Advanced included) to turn it on.
+  Object.keys(builder.META).filter((k) => builder.META[k].when).forEach((k) => {
+    const why = builder.whyOff(k, Object.assign({}, d, off));
+    if (/^Needs/.test(why)) assert.doesNotMatch(why, / \(/, k);
+  });
+  assert.strictEqual(builder.whyOff('shadow_color', Object.assign({}, d, { shadow: 0 })), 'Needs Text shadow.');
+  assert.strictEqual(builder.whyOff('name_sep', Object.assign({}, d, { names: false })), 'Needs Show names.');
   assert.strictEqual(builder.whyOff('exit_style', Object.assign({}, d, { fade: 30, fade_out_ms: 0 })),
     'Needs a Fade-out length other than Instant.');
-  assert.strictEqual(builder.whyOff('name_sep', Object.assign({}, d, { name_line: true })), 'Not drawn under Name on its own line (Look).');
+  assert.strictEqual(builder.whyOff('name_sep', Object.assign({}, d, { name_line: true })), 'Not drawn under Name on its own line.');
 });
 
 test('the look options grey out while the setting they need is off, and their help names it', () => {
@@ -971,10 +975,10 @@ test('the look options grey out while the setting they need is off, and their he
     gif_size: [{ gifs: false }, {}, 'Show GIFs posted in chat'],
     name_fallback: [{ name_color: 'ff8800' }, {}, 'Name color (Look)'],
     name_sep: [{ names: false }, {}, 'Show names'],
-    readable_level: [{ readable: false }, {}, 'Brighten dark name colors (Badges & paints)'],
+    readable_level: [{ readable: false }, {}, 'Needs Brighten dark name colors'],
     readable: [{ name_color: 'ff8800' }, { name_fallback: 'ff8800' }, 'Not used while a Name color (Look) is set'],
     reply_style: [{ replies: false }, {}, 'Show what replies are answering'],
-    mention_color: [{}, { mentions: 'at', channel: 'home' }, 'Highlight channel mentions (Chat events)'],
+    mention_color: [{}, { mentions: 'at', channel: 'home' }, 'Needs Highlight channel mentions'],
     mentions: [{ mentions: 'at' }, { mentions: 'at', channel: 'home' }, 'Needs a Twitch or Kick channel'],
     platform_icons: [{ kick: 'kickname' }, { channel: 'home', kick: 'kickname' }, 'a Twitch and a Kick channel'],
     keyword_color: [{}, { keywords: ['gg'] }, 'Highlight words'],
@@ -982,12 +986,12 @@ test('the look options grey out while the setting they need is off, and their he
     broadcaster_color: [{ role_style: 'off' }, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
     mod_color: [{}, { role_style: 'tint' }, 'Mark broadcaster, mods, VIPs'],
     vip_color: [{}, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
-    command_prefixes: [{}, { hide_commands: true }, 'Hide !commands (Filters)'],
+    command_prefixes: [{}, { hide_commands: true }, 'Needs Hide !commands'],
     enter_style: [{ animate: false }, {}, 'Animate new messages'],
-    enter_ms: [{ animate: false }, {}, 'Animate new messages (Look)'],
-    fade_out_ms: [{}, { fade: 30 }, 'Remove messages after (Messages)'],
-    exit_style: [{ fade: 0 }, { fade: 5 }, 'Remove messages after (Messages) and a Fade-out length other than Instant'],
-    smooth_scroll: [{ animate: false }, {}, 'Animate new messages on (Look)']
+    enter_ms: [{ animate: false }, {}, 'Needs Animate new messages'],
+    fade_out_ms: [{}, { fade: 30 }, 'Needs Remove messages after'],
+    exit_style: [{ fade: 0 }, { fade: 5 }, 'Needs Remove messages after and a Fade-out length other than Instant'],
+    smooth_scroll: [{ animate: false }, {}, 'Animate new messages on.']
   };
   // The highlight word color is for the users too.
   assert.strictEqual(off('keyword_color', { highlight_users: ['a'] }), false);
@@ -1004,7 +1008,7 @@ test('the look options grey out while the setting they need is off, and their he
   assert.strictEqual(off('name_sep', { name_line: true }), true);
   assert.strictEqual(off('name_sep', { name_line: true, layout: 'horizontal' }), true);
   assert.strictEqual(off('name_sep', { layout: 'horizontal' }), false);
-  assert.match(builder.META.name_sep.help, /isn’t drawn under Name on its own line \(Look\)\./);
+  assert.match(builder.META.name_sep.help, /isn’t drawn under Name on its own line\./);
   assert.doesNotMatch(builder.META.name_sep.help, /vertical layout/);
   assert.strictEqual(off('readable_level', { name_color: 'ff8800' }), true);
   assert.strictEqual(off('readable_level', { name_fallback: 'ff8800' }), false);
@@ -1153,7 +1157,7 @@ test('the animation options: labels, steppers and what each needs', () => {
   assert.match(m.enter_ms.help, /its fade-out waits for the entrance to end and takes the time left/);
   assert.match(m.exit_style.help, /up, down when new messages appear at the top, or left in a row/);
   assert.match(m.enter_style.help, /older messages still glide left/);
-  // Smooth scrolling: a switch in Advanced > Animation, for a column with animate on; it says what still jumps.
+  // Smooth scrolling: a switch in Look > Animation, for a column with animate on; it says what still jumps.
   assert.strictEqual(m.smooth_scroll.label, 'Smooth scrolling');
   assert.strictEqual(builder.widgetFor('smooth_scroll'), 'check');
   assert.ok(builder.isLiveKey('smooth_scroll'));
@@ -1161,7 +1165,7 @@ test('the animation options: labels, steppers and what each needs', () => {
     off('smooth_scroll', { layout: 'horizontal' })], [false, false, true, true]);
   assert.match(m.smooth_scroll.help, /down when new messages appear at the top/);
   assert.match(m.smooth_scroll.help, /removed from the middle.*still closes its gap at once/);
-  assert.strictEqual(builder.groupCounts(Object.assign(config.defaults(), { smooth_scroll: true })).advanced, 1);
+  assert.strictEqual(builder.groupCounts(Object.assign(config.defaults(), { smooth_scroll: true })).look, 1);
 });
 
 test('sectionFromHash: an Advanced sub-heading id opens Advanced; every other hash as before', () => {
@@ -1175,6 +1179,9 @@ test('sectionFromHash: an Advanced sub-heading id opens Advanced; every other ha
   assert.strictEqual(builder.sectionFromHash('#obs', null, adv), 'obs');
   assert.strictEqual(builder.sectionFromHash('#group-filters', null, adv), 'filters');
   assert.strictEqual(builder.sectionFromHash('#advanced', null, adv), 'advanced');
+  // Headings Advanced no longer has: their settings moved to the tab of the switch they need, which an old link opens.
+  assert.deepStrictEqual(['#adv-box', '#adv-animation', '#ADV-Events', '#adv-lighter'].map((h) => builder.sectionFromHash(h)),
+    ['look', 'look', 'events', 'badges']);
 });
 
 test('subgrids: a block of switches in the section of the switch that rules them, greyed out while it is off', () => {
