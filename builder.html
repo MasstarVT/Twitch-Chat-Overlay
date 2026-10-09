@@ -67,11 +67,16 @@
           <label><input type="radio" name="pmode" value="demo" checked><span>Demo</span></label>
           <label><input type="radio" name="pmode" value="live"><span>Live chat</span></label>
         </div>
-        <div class="swatches" role="radiogroup" aria-label="Preview background">
-          <label title="Dark scene"><input type="radio" name="backdrop" value="dark" checked><span class="sw sw-dark"></span><span class="sr-only">Dark scene</span></label>
-          <label title="Light scene"><input type="radio" name="backdrop" value="light"><span class="sw sw-light"></span><span class="sr-only">Light scene</span></label>
-          <label title="Checkerboard"><input type="radio" name="backdrop" value="checker"><span class="sw sw-checker"></span><span class="sr-only">Checkerboard</span></label>
-          <label title="Busy game"><input type="radio" name="backdrop" value="busy"><span class="sw sw-busy"></span><span class="sr-only">Busy game</span></label>
+        <!-- The chosen background's name, beside its swatches where the bar has room for it whole (css .backdrop);
+             a screen reader has each swatch's own name. -->
+        <div class="backdrop">
+          <div class="swatches" role="radiogroup" aria-label="Preview background">
+            <label title="Dark scene"><input type="radio" name="backdrop" value="dark" checked><span class="sw sw-dark"></span><span class="sr-only">Dark scene</span></label>
+            <label title="Light scene"><input type="radio" name="backdrop" value="light"><span class="sw sw-light"></span><span class="sr-only">Light scene</span></label>
+            <label title="Checkerboard"><input type="radio" name="backdrop" value="checker"><span class="sw sw-checker"></span><span class="sr-only">Checkerboard</span></label>
+            <label title="Busy game"><input type="radio" name="backdrop" value="busy"><span class="sw sw-busy"></span><span class="sr-only">Busy game</span></label>
+          </div>
+          <span id="bd-name" class="bd-name" aria-hidden="true">Dark scene</span>
         </div>
         <div class="size" role="group" aria-label="Source size in pixels">
           <span class="size-name" aria-hidden="true">Source size</span>
@@ -201,6 +206,8 @@
 
       <div class="panel-foot">
         <button id="reset" class="btn ghost" type="button">Reset to defaults</button>
+        <!-- Offered after a Reset until the next change: puts back the settings from before it (builder.js). -->
+        <button id="reset-undo" class="btn ghost" type="button" hidden>Undo reset</button>
         <p class="foot-note">Settings are remembered in this browser.</p>
       </div>
     </main>

@@ -2325,7 +2325,7 @@ function looks(p) {
   };
 }
 
-test('Quick look: a row of five buttons at the top of Look, Default pressed at the defaults, Undo off', (t) => {
+test('Quick look: a row of five buttons at the top of Look, Default pressed at the defaults, Undo hidden', (t) => {
   const p = open(t, HREF);
   const L = looks(p);
   assert.strictEqual(L.row.className, 'field field-presets span-all');
@@ -2349,7 +2349,7 @@ test('Quick look: a row of five buttons at the top of Look, Default pressed at t
   assert.deepStrictEqual(L.btns.map((b) => [b.className, b.getAttribute('aria-pressed')]),
     [['btn primary', 'true'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false']]);
   assert.deepStrictEqual([L.undo.textContent, L.undo.className, L.undo.type, L.undo.getAttribute('aria-label'), L.undo.disabled,
-    !!L.undo.hidden], ['Undo', 'btn ghost', 'button', 'Undo quick look', true, false]);
+    !!L.undo.hidden], ['Undo', 'btn ghost', 'button', 'Undo quick look', true, true]);
   assert.strictEqual(p.text('count-look'), '', 'the row is no changed setting');
 });
 
@@ -2369,20 +2369,65 @@ test('Quick look help: its first sentence names every setting a look sets', (t) 
   Object.keys(phrase).forEach((k) => assert.ok(said.indexOf(phrase[k]) >= 0, 'the help names ' + k + ' ("' + phrase[k] + '"): ' + said));
 });
 
-test('a quick look click never moves the buttons: Undo is always in the row, only switched on and off', (t) => {
+// Shown but off, Undo read as a sixth look: it is hidden until there is a look to undo, and comes in last.
+test('a quick look click never moves the buttons: Undo, last in the row, shows only while there is a look to undo', (t) => {
   const p = open(t, HREF);
   const L = looks(p);
   const shape = () => L.group.children.map((b) => [b.textContent, !!b.hidden]);
-  const before = shape();
-  assert.strictEqual(before.length, 6);
+  const looksOnly = () => shape().slice(0, -1);
+  const before = looksOnly();
+  assert.strictEqual(shape().length, 6);
+  const undoShown = () => [!L.undo.hidden, !L.undo.disabled];
+  assert.deepStrictEqual(undoShown(), [false, false]);
   L.click('Boxed');
-  assert.deepStrictEqual([shape(), L.undo.disabled], [before, false]);
+  assert.deepStrictEqual([looksOnly(), undoShown()], [before, [true, true]]);
   L.click('Outlined');
   L.undo.dispatch('click');
-  assert.deepStrictEqual([shape(), L.undo.disabled], [before, true]);
+  assert.deepStrictEqual([looksOnly(), undoShown()], [before, [false, false]]);
   L.click('Cards');
   p.$('reset').dispatch('click');
-  assert.deepStrictEqual([shape(), L.undo.disabled], [before, true]);
+  assert.deepStrictEqual([looksOnly(), undoShown()], [before, [false, false]]);
+});
+
+test('Reset to defaults offers Undo reset until the next change; it puts every setting back', (t) => {
+  const p = open(t, HREF);
+  const undo = p.$('reset-undo');
+  assert.deepStrictEqual([undo.textContent, !!undo.hidden], ['Undo reset', true]);
+  // At the defaults already: nothing to undo.
+  p.$('reset').dispatch('click');
+  assert.strictEqual(!!undo.hidden, true);
+  const bots = p.$('f-bots');
+  bots.checked = true;
+  bots.dispatch('change');
+  looks(p).click('Boxed');
+  const mine = p.text('bar-url');
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([p.text('bar-url'), !!undo.hidden], [OVERLAY, false]);
+  undo.dispatch('click');
+  t.mock.timers.tick(100);
+  assert.deepStrictEqual([p.text('bar-url'), !!undo.hidden, p.text('sr-status')], [mine, true, 'Reset undone']);
+  // Any other change takes it away.
+  p.$('reset').dispatch('click');
+  assert.strictEqual(!!undo.hidden, false);
+  bots.checked = true;
+  bots.dispatch('change');
+  assert.strictEqual(!!undo.hidden, true);
+  bots.checked = false;
+  bots.dispatch('change');
+  p.$('reset').dispatch('click');
+  assert.strictEqual(!!undo.hidden, true, 'back at the defaults: nothing for a reset to undo');
+});
+
+test('Copy URL is outlined until there is a channel: the channel field is the one purple thing to act on', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => ({ status: 200, ok: true, headers: { get: () => null }, text: async () => '[]' }));
+  const p = open(t, HREF);
+  const copy = p.$('bar-copy');
+  assert.strictEqual(copy.classList.contains('alt'), true, 'no channel yet');
+  p.$('paste').value = '?channel=somebody';
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(copy.classList.contains('alt'), false);
+  await settle();
 });
 
 test('a quick look: the form, the URL and the preview follow, live, with a bad channel name too; nothing else changes', (t) => {

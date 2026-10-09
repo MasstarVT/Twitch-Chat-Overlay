@@ -1656,8 +1656,8 @@
   }
 
   // The Quick look row at the top of Look: a button per look (the one the settings are at is pressed), then Undo,
-  // off until a click. Undo is always there, so a click never moves the buttons from under the pointer. Like a
-  // field, without a setting's name: it is no setting of its own.
+  // hidden until a click changes the look (shown but off, it read as a sixth look). It comes in last, so the looks
+  // never move from under the pointer. Like a field, without a setting's name: it is no setting of its own.
   function buildPresets() {
     var row = h('div', 'field field-presets span-all');
     var head = h('div', 'field-head'), name = h('div', 'field-name');
@@ -1680,6 +1680,7 @@
     undo.type = 'button';
     undo.setAttribute('aria-label', 'Undo quick look');
     undo.disabled = true;
+    undo.hidden = true;
     undo.addEventListener('click', undoPreset);
     btns.appendChild(undo);
     B.presetUndoBtn = undo;
@@ -2006,6 +2007,7 @@
     // was touched), and the note on what a settings.js did stays.
     if (!auto) {
       dropPresetUndo();
+      dropResetUndo();
       B.fileNote = '';
     }
     syncDisabled();
@@ -2022,6 +2024,7 @@
   function replaceCfg(next) {
     var prev = B.cfg, reload = false;
     dropPresetUndo();
+    dropResetUndo();
     ['font', 'name_font'].forEach(function (k) {
       if (typeof next[k] === 'string' && next[k]) next[k] = config.canonicalFont(next[k]);
     });
@@ -2067,13 +2070,15 @@
         B.presetUndo = {};
         PRESET_KEYS.forEach(function (k) { B.presetUndo[k] = B.cfg[k]; });
       }
+      dropResetUndo();
       writePresetKeys(next);
       B.presetUndoBtn.disabled = false;
+      B.presetUndoBtn.hidden = false; // the focus stays on the look clicked
     }
     announce('Applied ' + p.label);
   }
 
-  // Undo: the PRESET_KEYS settings as they were before the run, and only those. The button goes off, so the focus
+  // Undo: the PRESET_KEYS settings as they were before the run, and only those. The button goes, so the focus
   // moves to the look now pressed, or the first.
   function undoPreset() {
     var snap = B.presetUndo;
@@ -2081,6 +2086,7 @@
     B.presetUndo = null;
     writePresetKeys(snap);
     B.presetUndoBtn.disabled = true;
+    B.presetUndoBtn.hidden = true;
     focusPreset();
     announce('Quick look undone');
   }
@@ -2097,7 +2103,19 @@
     if (!u || u.disabled) return;
     var had = document.activeElement === u;
     u.disabled = true;
-    if (had) focusPreset(); // a disabled button drops the focus to the page
+    u.hidden = true;
+    if (had) focusPreset(); // a hidden button drops the focus to the page
+  }
+
+  // Undo reset goes with the next change too. If it had the focus, Reset beside it takes it.
+  function dropResetUndo() {
+    B.resetUndo = null;
+    var u = $('reset-undo');
+    if (!u || u.hidden) return;
+    var had = document.activeElement === u;
+    u.hidden = true;
+    var r = $('reset');
+    if (had && r.focus) r.focus();
   }
 
   // The look the settings are at is pressed, filled like the main button (aria-pressed says so to assistive tech).
@@ -2367,6 +2385,9 @@
       n.textContent = note.text;
     }
     n.className = 'status' + (note.cls ? ' ' + note.cls : '');
+    // Without a channel the URL only shows a hint in OBS: Copy URL stays (its note says what is missing) but outlined,
+    // so the channel field that still wants a name is the one purple thing to act on.
+    $('bar-copy').classList.toggle('alt', !channelOn(B.cfg));
     $('tab-obs').classList.toggle('nudge', !!note.parts && !B.ui.obsSeen && B.ui.section !== OBS_SECTION);
   }
 
@@ -2435,16 +2456,19 @@
   // A button's words: its .lbl when it also holds an icon, else the button itself.
   function labelOf(btn) { return (btn.querySelector && btn.querySelector('.lbl')) || btn; }
 
-  function flash(btn, text) {
+  // A button says for a moment what it did. bad: it didn't (a copy the browser refused), so not in the done green.
+  function flash(btn, text, bad) {
     if (!btn) return;
     var lbl = labelOf(btn);
     if (!btn.getAttribute('data-label')) btn.setAttribute('data-label', lbl.textContent);
     lbl.textContent = text;
     btn.classList.add('flash');
+    if (bad) btn.classList.add('fail'); else btn.classList.remove('fail');
     clearTimeout(btn._tcoTimer);
     btn._tcoTimer = setTimeout(function () {
       lbl.textContent = btn.getAttribute('data-label');
       btn.classList.remove('flash');
+      btn.classList.remove('fail');
     }, FLASH_MS);
     announce(text);
   }
@@ -2481,7 +2505,7 @@
   // navigator.clipboard needs a secure context (not OBS docks / LAN http); fall back to execCommand.
   function copyText(text, btn, fallbackNode, then) {
     var done = function (ok) {
-      flash(btn, ok ? 'Copied!' : 'Press Ctrl+C');
+      flash(btn, ok ? 'Copied!' : 'Press Ctrl+C', !ok);
       if (!ok && fallbackNode) selectNode(fallbackNode);
       if (then) then(ok);
     };
@@ -2808,6 +2832,12 @@
     var stage = $('stage');
     BACKDROPS.forEach(function (b) { stage.classList.remove('bd-' + b); });
     stage.classList.add('bd-' + v);
+    // its name beside the swatches: its swatch's tooltip
+    var name = $('bd-name'), label = null;
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="backdrop"]'), function (r) {
+      if (r.value === v) label = r.parentNode.getAttribute('title');
+    });
+    if (name && label) name.textContent = label;
   }
 
   function wirePreview() {
@@ -2980,7 +3010,7 @@
     });
     $('settings-dl').addEventListener('click', function () {
       var ok = download('settings.js', $('out-settings').textContent);
-      flash($('settings-dl'), ok ? 'Downloaded' : 'Download failed: copy it instead');
+      flash($('settings-dl'), ok ? 'Downloaded' : 'Download failed: copy it instead', !ok);
     });
     // Reached with the keyboard, the URL is selected whole, ready for Ctrl+C.
     $('bar-url').addEventListener('focus', function () {
@@ -2999,12 +3029,27 @@
     });
     setRoute(B.route);
     $('reset').addEventListener('click', function () {
-      var d = config.defaults();
+      var d = config.defaults(), before = copyCfg(B.cfg);
       d.channel = B.cfg.channel;
       d.kick = B.cfg.kick;
       d.kick_room = B.cfg.kick_room;
+      var changes = config.KEYS.some(function (k) { return !sameValue(before[k], d[k]); });
       replaceCfg(d);
       flash($('reset'), 'Reset');
+      // Undo reset is offered beside it until the next change. The focus stays on Reset.
+      if (changes) {
+        B.resetUndo = before;
+        $('reset-undo').hidden = false;
+        announce('Settings reset to their defaults. Undo reset is next.');
+      }
+    });
+    $('reset-undo').addEventListener('click', function () {
+      var snap = B.resetUndo;
+      if (!snap) return;
+      replaceCfg(snap); // which takes Undo reset away
+      var r = $('reset');
+      if (r.focus) r.focus();
+      announce('Reset undone');
     });
   }
 
@@ -3137,6 +3182,7 @@
       presetBtns: null, // quick look id -> its button (buildPresets)
       presetUndoBtn: null,
       presetUndo: null, // the PRESET_KEYS settings from before a run of quick looks, while Undo is offered
+      resetUndo: null, // the settings from before Reset, while Undo reset is offered
       started: false // start() is done: a hash from now on comes from the user
     };
     var u = loadStored(STORE_UI);
