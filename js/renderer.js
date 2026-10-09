@@ -115,8 +115,11 @@
   // below, and so .2em above too (--emote-drop: equal margins keep it centred on the text). A row draws GIFs at emote
   // height whatever gif_size is, with the same margins written into its own rule (.layout-horizontal .gif), so
   // --gif-margin is a column's. It is set on #chat, where --emote-h, --line-height and the others are too, so the var()s
-  // below take #chat's values.
+  // below take #chat's values. With those .05em sides a GIF wider than its line is fitted to the line less its sides
+  // (--gif-maxw, as .cheer-img is), so it ends where the line's other text does instead of .05em past it; the 100% and
+  // the .1em are worked out on the GIF itself (its line's width, its own em). 2x and 3x have no sides: 100%, as ever.
   var GIF_MUL = { '1x': '1', '2x': '2' };
+  var GIF_1X_MAXW = 'calc(100% - .1em)';
   var EMOTE_ROOM = 'var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), ' +
     '(2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)';
   var GIF_1X_MARGIN = 'calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), ' + EMOTE_ROOM + '))) .05em ' +
@@ -777,8 +780,9 @@
     return out;
   }
 
-  // emoteOnly: the line is one modelFor found to be emotes alone (emote_only=big/huge, in a column).
-  function lineClasses(msg, cfg, kind, action, emoteOnly) {
+  // emoteOnly: the line is one modelFor found to be emotes alone (emote_only=big/huge, in a column). rtl: a row's message
+  // that starts right to left (startsRtl): the stylesheet gives it a box of its own, to end in its own ellipsis.
+  function lineClasses(msg, cfg, kind, action, emoteOnly, rtl) {
     var c = ['line'];
     if (kind === 'notice') {
       c.push('notice');
@@ -797,6 +801,7 @@
         c.push.apply(c, highlightClasses(msg, cfg, highlighted));
       }
       if (emoteOnly) c.push('emote-only');
+      if (rtl) c.push('rtl');
     }
     if (msg.mirrored) c.push('mirrored');
     if (typeof msg.platform === 'string' && Object.prototype.hasOwnProperty.call(LINE_PLATFORMS, msg.platform)) c.push('platform-' + msg.platform);
@@ -1027,8 +1032,11 @@
   // What overlay.js's chat filters match against, built once per cfg object in a WeakMap like MATCHERS (onMessage
   // makes a new cfg for every live change, and copies its properties, so nothing is stored on it). block: block_words
   // as one pattern, matched like keywords (any letter case, whole words at its ends, the text as drawn; hasWords).
-  // command: a message that starts with one of command_prefixes after any spaces, every sign escaped in the class, so
-  // '-' and '^' stand for themselves ('!' when there are none, as before the setting).
+  // command: a message that starts with one of command_prefixes after any spaces, followed straight away by a letter or
+  // a digit: the command's name ('!points', '?song', '!8ball', '!été'). A sign alone, or with more signs or a space after
+  // it, is chat ('!!!', '! wow', '???', ':)', '...', '-_-'; renderer-css round 3: these were hidden too). With ':' a
+  // message such as ':D' still counts (D is a letter). Signs are escaped in the class where they could mean something
+  // there, so '-' and '^' stand for themselves ('!' when there are none, as before the setting).
   var FILTERS = new WeakMap();
   function buildFilters(c) {
     var out = { block: null, command: null };
@@ -1039,9 +1047,13 @@
     }
     if (pats.length) out.block = makeRe(pats.join('|'));
     var pre = typeof c.command_prefixes === 'string' ? c.command_prefixes : '', cls = '';
-    // ASCII signs only: a backslash before any of them is the sign itself (no u flag), never a class like \d.
-    for (var j = 0; j < pre.length; j++) if (/^[!-\/:-@\[-`{-~]$/.test(pre.charAt(j))) cls += '\\' + pre.charAt(j);
-    out.command = new RegExp('^\\s*[' + (cls || '\\!') + ']');
+    // ASCII signs only. The u flag (for \p{L}) takes a backslash in a class only before a sign with a meaning of its own
+    // and '/' or '-' (any other escaped sign is a SyntaxError), so only those get one; the rest are themselves as they are.
+    for (var j = 0; j < pre.length; j++) {
+      var ch = pre.charAt(j);
+      if (/^[!-\/:-@\[-`{-~]$/.test(ch)) cls += (/^[\^$\\.*+?()[\]{}|\/\-]$/.test(ch) ? '\\' : '') + ch;
+    }
+    out.command = new RegExp('^\\s*[' + (cls || '!') + '](?=[\\p{L}\\p{N}])', 'u');
     return out;
   }
   function filtersFor(c) {
@@ -1108,6 +1120,28 @@
     var last = parts[parts.length - 1];
     if (last && last.t === 'text') last.s += s;
     else parts.push({ t: 'text', s: s });
+  }
+
+  // Whether text starts right to left: its first letter (or direction mark) is a right-to-left one, as the stylesheet's
+  // unicode-bidi: plaintext finds it (Unicode's rule P2). Digits, signs, spaces and emoji have no direction of their own
+  // and are passed over. Right to left: the letters of the blocks given to Hebrew, Arabic, Syriac, Thaana, N'Ko and the
+  // other right-to-left scripts (U+0590 to U+08FF, their presentation forms, and U+10800 to U+10FFF and U+1E800 to
+  // U+1EFFF above U+FFFF), and the right-to-left and Arabic letter marks. A message or a reply's quote that does is drawn
+  // in a box of its own wherever it ends in an ellipsis (a row, a reply header), so it is cut at its own end: the box it
+  // is in otherwise runs left to right, and cuts it at its start, which right-to-left text has on the right.
+  var FIRST_STRONG_RE = /[\p{L}\u200E\u200F\u061C]/u;
+  function startsRtl(text) {
+    var m = typeof text === 'string' ? FIRST_STRONG_RE.exec(text) : null;
+    if (!m) return false;
+    var cp = m[0].codePointAt(0);
+    return cp === 0x200F || (cp >= 0x590 && cp <= 0x8FF) || (cp >= 0xFB1D && cp <= 0xFDFF) || (cp >= 0xFE70 && cp <= 0xFEFF) ||
+      (cp >= 0x10800 && cp <= 0x10FFF) || (cp >= 0x1E800 && cp <= 0x1EFFF);
+  }
+  // The text a message's parts draw, in order (emotes, cheers and GIFs are pictures, with no direction of their own).
+  function partsText(parts) {
+    var s = '';
+    for (var i = 0; i < parts.length; i++) if (parts[i].t === 'text') s += parts[i].s;
+    return s;
   }
 
   // emote_only: a message of emote images alone (cheers and GIFs are not emotes), with no text but blanks between
@@ -1249,18 +1283,21 @@
     var eo = cfg.layout !== 'horizontal' && Object.prototype.hasOwnProperty.call(EMOTE_ONLY, cfg.emote_only)
       ? EMOTE_ONLY[cfg.emote_only] : 0;
     var only = eo > 0 && emoteOnly(d.items);
+    var parts = partsFor(d.items, { px: px, dpr: dpr, flatBig: cfg.layout === 'horizontal', gifs: cfg.gifs !== false,
+      scale: sizeScale(cfg.emote_scale), giant: cfg.giant_emotes !== false, eo: only ? eo : 1,
+      gifMul: Object.prototype.hasOwnProperty.call(GIF_MUL, cfg.gif_size) ? Number(GIF_MUL[cfg.gif_size]) : 3 });
+    // In a row a message never wraps: one that starts right to left gets the class that ends it in its own ellipsis.
+    var rtl = cfg.layout === 'horizontal' && startsRtl(partsText(parts));
     var model = {
       kind: 'chat',
-      cls: lineClasses(msg, cfg, 'chat', action, only),
+      cls: lineClasses(msg, cfg, 'chat', action, only, rtl),
       reply: cfg.replies === false || d.noReply ? null : replyModel(msg.reply, cfg.reply_style === 'name', cfg.links === 'shorten'),
       badges: badgeModels(visibleBadges(d.badges, cfg), wantBadge(px, dpr, sizeScale(cfg.badge_size))),
       name: { text: text, color: color, paint: paint },
       // name_sep: one of the fixed NAME_SEPS strings; ': ' for anything else (a partial cfg).
       colon: action ? ' ' : Object.prototype.hasOwnProperty.call(NAME_SEPS, cfg.name_sep) ? NAME_SEPS[cfg.name_sep] : ': ',
       msgColor: action ? color : null,
-      parts: partsFor(d.items, { px: px, dpr: dpr, flatBig: cfg.layout === 'horizontal', gifs: cfg.gifs !== false,
-        scale: sizeScale(cfg.emote_scale), giant: cfg.giant_emotes !== false, eo: only ? eo : 1,
-        gifMul: Object.prototype.hasOwnProperty.call(GIF_MUL, cfg.gif_size) ? Number(GIF_MUL[cfg.gif_size]) : 3 })
+      parts: parts
     };
     if (time) model.time = time;
     return model;
@@ -1590,7 +1627,8 @@
         return;
       }
       if (model.reply) {
-        var r = el('div', 'reply');
+        // .rtl: a quote that starts right to left gets a box of its own (the stylesheet), to end in its own ellipsis.
+        var r = el('div', !model.reply.short && startsRtl(model.reply.body) ? 'reply rtl' : 'reply');
         r.appendChild(doc.createTextNode('↪ '));
         r.appendChild(span('reply-name', model.reply.name));
         // reply_style=name: the name alone (an empty body still draws "↪ @name: ", as it always has).
@@ -2250,6 +2288,7 @@
       setVar(st, '--eo', EMOTE_ONLY[c.emote_only] ? String(EMOTE_ONLY[c.emote_only]) : null);
       setVar(st, '--gif-mul', GIF_MUL[c.gif_size] || null);
       setVar(st, '--gif-margin', c.gif_size === '1x' ? GIF_1X_MARGIN : null);
+      setVar(st, '--gif-maxw', c.gif_size === '1x' ? GIF_1X_MAXW : null);
       setVar(st, '--text-weight', c.text_weight === 'semibold' ? null : WEIGHTS[c.text_weight]);
       setVar(st, '--name-weight', c.name_weight === 'heavy' ? null : WEIGHTS[c.name_weight]);
       setVar(st, '--text-color', hexColor(c.text_color));
@@ -2621,6 +2660,8 @@
       pxFor: pxFor,
       sizeScale: sizeScale,
       emoteOnly: emoteOnly,
+      startsRtl: startsRtl,
+      partsText: partsText,
       EMOTE_ONLY: EMOTE_ONLY,
       wantEmote: wantEmote,
       wantBadge: wantBadge,

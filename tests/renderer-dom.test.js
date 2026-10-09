@@ -1782,10 +1782,14 @@ test('overlay.css: the layout rules (stage 4) stay off by default, in their own 
   assert.match(css, /\n#chat \{[^}]*\n  padding: 0 var\(--pad-x, 8px\);/);
   // text_align: a column only. A box's auto margin must never reach a row's flex items: unscoped, `.has-bg.text-right
   // .line` would beat `.layout-horizontal .line { margin: 0 }` and spread the row out.
+  // A reply header quoting right-to-left text is a flex box (renderer-css round 3): it moves its parts as text-align does.
   assert.deepStrictEqual(selectors.filter((s) => /text-(?:center|right)/.test(s)), [
     ':where(.layout-vertical.text-center) .lines', ':where(.layout-vertical.text-right) .lines',
     '.text-center:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line',
-    '.text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line']);
+    '.text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line',
+    ':where(.layout-vertical.text-center) .reply.rtl', ':where(.layout-vertical.text-right) .reply.rtl']);
+  assert.match(css, /\n:where\(\.layout-vertical\.text-center\) \.reply\.rtl \{ justify-content: center; \}/);
+  assert.match(css, /\n:where\(\.layout-vertical\.text-right\) \.reply\.rtl \{ justify-content: flex-end; \}/);
   assert.match(css, /\n\.text-center:where\([^)]*\) \.line \{ margin-left: auto; margin-right: auto; \}/);
   assert.match(css, /\n\.text-right:where\([^)]*\) \.line \{ margin-left: auto; \}/);
   assert.ok(at('.text-right:where(') > at('.has-bg .line {'), 'after the box\'s own margin, which it overrides at (0,2,0)');
@@ -1886,9 +1890,12 @@ test('the sizes: a font-size or variable on #chat only while changed, gone again
   // spacing=tight (--emote-hang), in a box (--emote-drop, follow-up round 1) and below line_height 120 (--emote-floor,
   // the same): the stylesheet's emote rule, with --emote-h for --eh.
   const room = 'var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)';
+  // With those .05em sides a GIF wider than its line is capped at the line less them (--gif-maxw; renderer-css round 3:
+  // max-width: 100% put its end .05em past the line's), as .cheer-img is; 2x and 3x keep the stylesheet's 100%.
   assert.deepStrictEqual(['1x', '2x', '3x'].map((v) => one('gif_size', v)),
     [{ '--gif-mul': '1', '--gif-margin': 'calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), ' + room + '))) .05em ' +
-      'calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em), ' + room + ')))' },
+      'calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em), ' + room + ')))',
+    '--gif-maxw': 'calc(100% - .1em)' },
     { '--gif-mul': '2' }, {}]);
   const emoteRule = /\n:where\(\.layout-vertical, \.layout-horizontal\) \.emote-stack \{\s*margin-top: ([^;]+);\s*margin-bottom: ([^;]+);/.exec(overlayCss());
   assert.ok(emoteRule, 'the emote rule');
@@ -1966,6 +1973,8 @@ test('overlay.css: the size rules keep today\'s values as fallbacks and stay ove
   assert.match(gif, /\n  height: calc\(var\(--emote-h, 1\.75em\) \* var\(--gif-mul, 3\)\);/);
   assert.match(gif, /\n  max-height: calc\(var\(--emote-h, 1\.75em\) \* var\(--gif-mul, 3\)\);/);
   assert.match(gif, /\n  margin: var\(--gif-margin, \.1em 0\);/);
+  // Its width capped at the line (100%), or at 1x the line less its .05em sides (--gif-maxw).
+  assert.match(gif, /\n  max-width: var\(--gif-maxw, 100%\);/);
   const row = /\n\.layout-horizontal \.gif \{([^}]*)\}/.exec(css)[1];
   assert.match(row, /height: var\(--emote-h, 1\.75em\);[\s\S]*max-height: var\(--emote-h, 1\.75em\);[\s\S]*margin: calc\(/);
   // emote_only: only .emote-only lines, never a gigantified emote (.big keeps its 3x), at (0,2,0) like .emote-stack.big.
@@ -2083,6 +2092,27 @@ test('reply_style=name: "↪ @user" alone, live; an empty quoted message still r
   assert.deepStrictEqual(s.lines().map(replyText), [null, '↪ @amy: the question', '↪ @dee: ']);
 });
 
+// renderer-css round 3: an ellipsis in a left-to-right box cut right-to-left text at its start, so a reply quoting Arabic or
+// Hebrew showed its last words, and so did a long one in a row. Such a quote's header, and a row's line with such a
+// message, get .rtl (the stylesheet gives the text a box of its own); left-to-right ones keep today's DOM.
+test('right-to-left: a quote that starts right to left makes its header .rtl; a row\'s message makes its line .rtl, live', (t) => {
+  const s = setup(t, {});
+  s.r.push(chat('amy', 'مرحبا بالجميع', { reply: { id: 'p1', login: 'dee', name: 'dee', body: 'שלום עולם' } }));
+  s.r.push(chat('bob', 'hello there', { reply: { id: 'p2', login: 'eve', name: 'eve', body: 'hi مرحبا' } }));
+  s.r.push(chat('cy', '123 שלום'));
+  s.r.flush();
+  const state = () => s.lines().map((l) => [l.className, (l.byClass('reply')[0] || {}).className || null]);
+  assert.deepStrictEqual(state(), [['line', 'reply rtl'], ['line', 'reply'], ['line', null]], 'a column wraps its messages');
+  assert.deepStrictEqual(shape(s.lines()[0].byClass('reply')[0]), ['"↪ "', 'span.reply-name', '": "', 'span.reply-body'], 'the same parts');
+  s.r.setConfig({ layout: 'horizontal' });
+  assert.deepStrictEqual(state(), [['line rtl', 'reply rtl'], ['line', 'reply'], ['line rtl', null]]);
+  // reply_style=name quotes nothing: a plain header.
+  s.r.setConfig({ layout: 'horizontal', reply_style: 'name' });
+  assert.deepStrictEqual(state(), [['line rtl', 'reply'], ['line', 'reply'], ['line rtl', null]]);
+  s.r.setConfig({});
+  assert.deepStrictEqual(state(), [['line', 'reply rtl'], ['line', 'reply'], ['line', null]]);
+});
+
 test('name_sep: the fixed text between name and message, live; /me keeps its space', (t) => {
   const s = setup(t, {}, { tokensFor: (m) => ({ items: [{ type: 'text', text: m.text, sp: false }], action: m.login === 'me' }) });
   s.r.push(chat('amy', 'hi'));
@@ -2139,8 +2169,10 @@ test('overlay.css: the stage-6 rules (name font, timestamps) are scoped and stay
   // In a column a zero-width space after the time lets the line wrap there (follow-up round 1), and a row's notice sizes
   // its time from notice_size (its line keeps the row's size).
   const sepPre = ':where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > ';
+  // A row's line with a right-to-left message puts its time in a grid column of its own (renderer-css round 3).
   assert.deepStrictEqual(selectors.filter((s) => /\.time\b/.test(s)),
     ['.time', ':where(.layout-vertical) .time::after', ':where(.layout-horizontal .line.notice) > .time',
+      ':where(.layout-horizontal) .line.rtl > .time',
       sepPre + '.reply + .time::before,\n' + sepPre + '.time:first-child::before']);
   assert.match(css, /\.time:first-child::before \{\n  font-size: 1\.25em;\n  opacity: \.857;\n\}/);
   // It comes after the mark's own rules, which it beats (or ties) on specificity.
@@ -2402,6 +2434,60 @@ test('overlay.css: in a row along the top edge a reply header sits before its me
   // The row's own sides, as the stylesheet sets them: pad_x on #chat, and edge_fade's room at the row's left end.
   assert.match(css, /\n\.edge-fade\.layout-horizontal \.lines \{ padding-left: max\(var\(--pad-x, 8px\), min\(var\(--edge-fade, 2em\), 50%\)\); \}/);
   assert.match(css, /\n  padding: 0 var\(--pad-x, 8px\);\n/);
+});
+
+// renderer-css round 3 (pre-existing: the reply header's ellipsis, and a row's at the source's width; line_width made it
+// every long message in a row): a box that ends in an ellipsis runs left to right, so right-to-left text in it lost its
+// start (on the right) and kept its last words. Text that starts right to left (.rtl, renderer.js) is a box of its own,
+// whose line takes its direction from its text, ending in its own ellipsis; left-to-right lines keep every rule as before.
+test('overlay.css: a right-to-left quote or row message is a box of its own that ends in its own ellipsis', () => {
+  const css = overlayCss();
+  const decls = (sel) => {
+    const m = Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g)).filter((r) => r[1].trim() === sel).map((r) => [r[0], r[2]])[0];
+    assert.ok(m, sel);
+    const d = {};
+    m[1].split(';').forEach((x) => { const i = x.indexOf(':'); if (i > 0) d[x.slice(0, i).trim()] = x.slice(i + 1).trim(); });
+    return d;
+  };
+  // The quote's own direction: unicode-bidi: plaintext on it (and on a chat line's message), as before.
+  assert.match(css, /\n\.line:not\(\.notice\) \.message,\n\.reply-body \{ unicode-bidi: plaintext; \}/);
+  // The header: a flex row on the text's baseline; the ↪ and ': ' keep their spaces; the quote takes the room left (at
+  // least 1.2em, a whole ellipsis, or its own width if less) up to its own width; the name keeps its width unless it alone
+  // leaves the quote less; each clips its sides (overflow-x only: its text still passes its line above and below) with
+  // room that its margins take back. Along the top edge of a row it stays inline, on the message's baseline.
+  assert.deepStrictEqual(decls('.reply.rtl'), { display: 'flex', 'align-items': 'baseline', 'white-space': 'pre' });
+  assert.deepStrictEqual(decls('.reply.rtl > .reply-name,\n.reply.rtl > .reply-body'), { 'min-width': '0', 'white-space': 'nowrap',
+    'overflow-x': 'clip', 'text-overflow': 'ellipsis', padding: '0 calc(.1em + var(--tshadow-room, 0px))',
+    margin: '0 calc(-.1em - var(--tshadow-room, 0px))' });
+  assert.deepStrictEqual(decls('.reply.rtl > .reply-body'), { flex: '1 0 1.2em', 'max-width': 'max-content' });
+  assert.deepStrictEqual(decls(':where(.layout-horizontal.align-top) .reply.rtl'), { display: 'inline-flex' });
+  assert.ok(css.indexOf('\n:where(.layout-horizontal.align-top) .reply.rtl {') > css.indexOf('\n:where(.layout-horizontal.align-top) .reply {'),
+    'after the top row\'s header rule, which it ties');
+  // A row's line: a grid of its parts, the message last and the only one that takes what is left; the name the only other
+  // one that gives way; a reply header along the bottom edge across every column on a row of its own.
+  assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl'), { display: 'grid',
+    'grid-template-columns': 'max-content max-content max-content max-content minmax(0, max-content) max-content minmax(0, 1fr)',
+    'align-items': 'baseline' });
+  const col = (part) => decls(':where(.layout-horizontal) .line.rtl > ' + part)['grid-column'];
+  assert.deepStrictEqual(['.reply', '.time', '.badges', '.name', '.colon', '.message'].map(col), ['2', '3', '4', '5', '6', '7']);
+  assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl::before'), { 'grid-column': '1' });
+  assert.deepStrictEqual(decls(':where(.layout-horizontal.align-bottom) .line.rtl > .reply'), { 'grid-column': '1 / -1', 'grid-row': '1' });
+  assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl > .colon'), { 'grid-column': '6', 'white-space': 'pre' });
+  assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl > .name,\n:where(.layout-horizontal) .line.rtl > .message'), { 'min-width': '0',
+    'overflow-x': 'clip', 'text-overflow': 'ellipsis', padding: '0 calc(.1em + var(--tshadow-room, 0px))',
+    margin: '0 calc(-.1em - var(--tshadow-room, 0px))' });
+  assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl > .message'), { 'grid-column': '7', 'max-width': 'max-content',
+    'padding-left': 'min(.1em + var(--tshadow-room, 0px), 100%)', 'margin-left': 'calc(-1 * min(.1em + var(--tshadow-room, 0px), 100%))' });
+  // The end-of-message box moves into the message (a grid would make the line's own one an empty item).
+  assert.match(css, /\n:where\(\.layout-horizontal\) \.line\.rtl > \.message::after,\n\.layout-horizontal \.line::after \{\n  content: '';/);
+  assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl::after'), { content: 'none' });
+  assert.ok(css.indexOf('\n:where(.layout-horizontal) .line.rtl::after {') > css.indexOf('\n.layout-horizontal .line::after {'), 'after it');
+  // Only .rtl lines and headers: every selector naming it is on such a line or header, the line's ones in a row only.
+  const rtl = [];
+  Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim()).forEach((s) => s.split(/,\n/).forEach((one) => { if (/\.rtl\b/.test(one)) rtl.push(one); }));
+  assert.strictEqual(rtl.length, 20);
+  rtl.forEach((one) => assert.match(one, /^(?:\.reply\.rtl\b|:where\(\.layout-(?:vertical|horizontal)[^)]*\) \.(?:reply|line)\.rtl\b)/, one));
+  rtl.filter((one) => /\.line\.rtl/.test(one)).forEach((one) => assert.match(one, /^:where\(\.layout-horizontal/, one));
 });
 
 // A column rule's emote margins worked out as numbers (em) from the rule's own text: eh the image's height (--eh, or

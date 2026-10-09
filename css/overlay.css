@@ -3,18 +3,19 @@
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .time .badges .badge .name .colon .message
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement .notice .mirrored
    .platform-kick .accent .emote-only .mention .keyword .user-hl .role-broadcaster .role-mod .role-vip .role-bar
-   .role-tint .keep-sep, badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel), #chat
-   modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .size-small .size-medium .size-large .has-bg
-   .bg-full .no-names .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static
-   .text-center .text-right .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
+   .role-tint .keep-sep .rtl (a row's message that starts right to left; on .reply, a quote that does), badge modifiers
+   .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel), #chat modifiers .layout-vertical
+   .layout-horizontal .align-bottom .align-top .size-small .size-medium .size-large .has-bg .bg-full .no-names
+   .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static .text-center .text-right
+   .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
    --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
    --first-color --pad-x --emote-h --badge-h --gif-mul --mention-rgb --kw-rgb --hl-rgb --role-broadcaster-rgb
    --role-mod-rgb --role-vip-rgb. Outline and shadow_style set --tshadow and --tshadow-room,
    line_width --line-max and --line-max-n (with .has-maxw), edge_fade --edge-fade (with .edge-fade), emote_only --eo
-   (for .emote-only lines), gif_size=1x --gif-margin, name_font --name-font (with .has-name-font), text_px #chat's
-   font-size, and accent_bar sets --line-accent on each line. The rules below give a role's line its color as
-   --role-rgb, and a tinted line its tint as --line-tint */
+   (for .emote-only lines), gif_size=1x --gif-margin and --gif-maxw, name_font --name-font (with .has-name-font),
+   text_px #chat's font-size, and accent_bar sets --line-accent on each line. The rules below give a role's line its
+   color as --role-rgb, and a tinted line its tint as --line-tint */
 
 html,
 body {
@@ -317,6 +318,37 @@ body {
   overflow-clip-margin: var(--tshadow-room, 0);
 }
 .reply-name { font-weight: var(--name-weight, 800); }
+/* A quote that starts right to left (.rtl, set by renderer.js when its first letter is Arabic, Hebrew, Persian and the
+   like). The header's own box runs left to right, so its ellipsis would cut the quote at the box's right end, which is
+   where right-to-left text starts: only its last words would show. There the quote is a box of its own (a flex item:
+   with unicode-bidi: plaintext, above, its line takes its direction from its own text) that takes the room the ↪ and the
+   name leave, up to its own width, and ends in its own ellipsis at its own end (on its left, toward the ': '). The name
+   keeps its whole width unless it leaves the quote less than 1.2em (room for a whole ellipsis, or the whole quote if
+   that is shorter); then it ends in an ellipsis of its own. white-space: pre keeps the spaces in the '↪ ' and ': '
+   between them; the name and the quote collapse theirs as before. Each clips its sides with room for an outline, a
+   shadow or ink past a letter's edge (padding its margins take back), and lets its text past its line above and below as
+   before (the header's clip box has the room there). In text_align's center or right column it is centered or at the
+   right as the header's text is. A quote that starts left to right keeps the header above. */
+.reply.rtl {
+  display: flex;
+  align-items: baseline;
+  white-space: pre;
+}
+:where(.layout-vertical.text-center) .reply.rtl { justify-content: center; }
+:where(.layout-vertical.text-right) .reply.rtl { justify-content: flex-end; }
+.reply.rtl > .reply-name,
+.reply.rtl > .reply-body {
+  min-width: 0;
+  white-space: nowrap;
+  overflow-x: clip;
+  text-overflow: ellipsis;
+  padding: 0 calc(.1em + var(--tshadow-room, 0px));
+  margin: 0 calc(-.1em - var(--tshadow-room, 0px));
+}
+.reply.rtl > .reply-body {
+  flex: 1 0 1.2em;
+  max-width: max-content;
+}
 
 /* ---------- badges ---------- */
 .badges:empty { display: none; }
@@ -441,13 +473,14 @@ body {
 
 /* ---------- Giphy GIFs: fixed height, capped at 3x emote height and the line width ----------
    Until the file arrives the box is 16:9 (most chat GIFs), so the text after it doesn't jump on load;
-   then the GIF's own shape takes over. gif_size sets the 3 (--gif-mul), and at 1x an emote's margins too. */
+   then the GIF's own shape takes over. gif_size sets the 3 (--gif-mul), and at 1x an emote's margins too, with the cap
+   on its width then its line less those .05em sides (--gif-maxw), as a cheer's image has. */
 .gif {
   height: calc(var(--emote-h, 1.75em) * var(--gif-mul, 3));
   max-height: calc(var(--emote-h, 1.75em) * var(--gif-mul, 3));
   width: auto;
   aspect-ratio: auto 16 / 9;
-  max-width: 100%;
+  max-width: var(--gif-maxw, 100%);
   object-fit: contain;
   vertical-align: middle;
   margin: var(--gif-margin, .1em 0);
@@ -530,7 +563,9 @@ body {
    or a badge: an empty inline box at its end whose line-height is the tallest of those (its margin box: an emote's height
    less its margins), on the same middle line. Their text then lines up whatever emote_scale, badge_size and line_height
    are. Inline, not an inline-block: a space at the end of a message still collapses. With Inter at the defaults it fits
-   inside the line, as an emote does, so nothing moves. */
+   inside the line, as an emote does, so nothing moves. A right-to-left message's line (.rtl, below) has it at the end of
+   its message instead. */
+:where(.layout-horizontal) .line.rtl > .message::after,
 .layout-horizontal .line::after {
   content: '';
   line-height: max(var(--badge-h, 1em), var(--emote-h, 1.75em)
@@ -538,6 +573,57 @@ body {
     - max(.2em, min(var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
   vertical-align: middle;
 }
+/* A message that starts right to left (.line.rtl, set by renderer.js in a row when its first letter is Arabic, Hebrew,
+   Persian and the like). The line's own box runs left to right, so its ellipsis (line_width, or the source's width)
+   would cut the message at the line's right end, which is where right-to-left text starts: only its last words would
+   show. There the line is a grid of its parts on one row: the row mark along the top edge, a reply header along the top
+   edge, the time, the badges, the name, the colon and the message, each in a column of its own (empty ones take no
+   room), on their text's baseline as on one line. Along the bottom edge a reply header is a row of its own above them,
+   across every column. The message is a box of its own (with unicode-bidi: plaintext, above, its line takes its
+   direction from its own text) that takes the room the parts before it leave, up to its own width, and ends in its own
+   ellipsis at its own end (on its left, toward the colon); the name keeps its whole width unless the parts before the
+   message are wider than the line by themselves (then it ends in an ellipsis of its own). The line is as wide as
+   before: its parts, or its reply header if that is wider, up to its cap. The colon keeps its spaces (pre), and the
+   message carries the line's end-of-message box (above). The name and the message clip their sides with room for an
+   outline, a shadow or ink past a letter's edge (padding their margins take back; a painted name's paint still spans
+   its text alone), and let their text and images past their line above and below as before. Squeezed to nothing by
+   the parts before it, the message keeps no room at its end (a share of its own width there), so its ellipsis, which
+   starts at its right edge, shows nowhere. A message that starts left to right keeps the line above. */
+:where(.layout-horizontal) .line.rtl {
+  display: grid;
+  grid-template-columns: max-content max-content max-content max-content minmax(0, max-content) max-content minmax(0, 1fr);
+  align-items: baseline;
+}
+:where(.layout-horizontal) .line.rtl::before { grid-column: 1; }
+:where(.layout-horizontal) .line.rtl::after { content: none; }
+:where(.layout-horizontal) .line.rtl > .reply { grid-column: 2; }
+:where(.layout-horizontal.align-bottom) .line.rtl > .reply { grid-column: 1 / -1; grid-row: 1; }
+:where(.layout-horizontal) .line.rtl > .time { grid-column: 3; }
+:where(.layout-horizontal) .line.rtl > .badges { grid-column: 4; }
+:where(.layout-horizontal) .line.rtl > .colon {
+  grid-column: 6;
+  white-space: pre;
+}
+:where(.layout-horizontal) .line.rtl > .name,
+:where(.layout-horizontal) .line.rtl > .message {
+  min-width: 0;
+  overflow-x: clip;
+  text-overflow: ellipsis;
+  padding: 0 calc(.1em + var(--tshadow-room, 0px));
+  margin: 0 calc(-.1em - var(--tshadow-room, 0px));
+}
+:where(.layout-horizontal) .line.rtl > .name {
+  grid-column: 5;
+  background-origin: content-box;
+}
+:where(.layout-horizontal) .line.rtl > .message {
+  grid-column: 7;
+  max-width: max-content;
+  padding-left: min(.1em + var(--tshadow-room, 0px), 100%);
+  margin-left: calc(-1 * min(.1em + var(--tshadow-room, 0px), 100%));
+}
+/* Along the top edge a reply header that starts right to left sits on the same row too (above): an inline flex box. */
+:where(.layout-horizontal.align-top) .reply.rtl { display: inline-flex; }
 /* row_sep: a dot, bar or diamond before every message in a row but the first. A pseudo-element can't sit between
    flex items, so it is drawn in the message (in its box, with bg), before its first inline part: after a reply
    header, whose block would put it on a row of its own. In a row along the top edge, where the header sits before its

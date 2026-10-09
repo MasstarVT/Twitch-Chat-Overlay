@@ -2158,6 +2158,25 @@ test('command_prefixes: each sign as itself (- and ^ too), a reply\'s @name stil
   assert.strictEqual(show('#tag'), true, 'only with hide_commands');
 });
 
+// renderer-css round 3: any message that only started with a prefix sign was hidden: '!!!' with the default '!', and with
+// command_prefixes=!? every '?' and '???'. A command is the sign followed straight away by its name.
+test('hide_commands: a sign alone or with more signs after it is chat, not a command; a reply quoting one keeps its quote', async (t) => {
+  const h = await boot(t, { search: '?channel=home&hide_commands=1&command_prefixes=!%3F:.-' });
+  join(h);
+  ['!points', '?song', '!!!', '! wow', '???', '?', ':)', '...', '-_-', '!8ball', 'real line'].forEach((s) => h.feed(priv('viewer', s)));
+  assert.deepStrictEqual(texts(h), ['!!!', '! wow', '???', '?', ':)', '...', '-_-', 'real line']);
+  const quoting = (body) => ({ 'reply-parent-msg-id': 'q' + body.length, 'reply-parent-user-login': 'someone',
+    'reply-parent-display-name': 'Someone', 'reply-parent-msg-body': body });
+  h.feed(priv('viewer', '@Someone same', quoting('???')));
+  h.feed(priv('viewer', '@Someone lol', quoting('?song\\snow')));
+  const n = h.pushed.length;
+  assert.deepStrictEqual([h.deps.quoteHidden(h.pushed[n - 2].reply), h.deps.quoteHidden(h.pushed[n - 1].reply)], [false, true]);
+  // The default '!': '!!!' and '!!! LETS GO' show, '!discord' doesn't.
+  sender(h)({ command_prefixes: '!' });
+  assert.deepStrictEqual(['!!!', '!!! LETS GO', '!discord', '!'].map((s) => h.deps.shouldShow(chatMsg(priv('viewer', s)))),
+    [true, true, false, true]);
+});
+
 test('links=shorten: Twitch and Kick text shows each link as its host, never as a link; live', async (t) => {
   const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0&links=shorten' });
   join(h);

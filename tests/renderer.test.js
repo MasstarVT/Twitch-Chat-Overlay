@@ -241,6 +241,43 @@ test('modelFor: emote_only=big/huge marks an emote-only line in a column and fet
   assert.strictEqual(R.modelFor({ systemMsg: 'x' }, R.normalizeCfg({ emote_only: 'huge' }), { kind: 'notice', items: items() }).cls, 'line notice');
 });
 
+// renderer-css round 3: a box that ends in an ellipsis runs left to right, so it cut right-to-left text at its start (its
+// right end). Text whose first letter is a right-to-left one gets a box of its own (.rtl): startsRtl finds it as
+// unicode-bidi: plaintext does, passing over digits, signs, spaces and emoji.
+test('startsRtl: the first letter (or direction mark) decides; digits, signs and emoji have no direction', () => {
+  const yes = ['مرحبا', 'שלום', '  123 שלום', '!!! مرحبا', '👋🏽 مرحبا hi', '\u200Fhello', '\u061Chi', 'ܐܒ', 'ދިވެހި', 'ߊߟߎ', 'ﺍﻟ', 'ﬠ',
+    '\u{10900}', '\u{1E900}', '"؟" لماذا'];
+  const no = ['', 'hello', 'Hi مرحبا', '@user مرحبا', '123', '٣٤٥', '!!!', '👋', '\u200Eمرحبا', 'こんにちは مرحبا', 'Ωmega', '\u{1F600} abc', '\u{1D400}x'];
+  yes.forEach((s) => assert.strictEqual(R.startsRtl(s), true, JSON.stringify(s)));
+  no.forEach((s) => assert.strictEqual(R.startsRtl(s), false, JSON.stringify(s)));
+  [null, undefined, 5, {}].forEach((v) => assert.strictEqual(R.startsRtl(v), false));
+  assert.strictEqual(R.partsText([{ t: 'emote', name: 'Kappa' }, { t: 'text', s: ' مرحبا' }, { t: 'gif', title: 'x' }, { t: 'text', s: '!' }]), ' مرحبا!');
+});
+
+test('modelFor: a row\'s message that starts right to left is .rtl (emotes before it count for nothing); never in a column', () => {
+  const msg = { id: 'r', userId: '1', login: 'a', displayName: 'A' };
+  const text = (s, sp) => ({ type: 'text', text: s, sp: !!sp });
+  const kappa = { type: 'emote', emote: emote('twitch', 'Kappa'), sp: false, overlays: [] };
+  const cls = (cfg, items, extra) => R.modelFor(Object.assign({}, msg, extra), R.normalizeCfg(cfg), Object.assign({ kind: 'chat', items: items, dpr: 1 }, extra && extra.d)).cls;
+  const row = { layout: 'horizontal' };
+  assert.strictEqual(cls(row, [text('مرحبا بالجميع')]), 'line rtl');
+  assert.strictEqual(cls(row, [kappa, text('שלום', true)]), 'line rtl', 'an emote first');
+  assert.strictEqual(cls(row, [text('hello مرحبا')]), 'line');
+  assert.strictEqual(cls(row, [kappa]), 'line', 'no text');
+  assert.strictEqual(cls({}, [text('مرحبا بالجميع')]), 'line', 'a column wraps: no ellipsis to fix');
+  assert.strictEqual(cls(Object.assign({ align: 'top', accent_bar: true }, row), [text('مرحبا')], { firstMsg: true, mirrored: true, platform: 'kick' }),
+    'line accent rtl mirrored platform-kick');
+  assert.strictEqual(R.modelFor(msg, R.normalizeCfg(row), { kind: 'chat', items: [text('مرحبا')], action: true, dpr: 1 }).cls, 'line action rtl');
+  // An emote with no image is drawn as its name, which is text.
+  assert.strictEqual(cls(row, [{ type: 'emote', emote: emote('twitch', 'Gone', { urls: {} }), sp: false, overlays: [] }, text('مرحبا', true)]), 'line');
+  // A notice never is (its text starts with a name).
+  assert.strictEqual(R.modelFor({ systemMsg: 'مرحبا' }, R.normalizeCfg(row), { kind: 'notice' }).cls, 'line notice');
+  assert.strictEqual(R.lineClasses({}, {}, 'chat', false, false, true), 'line rtl');
+  // Left-to-right messages' models are as before (no key added, the same class string).
+  const ltr = R.modelFor(msg, R.normalizeCfg(row), { kind: 'chat', items: [text('hello')], dpr: 1 });
+  assert.deepStrictEqual(Object.keys(ltr), ['kind', 'cls', 'reply', 'badges', 'name', 'colon', 'msgColor', 'parts']);
+});
+
 test('modelFor: text_px, badge_size and emote_scale pick the files for the size drawn', () => {
   const msg = { id: 'x', userId: '1', login: 'a', displayName: 'A' };
   const d = {
@@ -1147,24 +1184,37 @@ test('the chat filters\' patterns: built once per cfg object, never stored on it
   assert.strictEqual(renderer.hasWords('x', null), false);
   assert.strictEqual(renderer.hasWords(null, f1.block), false);
   assert.deepStrictEqual(['!cmd', '  ?cmd', 'hi !cmd', '#x', ''].map((t) => f1.command.test(t)), [true, true, false, false, false]);
-  // The default and a cfg without the setting: '!' only, as /^\s*!/ always was.
+  // The default and a cfg without the setting: '!' only, as /^\s*!/ always was, but with the command's name straight
+  // after it (renderer-css round 3: '!!!' and '! wow' are chat, not commands).
   [{ command_prefixes: '!' }, {}, { command_prefixes: 5 }, { command_prefixes: 'ab' }].forEach((c) => {
     const re = renderer.filtersFor(c).command;
-    assert.deepStrictEqual(['!x', ' \t!x', '?x', 'x!', 'a', 'b'].map((t) => re.test(t)), [true, true, false, false, false, false], JSON.stringify(c));
+    assert.deepStrictEqual(['!x', ' \t!x', '?x', 'x!', 'a', 'b', '!!!', '!!! LETS GO', '! wow', '!', '!8ball', '!été', '!こんにちは'].map((t) => re.test(t)),
+      [true, true, false, false, false, false, false, false, false, false, true, true, true], JSON.stringify(c));
   });
+  // A sign alone, or with more signs after it, is a reaction or an emoticon, never a command: '?' and '???', ':)', '...',
+  // '-_-'. ':D' is still one with ':' (D is a letter).
+  const react = renderer.filtersFor({ command_prefixes: '!?:.-' }).command;
+  assert.deepStrictEqual(['!points', '?song', '!!!', '! wow', '???', '?', ':)', ':D nice', '...', '-_-', 'real line', '  ?cmd'].map((t) => react.test(t)),
+    [true, true, false, false, false, false, false, true, false, false, false, true]);
   assert.strictEqual(renderer.filtersFor({}).block, null);
   // '-' and '^' are the signs themselves, never a range or a negation: '!-?' doesn't cover the digits between them.
   const range = renderer.filtersFor({ command_prefixes: '!-?' }).command;
   assert.deepStrictEqual(['!a', '-a', '?a', '0a', '"a', '/a', 'a'].map((t) => range.test(t)), [true, true, true, false, false, false, false]);
   const neg = renderer.filtersFor({ command_prefixes: '^' }).command;
   assert.deepStrictEqual(['^a', 'a', '!a'].map((t) => neg.test(t)), [true, false, false]);
-  // Every allowed sign works on its own and with the others (escaped: ] \ and the rest stay literal).
+  // Every allowed sign works on its own and with the others (escaped: ] \ and the rest stay literal), and so does any
+  // other ASCII sign a partial cfg may hand in (the u flag throws on a needless escape such as \!).
   const all = config.PREFIX_CHARS;
   const every = renderer.filtersFor({ command_prefixes: all }).command;
   all.split('').forEach((ch) => {
     assert.ok(renderer.filtersFor({ command_prefixes: ch }).command.test(ch + 'cmd'), ch);
     assert.ok(every.test(ch + 'x'), ch);
+    assert.strictEqual(every.test(ch + ch + ch), false, ch + ' three times');
   });
+  for (let c = 33; c < 127; c++) {
+    const ch = String.fromCharCode(c);
+    if (!/[A-Za-z0-9]/.test(ch)) assert.ok(renderer.filtersFor({ command_prefixes: ch }).command.test(ch + 'x'), ch);
+  }
   ['a', '0', '"', '[', ']', '\\', '_', ' ', '`'].forEach((ch) => assert.strictEqual(every.test(ch + 'x'), false, JSON.stringify(ch)));
   assert.strictEqual(renderer.filtersFor(null).block, null);
 });
