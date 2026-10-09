@@ -985,10 +985,12 @@ test('links=shorten: an international site name in its own letters, as links=sho
   assert.strictEqual(s('https://clips.twitch.tv/a?b'), 'clips.twitch.tv');
   assert.strictEqual(s('https://xn-x.example/ https://a--b.example/'), 'xn-x.example a--b.example');
   assert.strictEqual(s('https://[::1]:80/x'), '[::1]');
-  // Every label decodes as Node's own domainToUnicode does (the same RFC 3492 algorithm).
+  // Every label decodes as Node's own domainToUnicode does (the same RFC 3492 algorithm), unless it could pass for another
+  // name (below): Cyrillic letters mixed with letters of another script, or Cyrillic look-alikes of Latin letters alone.
   const url = require('node:url');
   const pool = Array.from('abcxyzäöüßéñçøåæœ日本語例えテスト한국어中文ไทยعربيעבריתкириллица€😀-0123456789');
-  let n = 0, seed = 7;
+  const like = 'асԁеһіјӏорԛѕԝхуъьҽпгѵѡ';
+  let n = 0, kept = 0, seed = 7;
   const rnd = (k) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return (seed >>> 8) % k; };
   for (let k = 0; k < 3000; k++) {
     let lab = '';
@@ -997,11 +999,49 @@ test('links=shorten: an international site name in its own letters, as links=sho
     try { h = new URL('https://' + lab + '.de/').hostname; } catch (e) { continue; }
     if (h.indexOf('xn--') < 0) continue;
     n++;
-    assert.strictEqual(s('https://' + lab + '.de/x'), url.domainToUnicode(h), lab);
+    const letters = Array.from(url.domainToUnicode(h).split('.')[0]).filter((c) => /\p{L}/u.test(c));
+    const cyr = letters.filter((c) => /\p{Script=Cyrillic}/u.test(c));
+    const spoof = cyr.length > 0 && (cyr.length < letters.length || cyr.every((c) => like.includes(c)));
+    if (spoof) kept++;
+    assert.strictEqual(s('https://' + lab + '.de/x'), spoof ? h : url.domainToUnicode(h), lab);
   }
-  assert.ok(n > 1000, 'international names tried: ' + n);
+  assert.ok(n > 1000 && kept > 100 && n - kept > 500, 'international names tried: ' + n + ', kept in xn-- form: ' + kept);
   // A reply header's quote too.
   assert.strictEqual(R.replyModel({ name: 'A', body: 'look https://www.müller.de/x' }, false, true).body, 'look www.müller.de');
+});
+
+test('links=shorten: a site name that could pass for another keeps its xn-- form, as a browser\'s address bar shows it', () => {
+  // Follow-up round 1: renderer-css round 3 decoded every xn-- label, so 'https://www.xn--pple-43d.com/' was drawn as
+  // 'www.аpple.com' (a Cyrillic 'а') and 'https://xn--80ak6aa92e.com/' as 'аррӏе.com' (all Cyrillic): both read as apple.com.
+  const s = renderer.shortenLinks;
+  // Mixed scripts: a Cyrillic, Greek or Armenian letter among Latin ones (typed in xn-- form or in its letters).
+  assert.strictEqual(s('https://www.xn--pple-43d.com/'), 'www.xn--pple-43d.com');
+  assert.strictEqual(s('https://www.аpple.com/login'), 'www.xn--pple-43d.com');
+  assert.strictEqual(s('go to https://раураl.com/x now'), 'go to ' + new URL('https://раураl.com/').hostname + ' now');
+  assert.strictEqual(s('https://gοogle.com/'), new URL('https://gοogle.com/').hostname, 'a Greek omicron');
+  assert.strictEqual(s('https://հօme.com/'), new URL('https://հօme.com/').hostname, 'Armenian letters');
+  // Whole-script look-alikes under a top-level name in another script: the whole host stays as the parser wrote it.
+  assert.strictEqual(s('check https://xn--80ak6aa92e.com/login now'), 'check xn--80ak6aa92e.com now');
+  assert.strictEqual(s('https://аррӏе.com/'), 'xn--80ak6aa92e.com');
+  assert.strictEqual(s('https://www.аррӏе.example.com/'), 'www.xn--80ak6aa92e.example.com');
+  assert.strictEqual(s('https://οκ.com/'), new URL('https://οκ.com/').hostname, 'Greek look-alikes');
+  // Where the name is that script's own (its top-level name in it, or its country's), or not made of look-alikes alone,
+  // or in a script without them, it shows in its letters as before.
+  assert.strictEqual(s('https://аррӏе.рф/'), 'аррӏе.рф');
+  assert.strictEqual(s('https://аррӏе.ru/'), 'аррӏе.ru');
+  assert.strictEqual(s('https://οκ.gr/'), 'οκ.gr');
+  assert.strictEqual(s('смотри https://яндекс.рф/maps'), 'смотри яндекс.рф');
+  assert.strictEqual(s('https://яндекс.ru/'), 'яндекс.ru');
+  assert.strictEqual(s('https://кириллица.com/'), 'кириллица.com');
+  assert.strictEqual(s('https://ελληνικά.gr/'), 'ελληνικά.gr');
+  assert.strictEqual(s('https://www.müller.de/x'), 'www.müller.de');
+  assert.strictEqual(s('https://例え.jp/'), '例え.jp');
+  assert.strictEqual(s('https://abc例え.jp/'), 'abc例え.jp', 'Latin with Han is no look-alike');
+  assert.strictEqual(s('https://עברית.co.il/'), 'עברית.co.il');
+  assert.strictEqual(s('https://ไทย.com/'), 'ไทย.com');
+  assert.strictEqual(s('https://xn--r8jz45g.xn--zckzah/'), '例え.テスト');
+  // links=show draws the link as typed, so the shortened form never shows a look-alike the link itself doesn't.
+  assert.strictEqual(renderer.drawnText('see https://xn--80ak6aa92e.com/x', { links: 'shorten' }), 'see xn--80ak6aa92e.com');
 });
 
 test('the chat filters\' patterns: built once per cfg object, never stored on it; prefixes escaped; words as keywords', () => {

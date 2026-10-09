@@ -126,6 +126,14 @@ body {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* In a column a line may wrap after its time: with names=0 the name and the colon (the only space there) are hidden, so
+   an emote or a GIF too wide for the room left after the time would stay on its row and run off the line. A zero-width
+   space, with the line's own white-space (Chromium 103 breaks after a text item only where its own style wraps; the
+   time's is nowrap). It moves nothing. A row never wraps. */
+:where(.layout-vertical) .time::after {
+  content: '\200B';
+  white-space: normal;
+}
 /* Right-to-left text: a name is its own bidi run (an Arabic name can't swap places with the start of the
    message), and a chat message takes its direction from its own first letter. Notices stay LTR: their
    text starts with the display name. */
@@ -189,12 +197,15 @@ body {
    the tints below. :where keeps this at the specificity of .line.highlight, so Custom CSS written as
    `.line.highlight { ... }` wins here too. */
 .line.highlight:where(.accent, .first-msg, .role-bar) { padding-left: .4em; }
-/* With bg set, the tint goes over the dark box instead of replacing it. :where keeps this at the
-   specificity of .line.highlight, so Custom CSS written as `.line.highlight { ... }` still wins. */
+/* With bg set, the tint goes over the dark box instead of replacing it, and the line keeps the box's own .4em at its
+   sides, so its text starts where every other box's does. :where keeps this at the specificity of .line.highlight, so
+   Custom CSS written as `.line.highlight { ... }` still wins. */
 :where(.has-bg) .line.highlight {
   background-color: rgba(var(--bg-rgb, 0, 0, 0), var(--bg-alpha, 0));
   background-image: linear-gradient(rgba(var(--hl-rgb, 145, 70, 255), .35), rgba(var(--hl-rgb, 145, 70, 255), .35));
   border-radius: var(--bg-radius, .3em);
+  padding-left: .4em;
+  padding-right: .4em;
 }
 
 /* mentions, keywords and highlight_users, and role_style=tint: tinted like a channel-points highlight, in their own
@@ -225,6 +236,19 @@ body {
   background-color: rgba(var(--bg-rgb, 0, 0, 0), var(--bg-alpha, 0));
   background-image: linear-gradient(var(--line-tint), var(--line-tint));
   border-radius: var(--bg-radius, .3em);
+  padding-left: .4em;
+  padding-right: .4em;
+}
+/* A bar beside a line in a box (accent_bar, role_style=bar, a first message's) is an inset shadow, which follows the box's
+   corners: its bar side is never rounder than round's .4em, as an announcement's (below), so bg_shape=pill can't bend it
+   into a crescent. A tinted line keeps its own .3em where that is less. */
+:where(.has-bg) .line:is(.accent, .first-msg, .role-bar) {
+  border-top-left-radius: min(var(--bg-radius, .4em), .4em);
+  border-bottom-left-radius: min(var(--bg-radius, .4em), .4em);
+}
+:where(.has-bg) .line:is(.accent, .first-msg, .role-bar):where(.highlight, .mention, .keyword, .user-hl, .role-tint) {
+  border-top-left-radius: min(var(--bg-radius, .3em), .4em);
+  border-bottom-left-radius: min(var(--bg-radius, .3em), .4em);
 }
 
 /* /announce: a colored bar on the left (longhands only, so the bg/highlight color stays) */
@@ -249,11 +273,25 @@ body {
 /* sub / resub / gift / raid notices */
 .line.notice { font-size: var(--notice-size, .85em); }
 .line.notice .message { color: var(--notice-color, #E2D6FF); }
+/* In a row, which lines its messages up by their box's edge, a notice's line keeps the row's size: its strut, its padding
+   (or box) and its end spacer are a chat line's, so its text sits on the chat text's baseline. notice_size sizes its
+   parts instead (its time .8 of that, as anywhere). At the specificity of the parts' own rules, so Custom CSS on .time or
+   .message still wins. */
+:where(.layout-horizontal) .line.notice { font-size: inherit; }
+:where(.layout-horizontal .line.notice) > * { font-size: var(--notice-size, .85em); }
+:where(.layout-horizontal .line.notice) > .time { font-size: calc(.8 * var(--notice-size, .85em)); }
+/* notice_size above 100 makes a notice's text taller than the row's. Along the bottom edge its parts' lines are never
+   taller than a chat line (--row-em is #chat's 1em, below), so it only grows upward, off its baseline's edge; along the
+   top edge the row lines its messages up by their baseline (below). */
+:where(.layout-horizontal.align-bottom .line.notice) > * {
+  line-height: min(var(--line-height, 1.35) * var(--row-em), var(--line-height, 1.35) * 1em);
+}
 
 /* ---------- reply header ----------
    It clips (for the ellipsis), so its clip box reaches .3em past its line above and below: accents and descenders
    that go past a short line_height, and stacked marks (Vietnamese, Thai) at any, are drawn whole instead of cut off
-   flat. The negative margins take that room back, so nothing moves. */
+   flat. And .1em before its start: the ↪ that starts it (drawn by a fallback font, such as Segoe UI Symbol) has ink a
+   little left of where it starts. The negative margins take that room back, so nothing moves. */
 .reply {
   display: block;
   font-size: .75em;
@@ -263,8 +301,10 @@ body {
   text-overflow: ellipsis;
   padding-top: .3em;
   padding-bottom: .3em;
+  padding-left: .1em;
   margin-top: -.3em;
   margin-bottom: -.3em;
+  margin-left: -.1em;
 }
 /* outline / shadow_style=text: the header's text-shadow layers draw past its clipped box as far as they reach
    (--tshadow-room), so they aren't cut off flat at its sides and under its descenders. The ellipsis still works. */
@@ -323,16 +363,24 @@ body {
    - Taller than its line (gigantified, emote_only, emote_scale above 100): from 2.05em (1.75em + .3em) it reaches at most
      .2em below its line and never above it.
    - line_height below 135: the line has less room above its text, so that 2.05em comes down twice as fast as the line
-     height (1.35em at line_height 100), and a 1.75em emote's line grows.
+     height (1.35em at line_height 100), and a 1.75em emote's line grows. Below 120 the next row of a wrapped message has
+     its letters closer to its top too, so in a column those .2em below come down with the line height (--emote-floor:
+     half of it, less .4em; .1em at line_height 100).
    - spacing=tight, without a box: at most twice the gap between two lines' text (--emote-hang, set on #chat), so the
-     emotes of two lines in a row overlap no more than at normal spacing. A box's own .2em padding holds them. The
-     messages of a horizontal row sit side by side, so it has none there (the .3em fallback). */
+     emotes of two lines in a row overlap no more than at normal spacing. The messages of a horizontal row sit side by
+     side, so it has none there (the .3em fallback).
+   - In a box (bg), at most the box's own .2em below its line (--emote-drop): an emote's middle is the text's (half its
+     x-height above the baseline), a little below the middle of its line in most fonts, so with .3em it stuck out of the
+     bottom of its box (1.3 px at medium, 2.7 px at large). Where the font puts it lower still, the line grows by the
+     rest. */
 :where(.layout-vertical:not(.has-bg)) { --emote-hang: calc(2 * var(--line-gap, .15em)); }
+:where(.layout-vertical) { --emote-floor: max(0em, (var(--line-height, 1.35) / 2 - .4) * 1em); }
+:where(.has-bg) { --emote-drop: .2em; }
 :where(.layout-vertical, .layout-horizontal) .emote-stack {
   margin-top: calc(-1 * max(0em, min(.3em, var(--emote-hang, .3em), 2.05em - var(--eh),
     (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));
-  margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(.3em, var(--emote-hang, .3em), 2.05em - var(--eh),
-    (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));
+  margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em),
+    var(--emote-hang, .3em), 2.05em - var(--eh), (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));
 }
 /* An emote wider than its line (line_width, a big emote_scale or text_px, a narrow source) is fitted to it: its box
    keeps the height (so zero-width layers still line up) and the image is letterboxed in it. A w! emote (its base image
@@ -365,12 +413,13 @@ body {
   vertical-align: middle;
   margin: -.3em .05em;
 }
-/* Taller than its line (emote_scale above 100), a line_height below 135, spacing=tight: as an emote's, in either layout */
+/* Taller than its line (emote_scale above 100), a line_height below 135, spacing=tight, a box: as an emote's, in either
+   layout */
 :where(.layout-vertical, .layout-horizontal) .cheer-img {
   margin-top: calc(-1 * max(0em, min(.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em),
     (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
-  margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em),
-    (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
+  margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em),
+    var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
 }
 .cheer-amount { font-weight: 800; }
 
@@ -403,7 +452,9 @@ body {
   align-items: flex-end;
   gap: 0 var(--row-gap, 1em);
 }
-#chat.layout-horizontal.align-top .lines { align-items: flex-start; }
+/* Along the top edge by their text's baseline (their first; a top row's message has one row), which is their top where
+   every message has a chat line's room above its baseline (a notice in its own size, above 100, has more) */
+#chat.layout-horizontal.align-top .lines { align-items: baseline; }
 #chat.layout-horizontal.has-bg .lines { gap: 0 var(--row-gap, .4em); }
 .layout-horizontal .line {
   flex: none;
@@ -415,28 +466,49 @@ body {
   overflow-x: clip;
   text-overflow: ellipsis;
 }
+/* Without a box the line's padding is 0 at its sides, so it clips with room past its edges: ink a little past its ends
+   (the ↪ that starts a reply header, an italic letter) is drawn whole, emotes still overflow it above and below, and the
+   ellipsis still cuts the text at its end. Chromium 103 takes overflow-clip-margin only when both axes clip. A box keeps
+   its .4em padding for that (and its rounded corners clip as before). */
+.layout-horizontal:where(:not(.has-bg)) .line {
+  overflow: clip;
+  overflow-clip-margin: 1em;
+}
 /* A reply header makes a line at most 15em wide; longer ones end in an ellipsis. */
 .layout-horizontal .reply { max-width: 15em; }
-/* A row along the top edge lines its messages up by their top, so a reply header on a row of its own above its message
+/* A row along the top edge lines its messages up by their text, so a reply header on a row of its own above its message
    would put that message a header lower than the others (and, in a source one row tall, cut it off). There the header
    sits before its message on the same row instead, in its own box (the 15em cap and the ellipsis still apply), on the
-   message's baseline: overflow: clip keeps that box's baseline its text's (a hidden one's would be its bottom edge). */
+   message's baseline. It clips by paint containment, not by overflow: an inline-block whose overflow isn't visible
+   takes its bottom edge as its baseline in Chromium 103 (OBS 28 to 30), which would lift its text above the message's
+   (overflow: clip too there; only later versions keep its text's). contain: paint clips it the same way (with
+   outline's overflow-clip-margin), keeps the ellipsis, and leaves its baseline its text's. */
 :where(.layout-horizontal.align-top) .reply {
   display: inline-block;
   vertical-align: baseline;
-  overflow: clip;
+  overflow: visible;
+  contain: paint;
   margin-right: .5em;
 }
+/* There it shares its row with the message, so it is also never wider than half the row (or half of line_width's cap):
+   the reply's name and message always keep the other half. In px worked out on #chat (--reply-max, a registered length:
+   --line-max and --edge-fade are #chat's em), not a percentage, which the line's own width would depend on. Half the
+   row is half the source less its sides (pad_x, and edge_fade's room at its left end). */
+@property --reply-max { syntax: '<length>'; inherits: true; initial-value: 100000px; }
+:where(.layout-horizontal.align-top) {
+  --reply-max: min(50vw - (var(--pad-x, 8px) + max(var(--pad-x, 8px), min(var(--edge-fade, 0px), 50vw))) / 2, var(--line-max, 200vw) / 2);
+}
+.layout-horizontal:where(.align-top) .reply { max-width: min(15em, var(--reply-max)); }
 .layout-horizontal .emote-stack.big { --eh: var(--emote-h, 1.75em); }
 /* An emote's box, with its width reserved up front: a GIF has no size until it loads, and growing then
    would shove the whole row sideways. object-fit: contain letterboxes other shapes. Its margins are an emote's (above):
-   -.3em .05em, with no room above and .2em below once it is taller than its line. */
+   -.3em .05em, with no room above and .2em below once it is taller than its line, and .2em below in a box. */
 .layout-horizontal .gif {
   width: calc(var(--emote-h, 1.75em) * 16 / 9);
   height: var(--emote-h, 1.75em);
   max-height: var(--emote-h, 1.75em);
   margin: calc(-1 * max(0em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)))) .05em
-    calc(-1 * max(.2em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
+    calc(-1 * max(.2em, min(var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
 }
 /* The messages of a row are lined up by their box's edge, so every one is as tall as one with an emote (a cheer, a GIF)
    or a badge: an empty inline box at its end whose line-height is the tallest of those (its margin box: an emote's height
@@ -447,7 +519,7 @@ body {
   content: '';
   line-height: max(var(--badge-h, 1em), var(--emote-h, 1.75em)
     - max(0em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)))
-    - max(.2em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
+    - max(.2em, min(var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
   vertical-align: middle;
 }
 /* row_sep: a dot, bar or diamond before every message in a row but the first. A pseudo-element can't sit between
@@ -488,10 +560,11 @@ body {
   opacity: .857;
 }
 /* A notice's text is smaller (notice_size), but its mark, and the space after it, are the row's like every other one:
-   --row-em is #chat's 1em in px (a registered length, so it is worked out on #chat and inherited as it is). line-height: 0
-   keeps the bigger mark from making the notice's line taller. After the time's rule, which it ties. */
+   --row-em is #chat's 1em in px (a registered length, so it is worked out on #chat and inherited as it is; a notice's
+   parts take their line height from it too, above). line-height: 0 keeps the bigger mark from making the notice's line
+   taller. After the time's rule, which it ties. */
 @property --row-em { syntax: '<length>'; inherits: true; initial-value: 0px; }
-:where(.layout-horizontal):where(.sep-dot, .sep-bar, .sep-diamond) { --row-em: 1em; }
+:where(.layout-horizontal) { --row-em: 1em; }
 :where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child::before,
 :where(.layout-horizontal.align-top):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice::before {
   font-size: var(--row-em);
@@ -532,12 +605,13 @@ body {
 }
 
 /* line_width=5..100: no message wider than --line-max, in either layout (a longer one wraps in a column and ends in
-   an ellipsis in a row). After the row's rules, which it beats on order alone. A notice's em is its own smaller
-   text, so its cap is --line-max-n: the same width. The cap holds a bar's or a tint's padding too (border-box, as
-   with bg and in a row), so in a column without a box no message is wider than the others' cap, and with text_align
-   right or center their bars and tints line up. */
+   an ellipsis in a row). After the row's rules, which it beats on order alone. A notice's em in a column is its own
+   smaller text, so its cap is --line-max-n: the same width (a row's notice line keeps the row's em). The cap holds a
+   bar's or a tint's padding too (border-box, as with bg and in a row), so in a column without a box no message is wider
+   than the others' cap, and with text_align right or center their bars and tints line up. */
 .has-maxw .line { box-sizing: border-box; max-width: min(100%, var(--line-max, 100%)); }
 .has-maxw .line.notice { max-width: min(100%, var(--line-max-n, var(--line-max, 100%))); }
+:where(.layout-horizontal).has-maxw .line.notice { max-width: min(100%, var(--line-max, 100%)); }
 
 /* ---------- animations ---------- */
 @keyframes tco-in {

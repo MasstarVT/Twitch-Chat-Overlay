@@ -105,15 +105,16 @@
   // gif_size: a GIF's height in emote heights (--gif-mul); 3x is the stylesheet's. At 1x a GIF also takes an emote's
   // margins (--gif-margin), so its line is no taller than one with emotes: as css/overlay.css gives an emote in a column,
   // -.3em .05em, except that it reaches past its line only as far as there is room: one taller than its line (emote_scale
-  // above 100) never above it and at most .2em below it, less at a line_height below 135, and at spacing=tight without a
-  // box no more than twice the gap (--emote-hang). A row draws GIFs at emote height whatever gif_size is, with the same
-  // margins written into its own rule (.layout-horizontal .gif), so --gif-margin is a column's. It is set on #chat,
-  // where --emote-h, --line-height and --emote-hang are too, so the var()s below take #chat's values.
+  // above 100) never above it and at most .2em below it, less at a line_height below 135 (--emote-floor below 120), at
+  // spacing=tight without a box no more than twice the gap (--emote-hang), and in a box no more than its .2em padding
+  // below (--emote-drop). A row draws GIFs at emote height whatever gif_size is, with the same margins written into its
+  // own rule (.layout-horizontal .gif), so --gif-margin is a column's. It is set on #chat, where --emote-h,
+  // --line-height and the others are too, so the var()s below take #chat's values.
   var GIF_MUL = { '1x': '1', '2x': '2' };
-  var EMOTE_ROOM = '.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), ' +
+  var EMOTE_ROOM = 'var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), ' +
     '(2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)';
-  var GIF_1X_MARGIN = 'calc(-1 * max(0em, min(' + EMOTE_ROOM + '))) .05em ' +
-    'calc(-1 * max(min(.2em, var(--emote-hang, .3em)), min(' + EMOTE_ROOM + ')))';
+  var GIF_1X_MARGIN = 'calc(-1 * max(0em, min(.3em, ' + EMOTE_ROOM + '))) .05em ' +
+    'calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em), ' + EMOTE_ROOM + ')))';
   // name_sep: what goes between the name and the message (a /me line keeps its space). Never '': the name and
   // the message would run together.
   var NAME_SEPS = { colon: ': ', space: ' ', dash: ' – ', arrow: ' › ' };
@@ -320,7 +321,8 @@
   }
   function bgAlpha(bg) { return clampInt(bg, 0, 100, 0) / 100; }
   // line_width's cap on a notice (--line-max-n), in the notice's own em: notice_size makes that em smaller (or
-  // larger) than the chat text's, so the same number of them would make notices narrower than the chat lines.
+  // larger) than the chat text's, so the same number of them would make notices narrower than the chat lines. A column's
+  // only: in a row a notice's line keeps the row's em (css/overlay.css), so --line-max caps it there.
   function noticeMax(width, noticeSize) {
     return Math.round(width * 100000 / clampInt(noticeSize, 50, 150, 85)) / 1000 + 'em';
   }
@@ -803,7 +805,8 @@
   // text (a link is never made clickable). The signs a sentence puts after a link stay after the host, and so does a
   // closing bracket, unless the link has an opening one of its own ('…/Foo_(bar)'). A link the URL parser rejects, or
   // one without a host, stays as it is. An international name is shown in its own letters ('www.müller.de'), as
-  // links=show and a browser's address bar show it, not as the parser writes it ('www.xn--mller-kva.de').
+  // links=show and a browser's address bar show it, not as the parser writes it ('www.xn--mller-kva.de'), unless it
+  // could pass for another name: then it keeps that xn-- form, as the address bar keeps it (see spoofable).
   function shortenLinks(text) {
     if (!hasLink(text)) return text;
     return text.replace(LINKS_RE, function (url) {
@@ -815,13 +818,54 @@
     });
   }
   // A host name from the URL parser with each 'xn--' label (the parser's ASCII form of an international name) decoded.
-  // The parser has already checked and lower-cased the name; a label that still doesn't decode stays as it is.
+  // The parser has already checked and lower-cased the name; a label that still doesn't decode stays as it is. A name
+  // with a label that could pass for another (spoofable) stays as the parser wrote it, whole, as a browser shows it.
   function hostLetters(host) {
     if (host.indexOf('xn--') < 0) return host;
-    return host.split('.').map(function (label) {
+    var labels = host.split('.').map(function (label) {
       var u = label.slice(0, 4) === 'xn--' ? punyDecode(label.slice(4)) : null;
       return u || label;
-    }).join('.');
+    });
+    var tld = labels[labels.length - 1];
+    for (var i = 0; i < labels.length; i++) if (spoofable(labels[i], tld)) return host;
+    return labels.join('.');
+  }
+  // Scripts with letters that look like Latin ones (the core of Chromium's IDN display rule, which keeps such names in
+  // their xn-- form): the script, its lower-case Latin look-alikes, and the country names under which a name made of
+  // them alone is that country's own (Chromium allows those).
+  var LOOKALIKE_SCRIPTS = [
+    { script: new RegExp('\\p{Script=Cyrillic}', 'u'),
+      like: /^[\u0430\u0441\u0501\u0435\u04BB\u0456\u0458\u04CF\u043E\u0440\u051B\u0455\u051D\u0445\u0443\u044A\u044C\u04BD\u043F\u0433\u0475\u0461]$/,
+      tlds: ['bg', 'by', 'kg', 'kz', 'mk', 'mn', 'rs', 'ru', 'su', 'tj', 'ua', 'uz'] },
+    { script: new RegExp('\\p{Script=Greek}', 'u'),
+      like: /^[\u03B1\u03B2\u03B3\u03B5\u03B9\u03BA\u03BD\u03BF\u03C1\u03C4\u03C5\u03C7\u03C9\u03AC\u03AD\u03AF\u03CC\u03CD\u03CE]$/,
+      tlds: ['gr', 'cy'] },
+    { script: new RegExp('\\p{Script=Armenian}', 'u'), like: /^[\u0585\u057D\u0578\u0570\u0566\u0581\u0575]$/, tlds: ['am'] }
+  ];
+  var LETTER_RE = new RegExp('\\p{L}', 'u');
+  var CODE_POINTS_RE = new RegExp('[\\s\\S]', 'gu');
+  // Whether a decoded label could pass for a name in another script (a homograph): one with Cyrillic, Greek or Armenian
+  // letters and letters of any other script too ('www.аpple.com', a Cyrillic 'а' among Latin letters), or one made only
+  // of one such script's Latin look-alikes ('аррӏе.com') where the top-level name (tld, decoded) is neither in that
+  // script ('яндекс.рф') nor its country's. Digits, hyphens and marks don't count. Every other name ('www.müller.de',
+  // '例え.jp', 'кириллица.com') is shown in its letters.
+  function spoofable(label, tld) {
+    var chars = label.match(CODE_POINTS_RE) || [];
+    var look = -1, other = false, allLike = true;
+    for (var i = 0; i < chars.length; i++) {
+      var ch = chars[i];
+      if (!LETTER_RE.test(ch)) continue;
+      var s = -1;
+      for (var j = 0; j < LOOKALIKE_SCRIPTS.length && s < 0; j++) if (LOOKALIKE_SCRIPTS[j].script.test(ch)) s = j;
+      if (s < 0) { other = true; continue; }
+      if (look >= 0 && look !== s) return true; // two of them
+      look = s;
+      if (!LOOKALIKE_SCRIPTS[s].like.test(ch)) allLike = false;
+    }
+    if (look < 0) return false;
+    if (other) return true;
+    var sc = LOOKALIKE_SCRIPTS[look];
+    return allLike && !sc.script.test(tld) && sc.tlds.indexOf(tld) < 0;
   }
   // RFC 3492 punycode: the letters a label's part after 'xn--' stands for, or null when it is not valid punycode (a
   // digit that isn't one, an overflow, no code point).
@@ -1752,10 +1796,17 @@
       cnt = Math.min(cnt, n - 1);
       if (cnt) {
         var top = newestFirst(cfg);
-        var victims = [];
-        for (var i = 0; i < cnt; i++) victims.push(top ? kids[n - 1 - i] : kids[i]);
+        var victims = [], notices = false;
+        for (var i = 0; i < cnt; i++) {
+          victims.push(top ? kids[n - 1 - i] : kids[i]);
+          var vr = recs.get(victims[i]);
+          if (vr && vr.kind === 'notice') notices = true;
+        }
         // Measured just now, nothing changed since: removeLines' one measurement costs no layout.
         removeLines(victims);
+        // A resub's text line whose notice line went off the edge before it shows the time itself now (timestamps; see
+        // noticeDrawn), as when a filter sweeps the notice.
+        if (notices && cfg.timestamps !== 'off') rerender(function (m) { return m.noticeId !== undefined; });
       }
       // Every flush, and every resize (a wider source moves the row right): a kept mark that is no longer kept for anything.
       dropLoneSep();
