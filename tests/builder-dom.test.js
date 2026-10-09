@@ -877,24 +877,27 @@ test('a link to an Advanced sub-heading opens Advanced, and leaves the focus alo
 test('sub-headings go above their field; More in Advanced opens Advanced at its heading and moves the focus there', (t) => {
   const focused = [];
   const p = open(t, HREF, { setup: watchFocus(focused) });
-  const fields = (id) => p.$(id).children.filter((e) => e.className === 'fields')[0].children;
+  // Look's headings open and close the fields under them, which go in a part of their own: read through it.
+  const fields = (id) => [].concat(...p.$(id).children.filter((e) => e.className === 'fields')[0].children
+    .map((e) => (e.className === 'fold-body' ? e.children : [e])));
   const outline = (id) => fields(id).map((e) => (e.tagName === 'H3' ? e.textContent + (e.id ? '#' + e.id : '')
     : e.classList.contains('field-presets') ? 'quick looks' : e.getAttribute('data-key')));
   fields('group-look').filter((e) => e.tagName === 'H3').forEach((e) => {
-    assert.strictEqual(e.className, 'eyebrow subhead');
+    assert.strictEqual(e.className, 'eyebrow subhead fold');
     assert.strictEqual(e.id, undefined, 'only Advanced headings are anchors');
   });
   // Look starts with the quick looks, above its first heading.
   assert.deepStrictEqual(outline('group-look'), ['quick looks', 'Layout', 'layout', 'align', 'text_align', 'row_align', 'Text', 'size', 'font', 'text_weight',
     'text_color', 'shadow', 'outline', 'Names', 'name_color', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate',
     'enter_style']);
-  assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'text_px',
+  assert.deepStrictEqual(outline('group-advanced'), ['Text#adv-text', 'text_px',
     'line_height', 'text_case', 'shadow_color', 'outline_color', 'Names#adv-names', 'names', 'name_weight', 'name_font', 'name_fallback',
     'name_sep', 'readable_level', 'Box#adv-box', 'bg_shape', 'bg_width', 'spacing', 'Layout#adv-layout', 'line_width', 'pad_x', 'edge_fade',
     'row_sep', 'Animation#adv-animation', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'Chat events#adv-events', 'notice_color', 'notice_size', 'first_msg_color', 'reply_style', 'Highlights#adv-highlights',
     'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style', 'broadcaster_color',
     'mod_color', 'vip_color', 'Filters#adv-filters', 'allow_users', 'min_length', 'command_prefixes', 'Emotes#adv-emotes', 'gif_size',
-    'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']);
+    'giant_emotes', 'Lighter on PC#adv-lighter', 'shadow_style', 'paint_images', 'homies_lists', 'Troubleshooting#adv-trouble', 'debug',
+    'demo']);
   // Chat events: the Event types grid under its switch, and a heading over the mentions and timestamps (no anchor:
   // only Advanced's headings have one).
   assert.deepStrictEqual(outline('group-events'), ['events', null, 'replies', 'first_msg', 'shared', 'Highlights & timestamps', 'mentions',
@@ -2133,7 +2136,8 @@ test('event types and filters: a labelled grid under Show subs…, greyed out wi
   const rows = grid.children.slice(0, -1), help = grid.children[grid.children.length - 1];
   assert.deepStrictEqual(rows.map((e) => e.getAttribute('data-key')), p.builder.EVENT_SUBS);
   rows.forEach((e) => assert.strictEqual(e.className, 'field field-check sub'));
-  assert.deepStrictEqual([help.tagName, help.className, help.textContent], ['P', 'help', p.builder.SUBGRIDS.events.help]);
+  // The text, then the More button that shows the rest of it.
+  assert.deepStrictEqual([help.tagName, help.className, help.firstChild.textContent], ['P', 'help', p.builder.SUBGRIDS.events.help]);
   const off = () => p.builder.EVENT_SUBS.filter((k) => rowOf(p, k).classList.contains('disabled'));
   assert.deepStrictEqual(off(), []);
   flip('events', false);
@@ -2275,13 +2279,13 @@ test('Quick look: a row of five buttons at the top of Look, Default pressed at t
   const p = open(t, HREF);
   const L = looks(p);
   assert.strictEqual(L.row.className, 'field field-presets span-all');
-  assert.strictEqual(L.row.nextElementSibling.className, 'eyebrow subhead', 'above the first heading');
+  assert.strictEqual(L.row.nextElementSibling.className, 'eyebrow subhead fold', 'above the first heading');
   assert.strictEqual(L.row.byClass('field-label')[0].textContent, 'Quick look');
   assert.deepStrictEqual(L.row.byClass('tag'), [], 'no setting of its own, so no name tag');
   assert.deepStrictEqual([L.group.tagName, L.group.className, L.group.getAttribute('role'), L.group.getAttribute('aria-label'),
     L.group.getAttribute('aria-describedby')], ['DIV', 'btns field-control', 'group', 'Quick look', 'h-presets']);
   const help = p.$('h-presets');
-  assert.strictEqual(help.parentNode, L.row);
+  assert.strictEqual(help.parentNode.parentNode, L.row);
   assert.match(help.textContent, new RegExp('^Sets text size, weight and color, shadow, outline, box, name-color bar, spacing, ' +
     'whether the name has a line of its own, and emote and badge size\\.'));
   assert.match(help.textContent, /Your font, name colors, layout and position stay\./);
@@ -2603,4 +2607,60 @@ test('The row settings\' help says what they do in a row and what they need', (t
   ['emote_only', 'gif_size', 'giant_emotes'].forEach((k) => assert.match(p.text('h-' + k), /Let big emotes grow the row/, k));
   // Cards' name line makes cards of a row too: its help says how tall a source it wants.
   assert.match(p.text('h-presets'), /Cards wants one about 130 px tall/);
+});
+
+test('help: the first sentence shows, a More button opens the rest, and the description is the whole text', (t) => {
+  const p = open(t, HREF);
+  const text = p.$('h-line_height'), box = text.parentNode;
+  const more = box.children.filter((e) => e.tagName === 'BUTTON')[0];
+  assert.strictEqual(text.textContent, p.builder.META.line_height.help, 'every word is still there');
+  assert.strictEqual(p.$('f-line_height').getAttribute('aria-describedby'), 'h-line_height');
+  assert.deepStrictEqual([text.children[0].className, text.children[1].className], ['help-lead', 'help-rest']);
+  assert.deepStrictEqual([more.textContent, more.type, more.getAttribute('aria-expanded'), more.getAttribute('aria-controls'),
+    more.getAttribute('aria-label')], ['More', 'button', 'false', 'h-line_height', 'More about Line spacing']);
+  more.dispatch('click');
+  assert.deepStrictEqual([box.classList.contains('open'), more.textContent, more.getAttribute('aria-expanded')], [true, 'Less', 'true']);
+  more.dispatch('click');
+  assert.strictEqual(box.classList.contains('open'), false);
+  // Short help has no button.
+  assert.deepStrictEqual(p.$('h-max').parentNode.children.filter((e) => e.tagName === 'BUTTON'), []);
+});
+
+test('Look: its headings open and close the fields under them, remembered, with a count while closed', (t) => {
+  const storage = memoryStorage();
+  const p = open(t, HREF, { storage });
+  const btn = (title) => p.$('group-look').byClass('fold-btn').filter((b) => b.textContent.indexOf(title) === 0)[0];
+  const body = (title) => p.$(btn(title).getAttribute('aria-controls'));
+  assert.deepStrictEqual(['Layout', 'Text', 'Names', 'Box', 'Animation'].map((x) => btn(x).getAttribute('aria-expanded')),
+    ['true', 'true', 'false', 'false', 'false'], 'the ones most looks are made with start open');
+  assert.deepStrictEqual([body('Box').hidden, body('Text').hidden], ['until-found', false]);
+  assert.ok(body('Box').contains(rowOf(p, 'bg')));
+  // A quick look changes the box: the closed heading counts it.
+  looks(p).click('Boxed');
+  assert.deepStrictEqual([btn('Box').byClass('count')[0].textContent, btn('Box').getAttribute('aria-label')], ['1', 'Box, 1 changed']);
+  btn('Box').dispatch('click');
+  assert.deepStrictEqual([btn('Box').getAttribute('aria-expanded'), body('Box').hidden, btn('Box').byClass('count')[0].textContent],
+    ['true', false, '']);
+  assert.strictEqual(JSON.parse(storage.getItem('tco-builder-ui')).folds['look-box'], true);
+  // Find in page opens a closed one.
+  body('Names').dispatch('beforematch');
+  assert.strictEqual(btn('Names').getAttribute('aria-expanded'), 'true');
+});
+
+test('a field of the other layout only is hidden; one waiting on a setting stays, greyed', (t) => {
+  const p = open(t, HREF);
+  const away = () => ['text_align', 'row_align', 'row_sep', 'row_grow', 'bg_width', 'smooth_scroll'].filter((k) => rowOf(p, k).hidden);
+  assert.deepStrictEqual(away(), ['row_align', 'row_sep', 'row_grow']);
+  assert.deepStrictEqual([!!rowOf(p, 'bg_color').hidden, rowOf(p, 'bg_color').classList.contains('disabled')], [false, true]);
+  p.doc.querySelectorAll('input[name="f-layout"]').filter((r) => r.value === 'horizontal')[0].checked = true;
+  p.doc.querySelectorAll('input[name="f-layout"]').filter((r) => r.value === 'horizontal')[0].dispatch('change');
+  assert.deepStrictEqual(away(), ['text_align', 'bg_width', 'smooth_scroll']);
+});
+
+test('Look: a heading opens as it was left last time', (t) => {
+  const storage = memoryStorage();
+  storage.setItem('tco-builder-ui', JSON.stringify({ section: 'look', folds: { 'look-box': true, 'look-text': false, 'look-x': 'no' } }));
+  const p = open(t, HREF, { storage });
+  assert.deepStrictEqual(p.$('group-look').byClass('fold-btn').map((b) => b.getAttribute('aria-expanded')),
+    ['true', 'false', 'false', 'true', 'false']);
 });

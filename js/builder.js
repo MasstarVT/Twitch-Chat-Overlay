@@ -158,7 +158,7 @@
     spacing: { label: 'Space between messages', options: { tight: 'Tight', normal: 'Normal', loose: 'Loose', extra: 'Extra' },
       help: 'In a column, the space above and below each message; in a row, the gap between messages. At Tight, in a column without Line background, a message with emotes keeps the room they need, so emotes don’t overlap.' },
     layout: { label: 'Layout', options: { vertical: 'Vertical', horizontal: 'Horizontal' },
-      help: 'Vertical stacks messages in a column. Horizontal runs them in one row, like a ticker.' },
+      help: 'Vertical stacks messages in a column; Horizontal runs them in one row, like a ticker.' },
     align: { label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' },
       // Shown instead while layout is horizontal (see syncLabels).
       horizontal: { label: 'Row sits', help: 'Whether the row runs along the bottom or the top edge of the source. New messages always come in on the right.' } },
@@ -319,13 +319,15 @@
   // One section of the settings panel each; the rail lists them in this order, then "Add to OBS".
   // keys: every field of the section, in order. subs: [{id, title, first}] sub-headings, each drawn above the
   // field `first`; in Advanced its id is an anchor (builder.html#adv-text opens Advanced there). more: such an
-  // id, linked at the foot of the section as "More in Advanced".
+  // id, linked at the foot of the section as "More in Advanced". fold: each sub-heading opens and closes the fields
+  // under it (buildGroups), and a sub's `open` says it starts open: the ones most looks are made with.
   var GROUPS = [
     { id: 'look', title: 'Look', note: 'Quick looks, layout, text, names, boxes and how new messages come in.',
       keys: ['layout', 'align', 'text_align', 'row_align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_color',
         'name_line', 'bg', 'bg_color', 'accent_bar', 'animate', 'enter_style'],
-      subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_color' },
-        { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
+      fold: true,
+      subs: [{ title: 'Layout', first: 'layout', open: true }, { title: 'Text', first: 'size', open: true },
+        { title: 'Names', first: 'name_color' }, { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
       more: 'adv-text' },
     { id: 'platforms', title: 'Kick', note: 'Kick chat alongside Twitch, in one overlay.',
       foot: 'Kick chat shows Kick and 7TV emotes, and Kick badges. Its recent messages load only when kick.com lets the overlay look the channel up.',
@@ -342,20 +344,22 @@
     { id: 'badges', title: 'Badges & paints', note: 'Each badge source has its own switch.',
       foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
       keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable', 'badge_size']), more: 'adv-lighter' },
-    { id: 'advanced', title: 'Advanced', note: 'Troubleshooting first, then fine-tuning for every section and lighter-on-PC switches.',
-      keys: ['debug', 'demo', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight',
+    { id: 'advanced', title: 'Advanced', note: 'Fine-tuning for every section, lighter-on-PC switches, and troubleshooting last.',
+      keys: ['text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color', 'names', 'name_weight',
         'name_font', 'name_fallback', 'name_sep', 'readable_level', 'bg_shape', 'bg_width', 'spacing', 'line_width', 'pad_x',
         'edge_fade', 'row_sep', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'notice_color', 'notice_size',
         'first_msg_color', 'reply_style', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight',
         'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'allow_users', 'min_length',
-        'command_prefixes', 'gif_size', 'giant_emotes', 'shadow_style', 'paint_images', 'homies_lists'],
-      subs: [{ id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }, { id: 'adv-text', title: 'Text', first: 'text_px' },
+        'command_prefixes', 'gif_size', 'giant_emotes', 'shadow_style', 'paint_images', 'homies_lists', 'debug', 'demo'],
+      // Troubleshooting last: the two switches are for finding a fault, not for the look, and opened Advanced at them.
+      subs: [{ id: 'adv-text', title: 'Text', first: 'text_px' },
         { id: 'adv-names', title: 'Names', first: 'names' }, { id: 'adv-box', title: 'Box', first: 'bg_shape' },
         { id: 'adv-layout', title: 'Layout', first: 'line_width' }, { id: 'adv-animation', title: 'Animation', first: 'enter_ms' },
         { id: 'adv-events', title: 'Chat events', first: 'notice_color' },
         { id: 'adv-highlights', title: 'Highlights', first: 'mention_color' },
         { id: 'adv-filters', title: 'Filters', first: 'allow_users' },
-        { id: 'adv-emotes', title: 'Emotes', first: 'gif_size' }, { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' }] }
+        { id: 'adv-emotes', title: 'Emotes', first: 'gif_size' }, { id: 'adv-lighter', title: 'Lighter on PC', first: 'shadow_style' },
+        { id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }] }
   ];
 
   // Quick looks, a row of buttons at the top of Look. Each sets every PRESET_KEYS setting: the ones in its `set` to
@@ -401,7 +405,7 @@
     var out = GROUPS.map(function (g) {
       g.keys.forEach(function (k) { seen[k] = true; });
       return { id: g.id, title: g.title, keys: g.keys.filter(function (k) { return !!config.SPEC[k]; }),
-        note: g.note, foot: g.foot, subs: g.subs || [], more: g.more || '' };
+        note: g.note, foot: g.foot, subs: g.subs || [], more: g.more || '', fold: !!g.fold };
     });
     var extra = config.KEYS.filter(function (k) { return k !== 'channel' && !seen[k]; });
     if (extra.length) out[out.length - 1].keys = out[out.length - 1].keys.concat(extra);
@@ -856,9 +860,35 @@
 
   // Whether a field is greyed out under cfg: its META.when is false, or its META.only is the other layout.
   function fieldOff(key, cfg) {
+    if (fieldAway(key, cfg)) return true;
     var m = META[key] || {};
-    if (m.only && m.only !== (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical')) return true;
     return typeof m.when === 'function' && !m.when(cfg);
+  }
+
+  // Whether a field is left out of the form under cfg: its META.only is the other layout. A field of the other layout
+  // can't be turned on from here (only a Layout switch brings it back), so it is hidden, not greyed out. One that waits
+  // on a setting nearby (META.when) stays in view, greyed: it says what that setting would add, and hiding it would
+  // move the fields under it as the setting is changed.
+  function fieldAway(key, cfg) {
+    var m = META[key] || {};
+    return !!m.only && m.only !== (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical');
+  }
+
+  // A help text as shown under its field: its first sentence (lead), and the rest behind a More button. Help that
+  // fits on about one line shows whole, and so does one sentence alone. A lead shorter than HELP_LEAD_MIN ('Seconds.')
+  // takes the next sentence too. A sentence ends at . ! or ? before a capital, a digit or an opening quote, so
+  // '… or www. (a bare …' and 'example.com' don't end one.
+  var HELP_LINE = 80, HELP_LEAD_MIN = 12;
+  function helpParts(text) {
+    var t = String(text || '');
+    if (t.length <= HELP_LINE) return { lead: t, rest: '' };
+    var re = /[.!?](?=\s+[A-Z0-9“"‘])/g, m;
+    while ((m = re.exec(t))) {
+      if (m.index + 1 < HELP_LEAD_MIN) continue;
+      var rest = t.slice(m.index + 1).replace(/^\s+/, '');
+      return rest ? { lead: t.slice(0, m.index + 1), rest: rest } : { lead: t, rest: '' };
+    }
+    return { lead: t, rest: '' };
   }
 
   function clampInt(v, min, max, def) {
@@ -944,7 +974,9 @@
   function lastSnapshot(folderSnap, legacySnap) {
     return folderSnap === null || folderSnap === undefined ? legacySnap : folderSnap;
   }
-  function saveUi() { store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop, section: B.ui.section }); }
+  function saveUi() {
+    store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop, section: B.ui.section, folds: B.ui.folds });
+  }
 
   function announce(text) {
     var r = $('sr-status');
@@ -957,15 +989,52 @@
   // ---------- form fields ----------
   function labelFor(key) { return (META[key] && META[key].label) || key; }
 
+  // A help paragraph: the text in a span of its own (id: what a control's aria-describedby names), then a More
+  // button when helpParts leaves some of it out. The part left out stays in the page for assistive tech (css
+  // .help-rest), so a description is read whole and the button is the sighted reader's way to it. about: what the
+  // help is for, in the button's name ("More about Text size"), as a panel has many a More.
+  function helpBlock(id, text, about) {
+    var p = h('p', 'help');
+    var t = h('span', 'help-text');
+    t.id = id;
+    p.appendChild(t);
+    p._tcoAbout = about;
+    setHelpText(p, text);
+    return p;
+  }
+
+  // Fills a helpBlock (again, as syncLabels does), folded.
+  function setHelpText(p, text) {
+    var t = p.firstChild, parts = helpParts(text);
+    clear(t);
+    if (p.lastChild !== t) p.removeChild(p.lastChild);
+    p.classList.remove('open');
+    t.appendChild(h('span', 'help-lead', parts.lead + (parts.rest ? ' ' : '')));
+    if (!parts.rest) return;
+    t.appendChild(h('span', 'help-rest', parts.rest));
+    var more = h('button', 'help-more', 'More');
+    more.type = 'button';
+    more.setAttribute('aria-controls', t.id);
+    var show = function (open) {
+      if (open) p.classList.add('open'); else p.classList.remove('open');
+      more.textContent = open ? 'Less' : 'More';
+      more.setAttribute('aria-expanded', open ? 'true' : 'false');
+      more.setAttribute('aria-label', (open ? 'Less' : 'More') + ' about ' + p._tcoAbout);
+    };
+    show(false);
+    more.addEventListener('click', function () { show(!p.classList.contains('open')); });
+    p.appendChild(more);
+  }
+
+  // A field's help under it. Returns the text's span (h-<key>), which the field's controls are described by.
   function addHelp(row, key, input) {
     var m = META[key] || {};
     if (!m.help && !m.horizontal) return null; // text that follows the layout needs the element either way
-    var p = h('p', 'help', m.help || '');
+    var p = helpBlock('h-' + key, m.help || '', labelFor(key));
     p.hidden = !m.help;
-    p.id = 'h-' + key;
     row.appendChild(p);
-    if (input) input.setAttribute('aria-describedby', p.id);
-    return p;
+    if (input) input.setAttribute('aria-describedby', 'h-' + key);
+    return p.firstChild;
   }
 
   function widgetFor(key) {
@@ -1492,6 +1561,55 @@
     return e;
   }
 
+  // A sub-heading that opens and closes the fields under it (GROUPS fold): a button, which counts the settings under it
+  // that are off their defaults while they are out of sight, and the part they go in. Closed, that part is hidden
+  // until-found: the browser's find in page still finds a setting in it, and opens it (beforematch).
+  function foldPart(g, s) {
+    var id = g.id + '-' + s.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    var head = h('h3', 'eyebrow subhead fold');
+    var btn = h('button', 'fold-btn');
+    btn.type = 'button';
+    btn.setAttribute('aria-controls', 'fold-' + id);
+    // The chevron is drawn by css/builder.css (.fold-btn::before), so the page needs no inline SVG here.
+    btn.appendChild(h('span', 'fold-name', s.title));
+    var count = h('span', 'count');
+    count.setAttribute('aria-hidden', 'true');
+    btn.appendChild(count);
+    head.appendChild(btn);
+    var body = h('div', 'fold-body');
+    body.id = 'fold-' + id;
+    var part = { id: id, title: s.title, head: head, btn: btn, count: count, body: body, keys: [] };
+    btn.addEventListener('click', function () {
+      setFold(part, !B.ui.folds[id]);
+      saveUi();
+    });
+    body.addEventListener('beforematch', function () {
+      setFold(part, true);
+      saveUi();
+    });
+    if (typeof B.ui.folds[id] !== 'boolean') B.ui.folds[id] = !!s.open;
+    B.folds[id] = part;
+    setFold(part, B.ui.folds[id]);
+    return part;
+  }
+
+  function setFold(part, open) {
+    B.ui.folds[part.id] = open;
+    part.btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // A browser that doesn't know until-found reads it as plain hidden.
+    part.body.hidden = open ? false : 'until-found';
+    syncFoldCount(part);
+  }
+
+  // The count on a closed sub-heading: its settings off their defaults (open, each field's own tag says so). In its
+  // name too, as the rail's tabs do.
+  function syncFoldCount(part, changed) {
+    changed = changed || changedKeys(B.cfg);
+    var n = B.ui.folds[part.id] ? 0 : part.keys.filter(function (k) { return changed[k] === true; }).length;
+    part.count.textContent = n ? String(n) : '';
+    part.btn.setAttribute('aria-label', part.title + (n ? ', ' + n + ' changed' : ''));
+  }
+
   // The foot of a section whose finer settings are under an Advanced sub-heading. A plain click goes there the
   // way a tab does, with no history entry: a followed #adv-... link would leave one that Back returns from to
   // the bare builder.html, which names no section, so Back would leave Advanced open (at the scroll spot of the
@@ -1544,9 +1662,7 @@
     B.presetUndoBtn = undo;
     head.appendChild(btns);
     row.appendChild(head);
-    var help = h('p', 'help', PRESETS_HELP);
-    help.id = 'h-presets';
-    row.appendChild(help);
+    row.appendChild(helpBlock('h-presets', PRESETS_HELP, 'Quick look'));
     return row;
   }
 
@@ -1555,6 +1671,7 @@
     var host = $('groups'), tabs = $('tabs'), rule = $('tab-rule');
     clear(host);
     B.subheads = Object.create(null);
+    B.folds = Object.create(null);
     groupLayout().forEach(function (g) {
       var old = $('tab-' + g.id);
       if (old) old.parentNode.removeChild(old);
@@ -1586,8 +1703,20 @@
       if (g.id === 'look') body.appendChild(buildPresets());
       var heads = Object.create(null), grids = Object.create(null);
       g.subs.forEach(function (s) { heads[s.first] = s; });
+      // Where the next field goes: the section's fields, or (g.fold) the part under the sub-heading above it.
+      var into = body, fold = null;
       g.keys.forEach(function (key) {
-        if (heads[key]) body.appendChild(subhead(g, heads[key]));
+        if (heads[key]) {
+          if (g.fold) {
+            fold = foldPart(g, heads[key]);
+            body.appendChild(fold.head);
+            body.appendChild(fold.body);
+            into = fold.body;
+          } else {
+            body.appendChild(subhead(g, heads[key]));
+          }
+        }
+        if (fold) fold.keys.push(key);
         var f = buildField(key);
         B.fields[key] = f;
         var sg = subgridOf(key);
@@ -1596,16 +1725,16 @@
             grids[sg] = h('div', 'subgrid');
             grids[sg].setAttribute('role', 'group');
             grids[sg].setAttribute('aria-label', SUBGRIDS[sg].label);
-            body.appendChild(grids[sg]);
+            into.appendChild(grids[sg]);
           }
           f.row.className += ' sub';
           grids[sg].appendChild(f.row);
         } else {
-          body.appendChild(f.row);
+          into.appendChild(f.row);
         }
       });
       Object.keys(grids).forEach(function (sg) {
-        if (SUBGRIDS[sg].help) grids[sg].appendChild(h('p', 'help', SUBGRIDS[sg].help));
+        if (SUBGRIDS[sg].help) grids[sg].appendChild(helpBlock('h-' + sg + '-grid', SUBGRIDS[sg].help, SUBGRIDS[sg].label));
       });
       sec.appendChild(body);
       if (g.foot) sec.appendChild(h('p', 'help section-foot', g.foot));
@@ -1753,10 +1882,12 @@
   }
 
   // Fields that only apply while another setting allows it (META.when, META.only): after every change.
+  // A field of the other layout only (fieldAway) is hidden as well.
   function syncDisabled() {
     for (var k in B.fields) {
       var m = META[k];
       if (m && (m.when || m.only)) B.fields[k].setDisabled(fieldOff(k, B.cfg));
+      if (m && m.only) B.fields[k].row.hidden = fieldAway(k, B.cfg);
     }
   }
 
@@ -1768,8 +1899,10 @@
       var t = fieldText(k, B.cfg.layout);
       f.labelEl.textContent = t.label;
       if (f.helpEl) {
-        f.helpEl.textContent = t.help;
-        f.helpEl.hidden = !t.help;
+        var box = f.helpEl.parentNode;
+        box._tcoAbout = t.label;
+        setHelpText(box, t.help);
+        box.hidden = !t.help;
       }
     }
   }
@@ -1787,6 +1920,7 @@
       if (c) c.textContent = n ? String(n) : '';
       if (t) t.setAttribute('aria-label', g.title + (n ? ', ' + n + ' changed' : ''));
     });
+    for (var id in B.folds) syncFoldCount(B.folds[id], changed);
   }
 
   function syncForm() {
@@ -2820,7 +2954,8 @@
       copied: false,
       copiedTimer: null,
       fileNote: '',
-      ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop, section: UI_DEFAULTS.section },
+      // folds: a GROUPS fold sub-heading's id ('look-names') -> open, as last left (foldPart fills in the rest)
+      ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop, section: UI_DEFAULTS.section, folds: {} },
       frame: null,
       frameSig: null,
       reloadTimer: null,
@@ -2831,6 +2966,7 @@
       paused: false,
       storage: undefined,
       subheads: Object.create(null), // Advanced sub-heading id -> its <h3> (buildGroups)
+      folds: Object.create(null), // a fold sub-heading's id -> its parts (foldPart)
       presetBtns: null, // quick look id -> its button (buildPresets)
       presetUndoBtn: null,
       presetUndo: null, // the PRESET_KEYS settings from before a run of quick looks, while Undo is offered
@@ -2842,6 +2978,9 @@
       B.ui.h = clampInt(u.h, SIZE_LIMITS.h[0], SIZE_LIMITS.h[1], UI_DEFAULTS.h);
       if (BACKDROPS.indexOf(u.backdrop) >= 0) B.ui.backdrop = u.backdrop;
       if (typeof u.section === 'string' && sectionIds().indexOf(u.section) >= 0) B.ui.section = u.section;
+      if (u.folds && typeof u.folds === 'object') {
+        Object.keys(u.folds).forEach(function (id) { if (typeof u.folds[id] === 'boolean') B.ui.folds[id] = u.folds[id]; });
+      }
     }
 
     buildGroups();
@@ -2928,6 +3067,8 @@
     sectionFromHash: sectionFromHash,
     advIds: advIds,
     fieldOff: fieldOff,
+    fieldAway: fieldAway,
+    helpParts: helpParts,
     subgridOf: subgridOf,
     widgetFor: widgetFor,
     presetCfg: presetCfg,

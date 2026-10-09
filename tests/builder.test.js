@@ -794,7 +794,7 @@ test('sub-headings: each above a field of its own section, in order; Advanced\'s
   assert.deepStrictEqual(Array.from(new Set(Array.from(readme.matchAll(/`#(adv-[a-z0-9-]+)`/g), (m) => m[1]))), ids);
 });
 
-test('Look and Advanced: the headings and what is under each; Troubleshooting stays first', () => {
+test('Look and Advanced: the headings and what is under each; Troubleshooting last', () => {
   const g = (id) => builder.groupLayout().filter((x) => x.id === id)[0];
   // Each heading with the fields under it, up to the next heading.
   const outline = (grp) => {
@@ -814,7 +814,6 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     ['Animation', 'animate', 'enter_style']
   ]);
   assert.deepStrictEqual(outline(g('advanced')), [
-    ['Troubleshooting #adv-trouble', 'debug', 'demo'],
     ['Text #adv-text', 'text_px', 'line_height', 'text_case', 'shadow_color', 'outline_color'],
     ['Names #adv-names', 'names', 'name_weight', 'name_font', 'name_fallback', 'name_sep', 'readable_level'],
     ['Box #adv-box', 'bg_shape', 'bg_width', 'spacing'],
@@ -825,7 +824,8 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
       'role_style', 'broadcaster_color', 'mod_color', 'vip_color'],
     ['Filters #adv-filters', 'allow_users', 'min_length', 'command_prefixes'],
     ['Emotes #adv-emotes', 'gif_size', 'giant_emotes'],
-    ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists']
+    ['Lighter on PC #adv-lighter', 'shadow_style', 'paint_images', 'homies_lists'],
+    ['Troubleshooting #adv-trouble', 'debug', 'demo']
   ]);
   // Chat events: the event types right under their switch, the mentions and the timestamps last, under a heading of
   // their own.
@@ -1533,4 +1533,19 @@ test('pastedWords: a list pasted one per line (or in cells) into a words field b
   // What it gives is read back as the lines were.
   const v = 'gg', r = pw(v, 2, 2, 'Bad Word\nworse');
   assert.deepStrictEqual(config.coerce('block_words', v.slice(0, r.start) + r.text + v.slice(r.end)), ['gg', 'bad word', 'worse']);
+});
+
+test('helpParts: the first sentence, and the rest; short help whole', () => {
+  assert.deepStrictEqual(builder.helpParts('From 1 to 200.'), { lead: 'From 1 to 200.', rest: '' });
+  assert.deepStrictEqual(builder.helpParts(builder.META.line_height.help).lead, 'Line height as a share of the text size (135% by default).');
+  // A lead as short as 'Seconds.' takes the next sentence too.
+  assert.match(builder.helpParts(builder.META.fade.help).lead, /^Seconds\. The message fades out/);
+  // '??? (a sign …' ends no sentence.
+  assert.match(builder.helpParts(builder.META.command_prefixes.help).lead, /\(a sign counts only with a letter or a digit straight after it\)\.$/);
+  Object.keys(builder.META).forEach((k) => {
+    const h = builder.META[k].help;
+    if (!h) return;
+    const x = builder.helpParts(h);
+    assert.strictEqual(x.lead + (x.rest ? ' ' + x.rest : ''), h, k + ': every word kept');
+  });
 });

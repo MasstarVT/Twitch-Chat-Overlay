@@ -51,7 +51,8 @@ a:hover { color: var(--focus); }
 code { font-family: var(--mono); font-size: .9em; }
 b { font-weight: 700; color: var(--text); }
 button, input, textarea { font: inherit; color: inherit; }
-[hidden] { display: none !important; }
+/* hidden="until-found" (a closed Look heading's fields) keeps its own way of hiding, which find in page can open */
+[hidden]:not([hidden="until-found" i]) { display: none !important; }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -69,6 +70,28 @@ button, input, textarea { font: inherit; color: inherit; }
 .eyebrow { font: 12px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .mono { font-family: var(--mono); font-size: 13px; }
 .help { max-width: 60ch; font-size: 13px; line-height: 1.5; color: var(--muted); text-wrap: pretty; }
+/* A help's first sentence, and More for the rest (builder.js helpBlock). Folded, the rest is out of sight but
+   still in the page, so a screen reader reads the help whole. */
+/* positioned, so the folded rest is placed (and clipped) in the scrolling panel, not on the page, which it would
+   make taller */
+.help { position: relative; }
+.help:not(.open) .help-rest {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.help-more {
+  position: relative;
+  margin: 0 0 0 4px; padding: 0 2px;
+  border: 0; border-radius: 3px;
+  background: none;
+  color: var(--accent-hi);
+  font-size: 13px; font-weight: 600; line-height: inherit;
+  text-decoration: underline; text-decoration-color: rgba(169, 112, 255, .45); text-underline-offset: 3px;
+  cursor: pointer;
+}
+.help-more:hover { color: var(--focus); text-decoration-color: currentColor; }
+/* about 44px to aim at without making the line taller: the reach runs into the row's padding below more than up */
+.help-more::after { content: ""; position: absolute; inset: -6px -10px -16px; }
 
 /* ---------- buttons ---------- */
 .btn {
@@ -406,14 +429,39 @@ textarea.text { display: block; padding: 10px 12px; line-height: 20px; }
 .fields { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 48px; }
 /* a sub-heading among a section's fields, and a row that takes the whole width: both span the wide preview's two columns */
 .subhead { grid-column: 1 / -1; padding: 20px 0 8px; border-top: 1px solid var(--border); }
+/* Look's sub-headings open and close the fields under them: the heading is the button, as tall as a control */
+.subhead.fold { padding: 6px 0 2px; }
+.fold-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px;
+  margin: 0; padding: 0; border: 0; border-radius: var(--radius-sm);
+  background: none; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit;
+  cursor: pointer;
+}
+.fold-btn:hover { color: var(--text); }
+/* a chevron, drawn: right when closed, down when open */
+.fold-btn::before {
+  content: ""; flex: none; width: 7px; height: 7px; margin: 0 3px 0 1px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg); transition: transform .15s ease-out;
+}
+.fold-btn[aria-expanded="true"]::before { transform: translateY(-2px) rotate(45deg); }
+.fold-btn .count { font: 12px/1 var(--mono); letter-spacing: 0; color: var(--accent-hi); }
+.fold-btn .count:empty { display: none; }
+/* the fields under it keep the section's columns (two beside a wide preview) */
+.fold-body { grid-column: 1 / -1; display: grid; grid-template-columns: inherit; column-gap: inherit; min-width: 0; }
+.fold-body[hidden] { content-visibility: hidden; }
 .fields > .span-all { grid-column: 1 / -1; }
 .field { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 0 14px; border-top: 1px solid var(--border); }
 .field-head { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .field-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .field-label { font-weight: 600; font-size: 15px; line-height: 1.3; color: var(--text); }
 label.field-label { cursor: pointer; }
-/* the setting's name in the overlay URL; it reads key=value once the setting is off its default */
-.tag { font: 12px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+/* the setting's name in the overlay URL; it reads key=value once the setting is off its default. It is for people
+   writing a settings.js or reading the URL, so it shows only on the row under the pointer or with the focus in it.
+   Kept in its place, so nothing moves as it comes, and in the page (a screen reader still reads it). A click selects
+   all of it, ready to copy. */
+.tag { font: 12px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; opacity: 0; transition: opacity .15s ease-out; user-select: all; }
+.field:hover .tag, .field:focus-within .tag { opacity: 1; }
 .tag.changed { color: var(--accent-hi); }
 .field.disabled { opacity: .45; }
 .field.disabled .field-label, .field.disabled .switch,
@@ -423,6 +471,8 @@ label.field-label { cursor: pointer; }
 .field.disabled .seg label:hover input:not(:checked) + span { color: var(--muted); }
 .field.disabled .step:hover { background: transparent; }
 .field.disabled .text:hover, .field.disabled .stepper:hover, .field.disabled input[type=color]:hover { border-color: var(--field-edge); }
+/* its help still opens */
+.field.disabled .help-more { cursor: pointer; }
 /* the row is dimmed already, so a disabled button in it is not dimmed twice */
 .field.disabled .btn:disabled { opacity: 1; }
 /* a switch sits beside its label at every width */
