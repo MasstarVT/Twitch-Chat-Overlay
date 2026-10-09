@@ -881,6 +881,9 @@ body {
 :where(.layout-horizontal).has-maxw .line.notice { max-width: min(100%, var(--line-max, 100%)); }
 
 /* ---------- animations ---------- */
+/* enter_style=decode: a word whose letters are scrambled, held as wide as it was drawn (js/renderer.js startDecodes), so
+   the line keeps its layout while it decodes. A scrambled word a little wider than that overflows its box unwrapped. */
+.dc { display: inline-block; white-space: pre; }
 @keyframes tco-in {
   from { opacity: 0; transform: translateY(.4em); }
   to { opacity: 1; transform: none; }

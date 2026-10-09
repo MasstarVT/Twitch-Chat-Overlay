@@ -134,6 +134,11 @@ class Element extends Node {
     const r = this.ownerDocument.layout ? this.ownerDocument.layout(this) : null;
     return r || ZERO;
   }
+  // One box per element; a test's doc.clientRects(el) can say an inline element is broken over more lines.
+  getClientRects() {
+    const r = this.ownerDocument.clientRects ? this.ownerDocument.clientRects(this) : null;
+    return r || [this.getBoundingClientRect()];
+  }
   get clientWidth() { return this.getBoundingClientRect().width; }
   get clientHeight() { return this.getBoundingClientRect().height; }
   get offsetWidth() { return this.getBoundingClientRect().width; }

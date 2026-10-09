@@ -892,6 +892,35 @@ test('enter_style=decode: the name and message letters settle over enter_ms, the
   assert.strictEqual(s.lines()[1].byClass('message')[0].textContent, 'plain');
 });
 
+test('enter_style=decode: each word is held as wide as it was drawn, so the line never wraps anew; then its own text is back', (t) => {
+  const s = setup(t, { animate: true, enter_style: 'decode', enter_ms: 400 });
+  // Each word drawn 10 px a letter; "breaks" is drawn over two lines (overflow-wrap), so it can't be held.
+  s.doc.layout = (el) => (el.className === 'dc-word' ? { top: 0, bottom: 20, left: 0, right: 10 * el.textContent.length,
+    width: 10 * el.textContent.length, height: 20 } : null);
+  s.doc.clientRects = (el) => (el.textContent === 'breaks' ? [{ width: 30 }, { width: 30 }] : null);
+  s.r.push(chat('amy', 'hi there breaks 😀 ok'));
+  s.r.flush();
+  const msg = s.lines()[0].byClass('message')[0];
+  const boxes = msg.byClass('dc');
+  assert.deepStrictEqual(boxes.map((b) => b.style.width), ['20px', '50px', '20px']);
+  assert.ok(msg.textContent.indexOf(' breaks 😀 ') === 2 + 1 + 5, 'the word that breaks and the emoji stay as they are');
+  assert.strictEqual(s.lines()[0].byClass('name')[0].byClass('dc')[0].style.width, '30px');
+  for (let i = 0; i < 12; i++) s.tick(40);
+  // Settled: one text node again, as drawn without decode.
+  assert.strictEqual(msg.byClass('dc').length, 0);
+  assert.strictEqual(msg.childNodes.length, 1);
+  assert.strictEqual(msg.textContent, 'hi there breaks 😀 ok');
+  assert.strictEqual(s.lines()[0].byClass('name')[0].textContent, 'amy');
+});
+
+test('enter_style=decode: a line with right-to-left text is drawn as it is', (t) => {
+  const s = setup(t, { animate: true, enter_style: 'decode', enter_ms: 400 });
+  s.r.push(chat('amy', 'مرحبا hello'));
+  s.r.flush();
+  assert.strictEqual(s.lines()[0].byClass('dc').length, 0, 'boxes would reorder right-to-left text');
+  assert.strictEqual(s.lines()[0].byClass('message')[0].textContent, 'مرحبا hello');
+});
+
 test('enter_style=decode: a line removed or destroyed mid-way stops; at most DECODE_MAX lines decode at once', (t) => {
   const s = setup(t, { animate: true, enter_style: 'decode', enter_ms: 1000, max: 50 });
   for (let i = 0; i < R.DECODE_MAX + 3; i++) s.r.push(chat('u' + i, 'message number ' + i));

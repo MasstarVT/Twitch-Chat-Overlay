@@ -2015,46 +2015,107 @@
       if (top) linesEl.insertBefore(frag, linesEl.firstChild);
       else linesEl.appendChild(frag);
       if (cfg.animate && cfg.enter_style === 'decode') {
-        for (var di = 0; di < groups.length; di++) for (var dj = 0; dj < groups[di].length; dj++) startDecode(groups[di][dj], now);
+        var fresh = [];
+        for (var di = 0; di < groups.length; di++) for (var dj = 0; dj < groups[di].length; dj++) fresh.push(groups[di][dj]);
+        startDecodes(fresh, now);
       }
     }
 
     // ----- enter_style=decode (see decodeText) -----
-    // The text nodes of a line's name and message, in order, each with its text and its code points.
+    // A scrambled letter is seldom as wide as the real one, and a line whose words changed width would wrap anew as it
+    // decodes: an emote at its end jumping between two lines. So each word that decodes goes in a .dc box (an
+    // inline-block, css/overlay.css) as wide as the word was drawn, and the line keeps its layout to the pixel. A word
+    // the line breaks inside (overflow-wrap) can't be held in one box: it stays as it is. Once settled, the line's own
+    // text nodes go back in place of the boxes. A line with right-to-left text isn't decoded: boxes would reorder it.
+    var RTL_RE = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/;
+    // The text nodes of a line's name (not a painted one: its paint is clipped to its own text) and message, in order.
     function decodeNodes(line) {
       var out = [];
       var walk = function (node) {
         for (var k = 0; k < node.childNodes.length; k++) {
           var c = node.childNodes[k];
           if (c.nodeType === 3) {
-            if (decodable(c.data)) out.push({ node: c, text: c.data, chars: Array.from(c.data) });
+            if (decodable(c.data)) out.push(c);
           } else if (c.nodeType === 1) walk(c);
         }
       };
       for (var c = line.firstElementChild; c; c = c.nextElementSibling) {
-        if (c.classList && (c.classList.contains('name') || c.classList.contains('message'))) walk(c);
+        if (!c.classList) continue;
+        if (c.classList.contains('message') || (c.classList.contains('name') && !c.classList.contains('painted'))) walk(c);
       }
       return out;
     }
-    function startDecode(line, now) {
-      if (decoding.length >= DECODE_MAX) return;
-      var items = decodeNodes(line);
-      if (!items.length) return;
-      var total = 0;
-      for (var i = 0; i < items.length; i++) total += items[i].chars.length;
-      var d = { line: line, items: items, total: total, start: now, ms: cfg.enter_ms };
-      decoding.push(d);
-      paintDecode(d, 0);
-      if (!decodeTimer) decodeTimer = setTimeout(decodeTick, DECODE_TICK_MS);
+    // Splits a line's text into a box per word (spaces and words with nothing to scramble stay text), each still
+    // drawn inline, so nothing moves yet. null when there is nothing to decode.
+    function splitDecode(line, now) {
+      if (RTL_RE.test(line.textContent)) return null;
+      var nodes = decodeNodes(line);
+      if (!nodes.length) return null;
+      var groups = [], words = [];
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i], pieces = [];
+        var parts = node.data.split(/(\s+)/);
+        for (var j = 0; j < parts.length; j++) {
+          if (!parts[j]) continue;
+          if (/^\s/.test(parts[j]) || !decodable(parts[j])) {
+            pieces.push(doc.createTextNode(parts[j]));
+          } else {
+            var box = span('dc-word', parts[j]);
+            pieces.push(box);
+            words.push({ box: box, text: parts[j], chars: Array.from(parts[j]) });
+          }
+        }
+        for (var k = 0; k < pieces.length; k++) node.parentNode.insertBefore(pieces[k], node);
+        node.parentNode.removeChild(node);
+        groups.push({ node: node, pieces: pieces });
+      }
+      return { line: line, groups: groups, words: words, total: 0, start: now, ms: cfg.enter_ms };
+    }
+    // Every new line's words split first, then all measured (one layout for them all), then held and scrambled.
+    function startDecodes(lines, now) {
+      var ds = [];
+      for (var i = 0; i < lines.length && decoding.length + ds.length < DECODE_MAX; i++) {
+        var d = splitDecode(lines[i], now);
+        if (d) ds.push(d);
+      }
+      for (var a = 0; a < ds.length; a++) {
+        for (var b = 0; b < ds[a].words.length; b++) {
+          var w = ds[a].words[b];
+          var rects = w.box.getClientRects ? w.box.getClientRects() : [];
+          w.width = rects.length === 1 ? rects[0].width : -1; // more than one: the line breaks inside the word
+        }
+      }
+      for (var c = 0; c < ds.length; c++) {
+        var d2 = ds[c];
+        d2.words = d2.words.filter(function (x) { return x.width >= 0; });
+        for (var e = 0; e < d2.words.length; e++) {
+          d2.words[e].box.className = 'dc';
+          d2.words[e].box.style.width = d2.words[e].width + 'px';
+          d2.total += d2.words[e].chars.length;
+        }
+        if (!d2.words.length) { endDecode(d2); continue; }
+        decoding.push(d2);
+        paintDecode(d2, 0);
+      }
+      if (decoding.length && !decodeTimer) decodeTimer = setTimeout(decodeTick, DECODE_TICK_MS);
     }
     // Shows a line's decode p (0 to 1) of the way through: that share of its characters settled, from the first.
     function paintDecode(d, p) {
       var keep = Math.floor(p * d.total), at = 0;
-      for (var i = 0; i < d.items.length; i++) {
-        var it = d.items[i];
-        var k = Math.max(0, Math.min(it.chars.length, keep - at));
-        it.node.data = k >= it.chars.length ? it.text : decodeText(it.chars, k);
-        at += it.chars.length;
+      for (var i = 0; i < d.words.length; i++) {
+        var w = d.words[i];
+        var k = Math.max(0, Math.min(w.chars.length, keep - at));
+        w.box.textContent = k >= w.chars.length ? w.text : decodeText(w.chars, k);
+        at += w.chars.length;
+      }
+    }
+    // The line's own text nodes back in place of the boxes, unless the line was redrawn meanwhile.
+    function endDecode(d) {
+      for (var i = 0; i < d.groups.length; i++) {
+        var g = d.groups[i], first = g.pieces[0];
+        if (!first || !first.parentNode || !d.line.contains(first)) continue;
+        first.parentNode.insertBefore(g.node, first);
+        for (var j = 0; j < g.pieces.length; j++) detach(g.pieces[j]);
       }
     }
     function decodeTick() {
@@ -2064,10 +2125,13 @@
       for (var i = 0; i < decoding.length; i++) {
         var d = decoding[i];
         // Gone, or redrawn (a rerender writes the line anew, with its real text): nothing more to settle.
-        if (d.line.parentNode !== linesEl || !d.line.contains(d.items[0].node)) continue;
+        if (d.line.parentNode !== linesEl || !d.line.contains(d.words[0].box)) continue;
         var p = (now - d.start) / d.ms;
-        paintDecode(d, Math.min(1, p));
-        if (p < 1) left.push(d);
+        if (p >= 1) endDecode(d);
+        else {
+          paintDecode(d, p);
+          left.push(d);
+        }
       }
       decoding = left;
       if (decoding.length) decodeTimer = setTimeout(decodeTick, DECODE_TICK_MS);
