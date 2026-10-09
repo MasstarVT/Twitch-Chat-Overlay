@@ -6,7 +6,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (root) {
   'use strict';
 
-  var VERSION = '1.7.0';
+  var VERSION = '1.8.0';
 
   // ---------- logging ----------
   var debugEnabled = false;
