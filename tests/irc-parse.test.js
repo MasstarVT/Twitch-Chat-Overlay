@@ -310,6 +310,12 @@ describe('toChatMessage', () => {
       'reply-parent-msg-id=p-1;reply-parent-user-id=77;reply-parent-user-login=LMNfm :u!u@u.tmi.twitch.tv PRIVMSG #xqc :@LMNfm cuh'));
     assert.deepEqual(m.reply, { id: 'p-1', userId: '77', login: 'lmnfm', name: 'LMNfm', body: '@kannotaim the us' });
     assert.equal(m.text, '@LMNfm cuh');
+    // The thread's first message (Twitch sends it on every reply): another one than the parent says the parent was a
+    // reply itself, so its "@kannotaim" was its own reply's name.
+    const r = irc.toChatMessage(irc.parseLine('@reply-parent-display-name=LMNfm;reply-parent-msg-body=@kannotaim' + BS + 'sthe' + BS + 'sus;' +
+      'reply-parent-msg-id=p-1;reply-parent-user-id=77;reply-parent-user-login=LMNfm;reply-thread-parent-msg-id=p-0;' +
+      'reply-thread-parent-user-login=kannotaim :u!u@u.tmi.twitch.tv PRIVMSG #xqc :@LMNfm cuh'));
+    assert.deepEqual(r.reply, { id: 'p-1', userId: '77', login: 'lmnfm', name: 'LMNfm', body: '@kannotaim the us', threadId: 'p-0' });
   });
 
   test('shared chat: a message from another room is mirrored', () => {

@@ -445,12 +445,34 @@
     });
     return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
   }
+  // The luminance a backdrop is light from: black and white contrast with it alike there (sqrt(1.05 * 0.05) - 0.05).
+  var LIGHT_BACKDROP = 0.1791;
+  // What a box of color hex (bg_color, '' for black) at opacity alpha (bg / 100) shows over dark video: the box over
+  // black, as [r, g, b].
+  function boxBackdrop(hex, alpha) {
+    var rgb = parseHex(hex) || [0, 0, 0];
+    var a = alpha > 0 ? Math.min(alpha, 1) : 0;
+    return rgb.map(function (c) { return c * a; });
+  }
+  // Whether a backdrop ([r, g, b]) is light: a name in black reads better on it than one in white.
+  function lightBackdrop(rgb) { return Array.isArray(rgb) && rgb.length === 3 && luminance(rgb) > LIGHT_BACKDROP; }
   // Lighten dark name colors until they read well over dark/busy video (WCAG contrast vs black >= target, 4.5
-  // when left out: readable_level / 10).
-  function readableColor(hex, target) {
+  // when left out: readable_level / 10). back: the box the names are drawn on ([r, g, b], boxBackdrop). On a light one
+  // (a name in black reads better there than one in white) a light name is darkened instead, in steps of 12% toward
+  // black (up to 12, so a white name reaches 7:1 on a white box at bg 90), until its contrast with the box is target, and
+  // a dark name is left as it is; on a dark box, or without one, as before.
+  function readableColor(hex, target, back) {
     var want = target > 0 ? target : 4.5;
     var rgb = parseHex(hex);
     if (!rgb) return hex;
+    var light = lightBackdrop(back) ? luminance(back) : 0;
+    if (light) {
+      for (var j = 0; j < 12; j++) {
+        if ((light + 0.05) / (luminance(rgb) + 0.05) >= want) break;
+        rgb = rgb.map(function (c) { return c * 0.88; });
+      }
+      return toHex(rgb);
+    }
     for (var i = 0; i < 8; i++) {
       var contrast = (luminance(rgb) + 0.05) / 0.05;
       if (contrast >= want) break;
@@ -514,6 +536,8 @@
     defaultColor: defaultColor,
     parseHex: parseHex,
     readableColor: readableColor,
+    boxBackdrop: boxBackdrop,
+    lightBackdrop: lightBackdrop,
     intToRgba: intToRgba,
     pickScale: pickScale,
     safeStorage: safeStorage

@@ -172,6 +172,37 @@ describe('colors', () => {
     assert.ok(contrastVsBlack(util.readableColor('#000000', 7)) >= 7);
   });
 
+  // readable only ever lightened, toward contrast with black: on a light box (bg_color white at bg=90) black became
+  // #787878 (21:1 against the box down to 4.4:1) and SpringGreen stayed at 1.4:1.
+  test('readableColor on a light box: a light name is darkened to the target against the box, a dark one is left', () => {
+    const lum = (rgb) => {
+      const lin = rgb.map((c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); });
+      return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+    };
+    const against = (hex, back) => { const a = lum(util.parseHex(hex)), b = lum(back); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
+    const white90 = util.boxBackdrop('ffffff', 0.9);
+    assert.deepStrictEqual(white90, [229.5, 229.5, 229.5]);
+    assert.deepStrictEqual(util.boxBackdrop('', 0.9), [0, 0, 0], 'no color: a black box');
+    assert.deepStrictEqual(util.boxBackdrop('ffe08a', 0), [0, 0, 0], 'no box');
+    assert.strictEqual(util.lightBackdrop(white90), true);
+    assert.strictEqual(util.lightBackdrop(util.boxBackdrop('ffffff', 0.4)), false, 'a faint box over dark video is dark');
+    assert.strictEqual(util.lightBackdrop(util.boxBackdrop('333333', 1)), false);
+    assert.strictEqual(util.lightBackdrop(null), false);
+    ['#000000', '#0000FF', '#B22222', '#8A2BE2'].forEach((c) => assert.strictEqual(util.readableColor(c, 4.5, white90), c.toLowerCase(), c + ' reads already'));
+    ['#00FF7F', '#1E90FF', '#9ACD32', '#DAA520', '#FFFFFF', '#5F9EA0'].forEach((c) => {
+      const out = util.readableColor(c, 4.5, white90);
+      assert.ok(against(out, white90) >= 4.5, c + ' -> ' + out);
+      const a = util.parseHex(c), b = util.parseHex(out);
+      for (let i = 0; i < 3; i++) assert.ok(b[i] <= a[i], c + ' channel ' + i + ' got darker');
+    });
+    assert.ok(against(util.readableColor('#00FF7F', 7, white90), white90) >= 7);
+    // A dark box, a faint one, or none: exactly as before.
+    util.TWITCH_PALETTE.concat(['#000000', '#0000FF', '#FFFFFF']).forEach((c) => {
+      [util.boxBackdrop('ffffff', 0.4), util.boxBackdrop('333333', 1), [0, 0, 0], null, 'x', [1, 2]].forEach((back) =>
+        assert.strictEqual(util.readableColor(c, 4.5, back), util.readableColor(c), c + ' ' + JSON.stringify(back)));
+    });
+  });
+
   test('readableColor passes through unparseable input', () => {
     assert.equal(util.readableColor('red'), 'red');
     assert.equal(util.readableColor(''), '');

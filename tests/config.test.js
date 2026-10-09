@@ -369,8 +369,17 @@ describe('coerce', () => {
     assert.equal(config.coerce('command_prefixes', '^-'), '^-');
     assert.equal(config.coerce('command_prefixes', config.PREFIX_CHARS.slice(0, 8)), '!$%&*+-.');
     assert.equal(config.coerce('command_prefixes', config.PREFIX_CHARS.slice(0, 9)), undefined, 'more than 8');
-    ['', '  ', 'a', '!a', '!,', '\\', '[', '!¡', true, false, 5, null, undefined, { a: 1 }, ['!']].forEach((v) =>
+    ['', '  ', 'a', '!a', '!,', '\\', '[', '!¡', true, false, 5, null, undefined, { a: 1 }, [], [{}], ['!', 'a'],
+      ['!', '$', '%', '&', '*', '+', '-', '.', '/']].forEach((v) =>
       assert.equal(config.coerce('command_prefixes', v), undefined, JSON.stringify(v)));
+    // settings.js may write them as an array, as it writes block and keywords: the signs together.
+    assert.equal(config.coerce('command_prefixes', ['!']), '!');
+    assert.equal(config.coerce('command_prefixes', ['!', '?']), '!?');
+    assert.equal(config.coerce('command_prefixes', ['! ', ' ?', '!']), '!?');
+    assert.equal(config.coerce('command_prefixes', ['!?', '~']), '!?~');
+    assert.equal(config.coerce('command_prefixes', [1, '!']), '!', 'an item that is no string is skipped');
+    assert.equal(config.parse('', { command_prefixes: ['!', '?'], hide_commands: true }).command_prefixes, '!?');
+    assert.equal(config.parse('command_prefixes=%23', { command_prefixes: ['!', '?'] }).command_prefixes, '#', 'the URL still wins');
     // Every allowed sign survives the URL: URLSearchParams writes # & + % as escapes, and reads them back.
     const all = config.PREFIX_CHARS.split('');
     for (let i = 0; i < all.length; i += 8) {

@@ -830,17 +830,44 @@
     });
   }
   // A host name from the URL parser with each 'xn--' label (the parser's ASCII form of an international name) decoded.
-  // The parser has already checked and lower-cased the name; a label that still doesn't decode stays as it is. A name
-  // with a label that could pass for another (spoofable) stays as the parser wrote it, whole, as a browser shows it.
+  // A label that doesn't decode stays as it is. The name stays as the parser wrote it, whole, as a browser shows it, when
+  // its letters are not the name the host stands for (sameHost), or a label could pass for another name (spoofable).
   function hostLetters(host) {
     if (host.indexOf('xn--') < 0) return host;
+    var ascii = false;
     var labels = host.split('.').map(function (label) {
       var u = label.slice(0, 4) === 'xn--' ? punyDecode(label.slice(4)) : null;
+      // An xn-- label is the ASCII form of a name with a letter past ASCII: one that decodes to plain ASCII stands for
+      // no name ('xn--paypal-' is not 'paypal').
+      if (u && !NON_ASCII_RE.test(u)) ascii = true;
       return u || label;
     });
+    var shown = labels.join('.');
+    if (ascii || !sameHost(shown, host)) return host;
     var tld = labels[labels.length - 1];
     for (var i = 0; i < labels.length; i++) if (spoofable(labels[i], tld)) return host;
-    return labels.join('.');
+    return shown;
+  }
+  var NON_ASCII_RE = /[^\x00-\x7F]/;
+  // The URL parser's host for a name, '' when it refuses it.
+  function parsedHost(name) {
+    try { return new URL('http://' + name + '/').hostname; } catch (e) { return ''; }
+  }
+  // Chromium before 110 (OBS's CEF 103) maps the four letters IDNA 2003 and 2008 read apart (ß, ς and the two joiners)
+  // as IDNA 2003 did: 'faß' is parsed as 'fass' there.
+  var DEVIATION_RE = /[\u00DF\u03C2\u200C\u200D]/;
+  var TRANSITIONAL = parsedHost('\u00DF') === 'ss';
+  // Whether shown (host with its xn-- labels decoded) is the name host is the ASCII form of: parsed again, it gives host
+  // back. Chromium's parser takes an all-ASCII host as it is, so an xn-- label no name can have gets this far: one that
+  // decodes to capitals ('xn--pwaapwhl' to 'ΑΜΑΖΟΝ', whose own form is 'xn--mxaapwhl'), to text no name is written in,
+  // or a top-level name that decodes to another one ('xn--ru-' to 'ru'). Where the parser maps ß, ς and the joiners
+  // away (TRANSITIONAL), a name with one can't come back as itself: it passes when the parser takes it and it is written
+  // as a name is (lower case, NFC).
+  function sameHost(shown, host) {
+    var back = parsedHost(shown);
+    if (back === host) return true;
+    return TRANSITIONAL && back !== '' && DEVIATION_RE.test(shown) && shown === shown.toLowerCase() &&
+      (typeof shown.normalize !== 'function' || shown === shown.normalize('NFC'));
   }
   // Scripts with letters that look like Latin ones (the core of Chromium's IDN display rule, which keeps such names in
   // their xn-- form): the script, its lower-case Latin look-alikes, and the country names under which a name made of

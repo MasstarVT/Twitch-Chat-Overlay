@@ -204,6 +204,9 @@
       name: t['reply-parent-display-name'] || t['reply-parent-user-login'] || '',
       body: t['reply-parent-msg-body'] || ''
     } : null;
+    // The thread's first message: the parent was itself a reply when this is another one (its text then starts with
+    // the "@Name" Twitch puts there). Kept only when sent, so a reply without it keeps its shape.
+    if (m.reply && t['reply-thread-parent-msg-id']) m.reply.threadId = t['reply-thread-parent-msg-id'];
     return m;
   }
 

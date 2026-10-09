@@ -1075,6 +1075,66 @@ test('links=shorten: rare scripts and letters, symbols, and script mixes keep th
     .forEach((h) => assert.strictEqual(s('https://' + h + '/x'), h, h));
 });
 
+// Chromium's URL parser takes an all-ASCII host as it is, an xn-- label no name can have included, and only lower-cases
+// it (Node's refuses such a host, so a stand-in does what Chromium does here). Each label was decoded as it came:
+// 'https://www.xn--paypal-.com/signin' was drawn as 'www.paypal.com', 'https://www.xn--pwaapwhl.com/gift' as 'www.ΑΜΑΖΟΝ.com'
+// (capital Greek, which no look-alike rule knew), and a top-level 'xn--ru-' as 'ru' let a Cyrillic look-alike name through.
+function chromiumUrl(Real, map) {
+  return function URL(u, base) {
+    const m = /^https?:\/\/([A-Za-z0-9.-]+)(?::\d+)?(?:[/?#]|$)/.exec(String(u));
+    if (m && /xn--/i.test(m[1])) return { hostname: m[1].toLowerCase() };
+    return new Real(map ? map(String(u)) : u, base);
+  };
+}
+test('links=shorten: an xn-- label that is no name\'s own ASCII form keeps the xn-- form, as Chromium\'s address bar keeps it', () => {
+  const Real = globalThis.URL;
+  globalThis.URL = chromiumUrl(Real);
+  try {
+    const s = renderer.shortenLinks;
+    ['https://www.xn--paypal-.com/signin', 'https://xn--google-.com/login', 'https://clips.xn--twitch-.tv/abc',
+      'https://www.xn--pwaapwhl.com/gift', 'https://xn--e0ave.com/max', 'https://xn--e0aa9b.com/news',
+      'https://xn--80ak6aa92e.xn--ru-/x', 'https://example.xn--ru-/x', 'https://xn--mller-kva.xn--de-/x']
+      .forEach((u) => assert.strictEqual(s(u), /^https:\/\/([^/]+)/.exec(u)[1], u));
+    assert.strictEqual(s('hey check https://xn--google-.com/login now'), 'hey check xn--google-.com now');
+    // A name's own xn-- form still shows its letters; one in its letters is still shown so.
+    assert.strictEqual(s('https://xn--mller-kva.de/'), 'müller.de');
+    assert.strictEqual(s('https://www.xn--mller-kva.de./x'), 'www.müller.de.');
+    assert.strictEqual(s('https://xn--r8jz45g.xn--zckzah/'), '例え.テスト');
+    assert.strictEqual(s('https://xn--strae-oqa.de/'), 'straße.de');
+    assert.strictEqual(s('https://xn--55qx5d.cn/'), '公司.cn');
+    assert.strictEqual(s('https://xn--d1acpjx3f.xn--p1ai/'), 'яндекс.рф');
+    assert.strictEqual(s('https://www.müller.de/x'), 'www.müller.de');
+    // The filters and a reply's quote go by the same text.
+    assert.strictEqual(renderer.drawnText('see https://www.xn--paypal-.com/x', { links: 'shorten' }), 'see www.xn--paypal-.com');
+    assert.strictEqual(R.replyModel({ name: 'A', body: 'look https://www.xn--pwaapwhl.com/x' }, false, true).body, 'look www.xn--pwaapwhl.com');
+  } finally {
+    globalThis.URL = Real;
+  }
+});
+// Chromium before 110 (OBS's CEF 103) parses 'faß' as 'fass' (IDNA 2003's mapping): a name with ß, ς or a joiner can't
+// come back as itself there, and still shows in its letters when it is written as a name is.
+test('links=shorten: where the parser maps ß and ς away (Chromium 103), a name with one still shows in its letters', () => {
+  const Real = globalThis.URL;
+  const dev = (u) => u.replace(/^(https?:\/\/)([^/?#]*)/, (all, sch, host) => sch + host.replace(/ß/g, 'ss').replace(/ς/g, 'σ')
+    .replace(/[\u200C\u200D]/g, ''));
+  const file = require.resolve('../js/renderer.js');
+  globalThis.URL = chromiumUrl(Real, dev);
+  delete require.cache[file];
+  try {
+    const old = require('../js/renderer.js');
+    const s = old.shortenLinks;
+    assert.strictEqual(s('https://xn--fa-hia.de/'), 'faß.de');
+    assert.strictEqual(s('https://xn--strae-oqa.de/x'), 'straße.de');
+    assert.strictEqual(s('https://xn--mller-kva.de/'), 'müller.de');
+    ['https://www.xn--paypal-.com/signin', 'https://www.xn--pwaapwhl.com/gift', 'https://xn--80ak6aa92e.xn--ru-/x']
+      .forEach((u) => assert.strictEqual(s(u), /^https:\/\/([^/]+)/.exec(u)[1], u));
+  } finally {
+    globalThis.URL = Real;
+    delete require.cache[file];
+    require('../js/renderer.js');
+  }
+});
+
 test('the chat filters\' patterns: built once per cfg object, never stored on it; prefixes escaped; words as keywords', () => {
   const c1 = { block_words: ['spoiler', 'bad words'], command_prefixes: '!?' };
   const f1 = renderer.filtersFor(c1);

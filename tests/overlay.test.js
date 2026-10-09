@@ -498,9 +498,11 @@ test('history: only chat/moderation lines replay, moderated and duplicate lines 
     P(priv('live', 'live one', { id: 'dup' }))
   ]);
   await settle();
+  assert.deepStrictEqual(texts(h), [], 'the picks wait for the BTTV bot list of the channel (bots=0), which waits for its room id');
   join(h);
   assert.strictEqual(h.S().homeId, HOME, 'a history ROOMSTATE cannot set the home room');
   assert.strictEqual(h.els.hint.hidden, true, 'a history NOTICE shows nothing');
+  await settle();
   assert.deepStrictEqual(texts(h), ['old troll line', 'old line', 'live one', 'live two']);
   // the moderated history line is recorded as deleted (replies quoting it get no header)
   assert.deepStrictEqual(h.cleared, ['msg:gone', 'user:u-troll'], 'the buffered live CLEARCHAT runs after history, in order');
@@ -541,10 +543,15 @@ test('history (default): a slow or failing recent-messages service holds live ch
   h.feed(priv('viewer', 'live two'));
   assert.deepStrictEqual(texts(h), ['live one', 'live two']);
 
-  h = await boot(t, { stubs(T) { T.irc.loadHistory = () => Promise.reject(new Error('503')); } });
+  let asked = 0;
+  h = await boot(t, { stubs(T) { T.irc.loadHistory = () => { asked++; return Promise.reject(new Error('503')); }; } });
   join(h);
   h.feed(priv('viewer', 'live'));
+  await settle();
   assert.deepStrictEqual(texts(h), ['live'], 'a failed request does not hold chat back');
+  assert.strictEqual(asked, 2, 'it is asked again once, as IRC joins');
+  h.feed(priv('viewer', 'live two'));
+  assert.deepStrictEqual(texts(h), ['live', 'live two']);
 });
 
 // Kick chat started empty ("Kick chat has no recent-message history"): kick.com keeps a channel's newest messages under
@@ -687,6 +694,213 @@ test('after an IRC outage: no request with history=0, in the demo, or while the 
   h.irc.onStatus('closed');
   join(h);
   assert.strictEqual(h.S().gapAbort, null, 'the start-up history covers it');
+});
+
+// With bots=0 the picks went by the bot lists as they stood: the channel's BTTV list (it needs the room id first, then
+// BTTV, while recent-messages is one request) and a Shared Chat partner's (loaded only once its lines were shown) came
+// after, the bots' lines went from the screen, and nothing took their place: history=3 showed one line.
+test('history=N with bots=0: the picks wait for the BTTV bot lists they depend on, the channel\'s and each partner\'s', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const at = (sec) => String(1e12 - (60 - sec) * 1000);
+  let bttv = deferred();
+  const lists = {};
+  const stubs = (lines) => (T) => {
+    T.irc.loadHistory = () => Promise.resolve(lines().map(P));
+    T.bttv.loadChannel = (id) => (id === HOME ? bttv.promise : Promise.resolve({ emotes: new Map(), bots: new Set(lists[id] || []) }));
+  };
+  // The channel's own list lands after the history.
+  let h = await boot(t, { search: '?channel=home&history=3', stubs: stubs(() => [priv('fan', 'one', { 'tmi-sent-ts': at(1) }),
+    priv('fan', 'two', { 'tmi-sent-ts': at(2) }), priv('fan', 'three', { 'tmi-sent-ts': at(3) }),
+    priv('chanbot', 'bot says a', { 'tmi-sent-ts': at(4) }), priv('fan', 'four', { 'tmi-sent-ts': at(5) }),
+    priv('chanbot', 'bot says b', { 'tmi-sent-ts': at(6) })]) });
+  join(h);
+  h.feed(priv('live', 'live line', { 'tmi-sent-ts': at(30) }));
+  await settle();
+  assert.deepStrictEqual(texts(h), [], 'history and live chat wait for the list');
+  bttv.resolve({ emotes: new Map(), bots: new Set(['chanbot']) });
+  await settle();
+  assert.deepStrictEqual(texts(h), ['two', 'three', 'four', 'live line']);
+  assert.deepStrictEqual(h.noted.map((m) => m.text), ['one']);
+  // A Shared Chat partner's bot among the newest lines: the partner's room (and list) is loaded before the picks.
+  bttv = deferred();
+  bttv.resolve({ emotes: new Map(), bots: new Set() });
+  lists[PARTNER] = ['partnerbot'];
+  h = await boot(t, { search: '?channel=home&history=2', stubs: stubs(() => [priv('alice', 'one', { 'tmi-sent-ts': at(1) }),
+    priv('partnerbot', 'partner raffle', { 'tmi-sent-ts': at(2), 'source-room-id': PARTNER }),
+    priv('bob', 'two', { 'tmi-sent-ts': at(3) })]) });
+  join(h);
+  await settle();
+  assert.deepStrictEqual(texts(h), ['one', 'two']);
+  assert.deepStrictEqual(h.called('lookupUserById').map((c) => c[1]), [PARTNER], 'the room a shown line would load anyway');
+  // A list that never comes doesn't hold the history past its 4 s: it picks with what is known.
+  bttv = deferred();
+  h = await boot(t, { search: '?channel=home&history=2', stubs: stubs(() => [priv('fan', 'one', { 'tmi-sent-ts': at(1) }),
+    priv('chanbot', 'bot', { 'tmi-sent-ts': at(2) }), priv('fan', 'two', { 'tmi-sent-ts': at(3) })]) });
+  join(h);
+  await settle();
+  t.mock.timers.tick(3999);
+  await settle();
+  assert.deepStrictEqual(texts(h), []);
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepStrictEqual(texts(h), ['bot', 'two']);
+  // bots=1 waits for nothing.
+  bttv = deferred();
+  h = await boot(t, { search: '?channel=home&history=2&bots=1', stubs: stubs(() => [priv('fan', 'one', { 'tmi-sent-ts': at(1) })]) });
+  join(h);
+  await settle();
+  assert.deepStrictEqual(texts(h), ['one']);
+});
+
+test('after an IRC outage with bots=0: the gap\'s picks wait for a partner\'s BTTV bot list too', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const at = (sec) => String(1e12 + sec * 1000);
+  const asks = [];
+  const h = await boot(t, { search: '?channel=home&history=2', stubs(T) {
+    T.irc.loadHistory = () => { const d = deferred(); asks.push(d); return d.promise; };
+    T.bttv.loadChannel = (id) => Promise.resolve({ emotes: new Map(), bots: new Set(id === PARTNER ? ['partnerbot'] : []) });
+  } });
+  asks[0].resolve([]);
+  join(h);
+  await settle();
+  h.feed(priv('pal', 'before the gap', { 'tmi-sent-ts': at(1) }));
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(5000);
+  join(h);
+  asks[1].resolve([priv('pal', 'before the gap', { 'tmi-sent-ts': at(1) }), priv('a', 'missed one', { 'tmi-sent-ts': at(10) }),
+    priv('partnerbot', 'partner raffle', { 'tmi-sent-ts': at(11), 'source-room-id': PARTNER }),
+    priv('b', 'missed two', { 'tmi-sent-ts': at(12) })].map(P));
+  await settle();
+  assert.deepStrictEqual(texts(h), ['before the gap', 'missed one', 'missed two']);
+});
+
+// OBS started before the network was up: recent-messages failed at start and was never asked again (IRC's first join
+// reached back only 70 s before its first failure), so the overlay showed none of the recent chat a normal start shows.
+test('history: a start-up history that failed (offline start) is asked for whole at the first join, a hung first connect too', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const ago = (sec) => String(1e12 - sec * 1000);
+  const recent = () => [priv('fan', 'said 5 min ago', { 'tmi-sent-ts': ago(300) }), priv('fan', 'said 4 min ago', { 'tmi-sent-ts': ago(240) }),
+    priv('fan', 'said 3 min ago', { 'tmi-sent-ts': ago(180) })].map(P);
+  for (const hung of [false, true]) {
+    let online = false, asked = 0;
+    const h = await boot(t, { stubs(T) {
+      T.irc.loadHistory = (l, n) => { asked++; h0.limits = (h0.limits || []).concat(n); return online ? Promise.resolve(recent()) : Promise.reject(new TypeError('Failed to fetch')); };
+    } });
+    // The first connect fails (or hangs, and then IRC sends no 'closed'); the network comes up 15 s later.
+    if (!hung) h.irc.onStatus('closed', { code: 1006 });
+    t.mock.timers.tick(15000);
+    await settle();
+    online = true;
+    join(h);
+    h.feed(priv('live', 'live after the join', { 'tmi-sent-ts': String(1e12 + 16000) }));
+    await settle();
+    assert.deepStrictEqual(texts(h), ['said 5 min ago', 'said 4 min ago', 'said 3 min ago', 'live after the join'], 'hung: ' + hung);
+    assert.strictEqual(asked, 2);
+    // From then on it is a normal one: a later outage asks only for what is newer than the newest seen.
+    h.irc.onStatus('closed');
+    join(h);
+    assert.strictEqual(asked, 3);
+    assert.deepStrictEqual(h0.limits.slice(-3), [40, 40, 100], 'the whole of it as at start; then enough to reach the lines on screen');
+    h0.limits = [];
+  }
+  // A start that worked asks once; a join without an outage asks nothing.
+  let n = 0;
+  const h = await boot(t, { stubs(T) { T.irc.loadHistory = () => { n++; return Promise.resolve([]); }; } });
+  join(h);
+  await settle();
+  join(h);
+  assert.strictEqual(n, 1);
+});
+
+// Pusher doesn't send again what was said, deleted or banned while the Kick socket was down: a message a Kick mod deleted
+// stayed on stream, and what was said meanwhile never came. Twitch had this (refetchGap); Kick had nothing.
+test('after a Kick rejoin: kick.com\'s recent chat is asked again; what it leaves out goes, what was missed shows', async (t) => {
+  const sec = (s) => new Date(1e12 + s * 1000).toISOString();
+  const said = (id, login, s, text) => kickChat(login, text, { id: id, created_at: sec(s) });
+  const hist = (list) => list.map((d) => Object.assign(globalThis.TCO.kick.toMessage(d), { historical: true }));
+  const asks = [];
+  let serve = [];
+  const h = await boot(t, { search: '?kick=kickname&kick_room=668&history=5', stubs(T) {
+    T.kick.lookupChannel = () => Promise.resolve({ chatroomId: '668', channelId: '700', userId: '', slug: 'kickname', username: 'k', subBadges: [] });
+    T.kick.loadHistory = (ch, room, o) => { asks.push([ch, room, o]); return Promise.resolve(hist(serve)); };
+  } });
+  await settle();
+  const status = (s) => h.kick.opts.onStatus(s, {});
+  status('joined');
+  assert.strictEqual(asks.length, 1, 'the start-up history is the first join\'s');
+  h.kick.send('ChatMessageEvent', said('k1', 'KickFan', 1, 'hello there'));
+  h.kick.send('ChatMessageEvent', said('k2', 'Other', 2, 'bad words here'));
+  h.kick.send('ChatMessageEvent', said('k3', 'KickFan', 3, 'third'));
+  assert.deepStrictEqual(texts(h), ['hello there', 'bad words here', 'third']);
+  // The socket drops; meanwhile a mod deletes k2 and KickFan says more. kick.com leaves k2 out.
+  status('closed');
+  serve = [said('k0', 'Old', 0, 'before'), said('k1', 'KickFan', 1, 'hello there'), said('k3', 'KickFan', 3, 'third'),
+    said('k4', 'KickFan', 20, 'said in the outage'), said('k5', 'Other', 21, 'me too'), said('k6', 'KickFan', 22, 'newest')];
+  status('joined');
+  assert.strictEqual(asks.length, 2);
+  assert.deepStrictEqual(asks[1], ['700', '668', { timeout: 4000, fresh: true }]);
+  await settle();
+  assert.deepStrictEqual(h.cleared, ['msg:kick:k2'], 'deleted while the socket was down');
+  assert.deepStrictEqual(texts(h).slice(3), ['said in the outage', 'me too', 'newest'], 'no copy of what was on screen');
+  assert.ok(h.pushed[3].historical);
+  // A rejoin after a Pusher error code (no 'closed' before it); live Kick chat waits for the answer, Twitch's doesn't.
+  let answer = deferred();
+  const kl = globalThis.TCO.kick.loadHistory;
+  globalThis.TCO.kick.loadHistory = (ch, room, o) => { asks.push([ch, room, o]); return answer.promise; };
+  status('joined');
+  assert.strictEqual(asks.length, 3);
+  h.kick.send('ChatMessageEvent', said('k8', 'KickFan', 31, 'live after the rejoin'));
+  assert.deepStrictEqual(texts(h).slice(-1), ['newest'], 'it waits');
+  answer.resolve(hist([said('k6', 'KickFan', 22, 'newest'), said('k7', 'Other', 30, 'in the blip'), said('k8', 'KickFan', 31, 'live after the rejoin')]));
+  await settle();
+  assert.deepStrictEqual(texts(h).slice(-2), ['in the blip', 'live after the rejoin']);
+  // A drop while it is asked for lets the waiting chat go on; its answer is ignored.
+  answer = deferred();
+  status('joined');
+  h.kick.send('ChatMessageEvent', said('k9', 'KickFan', 40, 'waiting'));
+  status('closed');
+  assert.deepStrictEqual(texts(h).slice(-1), ['waiting']);
+  answer.resolve(hist([said('kx', 'KickFan', 39, 'too late')]));
+  await settle();
+  assert.ok(!texts(h).includes('too late'));
+  // A stalled request holds Kick chat back for 4 s at most.
+  answer = deferred();
+  status('joined');
+  h.kick.send('ChatMessageEvent', said('k10', 'KickFan', 50, 'held'));
+  t.mock.timers.tick(3999);
+  assert.deepStrictEqual(texts(h).slice(-1), ['waiting']);
+  t.mock.timers.tick(1);
+  assert.deepStrictEqual(texts(h).slice(-1), ['held']);
+  globalThis.TCO.kick.loadHistory = kl;
+});
+
+test('Kick: no refetch with history=0; a start-up Kick history the lookup missed is asked once it gets through', async (t) => {
+  const look = { chatroomId: '668', channelId: '700', userId: '', slug: 'kickname', username: 'k', subBadges: [] };
+  let h = await boot(t, { search: '?kick=kickname&kick_room=668&history=0', stubs(T) { T.kick.lookupChannel = () => Promise.resolve(look); } });
+  h.kick.opts.onStatus('joined');
+  h.kick.opts.onStatus('closed');
+  h.kick.opts.onStatus('joined');
+  assert.deepStrictEqual(h.called('kick-history'), []);
+  // The lookup fails at start (OBS before the network) and gets through on its retry: the history is asked then.
+  let tries = 0;
+  const msg = (id, s, text) => Object.assign(globalThis.TCO.kick.toMessage(kickChat('kfan', text, { id: id,
+    created_at: new Date(1e12 - (600 - s) * 1000).toISOString() })), { historical: true });
+  h = await boot(t, { search: '?kick=kickname&kick_room=668&history=2', stubs(T) {
+    T.kick.lookupChannel = () => (++tries === 1 ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(look));
+    T.kick.loadHistory = () => Promise.resolve([msg('a', 1, 'ten minutes ago'), msg('b', 2, 'older'), msg('c', 3, 'newest')]);
+  } });
+  h.kick.opts.onStatus('joined');
+  await settle();
+  t.mock.timers.tick(2000);
+  await settle();
+  assert.deepStrictEqual(texts(h), []);
+  t.mock.timers.tick(1000); // the lookup's retry, 3 s after it failed
+  await settle();
+  assert.strictEqual(tries, 2);
+  assert.deepStrictEqual(texts(h), ['older', 'newest'], 'the newest 2, however old');
+  h.kick.opts.onStatus('joined');
+  await settle();
+  assert.deepStrictEqual(texts(h), ['older', 'newest'], 'a rejoin adds nothing it had');
 });
 
 test('history cannot make the overlay load more than a few Shared Chat rooms', async (t) => {
@@ -1179,6 +1393,41 @@ test('nameFor: colorless chatters keep Twitch\'s palette (Twitch and Kick); name
   assert.strictEqual(h.deps.nameFor(tw).color, '#ff8800');
   send({ name_color: '' });
   assert.strictEqual(h.deps.nameFor(tw).color, util.readableColor(util.defaultColor(tw.userId, tw.login), 6));
+});
+
+// readable only lightened, aiming at contrast with black: on a light box (bg=90&bg_color=ffffff) black names were drawn
+// #787878 and SpringGreen ones stayed at 1.4:1 against the box.
+test('nameFor on a light box: readable darkens light names to the contrast against the box; a box change redraws them live', async (t) => {
+  const h = await boot(t, { search: '?channel=home&bg=90&bg_color=ffffff' });
+  const util = globalThis.TCO.util;
+  const green = { userId: '1', login: 'g', displayName: 'G', color: '#00FF7F' };
+  const black = { userId: '2', login: 'b', displayName: 'B', color: '#000000' };
+  const plain = { userId: '1007', login: 'plainviewer', displayName: 'PlainViewer', color: '' };
+  const white = util.boxBackdrop('ffffff', 0.9);
+  assert.strictEqual(h.deps.nameFor(green).color, util.readableColor('#00FF7F', 4.5, white));
+  assert.notStrictEqual(h.deps.nameFor(green).color.toLowerCase(), '#00ff7f');
+  assert.strictEqual(h.deps.nameFor(black).color, '#000000', 'a dark name reads on it as it is');
+  assert.strictEqual(h.deps.nameFor(plain).color, util.readableColor(util.defaultColor('1007', 'plainviewer'), 4.5, white));
+  const send = sender(h);
+  const redraws = async (cfg) => { const n = h.rerenders; send(cfg); t.mock.timers.tick(150); await settle(); return h.rerenders - n; };
+  // A faint box (over dark video), a dark one, or none: as before.
+  assert.strictEqual(await redraws({ bg: 30 }), 1, 'the box turned dark: the names are drawn again');
+  assert.strictEqual(h.deps.nameFor(black).color, util.readableColor('#000000'));
+  assert.strictEqual(h.deps.nameFor(green).color, util.readableColor('#00FF7F'));
+  assert.strictEqual(await redraws({ bg: 35 }), 0, 'still dark: nothing to draw again');
+  assert.strictEqual(await redraws({ bg: 80 }), 1);
+  assert.strictEqual(h.deps.nameFor(green).color, util.readableColor('#00FF7F', 4.5, util.boxBackdrop('ffffff', 0.8)));
+  assert.strictEqual(await redraws({ bg: 80, bg_color: '#222222' }), 1);
+  assert.strictEqual(h.deps.nameFor(black).color, util.readableColor('#000000'));
+  // readable=0, name_color and name_fallback: as picked.
+  send({ bg: 90, bg_color: '#ffffff', readable: false });
+  assert.strictEqual(h.deps.nameFor(green).color, '#00FF7F');
+  send({ bg: 90, bg_color: '#ffffff', readable: true, name_fallback: 'eeeeee' });
+  assert.strictEqual(h.deps.nameFor(plain).color, '#eeeeee');
+  // At the defaults (no box), as in 1.5.2.
+  const d = await boot(t);
+  assert.strictEqual(d.deps.nameFor(black).color, util.readableColor('#000000'));
+  assert.strictEqual(d.deps.nameFor(green).color, util.readableColor('#00FF7F'));
 });
 
 test('highlights live from the builder: through config.coerce, the words and users as lists; the names nameFor gives stay', async (t) => {
@@ -2191,10 +2440,225 @@ test('a reply quoting a hidden bot (bots=0, the default) or command (hide_comman
   send({ bots: true, hide_commands: false, reply_style: 'full' });
   assert.deepStrictEqual(await headers(), ['↪ @nightbot: Follow on twitter https://twitter.com/x', '↪ @chanbot: Raffle starts now',
     '↪ @gambler: !gamble all', '↪ @StreamElements: Follow the channel!', '↪ @partnerbot: partner raffle']);
-  // Called with the reply alone (no message), the home lists apply.
+  // Called with the reply alone (no message), for a parent the overlay never had: the home list, and a Shared Chat
+  // partner's (a viewer's reply may quote a partner channel's bot: see the test after this one).
   send({ bots: false });
   assert.strictEqual(h.deps.quoteHidden({ login: 'chanbot', body: 'x' }), true);
-  assert.strictEqual(h.deps.quoteHidden({ login: 'partnerbot', body: 'x' }), false);
+  assert.strictEqual(h.deps.quoteHidden({ login: 'partnerbot', body: 'x' }), true);
+  assert.strictEqual(h.deps.quoteHidden({ login: 'amy', body: 'x' }), false);
+});
+
+// IRC tag values: a space is written as an escaped 's'.
+const tagText = (s) => s.split(' ').join(String.fromCharCode(92) + 's');
+// A Twitch reply's tags (parent: [id, login, body]; thread: the thread's first message, Twitch's
+// reply-thread-parent-msg-id).
+function replyTags(id, login, body, thread, extra) {
+  const t = { 'reply-parent-msg-id': id, 'reply-parent-user-id': 'u-' + login, 'reply-parent-user-login': login,
+    'reply-parent-display-name': login, 'reply-parent-msg-body': tagText(body) };
+  if (thread) t['reply-thread-parent-msg-id'] = thread;
+  return Object.assign(t, extra || {});
+}
+
+// Round 2 left the quotes of bots that only a platform's Bot badge, or only a Shared Chat partner's BTTV list, marks: a
+// Kick bot's points message ("↪ @CoolBot: KickFan has 500 points") and a partner bot's giveaway code were quoted on
+// stream in the replies to them while the bots' own lines were hidden (bots=0, the default).
+test('bots=0: a reply to a bot known by its Bot badge (Kick, Twitch) or a partner\'s BTTV list loses the quote; bots=1 brings it back', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0', stubs(T) {
+    T.bttv.loadChannel = (id) => Promise.resolve({ emotes: new Map(), bots: new Set(id === PARTNER ? ['partnerbot'] : []) });
+  } });
+  join(h);
+  await settle();
+  const last = () => h.pushed[h.pushed.length - 1];
+  const quoted = (m) => h.deps.quoteHidden(m.reply, m);
+  const kickReply = (to, extra) => kickChat('KickFan', 'nice', Object.assign({ type: 'reply', metadata: JSON.stringify(to) }, extra || {}));
+  // Kick: a bot only its Bot badge marks. Its own line is hidden; a reply to it loses the quote, to that line, to another
+  // of its lines the overlay never had (its sender was seen with the badge), and to one whose data carries the badge.
+  h.kick.send('ChatMessageEvent', kickChat('CoolBot', 'KickFan has 500 points', { id: 'kb1',
+    sender: { id: 9500, username: 'CoolBot', identity: { badges: [{ type: 'bot' }] } } }));
+  assert.ok(h.refused.some((m) => m.login === 'coolbot'), 'its own line is hidden');
+  h.kick.send('ChatMessageEvent', kickReply({ original_sender: { id: 9500, username: 'CoolBot' }, original_message: { id: 'kb1', content: 'KickFan has 500 points' } }));
+  const k1 = last();
+  assert.strictEqual(quoted(k1), true, 'the line it quotes was hidden');
+  h.kick.send('ChatMessageEvent', kickReply({ original_sender: { id: 9500, username: 'CoolBot' }, original_message: { id: 'kb0', content: 'rank #3' } }));
+  const k2 = last();
+  assert.strictEqual(quoted(k2), true, 'a sender seen with the Bot badge');
+  h.kick.send('ChatMessageEvent', kickReply({ original_sender: { id: 9600, username: 'TimerBot', identity: { badges: [{ type: 'bot', text: 'Bot' }] } },
+    original_message: { id: 'kb2', content: 'follow the socials' } }));
+  const k3 = last();
+  assert.strictEqual(k3.reply.bot, true);
+  assert.strictEqual(quoted(k3), true, 'the badge in the reply\'s own data');
+  h.kick.send('ChatMessageEvent', kickChat('Pal', 'hi all', { id: 'kp1' }));
+  h.kick.send('ChatMessageEvent', kickReply({ original_sender: { id: 5001, username: 'Pal' }, original_message: { id: 'kp1', content: 'hi all' } }));
+  const k4 = last();
+  assert.strictEqual(quoted(k4), false, 'a viewer\'s line is quoted');
+  // Shared Chat: a partner channel's bot (its BTTV list), quoted from a home viewer's reply (no source room of its own).
+  h.feed(priv('partnerbot', 'giveaway code ABC123', { id: 'pb1', 'source-room-id': PARTNER, 'source-id': 'spb1' }));
+  await settle();
+  assert.ok(!texts(h).includes('giveaway code ABC123'), 'the partner bot\'s line goes once its list loads');
+  h.feed(priv('fan', '@partnerbot thanks', replyTags('pb1', 'partnerbot', 'giveaway code ABC123', 'pb1')));
+  const p1 = last();
+  assert.strictEqual(p1.mirrored, false);
+  assert.strictEqual(quoted(p1), true);
+  h.feed(priv('fan', '@partnerbot thanks', replyTags('spb1', 'partnerbot', 'giveaway code ABC123', 'spb1')));
+  assert.strictEqual(quoted(last()), true, 'by its source id too');
+  // Twitch's Chat Bot badge (bot-badge): the bot's own line, and the replies to it.
+  h.feed(priv('potatbotat', 'potat points', { id: 'tb1', badges: 'moderator/1,bot-badge/1' }));
+  assert.ok(!texts(h).includes('potat points'));
+  h.feed(priv('fan', '@potatbotat ok', replyTags('tb1', 'potatbotat', 'potat points', 'tb1')));
+  const t1 = last();
+  assert.strictEqual(quoted(t1), true);
+  h.feed(priv('fan', '@potatbotat ok', replyTags('tb0', 'potatbotat', 'older potat', 'tb0')));
+  const t2 = last();
+  assert.strictEqual(quoted(t2), true, 'its sender was seen with the badge');
+  h.feed(priv('pal', 'just a viewer', { id: 'v1' }));
+  h.feed(priv('fan', '@pal ok', replyTags('v1', 'pal', 'just a viewer', 'v1')));
+  assert.strictEqual(quoted(last()), false);
+  // bots=1: every quote is back.
+  sender(h)({ bots: true });
+  [k1, k2, k3, p1, t1, t2].forEach((m, i) => assert.strictEqual(quoted(m), false, 'bots=1: ' + i));
+});
+
+// The fake-DOM view of the two intake cases: the bot's text never reaches the screen.
+test('bots=0 on screen: a Kick Bot-badge bot\'s and a partner BTTV bot\'s text stay out of the reply headers', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0', realRenderer: true, stubs(T) {
+    T.bttv.loadChannel = (id) => Promise.resolve({ emotes: new Map(), bots: new Set(id === PARTNER ? ['partnerbot'] : []) });
+  } });
+  join(h);
+  t.mock.timers.tick(3000);
+  await settle();
+  h.kick.send('ChatMessageEvent', kickChat('CoolBot', 'KickFan has 500 points, rank #3', { id: 'b1',
+    sender: { id: 9500, username: 'CoolBot', identity: { badges: [{ type: 'bot', text: 'Bot' }] } } }));
+  h.kick.send('ChatMessageEvent', kickChat('KickFan', 'nice', { type: 'reply', metadata: JSON.stringify({
+    original_sender: { id: 9500, username: 'CoolBot' }, original_message: { id: 'b1', content: 'KickFan has 500 points, rank #3' } }) }));
+  h.feed(priv('partnerbot', 'giveaway code ABC123', { id: 'p1', 'source-room-id': PARTNER, 'source-id': 'sp1' }));
+  await settle();
+  h.feed(priv('fan', '@PartnerBot thanks', replyTags('p1', 'partnerbot', 'giveaway code ABC123', 'p1')));
+  for (let i = 0; i < 4; i++) { t.mock.timers.tick(300); await settle(); }
+  const shown = h.lines().map((l) => l.textContent);
+  assert.strictEqual(shown.length, 2, JSON.stringify(shown));
+  assert.ok(shown.every((s) => s.indexOf('500 points') < 0 && s.indexOf('ABC123') < 0), JSON.stringify(shown));
+});
+
+// Twitch marks an app bot the broadcaster added to the channel with its global Chat Bot badge (bot-badge/1): bots=0 knew
+// only names and BTTV lists, so a channel's own bot under another name showed at the defaults.
+test('bots=0 hides a Twitch line with the Chat Bot badge (bot-badge), a Shared Chat line\'s own too; live', async (t) => {
+  const h = await boot(t, { search: '?channel=home&history=0' });
+  join(h);
+  await settle();
+  h.feed(priv('mychannelbot', 'Follow us on X!', { badges: 'bot-badge/1' }));
+  h.feed(priv('modbot', 'timer', { badges: 'moderator/1,bot-badge/1' }));
+  h.feed(priv('partnerapp', 'partner timer', { 'source-room-id': PARTNER, 'source-badges': 'bot-badge/1' }));
+  h.feed(priv('viewer', 'hi', { badges: 'subscriber/12' }));
+  assert.deepStrictEqual(texts(h), ['hi']);
+  sender(h)({ bots: true });
+  assert.ok(h.deps.shouldShow(h.refused[0]) && h.deps.shouldShow(h.refused[1]) && h.deps.shouldShow(h.refused[2]));
+  h.feed(priv('mychannelbot', 'again', { badges: 'bot-badge/1' }));
+  assert.deepStrictEqual(texts(h), ['hi', 'again']);
+  sender(h)({ bots: false });
+  assert.strictEqual(h.deps.shouldShow(h.pushed[1]), false, 'turned off live, the renderer sweeps it (FILTER_KEYS)');
+});
+
+// Kick's own chat bot, KickBot (timers, command answers: 'https://discord.gg/adinross' five times in 25 messages in a real
+// capture), has Kick's moderator and verified badges and no Bot badge: bots=0 showed it.
+test('bots=0 hides Kick\'s own KickBot, a reply to it loses the quote; bots=1 shows it', async (t) => {
+  const frame = { id: 'c3d08652-ae81-416d-abf1-8e3a88d40c43', chatroom_id: 668, user_id: 4377088, content: 'https://discord.gg/adinross',
+    type: 'message', metadata: null, created_at: '2026-10-09T02:59:00Z', sender: { id: 4377088, slug: 'kickbot', username: 'KickBot',
+      identity: { color: '#E9113C', badges: [{ type: 'moderator', text: 'Moderator', sort_order: 12 }, { type: 'verified', text: 'Verified channel', sort_order: 14 }] } } };
+  let h = await boot(t, { search: '?kick=adinross&kick_room=668&history=0' });
+  h.kick.send('ChatMessageEvent', frame);
+  h.kick.send('ChatMessageEvent', kickChat('Fan', 'lol', { type: 'reply', metadata: { original_sender: { id: 4377088, username: 'KickBot' },
+    original_message: { id: frame.id, content: frame.content } } }));
+  assert.deepStrictEqual(texts(h), ['lol']);
+  assert.strictEqual(h.deps.quoteHidden(h.pushed[0].reply, h.pushed[0]), true);
+  h = await boot(t, { search: '?kick=adinross&kick_room=668&history=0&bots=1' });
+  h.kick.send('ChatMessageEvent', frame);
+  assert.deepStrictEqual(texts(h), ['https://discord.gg/adinross']);
+});
+
+// The quote's command check stripped a leading '@name' from every parent, guessing it had been a reply: a reply to a
+// plain '@carol !help is the command' (shown: it starts with '@') lost its header, and with '@' among command_prefixes a
+// reply to a hidden '@bob hello there' kept it. A parent the overlay had is judged as its own line was; one it never had
+// goes by Twitch's thread tag (the parent was a reply when its thread started with another message).
+test('hide_commands: a reply\'s quote is hidden exactly when its parent\'s own line is (a plain "@name" message is no reply)', async (t) => {
+  let h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0&hide_commands=1' });
+  join(h);
+  await settle();
+  const last = () => h.pushed[h.pushed.length - 1];
+  const quoted = (m) => h.deps.quoteHidden(m.reply, m);
+  // A plain message that starts with someone's name: shown, so its quote is too.
+  h.feed(priv('bob', '@carol !help is the command', { id: 'b1' }));
+  assert.ok(texts(h).includes('@carol !help is the command'));
+  h.feed(priv('alice', '@bob thanks', replyTags('b1', 'bob', '@carol !help is the command', 'b1')));
+  assert.strictEqual(quoted(last()), false);
+  // A reply whose text after its "@Parent" is a command: hidden, and so is its quote.
+  h.feed(priv('bob', '@Carol !help', Object.assign({ id: 'b2' }, replyTags('c0', 'carol', 'how do i', 'c0'))));
+  assert.ok(!texts(h).includes('!help'));
+  h.feed(priv('alice', '@bob ok', replyTags('b2', 'bob', '@Carol !help', 'c0')));
+  assert.strictEqual(quoted(last()), true);
+  // Parents the overlay never had, by the thread tag: a reply's '@Name' is left out, a plain message's isn't.
+  h.feed(priv('alice', '@dan ok', replyTags('x1', 'dan', '@carol !help is the command', 'x1')));
+  assert.strictEqual(quoted(last()), false, 'a plain message (its thread starts with it)');
+  h.feed(priv('alice', '@dan ok', replyTags('x2', 'dan', '@carol !help', 'x0')));
+  assert.strictEqual(quoted(last()), true, 'a reply (its thread started before it)');
+  // Without the tag (an old or crafted line) both readings are tried: a command either way hides the quote.
+  h.feed(priv('alice', '@dan ok', replyTags('x3', 'dan', '@carol !help')));
+  assert.strictEqual(quoted(last()), true);
+  h.feed(priv('alice', '@dan ok', replyTags('x4', 'dan', '@carol hi there')));
+  assert.strictEqual(quoted(last()), false);
+  // Kick: a plain message starting with a name (Kick puts no "@Parent" in a reply's text).
+  h.kick.send('ChatMessageEvent', kickChat('KickBob', '@carol !help is the command', { id: 'kb1' }));
+  h.kick.send('ChatMessageEvent', kickChat('KickFan', 'thanks', { type: 'reply',
+    metadata: { original_sender: { id: 1, username: 'KickBob' }, original_message: { id: 'kb1', content: '@carol !help is the command' } } }));
+  assert.deepStrictEqual(texts(h).slice(-2), ['@carol !help is the command', 'thanks']);
+  assert.strictEqual(quoted(last()), false);
+
+  // With '@' among the signs, a plain message that starts with a name is hidden: so is its quote; a reply's own
+  // "@Parent" still isn't a command.
+  h = await boot(t, { search: '?channel=home&history=0&hide_commands=1&command_prefixes=!%40' });
+  join(h);
+  await settle();
+  h.feed(priv('alice', '@bob hello there', { id: 'a1' }));
+  assert.ok(!texts(h).includes('@bob hello there'));
+  h.feed(priv('carol', '@alice agreed', replyTags('a1', 'alice', '@bob hello there', 'a1')));
+  assert.strictEqual(quoted(last()), true);
+  h.feed(priv('dan', '@Erin hello', Object.assign({ id: 'd1' }, replyTags('e0', 'erin', 'hey', 'e0'))));
+  assert.ok(texts(h).includes('@Erin hello'), 'a reply\'s own "@Parent" is no command');
+  h.feed(priv('carol', '@dan yes', replyTags('d1', 'dan', '@Erin hello', 'e0')));
+  assert.strictEqual(quoted(last()), false);
+  h.feed(priv('carol', '@x yes', replyTags('y1', 'x', '@bob hello there', 'y1')));
+  assert.strictEqual(quoted(last()), true, 'never had: a plain message, tested as sent');
+  h.feed(priv('carol', '@x yes', replyTags('y2', 'x', '@Erin hello', 'y0')));
+  assert.strictEqual(quoted(last()), false, 'never had: a reply, tested without its "@Name"');
+  h.feed(priv('carol', '@x yes', replyTags('y3', 'x', '@bob hello there')));
+  assert.strictEqual(quoted(last()), true, 'no thread tag: either reading');
+});
+
+// block_words is matched where it is drawn: a reply's "@Parent" isn't while replies are on, so a name in the list
+// doesn't hide the replies to that person. The quote was matched with that "@Parent": a reply to such a reply lost its
+// header though the reply it quotes was on screen.
+test('block_words: a reply to a reply that shows keeps its quote; with replies=0 (its "@Parent" drawn and matched) it goes', async (t) => {
+  let h = await boot(t, { search: '?channel=home&history=0&block_words=bob' });
+  join(h);
+  await settle();
+  const last = () => h.pushed[h.pushed.length - 1];
+  const quoted = (m) => h.deps.quoteHidden(m.reply, m);
+  h.feed(priv('carol', '@Bob great stream', Object.assign({ id: 'c1' }, replyTags('b0', 'bob', 'hi all', 'b0'))));
+  assert.ok(texts(h).includes('@Bob great stream'));
+  h.feed(priv('alice', '@carol agreed', replyTags('c1', 'carol', '@Bob great stream', 'b0')));
+  assert.strictEqual(quoted(last()), false);
+  h.feed(priv('alice', '@x agreed', replyTags('z1', 'x', '@Bob great stream', 'z0')));
+  assert.strictEqual(quoted(last()), false, 'never had: a reply (thread tag), matched without its "@Name"');
+  h.feed(priv('alice', '@x agreed', replyTags('z2', 'x', 'bob is great', 'z2')));
+  assert.strictEqual(quoted(last()), true, 'the word itself');
+  h.feed(priv('alice', '@x agreed', replyTags('z3', 'x', '@Bob great stream')));
+  assert.strictEqual(quoted(last()), true, 'no thread tag: as sent');
+  h = await boot(t, { search: '?channel=home&history=0&block_words=bob&replies=0' });
+  join(h);
+  await settle();
+  h.feed(priv('carol', '@Bob great stream', Object.assign({ id: 'c1' }, replyTags('b0', 'bob', 'hi all', 'b0'))));
+  assert.ok(!texts(h).includes('@Bob great stream'), 'replies=0 draws its "@Bob", which is matched');
+  h.feed(priv('alice', '@carol agreed', replyTags('c1', 'carol', '@Bob great stream', 'b0')));
+  assert.strictEqual(quoted(last()), true);
 });
 
 // A channel's own cheermotes showed as plain text ('sodaCheer100'): they are looked up (Twitch GQL) the first time a bits

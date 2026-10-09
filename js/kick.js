@@ -139,9 +139,15 @@
     }
     return n;
   }
+  // A Kick message can hold line breaks (BotRix sends "CHECK YOUR CHAT RANK\nhttps://...", and viewers can send several
+  // lines), which a line draws as spaces anyway: each one is a space here, so the word after it is read on its own (a 7TV
+  // emote's name, a link, a blocked word) as the tokenizer splits words at spaces. One character for one, so the emote
+  // codes' code-point ranges stay as they are.
+  var LINE_BREAK_RE = /[\t\n\v\f\r\u0085\u2028\u2029]/g;
   function splitEmotes(content) {
     var src = typeof content === 'string' ? content : '';
     if (src.length > MAX_CONTENT) src = src.slice(0, MAX_CONTENT);
+    src = src.replace(LINE_BREAK_RE, ' ');
     var text = '', cp = 0, last = 0, byId = Object.create(null), order = [];
     EMOTE_TOKEN_RE.lastIndex = 0;
     var m;
@@ -210,7 +216,12 @@
     var name = cleanName(os.username);
     var id = kickId(om.id);
     if (!name || !id) return null;
-    return { id: id, userId: kickId(os.id), login: loginOf(name), name: name, body: splitEmotes(om.content).text };
+    var r = { id: id, userId: kickId(os.id), login: loginOf(name), name: name, body: splitEmotes(om.content).text };
+    // The parent's sender with Kick's Bot badge, when the reply's data says so (kick.com's history gives the badges):
+    // bots=0 then leaves the quote out, as it hides the bot's own lines. Set only then, so other replies keep their shape.
+    var osIdent = objectOf(os.identity), omSender = objectOf(om.sender), omIdent = omSender && objectOf(omSender.identity);
+    if (hasBotBadge(osIdent && osIdent.badges) || hasBotBadge(omIdent && omIdent.badges)) r.bot = true;
+    return r;
   }
 
   function base(d) {
@@ -348,12 +359,14 @@
   // the overlay's start-up history: kick.com's API, behind Cloudflare like the channel lookup, so it may be refused (then
   // there is none, as before). Each is a ChatMessageEvent's data without the chatroom id, which the lines are keyed by
   // (chatroomId, the one the overlay joined), so it is set on a copy. Oldest first, marked historical; at most HISTORY_MAX,
-  // none older than a day (robotty keeps Twitch's that long), and [] when there are none.
+  // none older than a day (robotty keeps Twitch's that long), and [] when there are none. opts.fresh: asked of kick.com
+  // again, not taken from the browser's copy (kick.com lets one be kept for 10 s), as after a rejoin.
   var HISTORY_MAX = 50, HISTORY_AGE_MS = 86400000;
   function loadHistory(channelId, chatroomId, opts) {
     var ch = util.idStr(channelId), room = util.idStr(chatroomId);
     if (!ROOM_RE.test(ch) || !ROOM_RE.test(room)) return Promise.resolve([]);
     var o = { timeout: (opts && opts.timeout) || 10000, maxBytes: 2 * 1024 * 1024 };
+    if (opts && opts.fresh) o.cache = 'no-cache';
     return util.fetchJson(CHANNEL_API + ch + '/messages', o).then(function (r) {
       if (!r || util.isNotFound(r)) return [];
       var data = r.data && typeof r.data === 'object' ? r.data : null;

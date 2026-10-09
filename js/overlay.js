@@ -11,8 +11,10 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (root) {
   'use strict';
 
+  // Known bots by login (Twitch and Kick alike). Kick's own KickBot (timers, command answers) has no Bot badge: Kick gives
+  // it its moderator and verified ones.
   var DEFAULT_BOTS = ['nightbot', 'streamelements', 'streamlabs', 'moobot', 'fossabot', 'wizebot',
-    'soundalerts', 'sery_bot', 'kofistreambot', 'botrixoficial', 'botrix', 'blerp', 'pokemoncommunitygame'];
+    'soundalerts', 'sery_bot', 'kofistreambot', 'botrixoficial', 'botrix', 'kickbot', 'blerp', 'pokemoncommunitygame'];
   // The notices shown as notices, each with the switch under events that covers its type. Kick's sub, gift and host
   // notices use the same names (a Kick host arrives as a raid). A Prime sub upgraded to a paid one is a sub; a gift paid
   // forward to one viewer or to the community is a gift (Twitch sends the gift's own notice as well).
@@ -446,14 +448,23 @@
   // A config color (bare rrggbb, which config.js checked) as '#rrggbb'; '' for anything else.
   function cfgColor(v) { return typeof v === 'string' && /^[0-9a-f]{6}$/.test(v) ? '#' + v : ''; }
 
+  // The box behind the names (bg with its bg_color) when it is light (util.lightBackdrop), else null: readable then
+  // darkens light names (util.readableColor), as it lightens dark ones over dark video.
+  function nameBackdrop(cfg) {
+    if (!(cfg.bg > 0) || !cfgColor(cfg.bg_color)) return null;
+    var b = T.util.boxBackdrop(cfg.bg_color, cfg.bg / 100);
+    return T.util.lightBackdrop(b) ? b : null;
+  }
+
   // The name color: name_color for everyone, else the chatter's own (Twitch's palette for one without, or
-  // name_fallback), lightened by readable. A color picked in the settings is drawn as picked.
+  // name_fallback), made readable by readable (lightened over dark video, darkened on a light box). A color picked in
+  // the settings is drawn as picked.
   function nameFor(m) {
     var cfg = S.cfg;
     var color = cfgColor(cfg.name_color) || (m.color ? '' : cfgColor(cfg.name_fallback));
     if (!color) {
       color = m.color || T.util.defaultColor(m.userId, m.login);
-      if (cfg.readable) color = T.util.readableColor(color, cfg.readable_level / 10);
+      if (cfg.readable) color = T.util.readableColor(color, cfg.readable_level / 10, nameBackdrop(cfg));
     }
     var paintId = null;
     if (S.cfg.paints && m.userId && !isKick(m)) {
@@ -564,8 +575,8 @@
     var cfg = S.cfg;
     var login = m.login || '';
     if (login && cfg.block.indexOf(login) >= 0) return false;
-    // Kick's own Bot badge (kick.js) marks a bot whatever its name.
-    if (!cfg.bots && m.kickBot === true && isKick(m)) return false;
+    // A platform's own Bot badge marks a bot whatever its name.
+    if (!cfg.bots && platformBot(m)) return false;
     // The channel's BTTV bot list names Twitch accounts: it doesn't cover Kick lines. A Shared Chat partner's own BTTV bot
     // list covers its mirrored lines.
     if (isHiddenBot(login, m)) return false;
@@ -581,8 +592,7 @@
   }
 
   // Whether bots=0 hides what this login says on the line m (a reply's parent: said where the reply is): a known bot, the
-  // home channel's BTTV bots on a Twitch line, a Shared Chat partner's on its own lines. (Kick's Bot badge isn't known for
-  // a reply's parent.)
+  // home channel's BTTV bots on a Twitch line, a Shared Chat partner's on its own lines.
   function isHiddenBot(login, m) {
     if (S.cfg.bots || !login) return false;
     if (DEFAULT_BOTS.indexOf(login) >= 0) return true;
@@ -595,23 +605,91 @@
     return false;
   }
 
+  // Whether a badge list (irc-parse's [{set, version}]) has a badge of this set.
+  function hasBadgeSet(list, set) {
+    if (!Array.isArray(list)) return false;
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].set === set) return true;
+    return false;
+  }
+  // A line whose sender has its platform's own Bot badge: Kick's (kick.js), or Twitch's Chat Bot badge (bot-badge), which
+  // the broadcaster gives an app bot added to the channel (a Shared Chat line carries its own channel's badges too).
+  function platformBot(m) {
+    if (isKick(m)) return m.kickBot === true;
+    return hasBadgeSet(m.badges, 'bot-badge') || hasBadgeSet(m.sourceBadges, 'bot-badge');
+  }
+
+  // The chat lines the overlay was given, shown or not (deliver, and the history lines only noted), by id and by Shared
+  // Chat source id (a reply on another channel may name either): a reply's header goes by its parent's own line when the
+  // overlay has it (quotesHidden). And the senders seen with a platform's Bot badge, by user id: a reply's parent carries
+  // no badges. Kick ids are 'kick:' ids, so they never meet Twitch's.
+  function remember(m) {
+    if (!m || m.kind !== 'chat') return;
+    var id = T.util.idStr(m.id), sid = T.util.idStr(m.sourceId);
+    if (id) S.said.set(id, m);
+    if (sid && sid !== id) S.said.set(sid, m);
+    var uid = T.util.idStr(m.userId);
+    if (uid && platformBot(m)) S.botIds.set(uid, true);
+    if (isKick(m) && id && m.ts > S.kickTs) S.kickTs = m.ts;
+  }
+  // A reply's parent as its own line came, when the overlay was given it.
+  function saidParent(r) {
+    var id = T.util.idStr(r.id);
+    var p = id ? S.said.peek(id) : null;
+    return p && typeof p === 'object' ? p : null;
+  }
+
+  // Whether bots=0 hides a reply's parent (r, quoted on the line m): by its own line when the overlay has it (its badges
+  // and its channel), else by what the reply says of it: Kick's Bot badge in the reply's data (kick.js), a sender seen
+  // with a platform's Bot badge, a known bot, or one on a BTTV bot list: the home channel's, or any Shared Chat partner's
+  // loaded (a viewer's reply may quote a partner channel's line).
+  function quotedBot(r, login, m, parent) {
+    if (S.cfg.bots) return false;
+    if (parent) return platformBot(parent) || isHiddenBot(parent.login || '', parent);
+    var uid = T.util.idStr(r.userId);
+    if (r.bot === true || (uid && S.botIds.has(uid))) return true;
+    if (isHiddenBot(login, m)) return true;
+    if (!login || isKick(m)) return false;
+    var hit = false;
+    S.rooms.forEach(function (ctx) { if (!hit && ctx.bttv.bots.has(login)) hit = true; });
+    return hit;
+  }
+
   // A reply's header would quote a blocked user (block), or a message the filters hide: a hidden bot's (bots=0), a command
   // (hide_commands), or one with a blocked word (block_words) or a link (links=hide). The reply shows without it. The
   // renderer asks as it draws the line (deps.quoteHidden, with the reply's message m), so a live change redraws the
   // headers, and the reply itself stays on the message: its "@Parent" is still left out of its text and of the filters.
   // reply_style=name quotes nothing, but still names the user, so a blocked one's header goes there too (a bot's or a
-  // command's name-only header stays: it puts none of their text on stream).
+  // command's name-only header stays: it puts none of their text on stream). A parent the overlay was given is judged as
+  // its own line was (shouldShow); one it wasn't, by the reply's data (parentHidden).
   function quotesHidden(r, m) {
     var cfg = S.cfg;
     var login = r && typeof r.login === 'string' ? r.login.toLowerCase() : '';
     if (login && Array.isArray(cfg.block) && cfg.block.indexOf(login) >= 0) return true;
     if (!r || typeof r.body !== 'string' || !r.body || cfg.reply_style === 'name') return false;
-    if (isHiddenBot(login, m && typeof m === 'object' ? m : null)) return true;
-    // A parent that was itself a reply starts with "@Name": its command check left that out (isCommand).
-    if (cfg.hide_commands && T.renderer.filtersFor(cfg).command.test(r.body.replace(/^@\S+\s+/, ''))) return true;
-    // The quote as the header draws it (links=shorten shortens it as the message's own text).
-    if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(T.renderer.drawnText(r.body, cfg), T.renderer.filtersFor(cfg).block)) return true;
-    return cfg.links === 'hide' && T.renderer.hasLink(r.body);
+    var line = m && typeof m === 'object' ? m : null;
+    var parent = saidParent(r);
+    if (quotedBot(r, login, line, parent)) return true;
+    var f = T.renderer.filtersFor(cfg);
+    if (parent) {
+      if (cfg.hide_commands && isCommand(parent)) return true;
+      if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(shownText(parent, cfg), f.block)) return true;
+      return cfg.links === 'hide' && T.renderer.hasLink(parent.text);
+    }
+    return parentHidden(r, line, cfg, f);
+  }
+  // A parent the overlay never had, by its text in the reply. A Twitch parent that was itself a reply starts with
+  // "@Name", which its own line was judged without (isCommand; shownText while replies are on): it was one when the
+  // thread it is in started with another message (reply-thread-parent-msg-id). Without that tag (an old or crafted
+  // line), and on Kick (whose reply data doesn't say), it is tested both ways for a command, and as sent for the words.
+  function parentHidden(r, m, cfg, f) {
+    var body = r.body, rest = body.replace(/^@\S+\s+/, '');
+    var thread = !isKick(m) && typeof r.threadId === 'string' && r.threadId !== '';
+    var wasReply = thread && r.threadId !== r.id;
+    if (cfg.hide_commands && (thread ? f.command.test(wasReply ? rest : body) : f.command.test(rest) || f.command.test(body))) return true;
+    // The words as its own line was matched (shownText): without its "@Name" only where that wasn't drawn.
+    var said = wasReply && cfg.replies ? rest : body;
+    if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(T.renderer.drawnText(said, cfg), f.block)) return true;
+    return cfg.links === 'hide' && T.renderer.hasLink(body);
   }
 
   // ---------- rooms ----------
@@ -655,8 +733,12 @@
         if (!r) return;
         ctx.bttv.bots = r.bots || new Set();
         if (S.cfg.emotes_bttv) fillMap(ctx.bttv.emotes, r.emotes);
-        // Bot lines that arrived before the list did are dropped now (one pass over the lines on screen).
-        if (!S.cfg.bots && ctx.bttv.bots.size && S.renderer && S.renderer.refilter) S.renderer.refilter();
+        // Bot lines that arrived before the list did are dropped now (one pass over the lines on screen), and the reply
+        // headers quoting them (on any channel's line) are drawn again without the quote.
+        if (!S.cfg.bots && ctx.bttv.bots.size && S.renderer && S.renderer.refilter) {
+          S.renderer.refilter();
+          scheduleRerender(function (m) { return !!m.reply; });
+        }
       } });
     }
     if (cfg.emotes_ffz || (cfg.badges && cfg.badges_ffz)) {
@@ -768,7 +850,8 @@
     clearHint('twitchLookup');
     var parts = roomParts(ctx, true);
     parts.forEach(function (p) {
-      track(p.name, p.fn, function (res) { p.apply(res); changed({ roomId: id }); }, true);
+      var settled = track(p.name, p.fn, function (res) { p.apply(res); changed({ roomId: id }); }, true);
+      if (p.name === 'bttv-channel') settled.then(S.homeBotsDone);
     });
     S.homeRegistered = true;
     checkHold();
@@ -962,10 +1045,18 @@
     // Only lines the renderer accepted (not filtered out) load rooms and queue 7TV lookups. A filtered line still goes
     // to the renderer, which notes that it was said (a Shared Chat partner's while shared=0 too): a reply quoting it keeps
     // its header after a /clear or a timeout from before it.
+    remember(m);
     if (!S.renderer.push(m)) return;
     if (m.mirrored) noteSourceRoom(m);
     noteUser(m);
     wantCheers(m);
+  }
+
+  // A line said but not shown (history older than the lines shown): the renderer notes it (a /clear or a timeout from
+  // before it then leaves a reply quoting it its header), and so does the overlay (remember).
+  function noteSaid(m) {
+    remember(m);
+    if (S.renderer.note) S.renderer.note(m);
   }
 
   // ---------- a channel's own cheermotes ----------
@@ -1068,6 +1159,11 @@
       S.liveBuffer.push({ __kick: ev });
       return;
     }
+    // While Kick's own recent chat is asked again after a rejoin (refetchKick), its live events wait for it.
+    if (S.kickGap) {
+      S.kickBuffer.push(ev);
+      return;
+    }
     switch (ev.type) {
       case 'message':
       case 'notice':
@@ -1089,9 +1185,17 @@
       // The network works: a font stylesheet that failed is asked for again (a Kick-only overlay has no IRC rejoin).
       applyFonts(S.cfg, true);
       clearHint('kick');
-    } else if (status === 'fatal') {
-      kickHint('Kick refused the chat connection' + (detail && detail.code ? ' (error ' + detail.code + ')' : '') +
-        '. Kick may have changed its chat server; check for an overlay update.');
+      // Every join after the first is a rejoin (one after a Pusher error code sends no 'closed' before it): what the
+      // outage missed is asked for. So is the start-up history when it didn't come.
+      var again = S.kickJoined;
+      S.kickJoined = true;
+      if (again || !S.kickHistoryLanded) refetchKick();
+    } else if (status === 'closed' || status === 'fatal') {
+      if (S.kickGapAbort) S.kickGapAbort();
+      if (status === 'fatal') {
+        kickHint('Kick refused the chat connection' + (detail && detail.code ? ' (error ' + detail.code + ')' : '') +
+          '. Kick may have changed its chat server; check for an overlay update.');
+      }
     }
   }
 
@@ -1108,8 +1212,13 @@
   function moveKickRoom(room) {
     T.util.warn('kick: kick_room ' + S.kickRoom + ' is not ' + S.cfg.kick + '\'s chatroom (' + room + '); joining that one');
     if (S.kick) { S.kick.stop(); S.kick = null; }
+    if (S.kickGapAbort) S.kickGapAbort();
     S.liveBuffer = S.liveBuffer.filter(function (m) { return !m.__kick; });
+    S.kickBuffer = [];
     if (S.renderer.drop) S.renderer.drop(isKick);
+    // The new room's first join is no rejoin, and the wrong room's lines are no point to ask after.
+    S.kickJoined = false;
+    S.kickTs = 0;
     S.kickStatus = 'resolving';
     connectKick(room);
   }
@@ -1123,6 +1232,8 @@
       track('7tv-kick-channel', loadKickSet, applyKickSet);
     }
     scheduleRerender(isKick);
+    // A lookup that failed at start (OBS before the network) and got through later: Kick's recent chat is asked now.
+    if (!S.historyStarting && !S.kickHistoryLanded) refetchKick();
   }
   function loadKickSet() { return T.seventv.loadChannel(S.kickCtx.userId, 'kick'); }
   // The Kick channel's 7TV set (loadChannel's answer): its emotes for Kick lines, routed and subscribed for live
@@ -1228,11 +1339,11 @@
         if (S.bttvLive) S.bttvLive.kick();
       }
       // After any outage, however short: a font stylesheet that failed in it is asked for again now (one that loaded,
-      // or is still loading, is left alone), and what the outage missed is asked for (refetchGap).
-      if (S.closedAt) {
-        applyFonts(S.cfg, true);
-        refetchGap();
-      }
+      // or is still loading, is left alone), and what the outage missed is asked for (refetchGap). So is the start-up
+      // history when it never came (OBS started before the network was up): a first connect that hangs sends no
+      // 'closed', so that isn't waited for.
+      if (S.closedAt) applyFonts(S.cfg, true);
+      if (S.closedAt || !S.historyLanded) refetchGap();
       S.closedAt = 0;
       clearHint('twitchLookup');
     } else if (status === 'closed') {
@@ -1304,7 +1415,7 @@
       if (p.command === 'PRIVMSG' && i < from) {
         // Older than the lines shown: not shown, but noted as said, in order with the moderation replayed around it, so
         // a timeout or /clear from before it doesn't take the header off a later reply quoting it.
-        if (S.renderer.note) S.renderer.note(chatFrom(p));
+        noteSaid(chatFrom(p));
         return;
       }
       // Skip lines that also arrived live while history was loading (the live copy is buffered).
@@ -1326,40 +1437,90 @@
   }
 
   // The Kick channel's recent messages, for the start-up history, once the channel lookup (S.kickLookup) has given the
-  // channel's id: both are kick.com's API, which may refuse other sites (then there are none, as before). cb(list) once,
-  // [] for none; by HISTORY_WAIT_MS from now.
+  // channel's id: both are kick.com's API, which may refuse other sites (then there are none, as before). cb(list, how)
+  // once, [] for none, by HISTORY_WAIT_MS from now; how: 'answered' (kick.com answered, [] when there are none),
+  // 'failed' (asked, but no answer), 'none' (not asked: no channel id yet).
   function loadKickHistory(cb) {
-    var until = T.util.now() + HISTORY_WAIT_MS;
+    var until = T.util.now() + HISTORY_WAIT_MS, how = 'none';
     Promise.resolve(S.kickLookup).then(function () {
       var c = S.kickChannel, left = until - T.util.now();
-      if (!c || !c.channelId || left <= 0) return [];
+      if (!c || !c.channelId || left <= 0) return null;
+      how = 'failed';
       return T.kick.loadHistory(c.channelId, c.chatroomId, { timeout: left });
-    }).then(cb, function (e) {
+    }).then(function (l) {
+      cb(l || [], l ? 'answered' : how);
+    }, function (e) {
       T.util.warn('kick history load failed', e && e.message);
-      cb([]);
+      cb([], how);
     });
+  }
+
+  // bots=0: the bot lists a history's picks (historyPicks of list, oldest first) depend on, known before they are made, so
+  // a bot whose list lands later doesn't take a shown line's place (its line would go, and nothing come in its stead): the
+  // home channel's BTTV list (S.homeBots), and the BTTV list of each Shared Chat partner whose lines are among the picks,
+  // whose room is loaded for it now (as showing its lines would; MAX_HISTORY_ROOMS at most), round after round as lines
+  // that go let older ones in. cb() once they are known, or at once without bots=0 or a Twitch channel; gone(): the
+  // caller stopped waiting (its HISTORY_WAIT_MS deadline picks with what is known).
+  function whenBotsKnown(list, want, cb, gone) {
+    var asked = {}, home = false;
+    function round() {
+      if (gone()) return;
+      if (S.cfg.bots || !S.cfg.channel || !list.length) { cb(); return; }
+      var waits = [];
+      if (!home) { home = true; waits.push(S.homeBots); }
+      var picks = historyPicks(list, want).picks;
+      for (var i = 0; i < picks.length; i++) {
+        var t = list[picks[i]].tags, id = T.util.idStr(t['source-room-id']);
+        if (!id || id === T.util.idStr(t['room-id']) || asked[id]) continue;
+        asked[id] = true;
+        var room = historyRoom(id);
+        if (room) waits.push(room);
+      }
+      if (!waits.length) { cb(); return; }
+      Promise.all(waits).then(round, round);
+    }
+    round();
+  }
+  // A Shared Chat room a history line comes from, loaded (or kept) for it: its load's promise, null for a room the
+  // history may not load (junk, the home room, or MAX_HISTORY_ROOMS already).
+  function historyRoom(id) {
+    if (!/^\d+$/.test(id) || id === S.homeId) return null;
+    if (!S.rooms.get(id) && !S.histRooms.has(id)) {
+      if (S.histRooms.size >= MAX_HISTORY_ROOMS) return null;
+      S.histRooms.add(id);
+    }
+    return S.rooms.ensure(id);
   }
 
   // history=N: the recent chat shown on start, Twitch's from recent-messages and Kick's from kick.com. Live chat (both
   // platforms, and moderation) waits in S.liveBuffer until both have come, HISTORY_WAIT_MS at most (each request is
   // aborted then, so late history is not downloaded and parsed for nothing). Together they show the newest N chat lines
-  // the filters let through, of either platform, in time order.
+  // the filters let through, of either platform, in time order, picked once the bot lists they depend on are known
+  // (whenBotsKnown). One that never came is asked again later: Twitch's when IRC (re)joins (refetchGap), Kick's when Kick
+  // chat (re)joins or the channel lookup gets through (refetchKick).
   function startHistory() {
     var cfg = S.cfg;
     var twitch = !!cfg.channel, kick = !!cfg.kick;
     if (!cfg.history || cfg.demo || !(twitch || kick)) return;
     S.historyPending = true;
-    var got = { twitch: twitch ? null : [], kick: kick ? null : [] }, done = false;
-    function land(which, v) {
+    S.historyStarting = true;
+    var got = { twitch: twitch ? null : [], kick: kick ? null : [] }, done = false, kickHow = 'none', list = null;
+    function land(which, v, answered) {
       if (done) return;
       got[which] = Array.isArray(v) ? v : [];
-      if (got.twitch && got.kick) finish();
+      if (which === 'twitch') S.historyLanded = !!answered;
+      else { kickHow = answered; S.kickHistoryLanded = answered === 'answered'; }
+      if (!got.twitch || !got.kick) return;
+      list = historyLines(got.twitch);
+      whenBotsKnown(list, cfg.history, finish, function () { return done; });
     }
     function finish() {
       if (done) return;
       done = true;
       S.historyPending = false;
-      var list = historyLines(got.twitch), want = cfg.history;
+      S.historyStarting = false;
+      if (!list) list = historyLines(got.twitch);
+      var want = cfg.history;
       var kickShown = (got.kick || []).filter(function (m) { return !!m && isKick(m) && shouldShow(m); }).slice(-want);
       var from, kickKept = [];
       if (!kickShown.length) {
@@ -1378,17 +1539,19 @@
       }
       replayHistory(list, from, kickKept);
       flushLive();
+      // Kick's got nothing because the channel lookup hadn't given the channel's id yet: it is asked for once it has.
+      if (kick && kickHow === 'none') refetchKick();
     }
     setTimeout(finish, HISTORY_WAIT_MS);
     if (twitch) {
       T.irc.loadHistory(cfg.channel, historyLimit(cfg.history), { timeout: HISTORY_WAIT_MS }).then(function (l) {
-        land('twitch', l);
+        land('twitch', l, true);
       }, function (e) {
         T.util.warn('history load failed', e && e.message);
-        land('twitch', []);
+        land('twitch', [], false);
       });
     }
-    if (kick) loadKickHistory(function (l) { land('kick', l); });
+    if (kick) loadKickHistory(function (l, how) { land('kick', l, how); });
   }
 
   // ---------- after an IRC outage ----------
@@ -1399,55 +1562,146 @@
   // rm-deleted; it keeps no CLEARMSG), and its lines sent after the newest the overlay had seen (S.twitchTs, Twitch's own
   // clock, so the PC's doesn't matter) are replayed in order, timeouts and /clears included, the newest `history` of its
   // chat lines shown. A new outage drops the request, and the next rejoin asks from the same point (S.gapAfter).
+  // When the start-up history never came (OBS started before the network was up, or recent-messages failed) and no
+  // Twitch line has been seen since, the whole of it is asked for at the next join, as at start: the newest `history`
+  // chat lines, however old (no outage to reach back over).
   var GAP_SLACK_MS = 70000; // the longest a dead socket goes unnoticed (irc.js: a PING every 60 s, 10 s for its PONG)
   function refetchGap() {
     var cfg = S.cfg;
     if (!cfg.history || !cfg.channel || cfg.demo || S.historyPending) return;
-    var after = S.gapAfter || S.twitchTs || (S.closedAt ? Math.max(S.closedAt - GAP_SLACK_MS, 1) : 0);
-    if (!after) return;
+    var whole = !S.historyLanded && !S.twitchTs;
+    var after = whole ? 0 : S.gapAfter || S.twitchTs || (S.closedAt ? Math.max(S.closedAt - GAP_SLACK_MS, 1) : 0);
+    if (!after && !whole) return;
     S.gapAfter = after;
     S.historyPending = true;
-    var done = false;
+    var done = false, list = null, gap = null;
     // ok: lines came; keep: a new outage cut it short (the next rejoin asks from the same point).
-    function finish(lines, ok, keep) {
+    function finish(ok, keep) {
       if (done) return;
       done = true;
       S.gapAbort = null;
       S.historyPending = false;
       if (!keep) S.gapAfter = 0;
-      if (ok) replayGap(historyLines(lines), after);
+      if (ok && list) {
+        S.historyLanded = true;
+        if (whole) replayHistory(list, historyStart(list, cfg.history), []);
+        else replayGap(list, gap);
+      }
       flushLive();
     }
-    S.gapAbort = function () { finish(null, false, true); };
-    setTimeout(function () { finish(null, false, false); }, HISTORY_WAIT_MS);
+    S.gapAbort = function () { finish(false, true); };
+    // By then the lines that came are replayed, whether the bot lists they wait for are known or not.
+    setTimeout(function () { finish(true, false); }, HISTORY_WAIT_MS);
     // Enough lines to reach back over the lines on screen (cfg.max), for their deletions.
-    var limit = Math.min(800, Math.max(historyLimit(cfg.history), cfg.max * 2));
-    T.irc.loadHistory(cfg.channel, limit, { timeout: HISTORY_WAIT_MS }).then(function (l) { finish(l, true, false); }, function (e) {
+    var limit = whole ? historyLimit(cfg.history) : Math.min(800, Math.max(historyLimit(cfg.history), cfg.max * 2));
+    T.irc.loadHistory(cfg.channel, limit, { timeout: HISTORY_WAIT_MS }).then(function (l) {
+      if (done) return;
+      list = historyLines(l);
+      if (!whole) gap = gapLines(list, after);
+      whenBotsKnown(whole ? list : gap, cfg.history, function () { finish(true, false); }, function () { return done; });
+    }, function (e) {
       T.util.warn('history refetch failed', e && e.message);
-      finish(null, false, false);
+      finish(false, false);
     });
   }
-  // The refetched lines (oldest first) after an outage that began after `after` (a Twitch server time).
-  function replayGap(list, after) {
+  // The refetched lines (oldest first) said in an outage that began after `after` (a Twitch server time): not deletions
+  // (replayGap applies them all), nor a line that came live since the rejoin (it waits in the buffer).
+  function gapLines(list, after) {
+    return list.filter(function (p) {
+      if (sentAt(p) <= after || p.command === 'CLEARMSG' || p.tags['rm-deleted'] !== undefined) return false;
+      return !(p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.markSeen(p.tags.id));
+    });
+  }
+  // The refetched lines (list, oldest first): every deletion in them, then the gap's lines (gapLines).
+  function replayGap(list, gap) {
     list.forEach(function (p) {
       if (p.command === 'PRIVMSG' && p.tags['rm-deleted'] !== undefined && p.tags.id) S.renderer.clearMessage(p.tags.id);
       else if (p.command === 'CLEARMSG' && p.tags['target-msg-id']) S.renderer.clearMessage(p.tags['target-msg-id']);
-    });
-    var gap = list.filter(function (p) {
-      if (sentAt(p) <= after || p.command === 'CLEARMSG' || p.tags['rm-deleted'] !== undefined) return false;
-      // A line that came live since the rejoin waits in the buffer: it isn't one of the gap's.
-      return !(p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.markSeen(p.tags.id));
     });
     var from = historyStart(gap, S.cfg.history);
     gap.forEach(function (p, i) {
       noteTwitchTs(p);
       p.tags.historical = '1';
       if (p.command === 'PRIVMSG' && i < from) {
-        if (S.renderer.note) S.renderer.note(chatFrom(p));
+        noteSaid(chatFrom(p));
         return;
       }
       onLine(p);
     });
+  }
+
+  // ---------- after a Kick outage ----------
+  // Pusher doesn't send again what was said, deleted or banned while the Kick socket was down: a message a Kick mod
+  // deleted, or a user banned, stayed on stream, and what was said meanwhile never came. After a rejoin, while history is
+  // on, kick.com's recent chat (its newest ~25, which leaves out deleted messages and a banned user's) is asked again,
+  // once per rejoin, and live Kick events wait for it (HISTORY_WAIT_MS at most; Twitch chat goes on). Its lines said
+  // since the newest Kick line the overlay had seen (S.kickTs, Kick's own clock) and not seen yet are shown, the newest
+  // `history` of them, the rest noted; and a Kick line the overlay had, said strictly between the oldest and newest of
+  // them but not among them, was deleted or its sender banned meanwhile: it goes. (kick.com gives times to the second,
+  // so the lines of the two seconds at the ends may be missing for no reason.) The same request is the start-up Kick
+  // history when that never came: no Kick line seen yet, the newest `history` of its lines are shown.
+  function refetchKick() {
+    var cfg = S.cfg, c = S.kickChannel;
+    if (!cfg.history || cfg.demo || !cfg.kick || S.historyStarting || S.kickGap || !c || !c.channelId) return;
+    var after = S.kickTs, done = false;
+    var gap = S.kickGap = {};
+    function finish(list) {
+      if (done) return;
+      done = true;
+      if (S.kickGap === gap) S.kickGap = null;
+      S.kickGapAbort = null;
+      if (list) {
+        S.kickHistoryLanded = true;
+        replayKick(list, after);
+      }
+      flushKick();
+    }
+    S.kickGapAbort = function () { finish(null); };
+    setTimeout(function () { finish(null); }, HISTORY_WAIT_MS);
+    // fresh: not the browser's copy of the start-up request (kick.com lets it be kept for 10 s).
+    T.kick.loadHistory(c.channelId, S.kickRoom || c.chatroomId, { timeout: HISTORY_WAIT_MS, fresh: true }).then(function (l) {
+      finish(Array.isArray(l) ? l : []);
+    }, function (e) {
+      T.util.warn('kick history refetch failed', e && e.message);
+      finish(null);
+    });
+  }
+  // kick.com's recent Kick lines (oldest first) after a rejoin; after: the newest Kick time seen before it.
+  function replayKick(list, after) {
+    var ids = {}, lo = Infinity, hi = -Infinity;
+    list = list.filter(function (m) { return !!m && isKick(m) && !!m.id; });
+    list.forEach(function (m) {
+      ids[m.id] = true;
+      if (m.ts < lo) lo = m.ts;
+      if (m.ts > hi) hi = m.ts;
+    });
+    var gone = [];
+    S.said.map.forEach(function (m, id) {
+      if (isKick(m) && id === m.id && m.ts > lo && m.ts < hi && !ids[id]) gone.push(id);
+    });
+    gone.forEach(function (id) { S.renderer.clearMessage(id); });
+    // Not a line that came live since the rejoin: it waits in the buffer.
+    var waiting = {};
+    S.kickBuffer.concat(S.liveBuffer.map(function (x) { return x.__kick; })).forEach(function (ev) {
+      if (ev && ev.type === 'message' && ev.msg && ev.msg.id) waiting[ev.msg.id] = true;
+    });
+    var gap = list.filter(function (m) { return m.ts >= after && !S.said.has(m.id) && !waiting[m.id]; });
+    var shown = gap.filter(shouldShow).slice(-S.cfg.history);
+    gap.forEach(function (m) {
+      m.historical = true;
+      if (shown.indexOf(m) >= 0) deliver(m);
+      else noteSaid(m);
+    });
+  }
+  // The live Kick events that waited for refetchKick, in order: still before any that wait for a Twitch history.
+  function flushKick() {
+    var buf = S.kickBuffer;
+    S.kickBuffer = [];
+    if (S.historyPending) {
+      S.liveBuffer = buf.map(function (ev) { return { __kick: ev }; }).concat(S.liveBuffer);
+      return;
+    }
+    buf.forEach(onKickEvent);
   }
 
   // ---------- startup hold ----------
@@ -1583,6 +1837,9 @@
     S.cfg = next;
     applyFonts(next);
     S.renderer.setConfig(next);
+    // The box behind the names decides how readable colors them (nameFor): a box turned light, or another light one,
+    // redraws the names on screen (the renderer redraws on readable itself).
+    if (next.readable && String(nameBackdrop(prev)) !== String(nameBackdrop(next))) scheduleRerender(true);
     if (S.stvLookup && !next.demo && stvStyleOn(next) && !stvStyleOn(prev)) lookUpShown();
     // Data for badge providers / paints that were off at boot was never loaded: load it now.
     var turnedOn = ['badges', 'paints'].concat(keys.filter(function (k) { return k.indexOf('badges_') === 0; }))
@@ -1619,7 +1876,8 @@
     var home = S.rooms.home();
     if (home) {
       roomParts(home, true).forEach(function (p) {
-        track(p.name, p.fn, function (res) { p.apply(res); changed({ roomId: home.id }); });
+        var settled = track(p.name, p.fn, function (res) { p.apply(res); changed({ roomId: home.id }); });
+        if (p.name === 'bttv-channel') settled.then(S.homeBotsDone);
       });
       if (!S.cfg.demo) startLive(home.id);
     }
@@ -1676,11 +1934,21 @@
       giftIds: new T.util.LRU(200),
       cheerMaps: new T.util.LRU(16),
       histRooms: new Set(),
+      said: new T.util.LRU(1000),
+      botIds: new T.util.LRU(500),
       historyPending: false,
+      historyStarting: false,
+      historyLanded: false,
       liveBuffer: [],
       twitchTs: 0,
       gapAfter: 0,
       gapAbort: null,
+      kickTs: 0,
+      kickJoined: false,
+      kickHistoryLanded: false,
+      kickGap: null,
+      kickGapAbort: null,
+      kickBuffer: [],
       kick: null,
       kickLookup: null,
       kickChannel: null,
@@ -1695,6 +1963,8 @@
     // The Kick channel's 7TV set as a room's: emotes (S.kickStv), set, owner, its connection index in the owner's 7TV
     // account, the switch in flight; userId: the Kick user id it loads by.
     S.kickCtx = { id: KICK_STV, userId: '', stv: { emotes: S.kickStv, setId: null, ownerId: null, connIndex: -1 } };
+    // Settles once the home channel's BTTV data (its bot list) has loaded or failed once (whenBotsKnown).
+    S.homeBots = new Promise(function (resolve) { S.homeBotsDone = function () { resolve(); }; });
     S.bus.on('changed', onChanged);
     S.stv = T.seventv.createState({
       bus: S.bus,

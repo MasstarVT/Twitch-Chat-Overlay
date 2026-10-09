@@ -102,13 +102,19 @@ test('loadHistory: the channel\'s recent messages as historical lines of the joi
     item('old', '2026-10-06T11:58:00Z', 'two days ago'),
     item('', '2026-10-08T11:58:00Z', 'no id'), 'junk', null, [1]
   ], cursor: '1', pinned_message: item('pin', '2026-10-08T11:00:00Z', 'pinned') } };
-  t.mock.method(globalThis, 'fetch', async (url) => {
+  const caches = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
     calls.push(url);
+    caches.push(init && init.cache);
     const txt = typeof body === 'string' ? body : JSON.stringify(body);
     return { status: body === 404 ? 404 : 200, ok: body !== 404, headers: { get: () => null }, text: async () => txt };
   });
   const list = await kick.loadHistory('875396', '875062', { timeout: 3000 });
   assert.deepStrictEqual(calls, ['https://kick.com/api/v2/channels/875396/messages']);
+  // After a rejoin it is asked of kick.com again: kick.com lets the browser keep a copy for 10 s.
+  await kick.loadHistory('875396', '875062', { timeout: 3000, fresh: true });
+  assert.deepStrictEqual(caches, [undefined, 'no-cache']);
+  calls.pop();
   assert.deepStrictEqual(list.map((m) => [m.id, m.roomId, m.text, m.historical]), [
     ['kick:c1', 'kick:875062', 'oldest', true], ['kick:c2', 'kick:875062', 'a reply', true], ['kick:c3', 'kick:875062', 'newest KEKW', true]]);
   assert.strictEqual(list[2].kickEmotes, '37226:7-10');
@@ -176,6 +182,24 @@ test('splitEmotes turns [emote:id:name] into names plus code-point ranges', () =
   assert.strictEqual(kick.splitEmotes('x'.repeat(5000)).text.length, 2000);
 });
 
+// A Kick message can hold line breaks (BotRix: "CHECK YOUR CHAT RANK\nhttps://..."): the word after one was read together
+// with the word before it, so a 7TV emote's name next to a line break was drawn as text.
+test('splitEmotes: a line break or tab is a space, so the words beside it are read on their own; emote ranges stay', () => {
+  assert.deepStrictEqual(kick.splitEmotes('GG\n[emote:37226:KEKW]\nKEKW\nnice'), { text: 'GG KEKW KEKW nice', emotes: '37226:3-6' });
+  assert.deepStrictEqual(kick.splitEmotes('KEKW\r\n[emote:1:abc]\tKEKW'), { text: 'KEKW  abc KEKW', emotes: '1:6-8' });
+  assert.strictEqual(kick.splitEmotes('a\u2028b\u2029c\u0085d\u000be\u000cf').text, 'a b c d e f');
+  const tokenizer = require('../js/tokenizer.js');
+  const kekw = { id: '7tv-kekw', code: 'KEKW', provider: '7tv', urls: { 1: 'https://cdn.7tv.app/emote/x/1x.webp' } };
+  const m = kick.toMessage(chat({ content: 'GG\n[emote:37226:KEKW]\nKEKW\nnice' }));
+  const items = tokenizer.tokenize(m, { lookup: (w) => (w === 'KEKW' ? kekw : null), bttvPrefixes: null, gifs: false }).items;
+  assert.deepStrictEqual(items.map((i) => i.type === 'emote' ? 'emote:' + i.emote.provider : i.type + ':' + i.text),
+    ['text:GG', 'emote:kick', 'emote:7tv', 'text:nice']);
+  // A reply's quote goes through the same reading.
+  const r = kick.toMessage(chat({ type: 'reply', metadata: { original_sender: { id: 7, username: 'Pal' },
+    original_message: { id: 'p1', content: 'line one\nKEKW' } } }));
+  assert.strictEqual(r.reply.body, 'line one KEKW');
+});
+
 test('toMessage builds a namespaced chat message', () => {
   const m = kick.toMessage(chat());
   assert.strictEqual(m.platform, 'kick');
@@ -203,6 +227,20 @@ test('toMessage: replies (object or JSON-string metadata), bad colors, unknown b
   assert.deepStrictEqual(kick.toMessage(chat({ type: 'reply', metadata: JSON.stringify(meta) })).reply, r.reply);
   assert.strictEqual(kick.toMessage(chat({ type: 'reply', metadata: '{bad' })).reply, null);
   assert.strictEqual(kick.toMessage(chat({ type: 'message', metadata: meta })).reply, null);
+  // The parent's sender with Kick's Bot badge (kick.com's data gives its badges, as the sender's or the message's): the
+  // reply says so (bots=0 leaves the quote out). Only then, so other replies keep their shape.
+  const botMeta = (where) => {
+    const o = JSON.parse(JSON.stringify(meta));
+    const ident = { color: '#53FC19', badges: [{ type: 'moderator' }, { type: 'bot', text: 'Bot' }] };
+    if (where === 'sender') o.original_sender.identity = ident;
+    else o.original_message.sender = { id: 7, username: 'Parent', identity: ident };
+    return JSON.stringify(o);
+  };
+  assert.strictEqual(kick.toMessage(chat({ type: 'reply', metadata: botMeta('sender') })).reply.bot, true);
+  assert.strictEqual(kick.toMessage(chat({ type: 'reply', metadata: botMeta('message') })).reply.bot, true);
+  const plain = JSON.parse(JSON.stringify(meta));
+  plain.original_sender.identity = { badges: [{ type: 'moderator' }, { type: 'verified' }] };
+  assert.ok(!('bot' in kick.toMessage(chat({ type: 'reply', metadata: plain })).reply));
 
   const s = chat().sender;
   const odd = kick.toMessage(chat({ sender: Object.assign({}, s, { identity: { color: 'red', badges: [{ type: 'weird' }, { type: 'VIP', count: -2 }, { type: 'vip' }] } }) }));

@@ -299,9 +299,9 @@
   function coerce(key, v) {
     var spec = own(SPEC, key) ? SPEC[key] : null;
     if (!spec || v === undefined || v === null) return undefined;
-    // Strings, numbers and booleans only (arrays too for a list or words): String() on an object or symbol can throw.
+    // Strings, numbers and booleans only (arrays too for a list, words or chars): String() on an object or symbol can throw.
     var tv = typeof v;
-    var many = spec.type === 'list' || spec.type === 'words';
+    var many = spec.type === 'list' || spec.type === 'words' || spec.type === 'chars';
     if (tv !== 'string' && tv !== 'number' && tv !== 'boolean' && !(many && Array.isArray(v))) return undefined;
     switch (spec.type) {
       case 'channel': {
@@ -390,10 +390,12 @@
       }
       // Command prefixes ('!?'): signs from PREFIX_CHARS only, each once, in the order typed; spaces are left out
       // ('! ?' is '!?'). Any other character, none at all, or more than MAX_PREFIXES make the value invalid, so the
-      // default '!' (or settings.js) stays.
+      // default '!' (or settings.js) stays. settings.js may give them as an array, as it gives block and keywords
+      // (['!', '?'] is '!?'); an item that isn't a string is skipped, as in a list.
       case 'chars': {
         if (tv === 'boolean') return undefined;
-        var cs = String(v).replace(/\s+/g, ''), pre = '';
+        var cs = (Array.isArray(v) ? v.filter(function (x) { return typeof x === 'string'; }).join('') : String(v))
+          .replace(/\s+/g, ''), pre = '';
         for (var ci = 0; ci < cs.length; ci++) {
           var ch = cs.charAt(ci);
           if (PREFIX_CHARS.indexOf(ch) < 0) return undefined;
