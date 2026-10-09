@@ -520,3 +520,29 @@ test('pickUrl: https only except the two fixed local badge assets (developer, Be
     assert.strictEqual(R.pickUrl({ 1: u }, 1), null, u);
   });
 });
+
+test('404.html: its one inline script is the one its CSP hash allows, and it sends any missing page to the home page', () => {
+  const html = fs.readFileSync(path.join(ROOT, '404.html'), 'utf8');
+  const scripts = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g), (m) => m[1]);
+  assert.strictEqual(scripts.length, 1);
+  assert.ok(!/<script[^>]+src=/.test(html), 'no script file to find from an unknown path');
+  const hash = require('node:crypto').createHash('sha256').update(scripts[0], 'utf8').digest('base64');
+  const csp = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)[1];
+  assert.match(csp, /^default-src 'none'; script-src 'sha256-[^']+'; base-uri 'none'; form-action 'none'$/);
+  assert.strictEqual(/'sha256-([^']+)'/.exec(csp)[1], hash);
+  const go = (href) => {
+    const u = new URL(href);
+    let to = null;
+    const location = { hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash, replace: (x) => { to = x; } };
+    require('node:vm').runInNewContext(scripts[0], { window: { location } });
+    return to;
+  };
+  assert.strictEqual(go('https://chat.masstar.org/nope'), '/');
+  assert.strictEqual(go('https://chat.masstar.org/a/b/c.html?channel=x#obs'), '/?channel=x#obs');
+  // A copy on github.io lives under the repository's name.
+  assert.strictEqual(go('https://someone.github.io/Twitch-Chat-Overlay/nope'), '/Twitch-Chat-Overlay/');
+  assert.strictEqual(go('https://someone.github.io/'), '/');
+  // Without scripts: a refresh to the home page, and a link.
+  assert.match(html, /<noscript><meta http-equiv="refresh" content="0; url=\/"><\/noscript>/);
+  assert.match(html, /<a href="\/">Go to the home page<\/a>/);
+});
