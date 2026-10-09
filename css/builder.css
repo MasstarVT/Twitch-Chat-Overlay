@@ -231,18 +231,21 @@ textarea.text { display: block; padding: 10px 12px; line-height: 20px; }
 }
 .site a:hover { color: var(--text); }
 
-.channel {
-  grid-area: channel;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px 8px;
-  margin-top: 16px;
+/* The Twitch and Kick channels: a row each here, side by side in the app layout. Each is its logo and short name,
+   the box with its Check, and the status line under the box. The Kick one is a settings field (builder.js toTopBar):
+   its head and name boxes drop out, so its parts line up as the Twitch one's do. */
+.channel { grid-area: channel; display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.ch { min-width: 0; display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 6px 10px; }
+.ch .field-head, .ch .field-name { display: contents; }
+.ch-label {
+  display: flex; align-items: center; gap: 8px; min-height: 48px;
+  font-weight: 600; font-size: 15px; line-height: 1.2; color: var(--text); cursor: pointer;
 }
-.channel > label, .channel > .status { grid-column: 1 / -1; }
-.channel .text, .channel .btn { min-height: 48px; }
-.channel .btn { padding: 0 18px; font-size: 15px; }
-.channel .status { min-height: 28px; }
+.ch-label .logo { width: 22px; height: 22px; margin: 0; }
+.ch > .status { grid-column: 2; }
+.ch .text, .ch .btn { min-height: 48px; }
+.ch .btn { padding: 0 18px; font-size: 15px; }
+.ch .status a { color: var(--accent-hi); }
 
 /* "Edit an existing overlay": a button that opens the paste box */
 .paste { grid-area: paste; position: relative; margin-top: 10px; }
@@ -563,7 +566,12 @@ label.field-label { cursor: pointer; }
 .tag { font: 12px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; opacity: 0; transition: opacity .15s ease-out; user-select: all; }
 .field:hover .tag, .field:focus-within .tag { opacity: 1; }
 .tag.changed { color: var(--accent-hi); }
-.field.disabled { opacity: .45; }
+/* Greyed out: the label and the control are dimmed. What the field waits for (.needs) and its help stay readable. */
+.field.disabled > .field-head { opacity: .45; }
+.needs { max-width: 60ch; font-size: 13px; line-height: 1.5; color: var(--muted); text-wrap: pretty; }
+.subgrid > .needs { grid-column: 1 / -1; padding-bottom: 4px; }
+/* the Kick tab's first line: its channel is in the top bar */
+.kick-pointer { padding: 4px 0 14px; }
 .field.disabled .field-label, .field.disabled .switch,
 .field.disabled label, .field.disabled button, .field.disabled input,
 .field.disabled input[type=color] { cursor: not-allowed; }
@@ -884,7 +892,8 @@ label.field-label { cursor: pointer; }
 /* a very narrow window (a dock, 400% zoom): the preview switches take a row each, the brand drops its tag */
 @media (max-width: 359px) {
   .brand-tag { display: none; }
-  .channel .text::placeholder { font-size: 13px; }
+  .ch { grid-template-columns: 72px minmax(0, 1fr); }
+  .ch .text::placeholder { font-size: 13px; }
   .stage-col { grid-template-columns: minmax(0, 1fr); grid-template-areas: "mode" "swatches" "stage" "size"; }
   .backdrop { justify-content: flex-end; margin: 0 4px 8px; }
 }
@@ -914,20 +923,24 @@ label.field-label { cursor: pointer; }
     grid-template-areas: "top" "stage" "panel" "bar";
   }
 
-  /* min-height, not height: a long status message makes the bar taller instead of being cut */
-  .top { grid-area: top; display: flex; gap: 0; min-height: 64px; padding: 5px 24px; }
+  /* min-height, not height: a long status message makes the bar taller instead of being cut. Everything lines up
+     on the channel boxes' row; their status lines hang under it. */
+  .top { grid-area: top; display: flex; align-items: flex-start; gap: 0; min-height: 64px; padding: 8px 24px 6px; }
   .top::before { content: none; }
   .channel, .paste { max-width: none; }
-  .brand-h, .site { min-height: 0; }
+  .brand-h, .site { min-height: 44px; }
   .brand-h { flex: none; }
   .brand { gap: 12px; font-size: 17px; }
   .brand-tag { font-size: 13px; }
-  .channel { flex: 1 1 auto; min-width: 0; display: flex; gap: 12px; margin: 0 32px; }
-  .channel > label { flex: none; }
-  /* 320px where the window has it to give; it gives way before the status drops under 140px */
-  .channel .text { flex: 0 1 auto; width: clamp(280px, calc(100vw - 1040px), 320px); min-width: 140px; min-height: 44px; }
-  .channel .btn { flex: none; min-height: 44px; padding: 0 16px; font-size: 14px; }
-  .channel .status { flex: 1 1 0; min-width: 140px; min-height: 0; overflow-wrap: anywhere; }
+  /* the two channels share the room between the brand and Edit an existing overlay; each status line sits under its
+     box, in a smaller size, so the bar grows by one short line, not a row */
+  .channel { flex: 1 1 auto; min-width: 0; flex-direction: row; align-items: flex-start; gap: 24px; margin: 0 28px; }
+  .ch { flex: 1 1 0; max-width: 400px; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; }
+  .ch-label { min-height: 44px; font-size: 14px; }
+  .ch .text, .ch .btn { min-height: 44px; }
+  .ch .btn { padding: 0 14px; font-size: 14px; }
+  .ch > .status { grid-column: 1 / -1; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+  .ch .avatar { width: 18px; height: 18px; font-size: 10px; }
   .paste { flex: none; margin: 0 8px 0 0; }
   .paste > summary { width: auto; background: var(--panel); }
   .pop {
@@ -1053,8 +1066,9 @@ label.field-label { cursor: pointer; }
 }
 @media (min-width: 1100px) and (max-width: 1299px) and (min-height: 600px) {
   .site .home { display: none; }
-  .channel { margin: 0 24px; }
-  .channel .text { width: 240px; }
+  /* the logos name the two boxes (their labels keep the names for assistive tech) */
+  .channel { gap: 16px; margin: 0 20px; }
+  .ch-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .rail { padding-left: 8px; padding-right: 8px; }
   .panel { grid-template-columns: 176px minmax(0, 1fr); }
   .panel-body { padding: 24px; }

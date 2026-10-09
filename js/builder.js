@@ -103,12 +103,13 @@
   // from0(cfg): a stepper's first step up from 0 goes to this value instead of the next number (skipGap).
   // scale: a stepper shows (and reads) the value divided by this (readable_level 45 is 4.5:1), config.SPEC's scale.
   var META = {
-    kick: { label: 'Kick channel', logo: 'kick', check: true, placeholder: 'yourname or a kick.com link',
+    // top: drawn in the top bar beside the Twitch channel (toTopBar), though it stays one of the Kick tab's settings.
+    kick: { label: 'Kick channel', logo: 'kick', check: true, top: true, placeholder: 'yourname or a link',
       bad: 'That isn’t a valid Kick name. Use letters, numbers, _ and - only.',
       help: 'Adds this Kick channel’s chat to the overlay, with the Twitch channel above or on its own.' },
     kick_room: { label: 'Kick chatroom id', placeholder: 'Check fills this in', parse: 'kickRoom',
       bad: 'Use the number only, or paste the whole channel page.',
-      help: 'Kick’s chat needs this number. Check fills it in when Kick allows the lookup. If it doesn’t, open the link Check shows, and paste that whole page (or the number after "chatroom":{"id":) here.' },
+      help: 'Kick’s chat needs this number. Check, beside the Kick channel in the top bar, fills it in when Kick allows the lookup. If it doesn’t, open the link shown here, and paste that whole page (or the number after "chatroom":{"id":) in this box.' },
     platform_icons: { label: 'Show a Twitch or Kick icon on each message', when: kickOn,
       help: 'Only when both a Twitch and a Kick channel are set. Shows even with badges off.' },
     size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' }, when: sizeOn,
@@ -714,11 +715,18 @@
     return (changed || changedKeys(cfg))[key] === true ? key + '=' + config.serialize(key, cfg[key]) : key;
   }
 
+  // The channels, with the Kick chatroom id that goes with a Kick one: what the overlay is for, not a setting changed
+  // from its default, so the counts and the URL note leave them out (they are set in the top bar, not on a tab).
+  var CHANNEL_KEYS = ['channel', 'kick', 'kick_room'];
+  function settingsChanged(cfg) {
+    return Object.keys(changedKeys(cfg)).filter(function (k) { return CHANNEL_KEYS.indexOf(k) < 0; });
+  }
+
   // Changed settings per section, for the counts in the rail.
   function groupCounts(cfg) {
     var changed = changedKeys(cfg), out = {};
     groupLayout().forEach(function (g) {
-      out[g.id] = g.keys.filter(function (k) { return changed[k] === true; }).length;
+      out[g.id] = g.keys.filter(function (k) { return changed[k] === true && CHANNEL_KEYS.indexOf(k) < 0; }).length;
     });
     return out;
   }
@@ -745,7 +753,7 @@
   function urlNote(cfg, ch, url) {
     if (!cfg.channel && !cfg.kick) return { text: 'Add a channel first. Without one the overlay only shows a hint.', cls: 'warn' };
     if (cfg.kick && !cfg.kick_room) {
-      return { text: 'The Kick chatroom id is missing, and Kick may refuse the overlay’s own lookup. Press Check next to the Kick channel.', cls: 'warn' };
+      return { text: 'The Kick chatroom id is missing, and Kick may refuse the overlay’s own lookup. Press Check next to the Kick channel, or add the id by hand on the Kick tab.', cls: 'warn' };
     }
     if (ch && ch.state === 'notfound' && ch.login === cfg.channel) {
       return { text: 'Twitch has no channel called “' + cfg.channel + '”. Check the spelling.', cls: 'warn' };
@@ -756,7 +764,7 @@
     if (/^file:/i.test(String(url))) {
       return { text: 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.', cls: '' };
     }
-    var n = Object.keys(changedKeys(cfg)).length;
+    var n = settingsChanged(cfg).length;
     return { text: n
       ? 'Holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed. The rest use the defaults.'
       : 'Every setting is at its default, so the URL only needs the channel' + (cfg.channel && cfg.kick ? 's' : '') + '.', cls: '' };
@@ -894,6 +902,49 @@
   function fieldAway(key, cfg) {
     var m = META[key] || {};
     return !!m.only && m.only !== (cfg.layout === 'horizontal' ? 'horizontal' : 'vertical');
+  }
+
+  // Each setting's tab title (GROUPS doesn't change, so it is worked out once).
+  var TAB_TITLES = null;
+  function tabTitles() {
+    if (!TAB_TITLES) {
+      TAB_TITLES = {};
+      groupLayout().forEach(function (g) { g.keys.forEach(function (k) { TAB_TITLES[k] = g.title; }); });
+    }
+    return TAB_TITLES;
+  }
+
+  // The line under a greyed-out field (META.when false): what it waits for, in a few words, so no row is greyed out
+  // without a reason. A setting is named as its own field is, with its tab when that is another one. Where a when has
+  // two parts, the one that is off is named. '' while the field applies.
+  function whyOff(key, cfg) {
+    var m = META[key] || {};
+    var w = m.when;
+    if (typeof w !== 'function' || w(cfg)) return '';
+    var tabs = tabTitles();
+    var n = function (k) { return labelFor(k) + (tabs[k] && tabs[k] !== tabs[key] ? ' (' + tabs[k] + ')' : ''); };
+    var needs = function (k) { return 'Needs ' + n(k) + '.'; };
+    var row = 'In a horizontal row, needs ' + n('row_grow') + '.';
+    // As its help starts, so the line under it isn't said twice (showWhyOff).
+    if (w === kickOn) return 'Only when both a Twitch and a Kick channel are set.';
+    if (w === channelOn) return 'Needs a Twitch or Kick channel.';
+    if (w === sizeOn) return 'Not used while ' + n('text_px') + ' is set.';
+    if (w === ownNameColors) return 'Not used while a ' + n('name_color') + ' is set.';
+    if (w === readableOwn) return ownNameColors(cfg) ? needs('readable') : 'Not used while a ' + n('name_color') + ' is set.';
+    if (w === sepShown) return namesOn(cfg) ? 'Not drawn under ' + n('name_line') + '.' : needs('names');
+    if (w === fadeOutOn) return fadeOn(cfg) ? 'Needs a ' + n('fade_out_ms') + ' other than Instant.' : needs('fade');
+    if (w === mentionColorOn) return mentionsOn(cfg) ? 'Needs a Twitch or Kick channel.' : needs('mentions');
+    if (w === wordsOrUsersOn) return 'Needs ' + n('keywords') + ' or ' + n('highlight_users') + '.';
+    if (w === gifSizeOn) return gifsOn(cfg) ? row : needs('gifs');
+    if (w === bigDrawn) return row;
+    if (w === homiesOn) return badgesOn(cfg) ? needs('badges_homies') : needs('badges');
+    if (w === stvCosmeticsOn) return 'Needs ' + n('paints') + ', or ' + n('badges') + ' with 7TV.';
+    var simple = [[shadowOn, 'shadow'], [outlineOn, 'outline'], [namesOn, 'names'], [bgOn, 'bg'], [animateOn, 'animate'],
+      [fadeOn, 'fade'], [commandsOn, 'hide_commands'], [eventsOn, 'events'], [repliesOn, 'replies'],
+      [firstMsgOn, 'first_msg'], [pointsOn, 'points_highlight'], [rolesOn, 'role_style'], [badgesOn, 'badges'],
+      [paintsOn, 'paints'], [readableOn, 'readable']];
+    for (var i = 0; i < simple.length; i++) if (simple[i][0] === w) return needs(simple[i][1]);
+    return 'Needs another setting turned on first.';
   }
 
   // A help text as shown under its field: its first sentence (lead), and the rest behind a More button. Help that
@@ -1119,7 +1170,14 @@
         field.helpEl = addHelp(row, key, cb);
         cb.addEventListener('change', function () { update(key, cb.checked); });
         field.inputs.push(cb);
-        field.set = function (v) { cb.checked = !!v; };
+        // Greyed out, a switch shows what the overlay does (off: what it waits for is off), not a value it keeps for
+        // later; the line under it says why (whyOff).
+        field.set = function (v) { cb.checked = !!v && !cb.disabled; };
+        field.setDisabled = function (off) {
+          cb.disabled = off;
+          cb.checked = !off && !!B.cfg[key];
+          if (off) row.classList.add('disabled'); else row.classList.remove('disabled');
+        };
         break;
       }
       case 'seg': {
@@ -1569,6 +1627,13 @@
         if (off) row.classList.add('disabled'); else row.classList.remove('disabled');
       };
     }
+    // What a greyed-out field waits for, under its label (syncDisabled fills it in). A switch in a grid has the
+    // grid's one line instead (buildGroups).
+    if (m.when && !subgridOf(key)) {
+      field.needsEl = h('p', 'needs');
+      field.needsEl.hidden = true;
+      row.insertBefore(field.needsEl, head.nextSibling);
+    }
     return field;
   }
 
@@ -1631,6 +1696,38 @@
     var n = B.ui.folds[part.id] ? 0 : part.keys.filter(function (k) { return changed[k] === true; }).length;
     part.count.textContent = n ? String(n) : '';
     part.btn.setAttribute('aria-label', part.title + (n ? ', ' + n + ' changed' : ''));
+  }
+
+  // The Kick channel's field (META.top) sits in the top bar beside Twitch's, so a multistreamer sets both in one place.
+  // It is the same field (one value, one status line, one Check), drawn the way the Twitch one is: the logo and a short
+  // name as its label, the help for assistive tech only (the bar has no room for it; the Kick tab says it).
+  function toTopBar(f) {
+    var row = f.row, logo = row.querySelector('.logo');
+    row.className = 'ch ch-' + f.key;
+    clear(f.labelEl);
+    f.labelEl.className = 'ch-label';
+    if (logo) f.labelEl.appendChild(logo);
+    f.labelEl.appendChild(h('span', 'ch-name', 'Kick'));
+    f.labelEl.appendChild(h('span', 'sr-only', ' channel'));
+    // Its tag stays up to date (syncTags) but out of the page: the bar names no settings.
+    if (f.tag.parentNode) f.tag.parentNode.removeChild(f.tag);
+    if (f.helpEl) f.helpEl.parentNode.hidden = true;
+    $('channel-card').appendChild(row);
+  }
+
+  // Where the Kick channel went, at the top of the Kick tab: a button there.
+  function kickPointer() {
+    var p = h('p', 'help kick-pointer span-all');
+    p.appendChild(document.createTextNode('Your Kick channel goes in the top bar, beside Twitch’s. Its Check fills in the chatroom id below. '));
+    var b = h('button', 'help-more', 'Go to Kick channel');
+    b.type = 'button';
+    b.addEventListener('click', function () {
+      var input = B.fields.kick.inputs[0];
+      input.focus();
+      if (input.scrollIntoView) input.scrollIntoView({ block: 'nearest' });
+    });
+    p.appendChild(b);
+    return p;
   }
 
   // The foot of a section whose finer settings are under an Advanced sub-heading. A plain click goes there the
@@ -1696,6 +1793,7 @@
     clear(host);
     B.subheads = Object.create(null);
     B.folds = Object.create(null);
+    B.gridNeeds = Object.create(null);
     groupLayout().forEach(function (g) {
       var old = $('tab-' + g.id);
       if (old) old.parentNode.removeChild(old);
@@ -1744,11 +1842,19 @@
         var f = buildField(key);
         B.fields[key] = f;
         var sg = subgridOf(key);
-        if (sg) {
+        if (META[key] && META[key].top) {
+          toTopBar(f);
+          into.appendChild(kickPointer());
+        } else if (sg) {
           if (!grids[sg]) {
             grids[sg] = h('div', 'subgrid');
             grids[sg].setAttribute('role', 'group');
             grids[sg].setAttribute('aria-label', SUBGRIDS[sg].label);
+            // The grid's switches wait for the same one: one line says what (syncDisabled), above them.
+            var gn = h('p', 'needs');
+            gn.hidden = true;
+            grids[sg].appendChild(gn);
+            B.gridNeeds[sg] = gn;
             into.appendChild(grids[sg]);
           }
           f.row.className += ' sub';
@@ -1928,7 +2034,16 @@
       var m = META[k];
       if (m && (m.when || m.only)) B.fields[k].setDisabled(fieldOff(k, B.cfg));
       if (m && m.only) B.fields[k].row.hidden = fieldAway(k, B.cfg);
+      if (B.fields[k].needsEl) showWhyOff(B.fields[k].needsEl, whyOff(k, B.cfg), helpParts(m.help).lead);
     }
+    for (var sg in B.gridNeeds) showWhyOff(B.gridNeeds[sg], whyOff(SUBGRIDS[sg].keys[0], B.cfg), '');
+  }
+
+  // A why-greyed-out line: written only when it changes, and left out where the help's first line says it already.
+  function showWhyOff(el, why, lead) {
+    var text = why && lead.indexOf(why) < 0 ? why : '';
+    if (el.textContent !== text) el.textContent = text;
+    el.hidden = !text;
   }
 
   // Fields whose wording depends on the layout (META `horizontal`).
@@ -2016,6 +2131,10 @@
     // A weight may change the weights the font fields' check asks for (a paste, Reset or a quick look go through
     // syncForm, which checks again too).
     if (key === 'text_weight' || key === 'name_weight') B.fontProbes.forEach(function (fn) { fn(); });
+    if (key === 'kick_room' && !auto) kickRoomByHand();
+    // The empty channel field's line says whether the other channel is set (either one will do).
+    if (key === 'kick') renderChannelStatus();
+    if (key === 'channel' || key === 'kick') kickIdle();
     if (isLiveKey(key)) postLive();
     else scheduleReload(RELOAD_DELAY);
   }
@@ -2040,6 +2159,7 @@
     if (next.kick !== prev.kick || !sameValue(next.kick_room, prev.kick_room) || B.kickDropped) checkKick(false);
     if (next.channel !== B.ch.login || B.ch.state === 'bad') checkChannel(next.channel);
     else renderChannelStatus(); // the field was rewritten: nothing typed is pending any more
+    kickIdle();
     renderOutputs();
     showTab(); // the counts just put on the tabs change their widths
     saveCfg();
@@ -2221,10 +2341,12 @@
     var st = draft === 'typed' ? 'typed' : draft === 'cleared' ? 'empty' : B.ch.state, login = B.ch.login;
     var input = $('channel');
     input.setAttribute('aria-invalid', st === 'bad' || st === 'notfound' ? 'true' : 'false');
-    if (st === 'empty' || st === 'typed') input.classList.add('need'); else input.classList.remove('need');
+    // Either channel will do: with a Kick one set, an empty Twitch field is optional, not missing.
+    var optional = st === 'empty' && !!B.cfg.kick;
+    if ((st === 'empty' && !optional) || st === 'typed') input.classList.add('need'); else input.classList.remove('need');
     // A live region: the same line written again (Reset, a paste, Enter on a cleared field) is read out again.
     var found = st === 'found' ? B.ch.user : null;
-    var key = st + '|' + (st === 'empty' || st === 'typed' ? '' : login) +
+    var key = st + '|' + (st === 'empty' || st === 'typed' ? '' : login) + (optional ? '|optional' : '') +
       (found ? '|' + found.displayName + '|' + !!found.banned + '|' + found.logo : '');
     if (key === B.chStatusKey) return;
     B.chStatusKey = key;
@@ -2234,7 +2356,7 @@
     if (st === 'typed') {
       box.textContent = 'Press Enter or Check to look up the name.';
     } else if (st === 'empty') {
-      box.textContent = 'Enter your channel to preview its emotes and badges.';
+      box.textContent = optional ? 'Optional: add Twitch to show both chats.' : 'Enter your channel to preview its emotes and badges.';
     } else if (st === 'bad') {
       box.textContent = 'That isn’t a valid Twitch name. Use letters, numbers and _ only.';
     } else if (st === 'checking') {
@@ -2279,14 +2401,38 @@
     box.className = 'status';
   }
 
+  // The Kick tab's line under the chatroom id: how to copy it by hand, after Kick refused the lookup (checkKick).
+  // null clears it. The top bar's status line has no room for the steps, so it links here.
+  function kickRoomNote(node) {
+    var f = B.fields.kick_room;
+    if (!f) return;
+    if (!f.noteEl) {
+      f.noteEl = h('div', 'status warn');
+      f.noteEl.setAttribute('role', 'status');
+      f.noteEl.setAttribute('aria-live', 'polite');
+      f.row.appendChild(f.noteEl);
+    }
+    clear(f.noteEl);
+    if (node) f.noteEl.appendChild(node);
+  }
+
   // A Kick name refused (Enter, leaving the field, Check): the status line goes, so it never speaks for a channel other
   // than the one in the box. A lookup still out is dropped, and done again once a valid name is committed.
   function hushKick() {
     var box = B.fields.kick && B.fields.kick.statusEl;
     if (!box) return;
+    kickRoomNote(null);
     if (box.className === 'status busy') { dropKickLookup(); return; }
     clear(box);
     box.className = 'status';
+  }
+
+  // The Kick status line with nothing to report: with no Kick channel, that one is optional (either channel will do).
+  function kickIdle() {
+    var box = B.fields.kick && B.fields.kick.statusEl;
+    if (!box || B.cfg.kick || box.className !== 'status') return;
+    var text = B.cfg.channel ? 'Optional: add Kick to show both chats.' : 'Or a Kick channel, or both.';
+    if (box.textContent !== text) box.textContent = text;
   }
 
   // Look up the Kick channel's chatroom id (kick.com's channel API) and fill in kick_room. Kick may refuse the
@@ -2302,6 +2448,9 @@
     var seq = ++B.kickSeq;
     clear(box);
     box.className = 'status';
+    kickRoomNote(null);
+    B.kickRefused = false;
+    if (!slug) kickIdle();
     if (!slug || (B.cfg.kick_room && !force)) return;
     box.className = 'status busy';
     box.textContent = 'Looking up “' + slug + '” on Kick…';
@@ -2325,24 +2474,59 @@
       update('kick_room', c.chatroomId, true);
       B.fields.kick_room.set(B.cfg.kick_room);
       box.className = 'status ok';
+      // The chatroom id is filled in on the Kick tab, out of sight: the line says what was found, as Twitch's does.
       var t = h('span');
       t.appendChild(h('strong', null, c.username || slug));
-      t.appendChild(document.createTextNode(' found. Chatroom id ' + c.chatroomId + ' is filled in below.'));
+      t.appendChild(document.createTextNode(' found.'));
       box.appendChild(t);
     }, function () {
       if (seq !== B.kickSeq) return;
       clear(box);
       box.className = 'status warn';
+      B.kickRefused = true;
+      // The steps go under the chatroom id on the Kick tab (with the page to copy it from); this line links there.
       var t = h('span');
-      t.appendChild(document.createTextNode('Kick didn’t allow the lookup from this page. Open '));
+      t.appendChild(document.createTextNode('Kick didn’t allow the lookup. '));
+      t.appendChild(roomLink());
+      box.appendChild(t);
+      var n = h('span');
+      n.appendChild(document.createTextNode('Kick didn’t allow the lookup from this page. Open '));
       var a = h('a', null, 'the channel page');
       a.href = kick.apiUrl(slug);
       a.target = '_blank';
       a.rel = 'noopener';
-      t.appendChild(a);
-      t.appendChild(document.createTextNode(', then paste the whole page (or the number after "chatroom":{"id":) into the chatroom id below.'));
-      box.appendChild(t);
+      n.appendChild(a);
+      n.appendChild(document.createTextNode(', then paste the whole page (or the number after "chatroom":{"id":) in this box.'));
+      kickRoomNote(n);
     });
+  }
+
+  // The top bar's link to the chatroom id on the Kick tab: opens the tab and puts the focus in the box.
+  function roomLink() {
+    var a = h('a', null, 'Add the chatroom id by hand');
+    var href = '#platforms';
+    a.href = href;
+    a.addEventListener('click', function (e) {
+      if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      selectSection('platforms', false);
+      saveUi();
+      var room = B.fields.kick_room.inputs[0];
+      room.focus();
+      if (room.scrollIntoView) room.scrollIntoView({ block: 'nearest' });
+    });
+    return a;
+  }
+
+  // A chatroom id put in by hand after a refused lookup: the steps are done, and the top bar says so.
+  function kickRoomByHand() {
+    if (!B.kickRefused || !B.cfg.kick_room) return;
+    B.kickRefused = false;
+    kickRoomNote(null);
+    var box = B.fields.kick.statusEl;
+    clear(box);
+    box.className = 'status ok';
+    box.textContent = 'Chatroom id added.';
   }
 
   // ---------- paste existing URL ----------
@@ -2605,7 +2789,13 @@
     if (!pc.channel) {
       if (st === 'notfound') hint = 'Channel “' + B.ch.login + '” was not found.';
       else if (st === 'bad') hint = 'The channel name isn’t valid.';
-      if (pc.demo) hint = (hint ? hint + ' ' : '') + 'Demo chat with global emotes only. Enter a channel to preview its own emotes and badges.';
+      // With a Kick channel alone, the demo still draws global emotes only (the overlay looks Kick up only for live
+      // chat): no channel is missing, so the hint points to Live chat instead.
+      if (pc.demo && pc.kick && !B.cfg.channel) {
+        hint = (hint ? hint + ' ' : '') + (B.mode === 'live'
+          ? 'Demo messages are switched on under Advanced, so the overlay shows fake chat.'
+          : 'Demo chat with global emotes only. Switch to Live chat to watch your Kick chat.');
+      } else if (pc.demo) hint = (hint ? hint + ' ' : '') + 'Demo chat with global emotes only. Enter a channel to preview its own emotes and badges.';
       else if (!pc.kick) hint = (hint ? hint + ' ' : '') + 'Enter a channel (then press Enter) to watch its live chat here.';
     } else if (B.mode === 'live' && B.cfg.demo) {
       hint = 'Demo messages are switched on under Advanced, so the overlay shows fake chat.';
@@ -3151,6 +3341,7 @@
       kickReq: null, // the kick.com lookup still out: { slug, p } (checkKick)
       kickFor: '', // the Kick channel kick_room and the Kick status line are for (checkKick, replaceCfg)
       kickDropped: false, // a lookup for kickFor was dropped while a new name was typed (dropKickLookup)
+      kickRefused: false, // kick.com refused kickFor's lookup, and the Kick tab says how to add the id by hand (checkKick)
       fontsOk: Object.create(null), // name + ':' + weights Google Fonts has loaded for the font fields' check (probeFont)
       fontProbes: [], // each font field's check of its current name, run again when the weights it asks for change
       chDraft: '',
@@ -3179,6 +3370,7 @@
       storage: undefined,
       subheads: Object.create(null), // Advanced sub-heading id -> its <h3> (buildGroups)
       folds: Object.create(null), // a fold sub-heading's id -> its parts (foldPart)
+      gridNeeds: Object.create(null), // a SUBGRIDS id -> the line saying what its switches wait for (buildGroups)
       presetBtns: null, // quick look id -> its button (buildPresets)
       presetUndoBtn: null,
       presetUndo: null, // the PRESET_KEYS settings from before a run of quick looks, while Undo is offered
@@ -3285,6 +3477,7 @@
     advIds: advIds,
     fieldOff: fieldOff,
     fieldAway: fieldAway,
+    whyOff: whyOff,
     helpParts: helpParts,
     subgridOf: subgridOf,
     widgetFor: widgetFor,

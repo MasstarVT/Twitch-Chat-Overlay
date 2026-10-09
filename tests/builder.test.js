@@ -378,7 +378,10 @@ test('urlNote: a Kick channel alone is enough; without its chatroom id the URL g
   const cfg = Object.assign(config.defaults(), { kick: 'xqc', kick_room: '668' });
   const ok = builder.urlNote(cfg, { state: 'empty', login: '' }, builder.overlayUrl(cfg, BASE));
   assert.strictEqual(ok.cls, '');
-  assert.match(ok.text, /the 2 settings you changed/);
+  // The channel and its chatroom id are no "settings you changed".
+  assert.strictEqual(ok.text, 'Every setting is at its default, so the URL only needs the channel.');
+  assert.match(builder.urlNote(Object.assign({}, cfg, { channel: 'home', bg: 50 }), { state: 'found', login: 'home' },
+    BASE).text, /the 1 setting you changed/);
   assert.strictEqual(builder.overlayUrl(cfg, BASE), 'https://masstarvt.github.io/Twitch-Chat-Overlay/overlay.html?kick=xqc&kick_room=668');
   cfg.kick_room = '';
   const warn = builder.urlNote(cfg, { state: 'empty', login: '' }, builder.overlayUrl(cfg, BASE));
@@ -929,6 +932,22 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting la
   assert.match(builder.META.shadow_color.help, /emotes, badges and the box/);
   assert.deepStrictEqual(builder.META.outline.names, ['None', 'Thin', 'Medium', 'Thick']);
   assert.deepStrictEqual(builder.segValues('outline').map((v) => v.label), ['None', 'Thin', 'Medium', 'Thick']);
+});
+
+test('whyOff: every field that can be greyed out says what it waits for, and nothing while it applies', () => {
+  const d = config.defaults();
+  const off = { shadow: 0, outline: 0, names: false, bg: 0, animate: false, fade: 0, hide_commands: false, events: false,
+    replies: false, first_msg: false, mentions: 'off', points_highlight: false, role_style: 'off', gifs: false, badges: false,
+    paints: false, readable: false, text_px: 20, layout: 'horizontal', name_color: 'ff8800' };
+  Object.keys(builder.META).filter((k) => builder.META[k].when).forEach((k) => {
+    assert.strictEqual(builder.whyOff(k, d) === '', !builder.fieldOff(k, d), k + ' at the defaults');
+    const cfg = Object.assign({}, d, off);
+    if (builder.fieldOff(k, cfg)) assert.match(builder.whyOff(k, cfg), /^(Needs|Not|In a|Only) .*\.$/, k);
+  });
+  assert.strictEqual(builder.whyOff('shadow_color', Object.assign({}, d, { shadow: 0 })), 'Needs Text shadow (Look).');
+  assert.strictEqual(builder.whyOff('exit_style', Object.assign({}, d, { fade: 30, fade_out_ms: 0 })),
+    'Needs a Fade-out length other than Instant.');
+  assert.strictEqual(builder.whyOff('name_sep', Object.assign({}, d, { name_line: true })), 'Not drawn under Name on its own line (Look).');
 });
 
 test('the look options grey out while the setting they need is off, and their help names it', () => {

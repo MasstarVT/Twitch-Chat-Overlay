@@ -39,7 +39,7 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
 
 The overlay is hosted at **https://chat.masstar.org/**. Open the builder at **https://chat.masstar.org/builder.html**, enter your channel, and copy the overlay URL into OBS (steps 3–5 below). To host your own copy instead, use Option A or B.
 
-For Kick, open the builder's **Kick** section, enter your Kick channel and press **Check**. Check fills in the Kick chatroom id, which the overlay needs to join Kick's chat. If Kick refuses the lookup, the builder shows a link to your channel's page on Kick's API: open it, then paste the whole page (or just the number after `"chatroom":{"id":`) into **Kick chatroom id**. You only do this once; the id travels in the overlay URL.
+For Kick, enter your Kick channel in the builder's top bar, beside the Twitch one (either channel is enough; both put the two chats in one overlay), and press **Check**. Check fills in the Kick chatroom id, which the overlay needs to join Kick's chat. If Kick refuses the lookup, the status under the Kick channel links to the builder's **Kick** section, which shows a link to your channel's page on Kick's API: open it, then paste the whole page (or just the number after `"chatroom":{"id":`) into **Kick chatroom id**. You only do this once; the id travels in the overlay URL.
 
 ### Option A: GitHub Pages (recommended)
 

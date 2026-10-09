@@ -34,13 +34,19 @@
         <a class="gh" href="https://github.com/MasstarVT/Twitch-Chat-Overlay" target="_blank" rel="noopener">GitHub</a>
       </nav>
 
-      <section id="channel-card" class="channel" aria-label="Channel">
-        <label for="channel" class="eyebrow">Twitch channel</label>
-        <input id="channel" class="text" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
-               placeholder="yourname or a twitch.tv link" aria-describedby="channel-help channel-status">
-        <button id="channel-check" class="btn" type="button">Check</button>
-        <p id="channel-help" class="sr-only">Press Enter or click away to check the name.</p>
-        <div id="channel-status" class="status" role="status" aria-live="polite"></div>
+      <!-- The two channels, side by side: either one is enough, both put the two chats in one overlay. Kick's field is
+           built by builder.js (META.kick) and added after Twitch's; its Check fills in the chatroom id on the Kick tab. -->
+      <section id="channel-card" class="channel" aria-label="Channels">
+        <div class="ch ch-twitch">
+          <label for="channel" class="ch-label"><span class="logo logo-twitch" aria-hidden="true"></span><span class="ch-name">Twitch</span><span class="sr-only"> channel</span></label>
+          <div class="text-row">
+            <input id="channel" class="text" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+                   placeholder="yourname or a link" aria-describedby="channel-help channel-status">
+            <button id="channel-check" class="btn" type="button">Check</button>
+          </div>
+          <p id="channel-help" class="sr-only">Press Enter or click away to check the name.</p>
+          <div id="channel-status" class="status" role="status" aria-live="polite"></div>
+        </div>
       </section>
 
       <details id="paste-box" class="paste">

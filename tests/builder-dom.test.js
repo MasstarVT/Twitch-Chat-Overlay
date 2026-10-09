@@ -201,6 +201,49 @@ test('the channel field: a name typed but not looked up says how to look it up',
   assert.match(p.text('channel-status'), /^Enter your channel/);
 });
 
+test('either channel will do: with a Kick one alone, the Twitch field is optional and nothing asks for a channel', (t) => {
+  const p = open(t, HREF + '?kick=xqc&kick_room=668');
+  t.mock.timers.tick(1000); // the demo preview loads
+  const kickBox = p.$('f-kick').parentNode.parentNode.parentNode.children.filter((e) => e.getAttribute('role') === 'status')[0];
+  // The Kick field sits in the top bar, beside the Twitch one.
+  assert.strictEqual(p.$('f-kick').parentNode.parentNode.parentNode.parentNode, p.$('channel-card'));
+  assert.strictEqual(p.$('channel').classList.contains('need'), false);
+  assert.strictEqual(p.text('channel-status'), 'Optional: add Twitch to show both chats.');
+  assert.strictEqual(p.text('bar-note'), 'Every setting is at its default, so the URL only needs the channel.');
+  assert.strictEqual(p.text('count-platforms'), '', 'the channel and its chatroom id are no changed settings');
+  assert.doesNotMatch(p.text('stage-hint'), /Enter a channel/);
+  // With neither, the Twitch one asks for a channel, and the Kick one says it will do too.
+  const kick = p.$('f-kick');
+  kick.value = '';
+  kick.dispatch('change');
+  assert.strictEqual(p.$('channel').classList.contains('need'), true);
+  assert.match(p.text('channel-status'), /^Enter your channel/);
+  assert.strictEqual(kickBox.textContent, 'Or a Kick channel, or both.');
+  // With Twitch alone, Kick is the optional one.
+  p.$('channel').value = 'home';
+  p.$('channel').dispatch('change');
+  assert.strictEqual(kickBox.textContent, 'Optional: add Kick to show both chats.');
+});
+
+test('a greyed-out field says what it waits for; a greyed-out switch shows off, and its value comes back', (t) => {
+  const p = open(t, HREF);
+  const row = (k) => p.$('l-' + k).parentNode.parentNode.parentNode;
+  const needs = (k) => row(k).children.filter((e) => e.className === 'needs')[0];
+  // Cards turns the shadow off: Shadow color says why it is greyed out.
+  p.$('paste').value = '?shadow=0&badges=0';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([needs('shadow_color').hidden, needs('shadow_color').textContent], [false, 'Needs Text shadow (Look).']);
+  // A help whose first line says it already gets no second line (Outline color).
+  assert.strictEqual(needs('outline_color').hidden, true);
+  // The platform icons: off without a Kick channel, and the help says when they show.
+  assert.deepStrictEqual([p.$('f-platform_icons').disabled, p.$('f-platform_icons').checked], [true, false]);
+  assert.match(p.text('h-platform_icons'), /^Only when both a Twitch and a Kick channel are set/);
+  p.$('paste').value = '?kick=xqc&kick_room=668';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([p.$('f-platform_icons').disabled, p.$('f-platform_icons').checked], [false, true]);
+  assert.strictEqual(needs('shadow_color').hidden, true);
+});
+
 test('a stepper button says the new value, which the button that keeps the focus cannot', (t) => {
   const p = open(t, HREF);
   const [less, , more] = p.$('f-fade').parentNode.children;
@@ -309,7 +352,7 @@ test('Kick field: Check fills in the chatroom id; when Kick refuses, it links th
   const row = p.$('f-kick').parentNode.parentNode.parentNode;
   const status = row.children.filter((e) => e.getAttribute('role') === 'status')[0];
   assert.strictEqual(status.className, 'status ok');
-  assert.match(status.textContent, /xQc found\. Chatroom id 668/);
+  assert.match(status.textContent, /xQc found\.$/);
   assert.match(p.text('bar-url'), /overlay\.html\?kick=xqc&kick_room=668$/);
   assert.strictEqual(p.$('tab-platforms').getAttribute('data-section'), 'platforms');
 
@@ -323,15 +366,28 @@ test('Kick field: Check fills in the chatroom id; when Kick refuses, it links th
   assert.strictEqual(room.value, '');
   assert.strictEqual(status.className, 'status warn');
   assert.match(status.textContent, /Kick didn’t allow the lookup/);
-  const link = status.children[0].children.filter((e) => e.tagName === 'A')[0];
+  // The top bar links to the chatroom id on the Kick tab, where the steps and the page to copy it from are.
+  const go = status.children[0].children.filter((e) => e.tagName === 'A')[0];
+  assert.deepStrictEqual([go.textContent, go.href], ['Add the chatroom id by hand', '#platforms']);
+  const steps = room.parentNode.parentNode.children.filter((e) => e.getAttribute('role') === 'status')[0];
+  assert.strictEqual(steps.className, 'status warn');
+  assert.match(steps.textContent, /Kick didn’t allow the lookup from this page/);
+  const link = steps.children[0].children.filter((e) => e.tagName === 'A')[0];
   assert.strictEqual(link.href, 'https://kick.com/api/v2/channels/someone_else');
   assert.strictEqual(link.rel, 'noopener');
   assert.match(p.text('bar-note'), /chatroom id is missing/);
+  let focused = false;
+  room.focus = () => { focused = true; };
+  go.dispatch('click', { preventDefault() {} });
+  assert.deepStrictEqual([p.$('tab-platforms').getAttribute('aria-selected'), focused], ['true', true]);
 
   // Pasting the whole channel page into the chatroom id field reads the id out of it.
   room.value = JSON.stringify({ slug: 'someone_else', chatroom: { id: 4598 } });
   room.dispatch('change');
   assert.strictEqual(room.value, '4598');
+  // Done by hand: the steps go, and the top bar says the id is in.
+  assert.strictEqual(steps.textContent, '');
+  assert.deepStrictEqual([status.className, status.textContent], ['status ok', 'Chatroom id added.']);
   room.value = 'not a number';
   room.dispatch('change');
   assert.strictEqual(room.getAttribute('aria-invalid'), 'true');
@@ -516,7 +572,7 @@ test('Kick field: a pasted config for the same channel without its chatroom id l
   await settle();
   assert.deepStrictEqual(api.calls, [kickLookup('xqc')]);
   const room = p.$('f-kick_room'), status = kickStatus(p);
-  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  assert.match(status.textContent, /xqc found\.$/);
   // An older URL whose lookup had been refused: the same channel, no chatroom id.
   p.$('paste').value = 'https://chat.masstar.org/overlay.html?kick=xqc&size=large';
   p.$('paste-load').dispatch('click');
@@ -535,12 +591,12 @@ test('Kick field: a pasted config for the same channel without its chatroom id l
   // The same channel and id again: nothing to look up, and nothing to clear.
   p.$('f-kick').nextElementSibling.dispatch('click'); // Check
   await settle();
-  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  assert.match(status.textContent, /xqc found\.$/);
   p.$('paste').value = '?kick=xqc&kick_room=668&bg=40';
   p.$('paste-load').dispatch('click');
   await settle();
   assert.strictEqual(api.calls.length, 3);
-  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  assert.match(status.textContent, /xqc found\.$/);
 });
 
 test('Kick field: Check with a name that is not valid looks nothing up and leaves no status for another channel', async (t) => {
@@ -552,7 +608,7 @@ test('Kick field: Check with a name that is not valid looks nothing up and leave
   input.value = 'xqc';
   input.dispatch('keydown', { key: 'Enter', preventDefault() {} });
   await settle();
-  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  assert.match(status.textContent, /xqc found\.$/);
   input.value = 'my channel!';
   check.dispatch('click');
   await settle();
@@ -590,7 +646,7 @@ test('Kick field: Check with a name that is not valid looks nothing up and leave
   await settle();
   assert.deepStrictEqual(api.calls.slice(before), [kickLookup('other')]);
   assert.strictEqual(p.$('f-kick_room').value, '999');
-  assert.match(status.textContent, /other found\. Chatroom id 999/);
+  assert.match(status.textContent, /other found\.$/);
   // The same name again: Check looks it up again (an id may have changed).
   check.dispatch('click');
   await settle();
@@ -608,11 +664,11 @@ test('Kick field: one press of Check asks kick.com once, though the box is left 
   check.dispatch('mousedown');
   input.dispatch('change');
   await settle();
-  assert.match(status.textContent, /other found\. Chatroom id 999/);
+  assert.match(status.textContent, /other found\.$/);
   check.dispatch('click', { detail: 1 });
   await settle();
   assert.deepStrictEqual(api.calls, [kickLookup('other')], 'that lookup was this press of Check');
-  assert.match(status.textContent, /other found\. Chatroom id 999/);
+  assert.match(status.textContent, /other found\.$/);
   // Pressed again with nothing new typed: a check of its own, as from the keyboard (no mousedown, detail 0).
   check.dispatch('mousedown');
   check.dispatch('click', { detail: 1 });
@@ -646,7 +702,7 @@ test('Kick field: a name typed away and back while its lookup is out waits for t
   await settle();
   assert.deepStrictEqual(api.calls, [kickLookup('xqc')]);
   assert.strictEqual(room.value, '668');
-  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  assert.match(status.textContent, /xqc found\.$/);
   // Its answer, once in, is no answer for later: Check asks again.
   api.held = false;
   check.dispatch('click');
@@ -850,7 +906,10 @@ test('Badges & paints: the sources are one labelled grid under Show badges, with
       'field field-range badge_size']);
   const grid = body.children[1];
   assert.deepStrictEqual([grid.tagName, grid.getAttribute('role'), grid.getAttribute('aria-label')], ['DIV', 'group', 'Badge sources']);
-  const rows = grid.children.slice(0, -1), help = grid.children[grid.children.length - 1];
+  // First the line that says what the switches wait for while they are greyed out (hidden till then).
+  const needs = grid.children[0];
+  assert.deepStrictEqual([needs.tagName, needs.className, needs.hidden], ['P', 'needs', true]);
+  const rows = grid.children.slice(1, -1), help = grid.children[grid.children.length - 1];
   assert.deepStrictEqual(rows.map((e) => e.getAttribute('data-key')), p.builder.BADGE_SUBS);
   rows.forEach((e) => assert.strictEqual(e.className, 'field field-check sub'));
   assert.deepStrictEqual([help.tagName, help.className], ['P', 'help']);
@@ -2183,18 +2242,25 @@ test('event types and filters: a labelled grid under Show subs…, greyed out wi
   const grid = body.children[1];
   assert.deepStrictEqual([grid.tagName, grid.className, grid.getAttribute('role'), grid.getAttribute('aria-label')],
     ['DIV', 'subgrid', 'group', 'Event types']);
-  const rows = grid.children.slice(0, -1), help = grid.children[grid.children.length - 1];
+  const needs = grid.children[0];
+  const rows = grid.children.slice(1, -1), help = grid.children[grid.children.length - 1];
   assert.deepStrictEqual(rows.map((e) => e.getAttribute('data-key')), p.builder.EVENT_SUBS);
   rows.forEach((e) => assert.strictEqual(e.className, 'field field-check sub'));
   // The text, then the More button that shows the rest of it.
   assert.deepStrictEqual([help.tagName, help.className, help.firstChild.textContent], ['P', 'help', p.builder.SUBGRIDS.events.help]);
   const off = () => p.builder.EVENT_SUBS.filter((k) => rowOf(p, k).classList.contains('disabled'));
   assert.deepStrictEqual(off(), []);
+  assert.strictEqual(needs.hidden, true);
   flip('events', false);
   assert.deepStrictEqual(off(), p.builder.EVENT_SUBS);
   assert.ok(p.builder.EVENT_SUBS.every((k) => p.$('f-' + k).disabled), 'every switch off');
+  // Greyed out, they show what the overlay does (no notices), and one line says why.
+  assert.ok(p.builder.EVENT_SUBS.every((k) => p.$('f-' + k).checked === false), 'shown off');
+  assert.deepStrictEqual([needs.hidden, needs.textContent], [false, 'Needs Show subs, gifts, raids and announcements.']);
   flip('events', true);
   assert.deepStrictEqual(off(), []);
+  assert.ok(p.builder.EVENT_SUBS.every((k) => p.$('f-' + k).checked === true), 'their values were kept');
+  assert.strictEqual(needs.hidden, true);
   flip('event_gifts', false);
   flip('event_announcements', false);
   // Command prefixes: greyed out until Hide !commands is on; the signs written together; a bad value says which
