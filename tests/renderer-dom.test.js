@@ -3206,6 +3206,52 @@ function alignedRow(s, W, gap, align) {
   });
 });
 
+// A message leaving a row that doesn't fill the source: at left the ones after it, at center all of them, glide into
+// its room from where they were drawn (`left`, eased over SLIDE_MS) instead of jumping; nothing glides at right (the
+// default) or with animate=0, and no inline style is left behind once the glide is over.
+// Each message here is 130 px ('a: ' + 10 letters), 20 px apart: its room is 150 px (75 px each way at center).
+[['left', { b: '150px', c: '150px' }], ['center', { a: '-75px', c: '75px' }], ['right', {}]].forEach(([align, want]) => {
+  test('row_align=' + align + ': the messages left behind glide into a leaving message\'s room', (t) => {
+    const s = setup(t, { layout: 'horizontal', animate: true, row_align: align });
+    alignedRow(s, 600, 20, align);
+    const msgs = ['a', 'b', 'c'].map((n) => chat(n, n.repeat(10)));
+    msgs.forEach((m) => s.r.push(m));
+    s.r.flush();
+    s.tick(1000);
+    // Each glide starts where the message was drawn (its offset from its new place)...
+    const starts = {};
+    s.lines().forEach((l) => {
+      let v = '';
+      Object.defineProperty(l.style, 'left', { configurable: true, get: () => v,
+        set: (x) => { v = x; if (x && x !== '0px') starts[l.textContent.charAt(0)] = x; } });
+    });
+    s.r.clearMessage(msgs[align === 'left' ? 0 : 1].id);
+    assert.deepStrictEqual(starts, want);
+    // ...and is eased to 0.
+    s.lines().forEach((l) => {
+      const k = l.textContent.charAt(0);
+      if (!want[k]) { assert.ok(!l.style.left, k + ' did not move'); return; }
+      assert.strictEqual(l.style.position, 'relative');
+      assert.strictEqual(l.style.left, '0px', k + ' eases home');
+      assert.match(l.style.transition, /^left 250ms ease-out$/);
+    });
+    s.tick(400);
+    s.lines().forEach((l) => {
+      assert.ok(!l.style.left && !l.style.position && !l.style.transition, 'no inline glide style left on ' + l.textContent);
+    });
+  });
+});
+
+test('row_align=left: no glide with animate=0', (t) => {
+  const s = setup(t, { layout: 'horizontal', animate: false, row_align: 'left' });
+  alignedRow(s, 600, 20, 'left');
+  const msgs = ['a', 'b'].map((n) => chat(n, n.repeat(10)));
+  msgs.forEach((m) => s.r.push(m));
+  s.r.flush();
+  s.r.clearMessage(msgs[0].id);
+  s.lines().forEach((l) => assert.ok(!l.style.left && !l.style.position));
+});
+
 // A trim that would leave the row short of the source moves the rest at once (to its left end, or half that), after
 // the slide's offset was measured with them in: at left and center, a message out of view goes only once the row still
 // fills the source without it.

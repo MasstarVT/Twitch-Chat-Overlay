@@ -1391,6 +1391,7 @@
     var scheduled = false, rafId = null, flushTimer = null, gapTimer = null, lastFlushAt = 0;
     var trimTimer = null, sweepTimer = null;
     var slideAt = 0, slideDx = 0;
+    var gliders = [], glideTimer = null; // row_align=left/center: lines easing into the room a leaving line left
     var settleUntil = 0, settleTimer = null;
     var seq = 0, flushes = 0;
     var ro = null;
@@ -1842,9 +1843,67 @@
       rec.keepSep = false;
       line.classList.remove('keep-sep');
     }
-    // The single place a line leaves the DOM; clears every index. batch: removeLines has done keepSepAfter's part.
+    // row_align=left or center: a row that doesn't fill the source has no right edge holding its lines, so a line that
+    // leaves (faded out, deleted, timed out, over max) would make the ones after it (at center, all of them) jump into its
+    // room. They glide there instead, in SLIDE_MS like the row's own slide: each line that moved is put back where it was
+    // drawn with `left` (position: relative; not transform, which the entrances and exits animate) and eases home.
+    // Right, the default, holds its lines at the right edge, and nothing changes there.
+    function glideOn() {
+      return !!(cfg && cfg.animate && rowAligned() && doc.visibilityState !== 'hidden');
+    }
+    // Where each line that stays is drawn now (a glide still running included), before the leaving ones go.
+    function glideFrom(leaving) {
+      var gone = new Set(leaving), from = [];
+      for (var l = linesEl.firstElementChild; l; l = l.nextElementSibling) {
+        if (!gone.has(l)) from.push({ el: l, x: l.getBoundingClientRect().left });
+      }
+      return from;
+    }
+    // After they went: every line that moved starts back where it was and eases home.
+    function glideHome(from) {
+      endGlides(); // every line at home, so each is measured where it now sits
+      var moved = [];
+      for (var i = 0; i < from.length; i++) {
+        var el = from[i].el;
+        if (el.parentNode !== linesEl) continue;
+        var dx = from[i].x - el.getBoundingClientRect().left;
+        if (Math.abs(dx) > 0.5) moved.push({ el: el, dx: dx });
+      }
+      if (!moved.length) return;
+      for (var j = 0; j < moved.length; j++) {
+        var st = moved[j].el.style;
+        st.position = 'relative';
+        st.transition = 'none';
+        st.left = Math.round(moved[j].dx * 100) / 100 + 'px';
+        gliders.push(moved[j].el);
+      }
+      void linesEl.offsetWidth; // style flush: the transitions start from where the lines were
+      for (var k = 0; k < moved.length; k++) {
+        moved[k].el.style.transition = 'left ' + SLIDE_MS + 'ms ease-out';
+        moved[k].el.style.left = '0px';
+      }
+      glideTimer = setTimeout(endGlides, SLIDE_MS + 50);
+    }
+    // Every glide over (or cut short by the next one): the lines at home with no inline value left behind, as a line
+    // that never glided. transition 'none' first stops a running one (see stopGlide).
+    function endGlides() {
+      if (glideTimer) { clearTimeout(glideTimer); glideTimer = null; }
+      if (!gliders.length) return;
+      for (var i = 0; i < gliders.length; i++) {
+        var st = gliders[i].style;
+        st.transition = 'none';
+        st.left = '';
+        st.position = '';
+      }
+      void linesEl.offsetWidth; // style flush
+      for (var j = 0; j < gliders.length; j++) gliders[j].style.transition = '';
+      gliders = [];
+    }
+    // The single place a line leaves the DOM; clears every index. batch: removeLines has done keepSepAfter's part (and
+    // the glide's).
     function removeLine(line, batch) {
       if (!line) return;
+      var from = !batch && line.parentNode === linesEl && glideOn() ? glideFrom([line]) : null;
       var rec = recs.get(line);
       if (rec) {
         if (!batch) keepSepAfter(line);
@@ -1861,18 +1920,21 @@
         recs.delete(line);
       }
       detach(line);
+      if (from) glideHome(from);
     }
     // Several lines at once (a trim, the max cap, faded lines, a filter, a clear): what removeLine one by one would leave,
     // with keepSepAfter's measurement done once, on the last of the lines leaving from the row's start, before any goes.
     // One by one, each removal after the first forced a layout of the whole row (a 200-line backlog: ~150 ms).
     function removeLines(list) {
       if (!list.length) return;
+      var from = glideOn() ? glideFrom(list) : null;
       if (rowMarks(cfg)) {
         var gone = new Set(list), last = null;
         for (var l = linesEl.firstElementChild; l && gone.has(l); l = l.nextElementSibling) last = l;
         if (last) keepSepAfter(last, true);
       }
       for (var i = 0; i < list.length; i++) removeLine(list[i], true);
+      if (from) glideHome(from);
     }
 
     // A notice renders as a .notice line plus (when the user wrote something) a chat line under it.
@@ -2656,6 +2718,7 @@
       if (trimTimer) { clearTimeout(trimTimer); trimTimer = null; }
       if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
       if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+      if (glideTimer) { clearTimeout(glideTimer); glideTimer = null; }
       if (ro) { ro.disconnect(); ro = null; }
       linesEl.removeEventListener('animationend', onAnimEnd);
       doc.removeEventListener('visibilitychange', onVisibility);
