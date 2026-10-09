@@ -293,7 +293,7 @@
       help: 'Draws emote-only messages (Emote-only messages), GIFs (GIF size) and gigantified emotes as big as the vertical layout does, and lets their messages grow the row taller to fit them; the text stays on one line. The source has to be tall enough for them, or they are cut off: about 150 px for Huge with Medium text, more with larger text or Name on its own line (Look). Off draws them at emote height. Horizontal layout only.' },
     giant_emotes: { label: 'Gigantified emotes', when: bigDrawn,
       help: 'Twitch’s Gigantify an Emote power-up draws the emote three times as tall. Off draws it like any other emote, from a smaller image. In a horizontal row only with Let big emotes grow the row on (Emotes); without it a row draws it at emote height either way.' },
-    badges: { label: 'Show badges', help: 'Master switch for every badge source below.' },
+    badges: { label: 'Show badges', help: 'Master switch for every badge source below. The overlay’s own developer and Beta Tester badges always show.' },
     badges_twitch: { label: 'Twitch', logo: 'twitch', when: badgesOn },
     badges_kick: { label: 'Kick', logo: 'kick', when: badgesOn },
     badges_7tv: { label: '7TV', logo: '7tv', when: badgesOn },

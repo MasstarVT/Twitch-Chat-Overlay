@@ -1128,10 +1128,12 @@
   // With badges off, only the Shared Chat source avatar (provider 'avatar') and the platform icon (provider
   // 'platform') are kept: they mark where a message came from rather than who wrote it.
   function marksSource(b) { return !!b && (b.provider === 'avatar' || b.provider === 'platform'); }
+  // The app's own badges (overlay.js badgesFor): the developer's and the beta testers', shown whatever the settings.
+  function appBadge(b) { return !!b && (b.provider === 'developer' || b.provider === 'beta-tester'); }
   function visibleBadges(list, cfg) {
     if (!Array.isArray(list)) return [];
     if (!cfg || cfg.badges !== false) return list;
-    return list.filter(marksSource);
+    return list.filter(function (b) { return marksSource(b) || appBadge(b); });
   }
 
   // A badge is an image ({urls}) or a built-in icon ({icon: a js/icons.js key}, drawn as inline SVG).

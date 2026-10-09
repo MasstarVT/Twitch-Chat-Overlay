@@ -369,11 +369,13 @@
     if (isKick(m)) return kickBadgesFor(m, out);
     var uid = m.userId;
     var room = roomFor(m);
-    if (cfg.badges && m.kind === 'chat' && m.login === 'masstarvt') {
+    // The developer's and the beta testers' badges are no setting's to turn off: they show with badges off too
+    // (renderer.visibleBadges keeps them).
+    if (m.kind === 'chat' && m.login === 'masstarvt') {
       var badgeUrl = localBadge('img/logos/Badge.svg');
       out.push({ provider: 'developer', title: 'MasstarVT developer', urls: { 1: badgeUrl, 2: badgeUrl, 4: badgeUrl } });
     }
-    if (cfg.badges && m.kind === 'chat' && ['masstarvt', 'evanaxel', 'ray_xash', 'musicalfox30'].indexOf(m.login) >= 0) {
+    if (m.kind === 'chat' && ['masstarvt', 'evanaxel', 'ray_xash', 'musicalfox30'].indexOf(m.login) >= 0) {
       var betaBadgeUrl = localBadge('img/logos/Beta.svg');
       out.push({ provider: 'beta-tester', title: 'Beta Tester', urls: { 1: betaBadgeUrl, 2: betaBadgeUrl, 4: betaBadgeUrl } });
     }

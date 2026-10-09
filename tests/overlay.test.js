@@ -1900,6 +1900,20 @@ test('Beta Tester badge is assigned to the listed accounts', async (t) => {
   assert.ok(!h.deps.badgesFor(other).some((badge) => badge.provider === 'beta-tester'));
 });
 
+test('the developer and Beta Tester badges show with badges off, and the renderer keeps them', async (t) => {
+  const h = await boot(t);
+  join(h);
+  await settle();
+  h.S().cfg.badges = false;
+  const parse = globalThis.TCO.ircParse;
+  const dev = parse.toChatMessage(parse.parseLine(priv('MasstarVT', 'hello', { badges: 'moderator/1' })));
+  const list = h.deps.badgesFor(dev);
+  assert.deepStrictEqual(list.map((badge) => badge.provider), ['developer', 'beta-tester']);
+  const R = globalThis.TCO.renderer._internal;
+  assert.deepStrictEqual(R.visibleBadges(list.concat({ provider: 'twitch', title: 'Moderator', urls: {} }), { badges: false })
+    .map((badge) => badge.provider), ['developer', 'beta-tester']);
+});
+
 test('the developer and Beta Tester badges are drawn on every origin: hosted https, a local folder, OBS local files, local http', async (t) => {
   const h = await boot(t);
   join(h);
