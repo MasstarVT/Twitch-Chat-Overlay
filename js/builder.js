@@ -917,33 +917,41 @@
   // without a reason. A setting is named as its own field is, with its tab when that is another one. Where a when has
   // two parts, the one that is off is named. '' while the field applies.
   function whyOff(key, cfg) {
+    var parts = whyParts(key, cfg);
+    return parts ? parts.map(function (p) { return typeof p === 'string' ? p : p.text; }).join('') : '';
+  }
+
+  // whyOff in pieces: text, and { key, text } for each setting it names, which showWhyOff makes a link to that setting
+  // (goToSetting). null while the field applies.
+  function whyParts(key, cfg) {
     var m = META[key] || {};
     var w = m.when;
-    if (typeof w !== 'function' || w(cfg)) return '';
+    if (typeof w !== 'function' || w(cfg)) return null;
     var tabs = tabTitles();
-    var n = function (k) { return labelFor(k) + (tabs[k] && tabs[k] !== tabs[key] ? ' (' + tabs[k] + ')' : ''); };
-    var needs = function (k) { return 'Needs ' + n(k) + '.'; };
-    var row = 'In a horizontal row, needs ' + n('row_grow') + '.';
+    var n = function (k) { return { key: k, text: labelFor(k) + (tabs[k] && tabs[k] !== tabs[key] ? ' (' + tabs[k] + ')' : '') }; };
+    var needs = function (k) { return ['Needs ', n(k), '.']; };
+    var row = ['In a horizontal row, needs ', n('row_grow'), '.'];
+    var channels = [{ key: 'channel', text: 'Twitch' }, ' or ', { key: 'kick', text: 'Kick channel' }];
     // As its help starts, so the line under it isn't said twice (showWhyOff).
-    if (w === bothOn) return 'Only when both a Twitch and a Kick channel are set.';
-    if (w === channelOn) return 'Needs a Twitch or Kick channel.';
-    if (w === sizeOn) return 'Not used while ' + n('text_px') + ' is set.';
-    if (w === ownNameColors) return 'Not used while a ' + n('name_color') + ' is set.';
-    if (w === readableOwn) return ownNameColors(cfg) ? needs('readable') : 'Not used while a ' + n('name_color') + ' is set.';
-    if (w === sepShown) return namesOn(cfg) ? 'Not drawn under ' + n('name_line') + '.' : needs('names');
-    if (w === fadeOutOn) return fadeOn(cfg) ? 'Needs a ' + n('fade_out_ms') + ' other than Instant.' : needs('fade');
-    if (w === mentionColorOn) return mentionsOn(cfg) ? 'Needs a Twitch or Kick channel.' : needs('mentions');
-    if (w === wordsOrUsersOn) return 'Needs ' + n('keywords') + ' or ' + n('highlight_users') + '.';
+    if (w === bothOn) return ['Only when both a ', { key: 'channel', text: 'Twitch' }, ' and a ', { key: 'kick', text: 'Kick channel' }, ' are set.'];
+    if (w === channelOn) return ['Needs a '].concat(channels, '.');
+    if (w === sizeOn) return ['Not used while ', n('text_px'), ' is set.'];
+    if (w === ownNameColors) return ['Not used while a ', n('name_color'), ' is set.'];
+    if (w === readableOwn) return ownNameColors(cfg) ? needs('readable') : ['Not used while a ', n('name_color'), ' is set.'];
+    if (w === sepShown) return namesOn(cfg) ? ['Not drawn under ', n('name_line'), '.'] : needs('names');
+    if (w === fadeOutOn) return fadeOn(cfg) ? ['Needs a ', n('fade_out_ms'), ' other than Instant.'] : needs('fade');
+    if (w === mentionColorOn) return mentionsOn(cfg) ? ['Needs a '].concat(channels, '.') : needs('mentions');
+    if (w === wordsOrUsersOn) return ['Needs ', n('keywords'), ' or ', n('highlight_users'), '.'];
     if (w === gifSizeOn) return gifsOn(cfg) ? row : needs('gifs');
     if (w === bigDrawn) return row;
     if (w === homiesOn) return badgesOn(cfg) ? needs('badges_homies') : needs('badges');
-    if (w === stvCosmeticsOn) return 'Needs ' + n('paints') + ', or ' + n('badges') + ' with 7TV.';
+    if (w === stvCosmeticsOn) return ['Needs ', n('paints'), ', or ', n('badges'), ' with 7TV.'];
     var simple = [[shadowOn, 'shadow'], [outlineOn, 'outline'], [namesOn, 'names'], [bgOn, 'bg'], [animateOn, 'animate'],
       [fadeOn, 'fade'], [commandsOn, 'hide_commands'], [eventsOn, 'events'], [repliesOn, 'replies'],
       [firstMsgOn, 'first_msg'], [pointsOn, 'points_highlight'], [rolesOn, 'role_style'], [badgesOn, 'badges'],
       [paintsOn, 'paints'], [readableOn, 'readable']];
     for (var i = 0; i < simple.length; i++) if (simple[i][0] === w) return needs(simple[i][1]);
-    return 'Needs another setting turned on first.';
+    return ['Needs another setting turned on first.'];
   }
 
   // A help text as shown under its field: its first sentence (lead), and the rest behind a More button. Help that
@@ -2035,16 +2043,78 @@
       var m = META[k];
       if (m && (m.when || m.only)) B.fields[k].setDisabled(fieldOff(k, B.cfg));
       if (m && m.only) B.fields[k].row.hidden = fieldAway(k, B.cfg);
-      if (B.fields[k].needsEl) showWhyOff(B.fields[k].needsEl, whyOff(k, B.cfg), helpParts(m.help).lead);
+      if (B.fields[k].needsEl) showWhyOff(B.fields[k].needsEl, whyParts(k, B.cfg), B.fields[k].helpEl);
     }
-    for (var sg in B.gridNeeds) showWhyOff(B.gridNeeds[sg], whyOff(SUBGRIDS[sg].keys[0], B.cfg), '');
+    for (var sg in B.gridNeeds) showWhyOff(B.gridNeeds[sg], whyParts(SUBGRIDS[sg].keys[0], B.cfg), null);
   }
 
-  // A why-greyed-out line: written only when it changes, and left out where the help's first line says it already.
-  function showWhyOff(el, why, lead) {
-    var text = why && lead.indexOf(why) < 0 ? why : '';
-    if (el.textContent !== text) el.textContent = text;
+  // A why-greyed-out line, each setting it names a link there. Written only when it changes. Where the help's first
+  // line says it already, the line is left out and those words in the help become the links instead, so it isn't
+  // said twice; they go back to plain text when the field applies again.
+  function showWhyOff(el, parts, helpEl) {
+    var why = parts ? parts.map(function (p) { return typeof p === 'string' ? p : p.text; }).join('') : '';
+    var lead = helpEl && helpEl.firstChild && helpEl.firstChild.className === 'help-lead' ? helpEl.firstChild : null;
+    var leadText = lead ? (lead._tcoText = lead._tcoText || lead.textContent) : '';
+    var inHelp = !!why && leadText.indexOf(why) >= 0;
+    if (lead) {
+      var key = inHelp ? why : '';
+      if (lead._tcoWhy !== key) {
+        lead._tcoWhy = key;
+        clear(lead);
+        if (inHelp) {
+          var at = leadText.indexOf(why);
+          lead.appendChild(document.createTextNode(leadText.slice(0, at)));
+          whyInto(lead, parts);
+          lead.appendChild(document.createTextNode(leadText.slice(at + why.length)));
+        } else lead.appendChild(document.createTextNode(leadText));
+      }
+    }
+    var text = inHelp ? '' : why;
+    if (el._tcoWhy !== text) {
+      el._tcoWhy = text;
+      clear(el);
+      if (text) whyInto(el, parts);
+    }
     el.hidden = !text;
+  }
+
+  function whyInto(el, parts) {
+    parts.forEach(function (p) {
+      if (typeof p === 'string') { el.appendChild(document.createTextNode(p)); return; }
+      var b = h('button', 'help-more needs-link', p.text);
+      b.type = 'button';
+      b.setAttribute('aria-label', 'Go to ' + p.text);
+      b.addEventListener('click', function () { goToSetting(p.key); });
+      el.appendChild(b);
+    });
+  }
+
+  // A "Needs …" link's target: its tab opened (and its folded sub-heading), the page scrolled to it, the focus on its
+  // first control, and the row marked for a moment so the eye finds it. The channels are in the top bar.
+  function goToSetting(key) {
+    var f = B.fields[key];
+    var input = key === 'channel' ? $('channel') : f && f.inputs[0];
+    var row = key === 'channel' ? input && input.parentNode : f && f.row;
+    if (!row) return;
+    if (!(key === 'channel' || META[key] && META[key].top)) {
+      for (var id in B.folds) if (B.folds[id].keys.indexOf(key) >= 0 && !B.ui.folds[id]) setFold(B.folds[id], true);
+      var node = row;
+      while (node && !(node.id && /^group-/.test(node.id))) node = node.parentNode;
+      if (node) {
+        var sec = node.id.replace(/^group-/, '');
+        if (sec !== B.ui.section) { dropSectionHash(); selectSection(sec, false); }
+      }
+      saveUi();
+    }
+    if (row.scrollIntoView) row.scrollIntoView({ block: 'center' });
+    var to = input && !input.disabled ? input : row;
+    if (to === row) row.tabIndex = -1;
+    if (to.focus) to.focus({ preventScroll: true });
+    row.classList.remove('arrived');
+    void row.offsetWidth;
+    row.classList.add('arrived');
+    clearTimeout(row._tcoArrived);
+    row._tcoArrived = setTimeout(function () { row.classList.remove('arrived'); }, 1600);
   }
 
   // Fields whose wording depends on the layout (META `horizontal`).
@@ -2081,8 +2151,9 @@
 
   function syncForm() {
     for (var k in B.fields) B.fields[k].set(B.cfg[k]);
-    syncDisabled();
+    // Labels first: a layout's help text is written anew there, and syncDisabled then puts its Needs links back in.
     syncLabels();
+    syncDisabled();
   }
 
   // After a layout change: relabel, and the preview size becomes a bar (or a column again) unless the

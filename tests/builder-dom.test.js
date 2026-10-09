@@ -245,6 +245,29 @@ test('a greyed-out field says what it waits for; a greyed-out switch shows off, 
   assert.strictEqual(needs('shadow_color').hidden, true);
 });
 
+test('a Needs line links to the setting it names: its tab opens, and the help that says it carries the link', (t) => {
+  const p = open(t, HREF);
+  const row = (k) => p.$('l-' + k).parentNode.parentNode.parentNode;
+  const needs = (k) => row(k).children.filter((e) => e.className === 'needs')[0];
+  const links = (el) => el.children.filter((e) => /needs-link/.test(e.className));
+  p.$('paste').value = '?shadow=0&outline=0';
+  p.$('paste-load').dispatch('click');
+  // Shadow color is in Advanced; its line names Text shadow, on Look.
+  const [toShadow] = links(needs('shadow_color'));
+  assert.deepStrictEqual([toShadow.tagName, toShadow.textContent], ['BUTTON', 'Text shadow (Look)']);
+  p.$('tab-advanced').dispatch('click');
+  toShadow.dispatch('click');
+  assert.strictEqual(p.$('tab-look').getAttribute('aria-selected'), 'true');
+  assert.strictEqual(row('shadow').classList.contains('arrived'), true);
+  // Outline color's help says it already: the words there become the link, and plain again once outline is on.
+  const lead = p.$('h-outline_color').children[0];
+  assert.deepStrictEqual(links(lead).map((b) => b.textContent), ['Text outline (Look)']);
+  assert.strictEqual(lead.textContent, 'Black by default. Needs Text outline (Look).');
+  p.$('paste').value = '?outline=2';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([links(lead).length, lead.textContent], [0, 'Black by default. Needs Text outline (Look).']);
+});
+
 test('a stepper button says the new value, which the button that keeps the focus cannot', (t) => {
   const p = open(t, HREF);
   const [less, , more] = p.$('f-fade').parentNode.children;

@@ -591,6 +591,13 @@ label.field-label { cursor: pointer; }
 .field.disabled > .field-head { opacity: .45; }
 .needs { max-width: 60ch; font-size: 13px; line-height: 1.5; color: var(--muted); text-wrap: pretty; }
 .subgrid > .needs { grid-column: 1 / -1; padding-bottom: 4px; }
+/* each setting a Needs line names is a link there (goToSetting): set in the sentence, so no gap of its own, and a
+   reach that stops short of the next link on the line */
+.needs-link { margin: 0; padding: 0; font-weight: 600; }
+.needs-link::after { inset: -6px -3px -12px; }
+/* the setting a Needs link went to, tinted for a moment so the eye finds it */
+.arrived { background-color: rgba(145, 71, 255, .14); box-shadow: -10px 0 0 rgba(145, 71, 255, .14), 10px 0 0 rgba(145, 71, 255, .14); transition: none; }
+.field { transition: background-color .6s ease-out, box-shadow .6s ease-out; }
 /* the Kick tab's first line: its channel is in the top bar */
 .kick-pointer { padding: 4px 0 14px; }
 .field.disabled .field-label, .field.disabled .switch,
