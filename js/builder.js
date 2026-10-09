@@ -60,8 +60,14 @@
   function sepShown(cfg) { return namesOn(cfg) && !(cfg.name_line && cfg.layout !== 'horizontal'); }
   // Text size applies until Exact text size (text_px) takes over.
   function sizeOn(cfg) { return !(cfg.text_px > 0); }
+  // The platform icons need a Kick channel (overlay.js showPlatforms; outside the demo preview the Twitch one too,
+  // but the preview draws them for Kick alone), and a mention a channel to name (renderer.js buildMatchers, demo.js
+  // mentioned). Either name here is a valid one: a refused name is never committed.
+  function kickOn(cfg) { return !!cfg.kick; }
+  function channelOn(cfg) { return !!(cfg.channel || cfg.kick); }
   // The highlight colors: each only while what it colors is on.
   function mentionsOn(cfg) { return !!cfg.mentions && cfg.mentions !== 'off'; }
+  function mentionColorOn(cfg) { return mentionsOn(cfg) && channelOn(cfg); }
   function wordsOrUsersOn(cfg) {
     return !!((cfg.keywords && cfg.keywords.length) || (cfg.highlight_users && cfg.highlight_users.length));
   }
@@ -100,7 +106,7 @@
     kick_room: { label: 'Kick chatroom id', placeholder: 'Check fills this in', parse: 'kickRoom',
       bad: 'Use the number only, or paste the whole channel page.',
       help: 'Kick’s chat needs this number. Check fills it in when Kick allows the lookup. If it doesn’t, open the link Check shows, and paste that whole page (or the number after "chatroom":{"id":) here.' },
-    platform_icons: { label: 'Show a Twitch or Kick icon on each message',
+    platform_icons: { label: 'Show a Twitch or Kick icon on each message', when: kickOn,
       help: 'Only when both a Twitch and a Kick channel are set. Shows even with badges off.' },
     size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' }, when: sizeOn,
       help: '18, 24 or 32 px. While Exact text size (Advanced) is set, it decides instead.' },
@@ -219,8 +225,9 @@
     timestamps: { label: 'Timestamps', options: { off: 'Off', '12h': '12-hour', '24h': '24-hour' },
       help: 'The time each message was sent, by the streaming PC’s clock, before its badges: 3:07 (12-hour, without AM or PM) or 15:07. Recent messages loaded at the start show when they were sent.' },
     mentions: { label: 'Highlight channel mentions', options: { off: 'Off', at: '@name', name: 'Plain too' }, wrap: true,
+      when: channelOn,
       help: 'Tints messages that mention your channel: @name, or with Plain too the bare name as well (not in a link). Replies to you count, your own messages don’t. Needs a Twitch or Kick channel; the preview’s first demo message then mentions you. The color is under Advanced.' },
-    mention_color: { label: 'Mention color', swatch: '#e91916', when: mentionsOn,
+    mention_color: { label: 'Mention color', swatch: '#e91916', when: mentionColorOn,
       help: 'Red by default, see-through over the message. Needs Highlight channel mentions (Chat events).' },
     keywords: { label: 'Highlight words', placeholder: 'word, two words',
       help: 'Tints messages with any of these words or phrases, in any letter case. Separate them with commas; a phrase may have spaces. Whole words only: gg doesn’t match eggs. Up to 50, each up to 40 characters. Try overlay to see it in the preview. A URL can be about 8,000 characters long, and a letter outside A–Z takes 6 to 9 of them, so a long list (above all one in Japanese or Korean) is better kept in settings.js.' },

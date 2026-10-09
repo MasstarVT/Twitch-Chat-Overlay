@@ -955,7 +955,9 @@ test('the look options grey out while the setting they need is off, and their he
     readable_level: [{ readable: false }, {}, 'Brighten dark name colors (Badges & paints)'],
     readable: [{ name_color: 'ff8800' }, { name_fallback: 'ff8800' }, 'Not used while a Name color (Look) is set'],
     reply_style: [{ replies: false }, {}, 'Show what replies are answering'],
-    mention_color: [{}, { mentions: 'at' }, 'Highlight channel mentions (Chat events)'],
+    mention_color: [{}, { mentions: 'at', channel: 'home' }, 'Highlight channel mentions (Chat events)'],
+    mentions: [{ mentions: 'at' }, { mentions: 'at', channel: 'home' }, 'Needs a Twitch or Kick channel'],
+    platform_icons: [{}, { kick: 'kickname' }, 'a Kick channel'],
     keyword_color: [{}, { keywords: ['gg'] }, 'Highlight words'],
     points_color: [{ points_highlight: false }, {}, 'Channel-points highlights'],
     broadcaster_color: [{ role_style: 'off' }, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
@@ -970,7 +972,8 @@ test('the look options grey out while the setting they need is off, and their he
   };
   // The highlight word color is for the users too.
   assert.strictEqual(off('keyword_color', { highlight_users: ['a'] }), false);
-  assert.strictEqual(off('mention_color', { mentions: 'name' }), false);
+  assert.strictEqual(off('mention_color', { mentions: 'name', kick: 'kickname' }), false);
+  assert.strictEqual(off('mention_color', { mentions: 'name' }), true, 'no channel to mention');
   assert.match(builder.META.keyword_color.help, /Highlight these users/);
   Object.keys(needs).forEach((k) => {
     assert.strictEqual(off(k, needs[k][0]), true, k + ' off');
@@ -996,6 +999,26 @@ test('the look options grey out while the setting they need is off, and their he
     assert.strictEqual(off('stv_lookup', over), !looksUp(Object.assign({}, d, over, { stv_lookup: true })),
       JSON.stringify(over));
   })));
+  // The platform icons need a Kick channel (overlay.js showPlatforms, in the demo preview: the Twitch channel is
+  // needed outside it), and a mention a channel to mention (renderer.js buildMatchers): greyed out exactly while
+  // they draw nothing.
+  const showsBody = /function showPlatforms\(\) \{ return ([^;]+); \}/.exec(src);
+  const twitchBody = /function twitchOn\(\) \{ return ([^;]+); \}/.exec(src);
+  assert.ok(showsBody && twitchBody, 'overlay.js showPlatforms and twitchOn');
+  const twitchOn = new Function('S', 'return ' + twitchBody[1]);
+  const shows = new Function('S', 'twitchOn', 'return ' + showsBody[1]);
+  const matchers = require('../js/renderer.js')._internal.matchersFor;
+  ['', 'home'].forEach((channel) => ['', 'kickname'].forEach((kick) => {
+    const over = { channel: channel, kick: kick }, at = JSON.stringify(over);
+    const S = { cfg: Object.assign({}, d, over, { platform_icons: true, demo: true }) };
+    assert.strictEqual(off('platform_icons', over), !shows(S, () => twitchOn(S)), 'platform_icons ' + at);
+    ['at', 'name'].forEach((mentions) => {
+      const tints = !!matchers(Object.assign({}, d, over, { mentions: mentions })).mention;
+      assert.strictEqual(off('mentions', over), !tints, 'mentions ' + at);
+      assert.strictEqual(off('mention_color', Object.assign({ mentions: mentions }, over)), !tints, 'mention_color ' + at);
+    });
+    assert.strictEqual(off('mention_color', Object.assign({ mentions: 'off' }, over)), true, 'mentions off ' + at);
+  }));
   // Column only: off in a row whatever else is set.
   ['bg_width', 'name_line', 'text_align', 'emote_only', 'gif_size', 'giant_emotes', 'smooth_scroll'].forEach((k) => {
     assert.strictEqual(builder.META[k].only, 'vertical', k);

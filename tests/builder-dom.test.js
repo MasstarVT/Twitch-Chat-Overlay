@@ -2002,8 +2002,14 @@ test('the name colors, the separator, timestamps and the reply header: live, and
 
 // ---------- highlights (stage 7) ----------
 
-test('the highlights: live, the words and users as typed lists, and each color greyed out until what it colors is on', (t) => {
+test('the highlights: live, the words and users as typed lists, and each color greyed out until what it colors is on', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookup
   const p = open(t, HREF);
+  // A channel for the mentions to name (without one they are greyed out: the next test).
+  p.$('channel').value = 'home';
+  p.$('channel').dispatch('change');
+  await settle();
   t.mock.timers.tick(1000); // the demo preview loads
   const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
   const first = frame();
@@ -2052,14 +2058,56 @@ test('the highlights: live, the words and users as typed lists, and each color g
   const last = posted[posted.length - 1].cfg;
   assert.deepStrictEqual([last.mentions, last.keywords, last.highlight_users, last.points_highlight, last.role_style, last.vip_color],
     ['at', ['overlay'], ['paintedpal', 'not', 'kick_fan'], false, 'tint', '112233']);
-  assert.strictEqual(p.text('bar-url'), OVERLAY + '?mentions=at&keywords=overlay&highlight_users=paintedpal,not,kick_fan' +
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?channel=home&mentions=at&keywords=overlay&highlight_users=paintedpal,not,kick_fan' +
     '&points_highlight=0&role_style=tint&vip_color=112233');
   // Advanced's Highlights has a link of its own; the Chat events count takes the mentions.
   assert.strictEqual(p.$('adv-highlights').textContent, 'Highlights');
   assert.strictEqual(p.text('count-events'), '1');
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([state(), p.text('bar-url'), p.$('f-keywords').value, p.$('f-highlight_users').value],
-    [['mention_color', 'keyword_color', 'broadcaster_color', 'mod_color', 'vip_color'], OVERLAY, '', '']);
+    [['mention_color', 'keyword_color', 'broadcaster_color', 'mod_color', 'vip_color'], OVERLAY + '?channel=home', '', '']);
+});
+
+// The platform icons need a Kick channel and the mentions a channel to name: until then they draw nothing, in the
+// preview or in OBS, so they are greyed out (and keep their values) like every other field that needs something.
+test('Show a Twitch or Kick icon, Highlight channel mentions and Mention color: greyed out until a channel they need is set', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the lookups
+  const p = open(t, HREF + '?mentions=at&platform_icons=0');
+  const keys = ['platform_icons', 'mentions', 'mention_color'];
+  const state = () => keys.filter((k) => rowOf(p, k).classList.contains('disabled'));
+  const commit = (id, v) => { const e = p.$(id); e.value = v; e.dispatch('change'); };
+  assert.deepStrictEqual(state(), keys, 'no channel at all');
+  assert.strictEqual(p.$('f-platform_icons').disabled, true);
+  assert.ok(p.doc.querySelectorAll('input[name="f-mentions"]').every((r) => r.disabled));
+  assert.strictEqual(colorField(p, 'mention_color').pick.disabled, true);
+  // Greyed out, the values stay (and are written).
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?platform_icons=0&mentions=at');
+  // A Twitch channel: something to mention; the icons still need Kick.
+  commit('channel', 'home');
+  await settle();
+  assert.deepStrictEqual(state(), ['platform_icons']);
+  assert.ok(p.doc.querySelectorAll('input[name="f-mentions"]').every((r) => !r.disabled));
+  // A Kick channel too: the icons apply.
+  commit('f-kick', 'kickname');
+  await settle();
+  assert.deepStrictEqual(state(), []);
+  assert.strictEqual(p.$('f-platform_icons').disabled, false);
+  // Kick alone: the mentions name it, and the demo preview draws the icons for it.
+  commit('channel', '');
+  await settle();
+  assert.deepStrictEqual(state(), []);
+  // Neither: all three greyed out again, and Mention color is greyed out with the mentions off whatever the channels.
+  commit('f-kick', '');
+  await settle();
+  assert.deepStrictEqual(state(), keys);
+  commit('channel', 'home');
+  await settle();
+  const off = p.doc.querySelectorAll('input[name="f-mentions"]').filter((r) => r.value === 'off')[0];
+  off.checked = true;
+  off.dispatch('change');
+  assert.deepStrictEqual(state(), ['platform_icons', 'mention_color']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?channel=home&platform_icons=0');
 });
 
 test('event types and filters: a labelled grid under Show subs…, greyed out with it; the filters live; Command prefixes', (t) => {
