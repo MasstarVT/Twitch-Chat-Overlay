@@ -475,6 +475,16 @@
     return out.toString();
   }
 
+  // A page's query (loc: its location), a '#' typed in a value and what follows it included (withHash): read from the
+  // whole href, where a URL ending in '#' still shows it. The overlay reads its own URL so, and the builder its start-up
+  // link. Without a '?' before the first '#', location.search as it is.
+  function pageQuery(loc) {
+    if (!loc) return '';
+    var href = typeof loc.href === 'string' ? loc.href : '', q = href.indexOf('?'), f = href.indexOf('#');
+    if (q < 0 || (f >= 0 && f < q)) return loc.search || '';
+    return withHash(f < 0 ? href.slice(q) : href.slice(q, f), f < 0 ? null : href.slice(f + 1));
+  }
+
   // The Twitch channel and Kick channel the URL or settings.js named with a value coerce refuses ('xqc!', 'my channel'):
   // { channel, kick }, each null or { value (as written, trimmed), from: 'url' | 'settings' }. A URL key is read as parse
   // reads it; a settings.js one only when the URL doesn't give that key, as parse lets the URL's win.
@@ -582,6 +592,17 @@
     return typeof name === 'string' && FONT_CANON[name.toLowerCase()] === name;
   }
 
+  // The weights the overlay asks Google Fonts for a font in (css2's ':wght@' list), which the builder's font check asks
+  // for too: Google refuses a request that names none of a family's weights. The four the overlay draws by default, plus
+  // Light (300) and Black (900) only while text_weight or name_weight uses one, so the usual request (and the font a
+  // browser has cached for it) never changes.
+  function fontWeights(cfg) {
+    var w = [400, 600, 700, 800], c = cfg || {};
+    if (c.text_weight === 'light' || c.name_weight === 'light') w.unshift(300);
+    if (c.text_weight === 'black' || c.name_weight === 'black') w.push(900);
+    return w.join(';');
+  }
+
   return {
     SPEC: SPEC,
     KEYS: KEYS,
@@ -597,6 +618,7 @@
     defaults: defaults,
     parse: parse,
     withHash: withHash,
+    pageQuery: pageQuery,
     refusedChannels: refusedChannels,
     applyObject: applyObject,
     coerce: coerce,
@@ -610,6 +632,7 @@
     parseBool: parseBool,
     isSystemFont: isSystemFont,
     isKnownFont: isKnownFont,
-    canonicalFont: canonicalFont
+    canonicalFont: canonicalFont,
+    fontWeights: fontWeights
   };
 });

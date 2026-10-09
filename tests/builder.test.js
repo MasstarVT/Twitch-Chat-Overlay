@@ -1182,6 +1182,30 @@ test('startCfg: a ?channel= link keeps the remembered settings; a full link star
   assert.deepStrictEqual(builder.startCfg('?utm=1', ['x']).cfg, config.defaults());
 });
 
+// The builder read only location.search at start-up, which a '#' typed in a value cuts: ?text_color=#ff8800&bg=60 loaded
+// neither, ?keywords=c#,gg&bots=1 loaded keywords=c alone, and ?channel=#xqc (a channel-only link) cleared the remembered
+// channel. The overlay reads all of it (config.pageQuery); a section's hash still opens its section.
+test('startSearch: the builder reads its start-up link as the overlay reads it; a section hash is left to open its section', () => {
+  const loc = (href) => { const u = new URL(href); return { href: u.href, search: u.search, hash: u.hash, pathname: u.pathname }; };
+  const B = 'https://chat.masstar.org/builder.html';
+  const start = (href, stored) => builder.startCfg(builder.startSearch(loc(href)), stored || null);
+  const url = (href, stored) => builder.overlayUrl(start(href, stored).cfg, B);
+  assert.strictEqual(url(B + '?channel=abc&text_color=#ff8800&bg=60&layout=horizontal'),
+    'https://chat.masstar.org/overlay.html?' + config.toParams(config.parse('?channel=abc&text_color=ff8800&bg=60&layout=horizontal')));
+  assert.deepStrictEqual(start(B + '?keywords=c#,gg&bots=1').cfg, Object.assign(config.defaults(), { keywords: ['c#', 'gg'], bots: true }));
+  // A channel-only link keeps the remembered look, and names the channel it says.
+  const s = start(B + '?channel=#xqc', { channel: 'oldchan', size: 'large' });
+  assert.deepStrictEqual([s.fromQuery, s.cfg.channel, s.cfg.size], [true, 'xqc', 'large']);
+  // A section's or an Advanced heading's hash is the page's, not a value's.
+  assert.strictEqual(builder.startSearch(loc(B + '?channel=abc#obs')), '?channel=abc');
+  assert.strictEqual(builder.startSearch(loc(B + '?channel=abc#adv-text')), '?channel=abc');
+  assert.strictEqual(builder.startSearch(loc(B + '?channel=abc&size=large#group-look')), '?channel=abc&size=large');
+  // The home page passes an old link's #setup on: no section, and no value of size's either.
+  assert.deepStrictEqual(start(B + '?channel=xqc&size=large#setup').cfg, Object.assign(config.defaults(), { channel: 'xqc', size: 'large' }));
+  assert.strictEqual(builder.startSearch(loc(B + '#obs')), '');
+  assert.strictEqual(builder.startSearch(loc(B)), '');
+});
+
 test('smallAvatar asks Twitch for the 70x70 rendition', () => {
   assert.strictEqual(builder.smallAvatar('https://static-cdn.jtvnw.net/jtv_user_pictures/abc-profile_image-600x600.png'),
     'https://static-cdn.jtvnw.net/jtv_user_pictures/abc-profile_image-70x70.png');

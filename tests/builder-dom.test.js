@@ -1465,7 +1465,8 @@ test('Font and Name font: a name Google Fonts doesn\'t load gets a warning; a li
   const p = open(t, HREF);
   const font = p.$('f-font'), nf = p.$('f-name_font'), miss = p.$('w-font');
   const probes = () => p.doc.head.children.filter((e) => e.tagName === 'LINK');
-  const css2 = (family) => 'https://fonts.googleapis.com/css2?family=' + family + '&display=swap';
+  // In the weights the overlay asks for (config.fontWeights).
+  const css2 = (family) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@400;600;700;800&display=swap';
   assert.deepStrictEqual([miss.hidden, probes().length], [true, 0], 'Inter at start: nothing asked');
   const type = (el, v) => { el.value = v; el.dispatch('change'); };
   // Lower case, a family with a word in capitals: Google's spelling, which is listed, so nothing to ask.
@@ -1515,6 +1516,191 @@ test('Font and Name font: a name Google Fonts doesn\'t load gets a warning; a li
   assert.strictEqual(nf.getAttribute('aria-describedby'), 'h-name_font w-name_font');
   type(nf, '');
   assert.deepStrictEqual([p.$('w-name_font').hidden, probes().length], [true, 0]);
+});
+
+// The check asked Google Fonts for weight 400 alone, which Google refuses (HTTP 400) for a family without it: Sunflower
+// (300, 500, 700) got the warning though the overlay, asking for 400;600;700;800, draws it; Buda (300 alone) got it with
+// Text weight at Light too, where the overlay asks for 300 and draws it.
+test('Font check: asks for the weights the overlay asks for, and again when a weight setting changes them', (t) => {
+  const p = open(t, HREF);
+  const font = p.$('f-font'), nf = p.$('f-name_font'), miss = p.$('w-font'), nmiss = p.$('w-name_font');
+  const probes = () => p.doc.head.children.filter((e) => e.tagName === 'LINK');
+  const css2 = (family, w) => 'https://fonts.googleapis.com/css2?family=' + family + ':wght@' + w + '&display=swap';
+  const type = (el, v) => { el.value = v; el.dispatch('change'); };
+  const weight = (key, v) => { const r = p.$('f-' + key); r.value = v; r.dispatch('input'); };
+  type(font, 'sunflower');
+  assert.deepStrictEqual(probes().map((l) => l.href), [css2('Sunflower', '400;600;700;800')]);
+  probes()[0].dispatch('load');
+  assert.strictEqual(miss.hidden, true);
+  // Buda: refused at the usual weights, asked for again (and loaded) once Text weight is Light.
+  type(font, 'buda');
+  probes()[0].dispatch('error');
+  assert.strictEqual(miss.hidden, false);
+  weight('text_weight', '0'); // Light
+  assert.deepStrictEqual(probes().map((l) => l.href), [css2('Buda', '300;400;600;700;800')]);
+  assert.strictEqual(miss.hidden, true, 'the warning was for the other weights');
+  probes()[0].dispatch('load');
+  assert.strictEqual(miss.hidden, true);
+  // Back to Semi-bold: the usual weights again, which Google refused.
+  weight('text_weight', '2');
+  assert.deepStrictEqual(probes().map((l) => l.href), [css2('Buda', '400;600;700;800')]);
+  probes()[0].dispatch('error');
+  assert.strictEqual(miss.hidden, false);
+  // A weight that asks for nothing new asks nothing again (Bold, like Semi-bold, is in the usual four).
+  weight('text_weight', '3');
+  assert.deepStrictEqual([probes().length, miss.hidden], [0, false]);
+  // Name font has the same weights as Font (the overlay asks for both alike): Name weight Black adds 900 to both.
+  type(nf, 'my font');
+  probes()[0].dispatch('load');
+  weight('name_weight', '5'); // Black
+  assert.deepStrictEqual(probes().map((l) => l.href).sort(), [css2('Buda', '400;600;700;800;900'), css2('My+Font', '400;600;700;800;900')]);
+  probes().forEach((l) => l.dispatch('load'));
+  assert.deepStrictEqual([miss.hidden, nmiss.hidden], [true, true]);
+  // Loaded under these weights: not asked again for them.
+  type(font, 'Inter');
+  type(font, 'Buda');
+  assert.strictEqual(probes().length, 0);
+});
+
+// A settings link was applied on every start: left in the address bar, a reload (or a restored tab, or More in Advanced
+// opened in a new tab) applied it again over every change made since, and saved it over the remembered settings.
+test('a settings link is applied once: the address bar drops it, so a reload opens the changes made since', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookups
+  const storage = memoryStorage();
+  const stored = () => JSON.parse(storage.getItem('tco-builder-cfg'));
+  const params = (p) => Object.fromEntries(new URL(p.text('bar-url')).searchParams);
+  let href = '';
+  await t.test('opened from a link', async (t2) => {
+    let log = null;
+    const p = open(t2, HREF + '?channel=abc&bg=60#obs', { storage, setup: () => { log = fakeHistory(t2); } });
+    assert.deepStrictEqual(log, [['replace', '/Twitch-Chat-Overlay/builder.html#obs']]);
+    assert.strictEqual(globalThis.location.href, HREF + '#obs', 'a section hash stays');
+    assert.strictEqual(p.$('group-obs').hidden, false);
+    assert.deepStrictEqual(stored(), { channel: 'abc', bg: 60 });
+    p.$('channel').value = 'fixed';
+    p.$('channel').dispatch('change');
+    p.$('f-bots').checked = true;
+    p.$('f-bots').dispatch('change');
+    assert.deepStrictEqual(stored(), { channel: 'fixed', bg: 60, bots: true });
+    href = globalThis.location.href;
+    await settle();
+  });
+  await t.test('reloaded', async (t2) => {
+    let log = null;
+    const p = open(t2, href, { storage, setup: () => { log = fakeHistory(t2); } });
+    assert.deepStrictEqual(log, [], 'no link left to drop');
+    assert.deepStrictEqual(params(p), { channel: 'fixed', bots: '1', bg: '60' });
+    assert.deepStrictEqual(stored(), { channel: 'fixed', bg: 60, bots: true });
+    await settle();
+  });
+  // The overlay's hint link names the channel alone: the remembered look stays, and the channel put right stays too.
+  storage.setItem('tco-builder-cfg', JSON.stringify({ channel: 'old', size: 'large' }));
+  await t.test('opened from the overlay\'s hint link', async (t2) => {
+    let log = null;
+    const p = open(t2, HREF + '?channel=typo', { storage, setup: () => { log = fakeHistory(t2); } });
+    assert.deepStrictEqual(log, [['replace', '/Twitch-Chat-Overlay/builder.html']]);
+    assert.deepStrictEqual(params(p), { channel: 'typo', size: 'large' });
+    p.$('channel').value = 'fixed';
+    p.$('channel').dispatch('change');
+    href = globalThis.location.href;
+    await settle();
+  });
+  await t.test('reloaded after the hint link', async (t2) => {
+    const p = open(t2, href, { storage });
+    assert.deepStrictEqual(params(p), { channel: 'fixed', size: 'large' });
+    await settle();
+  });
+  // Where the address can't be rewritten, the link stays, and is applied as it always was.
+  await t.test('the address can\'t be rewritten', async (t2) => {
+    let log = null;
+    const p = open(t2, HREF + '?channel=abc&bg=60', { storage, setup: () => { log = fakeHistory(t2, { broken: true }); } });
+    assert.deepStrictEqual(log, []);
+    assert.strictEqual(globalThis.location.search, '?channel=abc&bg=60');
+    assert.deepStrictEqual(params(p), { channel: 'abc', bg: '60' });
+    await settle();
+  });
+});
+
+// From disk the link wins over the folder's settings.js as before, but the builder notes the file it saw: once the link
+// is gone from the address bar, a reload took that settings.js for a new one and put it over the changes made since.
+test('from disk, a settings link wins over the folder\'s settings.js; a reload then keeps the changes made since', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookups
+  t.after(() => { delete globalThis.TCO_SETTINGS; });
+  const storage = memoryStorage();
+  const stored = () => JSON.parse(storage.getItem('tco-builder-cfg'));
+  const FILE = 'file:///E:/tco/builder.html';
+  const script = (p) => p.doc.head.children.filter((e) => e.tagName === 'SCRIPT')[0];
+  let href = '';
+  await t.test('opened from a link', async (t2) => {
+    let log = null;
+    const p = open(t2, FILE + '?channel=typo', { storage, setup: () => { log = fakeHistory(t2); } });
+    assert.deepStrictEqual(log, [['replace', '/E:/tco/builder.html']]);
+    const s = script(p);
+    assert.ok(s && /^settings\.js\?t=\d+$/.test(s.src), 'the folder\'s settings.js is read');
+    globalThis.TCO_SETTINGS = { channel: 'typo', size: 'large' };
+    s.onload();
+    await settle();
+    assert.deepStrictEqual([p.$('file-loaded').hidden, p.$('channel').value], [true, 'typo']);
+    assert.deepStrictEqual(stored(), { channel: 'typo' }, 'the link\'s settings, not the file\'s');
+    p.$('channel').value = 'fixed';
+    p.$('channel').dispatch('change');
+    href = globalThis.location.href;
+    await settle();
+  });
+  await t.test('reloaded', async (t2) => {
+    const p = open(t2, href, { storage });
+    script(p).onload();
+    await settle();
+    assert.match(p.text('file-loaded'), /^Kept your changes from last time/);
+    assert.strictEqual(p.$('channel').value, 'fixed');
+    assert.deepStrictEqual(stored(), { channel: 'fixed' });
+  });
+  // A settings.js changed since is a new one: it is loaded, as it always was.
+  await t.test('reloaded after the file changed', async (t2) => {
+    const p = open(t2, href, { storage });
+    globalThis.TCO_SETTINGS = { channel: 'typo', size: 'small' };
+    script(p).onload();
+    await settle();
+    assert.match(p.text('file-loaded'), /^Loaded the settings\.js/);
+    assert.deepStrictEqual(stored(), { channel: 'typo', size: 'small' });
+  });
+});
+
+// A '#' typed in a value cut the start-up link there (the builder read location.search alone), where the overlay and the
+// builder's own paste box read all of it: ?channel=#xqc, a channel-only link, wiped the remembered channel.
+test('a start-up link with a \'#\' in a value loads all of it, as the overlay reads it', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookups
+  const params = (p) => Object.fromEntries(new URL(p.text('bar-url')).searchParams);
+  const storage = memoryStorage();
+  const stored = () => JSON.parse(storage.getItem('tco-builder-cfg'));
+  storage.setItem('tco-builder-cfg', JSON.stringify({ channel: 'oldchan', size: 'large' }));
+  await t.test('?channel=#xqc', async (t2) => {
+    let log = null;
+    const p = open(t2, HREF + '?channel=#xqc', { storage, setup: () => { log = fakeHistory(t2); } });
+    assert.strictEqual(p.$('channel').value, 'xqc');
+    assert.deepStrictEqual(stored(), { channel: 'xqc', size: 'large' }, 'the remembered look kept, the channel the link\'s');
+    assert.deepStrictEqual(log, [['replace', '/Twitch-Chat-Overlay/builder.html']], 'the fragment read as a value goes with the link');
+    await settle();
+  });
+  await t.test('?channel=abc&text_color=#ff8800&bg=60&layout=horizontal', async (t2) => {
+    const p = open(t2, HREF + '?channel=abc&text_color=#ff8800&bg=60&layout=horizontal', { storage });
+    assert.deepStrictEqual(params(p), { channel: 'abc', layout: 'horizontal', text_color: 'ff8800', bg: '60' });
+    assert.strictEqual(p.$('group-look').hidden, false, 'no section asked for: the one open last time');
+    await settle();
+  });
+  await t.test('?keywords=c#,gg&bots=1', async (t2) => {
+    const p = open(t2, HREF + '?keywords=c#,gg&bots=1', { storage });
+    assert.deepStrictEqual(params(p), { bots: '1', keywords: 'c#,gg' });
+  });
+  storage.setItem('tco-builder-cfg', JSON.stringify({ size: 'large' }));
+  await t.test('?channel=abc#adv-text: a heading\'s hash opens it', async (t2) => {
+    const p = open(t2, HREF + '?channel=abc#adv-text', { storage });
+    assert.deepStrictEqual([params(p), p.$('group-advanced').hidden], [{ channel: 'abc', size: 'large' }, false]);
+    await settle();
+  });
 });
 
 test('Name contrast reads 4.5:1 and steps by 0.5; typed as 6.1 or 6.1:1; greyed out with Brighten dark name colors off', (t) => {

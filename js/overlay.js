@@ -108,15 +108,8 @@
   }
 
   // ---------- fonts ----------
-  // The weights a font is requested in: the four the overlay draws by default, plus Light (300) and Black (900)
-  // only while text_weight or name_weight uses one, so the usual request (and the font a browser has cached for
-  // it) never changes.
-  function fontWeights(cfg) {
-    var w = [400, 600, 700, 800], c = cfg || {};
-    if (c.text_weight === 'light' || c.name_weight === 'light') w.unshift(300);
-    if (c.text_weight === 'black' || c.name_weight === 'black') w.push(900);
-    return w.join(';');
-  }
+  // The weights a font is requested in (config.fontWeights, which the builder's font check asks for too).
+  function fontWeights(cfg) { return T.config.fontWeights(cfg); }
 
   // name + ':' + weights -> true (asked for) or 'failed'. A failed one is asked for again on a backoff of its own while
   // the overlay draws with it (fontRetry), and at once with retry (a reconnect, the network back), but never at once on a
@@ -1633,15 +1626,6 @@
   }
 
   // ---------- boot ----------
-  // The page's query, a '#' typed in a value and what follows it included (config.withHash): read from the whole href,
-  // where a URL ending in '#' still shows it.
-  function pageQuery(loc) {
-    if (!loc) return '';
-    var href = typeof loc.href === 'string' ? loc.href : '', q = href.indexOf('?'), f = href.indexOf('#');
-    if (q < 0 || (f >= 0 && f < q)) return loc.search || '';
-    return T.config.withHash(f < 0 ? href.slice(q) : href.slice(q, f), f < 0 ? null : href.slice(f + 1));
-  }
-
   // A Twitch or Kick channel name the overlay can't use, said where it was written: in place of "No channel set", and
   // when the other platform's chat loads, so a typo doesn't leave one platform out without a word.
   function refusedHint(bad) {
@@ -1660,7 +1644,8 @@
   function boot() {
     if (S) return;
     T = root.TCO;
-    var query = pageQuery(root.location);
+    // The page's query, a '#' typed in a value and what follows it included (config.pageQuery).
+    var query = T.config.pageQuery(root.location);
     var cfg = T.config.parse(query, root.TCO_SETTINGS);
     T.util.setDebug(cfg.debug);
     var chatEl = el('chat');

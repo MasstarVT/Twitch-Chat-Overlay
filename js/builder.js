@@ -1168,19 +1168,22 @@
         };
         // Any name but a listed one is a guess at Google's spelling, which is case-sensitive ('Dm Serif Text' is refused,
         // 'DM Serif Text' loads), and the overlay then quietly draws its fallback font. So the builder asks Google Fonts
-        // for it too: a stylesheet for print, fetched but never applied, and removed once it answers. again: ask even if
-        // the miss line already speaks for this name (it was committed once more).
+        // for it too, in the weights the overlay asks for (config.fontWeights: Google refuses a request naming none of a
+        // family's weights, so Sunflower, without 400, loads only in those): a stylesheet for print, fetched but never
+        // applied, and removed once it answers. again: ask even if the miss line already speaks for this name (it was
+        // committed once more). A weight setting that changes the weights asks again (B.fontProbes).
         var probeSeq = 0, probed = null;
         var probeFont = function (name, again) {
-          if (name === probed && !again) return;
-          probed = name;
+          var weights = config.fontWeights(B.cfg), asked = name + ':' + weights;
+          if (asked === probed && !again) return;
+          probed = asked;
           var seq = ++probeSeq;
           if (!miss.hidden) { miss.hidden = true; describeFont(); }
-          if (!name || config.isSystemFont(name) || config.isKnownFont(name) || B.fontsOk[name]) return;
+          if (!name || config.isSystemFont(name) || config.isKnownFont(name) || B.fontsOk[asked]) return;
           var link = document.createElement('link');
           var answer = function (ok) {
             if (link.parentNode) link.parentNode.removeChild(link);
-            if (ok) B.fontsOk[name] = true;
+            if (ok) B.fontsOk[asked] = true;
             if (ok || seq !== probeSeq) return;
             miss.textContent = 'Google Fonts didn’t load “' + name + '”. Check its spelling and capitals (such as DM, PT or SC), and ' +
               'the connection. Unless it is installed on the streaming PC, the overlay draws its fallback font.';
@@ -1192,9 +1195,11 @@
           link.media = 'print';
           link.addEventListener('load', function () { answer(true); });
           link.addEventListener('error', function () { answer(false); });
-          link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name).replace(/%20/g, '+') + '&display=swap';
+          link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name).replace(/%20/g, '+') +
+            ':wght@' + weights + '&display=swap';
           document.head.appendChild(link);
         };
+        B.fontProbes.push(function () { probeFont(B.cfg[key]); });
         var timer = null;
         var commitFont = function (final) {
           clearTimeout(timer);
@@ -1815,6 +1820,9 @@
     syncDisabled();
     renderOutputs();
     saveCfg();
+    // A weight may change the weights the font fields' check asks for (a paste, Reset or a quick look go through
+    // syncForm, which checks again too).
+    if (key === 'text_weight' || key === 'name_weight') B.fontProbes.forEach(function (fn) { fn(); });
     if (isLiveKey(key)) postLive();
     else scheduleReload(RELOAD_DELAY);
   }
@@ -2687,7 +2695,9 @@
 
   // Local-file flow: opened from disk, show the settings.js route first and pick up an existing settings.js.
   // A settings.js the builder already loaded once doesn't replace the edits made here since (a snapshot of
-  // it per folder says so); a new or changed settings.js does.
+  // it per folder says so); a new or changed settings.js does. hasQuery: a link's settings were applied, which a
+  // settings.js doesn't replace; it is still read, so that once the link is gone from the address bar (dropQuery) a
+  // reload doesn't take it for a new one and put it over the link's settings and the edits made since.
   function setupLocalFile(hasQuery, fromStore) {
     if (root.location.protocol !== 'file:') return;
     document.body.classList.add('is-file');
@@ -2696,7 +2706,6 @@
     $('file-url-note').hidden = false;
     var get = $('step-get-files');
     if (get) get.hidden = true;
-    if (hasQuery) return;
     var s = document.createElement('script');
     s.src = 'settings.js?t=' + Date.now();
     s.onload = function () {
@@ -2705,6 +2714,7 @@
       var fileCfg = config.parse('', o);
       var snap = JSON.stringify(config.toObject(fileCfg));
       var key = STORE_FILE_BASE + folderOf(root.location.pathname);
+      if (hasQuery) { store(key, snap); return; }
       var seen = lastSnapshot(loadStored(key), loadStored(key + 'index.html'));
       // Said where it can be seen whatever section is open (beside the URL, until the first change), and
       // to screen readers; Add to OBS keeps its copy.
@@ -2727,7 +2737,27 @@
     document.head.appendChild(s);
   }
 
-  function initialCfg() { return startCfg(root.location.search, loadStored(STORE_CFG)); }
+  // The query the builder starts from (startCfg), loc: its location. Read as the overlay reads its own (config.pageQuery):
+  // a '#' typed in a value (text_color=#ff8800, keywords=c#, channel=#xqc) and what follows it are part of the link. A
+  // section's or an Advanced heading's hash (?channel=x#obs, #adv-text) is the page's: it opens that section.
+  function startSearch(loc) {
+    if (!loc) return '';
+    return sectionFromHash(loc.hash) ? String(loc.search || '') : config.pageQuery(loc);
+  }
+
+  function initialCfg() { return startCfg(startSearch(root.location), loadStored(STORE_CFG)); }
+
+  // A link's settings are applied once, at start (then saved as the remembered ones). Left in the address bar, a reload,
+  // a tab the browser restores or one opened from the page (More in Advanced with Ctrl) would apply them again, over
+  // every change made since and over the remembered settings. A section's hash stays to open its section; any other
+  // fragment was read as part of the link (startSearch), and goes with it. replaceState adds no history entry.
+  function dropQuery() {
+    var loc = root.location;
+    if (!root.history || !loc) return;
+    try {
+      root.history.replaceState(root.history.state, '', loc.pathname + (sectionFromHash(loc.hash) ? loc.hash : ''));
+    } catch (e) { /* not allowed here: the link stays, and a reload applies it again */ }
+  }
 
   function start() {
     if (B || !$('builder')) return;
@@ -2748,7 +2778,8 @@
       kickReq: null, // the kick.com lookup still out: { slug, p } (checkKick)
       kickFor: '', // the Kick channel kick_room and the Kick status line are for (checkKick, replaceCfg)
       kickDropped: false, // a lookup for kickFor was dropped while a new name was typed (dropKickLookup)
-      fontsOk: Object.create(null), // font names Google Fonts has loaded for the font fields' check (probeFont)
+      fontsOk: Object.create(null), // name + ':' + weights Google Fonts has loaded for the font fields' check (probeFont)
+      fontProbes: [], // each font field's check of its current name, run again when the weights it asks for change
       chDraft: '',
       chStatusKey: '',
       chCache: new Map(),
@@ -2797,6 +2828,7 @@
     var ownStore = init.fromStore && folderOf(loadStored(STORE_CFG_PATH)) === folderOf(root.location.pathname);
     renderChannel();
     replaceCfg(init.cfg);
+    if (init.fromQuery) dropQuery();
     // A stored preview size may belong to the other layout (1920×100 saved in a horizontal session,
     // then ?channel=… opens a vertical one): swap it like a layout switch would.
     var other = B.cfg.layout === 'horizontal' ? 'vertical' : 'horizontal';
@@ -2845,6 +2877,7 @@
     fitScale: fitScale,
     describeIvrUser: describeIvrUser,
     startCfg: startCfg,
+    startSearch: startSearch,
     changedKeys: changedKeys,
     tagText: tagText,
     groupCounts: groupCounts,

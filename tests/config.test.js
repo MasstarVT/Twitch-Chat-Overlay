@@ -708,6 +708,27 @@ describe('parse', () => {
     assert.equal(config.withHash('a=1&b=x%23y', undefined), 'a=1&b=x%23y');
   });
 
+  // The overlay's reading of its own query, shared with the builder, which read only location.search at start-up:
+  // builder.html?channel=#xqc opened with no channel (and wiped the remembered one), ?text_color=#ff8800&bg=60 with
+  // neither setting.
+  test('pageQuery: a page\'s query read from its whole href, a \'#\' typed in a value and what follows it included', () => {
+    const loc = (href) => { const u = new URL(href); return { href: u.href, search: u.search, hash: u.hash }; };
+    const pick = (href, keys) => { const c = config.parse(config.pageQuery(loc(href))); return keys.map((k) => c[k]); };
+    const O = 'https://chat.masstar.org/overlay.html';
+    assert.deepEqual(pick(O + '?channel=abc&text_color=#ff8800&bg=60&layout=horizontal', ['channel', 'text_color', 'bg', 'layout']),
+      ['abc', 'ff8800', 60, 'horizontal']);
+    assert.deepEqual(pick(O + '?keywords=c#,gg&bots=1', ['keywords', 'bots']), [['c#', 'gg'], true]);
+    assert.deepEqual(pick(O + '?channel=#xqc', ['channel']), ['xqc']);
+    // A URL ending in a bare '#' (location.hash is '' then): the href still shows it.
+    assert.deepEqual(pick(O + '?channel=xqc&block=nightbot#', ['block']), [['nightbot']]);
+    assert.equal(config.pageQuery(loc(O + '?channel=xqc&size=large')), 'channel=xqc&size=large');
+    // No query, or a '?' only inside the fragment: location.search, as it was.
+    assert.equal(config.pageQuery(loc(O + '#channel=xqc')), '');
+    assert.equal(config.pageQuery(loc(O + '#x?channel=xqc')), '');
+    assert.equal(config.pageQuery({ search: '?channel=a' }), '?channel=a');
+    assert.equal(config.pageQuery(null), '');
+  });
+
   // ?channel=xqc! was refused as if no channel were set: the overlay said to add one.
   test('refusedChannels: a Twitch or Kick name the URL or settings.js gave that coerce refuses', () => {
     assert.deepEqual(config.refusedChannels('?channel=xqc!&kick=bad!name'),
@@ -994,5 +1015,17 @@ describe('fonts', () => {
       assert.equal(config.isKnownFont(f), true, f));
     ['inter', 'Dm Serif Text', 'Roboto Slab', 'My Font', '', 'constructor', '__proto__', undefined, null, 7].forEach((f) =>
       assert.equal(config.isKnownFont(f), false, String(f)));
+  });
+
+  // The builder's font check asked Google Fonts for weight 400 alone, which Google refuses for a family without it
+  // (Sunflower: 300, 500, 700), and warned of a fallback font the overlay, asking for these weights, never draws.
+  test('fontWeights: the weights the overlay asks Google Fonts for, which the builder\'s font check asks for too', () => {
+    assert.equal(config.fontWeights(config.defaults()), '400;600;700;800');
+    assert.equal(config.fontWeights(null), '400;600;700;800');
+    assert.equal(config.fontWeights({ text_weight: 'bold', name_weight: 'regular' }), '400;600;700;800');
+    assert.equal(config.fontWeights({ text_weight: 'light' }), '300;400;600;700;800');
+    assert.equal(config.fontWeights({ name_weight: 'light' }), '300;400;600;700;800');
+    assert.equal(config.fontWeights({ name_weight: 'black' }), '400;600;700;800;900');
+    assert.equal(config.fontWeights({ text_weight: 'black', name_weight: 'light' }), '300;400;600;700;800;900');
   });
 });
