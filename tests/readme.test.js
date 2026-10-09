@@ -216,3 +216,20 @@ test('README and builder help: text_px and emote_scale give a horizontal row\'s 
     });
   });
 });
+
+// 1.6.1: a row with name_line is a row of cards, which needs about twice the height, and row_grow's big emotes need a
+// taller source too. The README's rows and the builder's help give the same numbers.
+test('README and builder help: name_line and row_grow say how tall a horizontal source they need', () => {
+  const builder = require('../js/builder.js');
+  const opts = section('Options');
+  const row = (k) => opts.split('\n').filter((l) => l.indexOf('| `' + k + '` |') === 0)[0] || '';
+  [['name_line', /about 130 px/], ['row_grow', /about 150 px/]].forEach(([k, re]) => {
+    assert.match(row(k), re, 'README row of ' + k);
+    assert.match(builder.META[k].help, re, 'builder help of ' + k);
+  });
+  assert.match(row('row_grow'), /or they are cut off/);
+  assert.match(builder.META.row_grow.help, /or they are cut off/);
+  ['emote_only', 'gif_size', 'giant_emotes'].forEach((k) => assert.match(row(k), /`row_grow=1`/, k));
+  assert.match(row('row_align'), /Horizontal layout only/);
+  assert.match(/\*\*Builder quick looks:\*\*[^\n]*/.exec(README)[0], /Cards puts the name on a line of its own[^.]*: give the source about 130 px/);
+});

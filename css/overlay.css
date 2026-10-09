@@ -9,7 +9,8 @@
    FFZ:AP badge on its own background color), #chat
    modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .size-small .size-medium .size-large .has-bg
    .bg-full .no-names .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static
-   .text-center .text-right .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
+   .text-center .text-right .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .row-left .row-center .row-grow
+   .has-name-font.
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
    --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
    --first-color --pad-x --emote-h --badge-h --gif-mul --mention-rgb --kw-rgb --hl-rgb --role-broadcaster-rgb
@@ -155,14 +156,15 @@ body {
 /* names=0: no names. Reply headers and notices keep theirs. */
 .no-names .name,
 .no-names .colon { display: none; }
-/* name_line=1, in a column with names shown: the message starts on a line of its own under the name. It stays
-   at the left like a whole line does (a right-to-left message too), where the line itself is aligned. */
+/* name_line=1, with names shown: the message starts on a line of its own under the name, and the name's colon goes. In
+   a column it stays at the left like a whole line does (a right-to-left message too), where the line itself is aligned.
+   A row makes each message a small card of the two lines (below, with the row's rules). */
 :where(.layout-vertical.name-line:not(.no-names) .line:not(.notice)) .message {
   display: block;
   text-align: left;
   text-align: -webkit-match-parent;
 }
-:where(.layout-vertical.name-line:not(.no-names) .line:not(.notice)) .colon { display: none; }
+:where(.name-line:not(.no-names) .line:not(.notice)) .colon { display: none; }
 
 /* text_case: the chat text only. The letters in the built-in SVG badges (Kick's OG) keep their case. */
 .case-upper .name, .case-upper .colon, .case-upper .message, .case-upper .reply { text-transform: uppercase; }
@@ -289,8 +291,10 @@ body {
 :where(.layout-horizontal .line.notice) > .time { font-size: calc(.8 * var(--notice-size, .85em)); }
 /* notice_size above 100 makes a notice's text taller than the row's. Along the bottom edge its parts' lines are never
    taller than a chat line (--row-em is #chat's 1em, below), so it only grows upward, off its baseline's edge; along the
-   top edge the row lines its messages up by their baseline (below). */
-:where(.layout-horizontal.align-bottom .line.notice) > * {
+   top edge the row lines its messages up by their baseline (below). Under name_line's empty line (below) too: there the
+   text is on the line under a name line's, in either row. */
+:where(.layout-horizontal.align-bottom .line.notice) > *,
+:where(.layout-horizontal.name-line:not(.no-names) .line.notice) > * {
   line-height: min(var(--line-height, 1.35) * var(--row-em), var(--line-height, 1.35) * 1em);
 }
 
@@ -491,7 +495,7 @@ body {
 /* ---------- layout=horizontal: one row, newest on the right, older lines slide off the left edge ----------
    A line never wraps: past the chat width it is cut off with an ellipsis. align runs the row along the
    bottom or the top edge of the source. GIFs and gigantified emotes are drawn at emote height so the row
-   keeps one height. The rules below .lines use classes only, so OBS Custom CSS such as
+   keeps one height (unless row_grow, below). The rules below .lines use classes only, so OBS Custom CSS such as
    `.layout-horizontal .line { max-width: 30em; }` (what line_width=30 does, below) overrides them. */
 #chat.layout-horizontal .lines {
   top: 0;
@@ -525,6 +529,12 @@ body {
   overflow: clip;
   overflow-clip-margin: 1em;
 }
+/* row_align=left/center: while the messages don't fill the row they sit at its left end, or in its middle. Auto margins
+   on the last message (and the first) take only the room left over, so a full row still ends at the right edge with its
+   newest message and its oldest ones go off the left, as at right (the default). */
+:where(.layout-horizontal.row-left) .line:last-child { margin-right: auto; }
+:where(.layout-horizontal.row-center) .line:first-child { margin-left: auto; }
+:where(.layout-horizontal.row-center) .line:last-child { margin-right: auto; }
 /* A reply header makes a line at most 15em wide; longer ones end in an ellipsis. */
 .layout-horizontal .reply { max-width: 15em; }
 /* A row along the top edge lines its messages up by their text, so a reply header on a row of its own above its message
@@ -566,10 +576,12 @@ body {
    or a badge: an empty inline box at its end whose line-height is the tallest of those (its margin box: an emote's height
    less its margins), on the same middle line. Their text then lines up whatever emote_scale, badge_size and line_height
    are. Inline, not an inline-block: a space at the end of a message still collapses. With Inter at the defaults it fits
-   inside the line, as an emote does, so nothing moves. A right-to-left message's line (.rtl, below), and a reply's line
-   along the top edge (.inline-reply, below), have it at the end of the message instead. */
+   inside the line, as an emote does, so nothing moves. A right-to-left message's line (.rtl, below), a reply's line
+   along the top edge (.inline-reply, below) and a message under its name (name_line, below) have it at the end of the
+   message instead. */
 :where(.layout-horizontal) .line.rtl > .message::after,
 :where(.layout-horizontal.align-top) .line.inline-reply > .message::after,
+:where(.layout-horizontal.name-line:not(.no-names)) .line:not(.notice) > .message::after,
 .layout-horizontal .line::after {
   content: '';
   line-height: max(var(--badge-h, 1em), var(--emote-h, 1.75em)
@@ -577,6 +589,25 @@ body {
     - max(.2em, min(var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
   vertical-align: middle;
 }
+/* row_grow=1: a row draws gigantified emotes, emote-only messages (emote_only, .emote-only) and GIFs (gif_size, its box
+   still reserved up front) as tall as a column does, and their messages grow to fit them. Their text stays on the row's
+   one text line: such an image sits on the bottom of its line along the bottom edge, so it grows its message upward, and
+   hangs from the top of it along the top edge, so it grows it downward. Their margins are an emote's, worked out for
+   their own height (taller than their line: none above, and .2em below, the room the row and a box keep there); a 1x
+   GIF keeps an emote's, so its line is no taller than before. The source has to be tall enough for them, or they are
+   cut off. */
+.layout-horizontal:where(.row-grow) .emote-stack.big { --eh: calc(var(--emote-h, 1.75em) * 3); }
+.layout-horizontal:where(.row-grow) .gif {
+  width: calc(var(--emote-h, 1.75em) * var(--gif-mul, 3) * 16 / 9);
+  height: calc(var(--emote-h, 1.75em) * var(--gif-mul, 3));
+  max-height: calc(var(--emote-h, 1.75em) * var(--gif-mul, 3));
+  margin: calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em) * var(--gif-mul, 3),
+    (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em) * var(--gif-mul, 3)))) .05em
+    calc(-1 * max(.2em, min(var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em) * var(--gif-mul, 3),
+    (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em) * var(--gif-mul, 3))));
+}
+:where(.layout-horizontal.row-grow.align-bottom) :is(.emote-stack.big, .line.emote-only .emote-stack, .gif) { vertical-align: bottom; }
+:where(.layout-horizontal.row-grow.align-top) :is(.emote-stack.big, .line.emote-only .emote-stack, .gif) { vertical-align: top; }
 /* A message that starts right to left (.line.rtl, set by renderer.js in a row when its first letter is Arabic, Hebrew,
    Persian and the like). The line's own box runs left to right, so its ellipsis (line_width, or the source's width)
    would cut the message at the line's right end, which is where right-to-left text starts: only its last words would
@@ -757,6 +788,88 @@ body {
   margin-left: calc(-1 * (var(--sep-w) + var(--row-gap, 1em) + var(--sep-pad)));
   margin-right: calc(var(--row-gap, 1em) + var(--sep-pad));
 }
+
+/* name_line=1 in a row (names shown): each message is a small card of two lines, its time, badges and name on the first
+   and its message on the second (the colon goes, as in a column). The row then wants about twice the height (about 130
+   px where 100 does without). The message line is a row's line as before: a box of its own that never wraps and ends in
+   an ellipsis of its own (with room at its ends for an outline, a shadow or ink past them, as a right-to-left message
+   has), with the row's end-of-message box at its end (above), so every message line is as tall as a row's line and the
+   row still lines its messages up by their box's edge. A right-to-left message needs no grid of its line for that. The
+   name line gets an empty box as tall as a badge (badge_size), as tall as a name line with badges whether it has any or
+   not. A notice has no name: its text stays on one line, under an empty line (a zero-width space) as tall as a name line,
+   so its box is a card's height and its text on the message lines' baseline (its parts' line height is a chat line's at
+   most, above). Along the bottom edge a reply header is a row of its own above the name, as before. */
+:where(.layout-horizontal.name-line:not(.no-names) .line:not(.notice)) > .message {
+  display: block;
+  overflow-x: clip;
+  text-overflow: ellipsis;
+  padding: 0 calc(.1em + var(--tshadow-room, 0px));
+  margin: 0 calc(-.1em - var(--tshadow-room, 0px));
+  text-align: left;
+  text-align: -webkit-match-parent;
+}
+:where(.layout-horizontal.name-line:not(.no-names)) .line:not(.notice)::after { content: none; }
+:where(.layout-horizontal.name-line:not(.no-names)) .line.rtl { display: block; }
+:where(.layout-horizontal.name-line:not(.no-names) .line:not(.notice)) > .name::after {
+  content: '';
+  line-height: var(--badge-h, 1em);
+  vertical-align: middle;
+}
+:where(.layout-horizontal.name-line:not(.no-names)) :is(.line, .line + .line, .line.keep-sep).notice::before {
+  content: '\200B';
+  display: block;
+  font-size: var(--row-em);
+  line-height: max(var(--line-height, 1.35) * var(--row-em), var(--badge-h, 1em));
+}
+/* Along the top edge a reply header sits before the name on the name line, as it sits before the message in a row
+   without name_line. Its line is a grid of the two lines: the row mark, the header, the time, the badges and the name
+   on the first, on their text's baseline, and the message under them across the whole card (a column as wide as the
+   message keeps the card as wide as its wider line). The header gives way first, down to nothing, and ends in an
+   ellipsis of its own; the name keeps its whole width, as the time and the badges do (a card too narrow for those three
+   alone cuts the name off at its end). */
+:where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply {
+  display: grid;
+  grid-template-columns: max-content minmax(0, max-content) max-content max-content max-content minmax(0, 1fr);
+  align-items: baseline;
+}
+:where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply::before { grid-area: 1 / 1; }
+:where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply > .reply { grid-area: 1 / 2; }
+:where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply > .time { grid-area: 1 / 3; }
+:where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply > .badges { grid-area: 1 / 4; }
+:where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply > .name { grid-area: 1 / 5; }
+:where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply > .message { grid-area: 2 / 1 / 3 / -1; }
+/* row_sep: a card's mark is on its first line (a notice's on its empty line), in a slot as wide as its glyph in Inter
+   (--sep-w), and its message line (a notice's text) starts as far in as its name, after the mark and the space after
+   it (--sep-hang, worked out on #chat). Without a box a barred or tinted message has its mark in its border, before both
+   lines (above), so its message line starts where its name does already. */
+@property --sep-hang { syntax: '<length>'; inherits: true; initial-value: 0px; }
+:where(.layout-horizontal.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) { --sep-hang: calc(var(--sep-w) + var(--row-gap, 1em)); }
+:where(.layout-horizontal.has-bg.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) { --sep-hang: calc(var(--sep-w) + .5em); }
+:where(.layout-horizontal.align-bottom.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):not(.notice) > .reply + *::before,
+:where(.layout-horizontal.align-bottom.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):not(.notice) > :first-child:not(.reply)::before,
+:where(.layout-horizontal.align-top.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):not(.notice)::before {
+  display: inline-block;
+  width: var(--sep-w);
+  text-align: center;
+}
+:where(.layout-horizontal.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):not(.notice) > .message {
+  margin-left: calc(var(--sep-hang) - .1em - var(--tshadow-room, 0px));
+}
+:where(.layout-horizontal:not(.has-bg).name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):not(.notice):where(.accent, .first-msg, .role-bar, .announcement, .highlight, .mention, .keyword, .user-hl, .role-tint) > .message {
+  margin-left: calc(-.1em - var(--tshadow-room, 0px));
+}
+:where(.layout-horizontal.sep-dot.name-line:not(.no-names)) :is(.line + .line, .line.keep-sep).notice::before { content: '\2022'; }
+:where(.layout-horizontal.sep-bar.name-line:not(.no-names)) :is(.line + .line, .line.keep-sep).notice::before { content: '|'; }
+:where(.layout-horizontal.sep-diamond.name-line:not(.no-names)) :is(.line + .line, .line.keep-sep).notice::before { content: '\25C6'; }
+:where(.layout-horizontal.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice::before {
+  width: var(--sep-w);
+  margin: 0;
+  text-align: center;
+  color: var(--text-color, #fff);
+  opacity: .6;
+}
+:where(.layout-horizontal.align-bottom.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child::before { content: none; }
+:where(.layout-horizontal.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child { margin-left: var(--sep-hang); }
 
 /* line_width=5..100: no message wider than --line-max, in either layout (a longer one wraps in a column and ends in
    an ellipsis in a row). After the row's rules, which it beats on order alone. A notice's em in a column is its own

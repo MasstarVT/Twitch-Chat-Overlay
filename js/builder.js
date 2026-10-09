@@ -56,8 +56,11 @@
   // for everyone.
   function ownNameColors(cfg) { return !cfg.name_color; }
   function readableOwn(cfg) { return readableOn(cfg) && ownNameColors(cfg); }
-  // What follows the name: hidden under a name on its own line in a column (overlay.css hides .colon there).
-  function sepShown(cfg) { return namesOn(cfg) && !(cfg.name_line && cfg.layout !== 'horizontal'); }
+  // What follows the name: hidden under a name on its own line, in either layout (overlay.css hides .colon there).
+  function sepShown(cfg) { return namesOn(cfg) && !cfg.name_line; }
+  // emote_only, gif_size and giant_emotes: a column draws them, and a row only with row_grow (else at emote height).
+  function bigDrawn(cfg) { return cfg.layout !== 'horizontal' || !!cfg.row_grow; }
+  function gifSizeOn(cfg) { return gifsOn(cfg) && bigDrawn(cfg); }
   // Text size applies until Exact text size (text_px) takes over.
   function sizeOn(cfg) { return !(cfg.text_px > 0); }
   // The platform icons need a Kick channel (overlay.js showPlatforms; outside the demo preview the Twitch one too,
@@ -132,8 +135,8 @@
       help: 'Off hides the name, and what follows it (After the name), before each message. Reply headers and sub or raid notices keep their names.' },
     name_weight: { label: 'Name weight', widget: 'range', options: WEIGHT_LABELS,
       help: 'Names before messages and in reply headers. A name inside a sub or raid notice follows Text weight (Look).' },
-    name_line: { label: 'Name on its own line', only: 'vertical', when: namesOn,
-      help: 'Each message starts on a new line under the name. Vertical layout only, with Show names on (Advanced).' },
+    name_line: { label: 'Name on its own line', when: namesOn,
+      help: 'Each message starts on a new line under the name. In a horizontal row each message becomes a small card of two lines, so the row needs about twice the height: about 130 px in place of 100. Needs Show names (Advanced).' },
     name_font: { label: 'Name font', placeholder: 'Same as Font',
       help: 'Names before messages and in reply headers, in a font of their own: any Google Fonts family, or one installed on the streaming PC. Empty uses Font (Look). A name inside a sub or raid notice keeps the message font.' },
     name_color: { label: 'Name color', swatch: '#808080', placeholder: 'Their own',
@@ -141,7 +144,7 @@
     name_fallback: { label: 'Color for names without one', swatch: '#808080', placeholder: 'Twitch colors', when: ownNameColors,
       help: 'For Twitch and Kick chatters who never picked a name color, in place of Twitch’s 15 default colors. Drawn as picked (Brighten dark name colors leaves it alone). Not used while a Name color (Look) is set.' },
     name_sep: { label: 'After the name', options: { colon: 'Colon', space: 'Space', dash: 'Dash', arrow: 'Arrow' }, when: sepShown,
-      help: 'What sits between the name and the message: “Name: hi”, “Name hi”, “Name – hi” or “Name › hi”. A /me message keeps its space, and a reply header its colon. Needs Show names, and isn’t drawn under Name on its own line (Look) in a vertical layout.' },
+      help: 'What sits between the name and the message: “Name: hi”, “Name hi”, “Name – hi” or “Name › hi”. A /me message keeps its space, and a reply header its colon. Needs Show names, and isn’t drawn under Name on its own line (Look).' },
     bg: { label: 'Line background', widget: 'range', unit: '%', zero: 'Off',
       help: 'A rounded box behind each message, black unless you pick a Box color. Helps on bright or busy scenes.' },
     bg_color: { label: 'Box color', swatch: '#000000', when: bgOn,
@@ -161,6 +164,8 @@
       horizontal: { label: 'Row sits', help: 'Whether the row runs along the bottom or the top edge of the source. New messages always come in on the right.' } },
     text_align: { label: 'Text alignment', options: { left: 'Left', center: 'Center', right: 'Right' }, only: 'vertical',
       help: 'Where messages sit in the column, with their boxes. Name-color, first-message and announcement bars stay on the left. Vertical layout only.' },
+    row_align: { label: 'Row alignment', options: { left: 'Left', center: 'Center', right: 'Right' }, only: 'horizontal',
+      help: 'Where the messages sit while they don’t fill the row yet. Once they do, the newest one is always at the right end and older ones slide off the left. Horizontal layout only.' },
     line_width: { label: 'Max message width', widget: 'stepper', step: 5, unit: 'em', zero: 'No limit',
       help: 'In em, the text size: 30 em is about 55 letters. A longer message wraps, or in a row ends in “…”. 1 to 4 become 5.' },
     pad_x: { label: 'Side padding', widget: 'stepper', step: 4, unit: 'px',
@@ -248,17 +253,19 @@
     vip_color: { label: 'VIP color', swatch: '#e005b9', when: rolesOn,
       help: 'Pink by default. Needs Mark broadcaster, mods, VIPs.' },
     gifs: { label: 'Show GIFs posted in chat' },
-    gif_size: { label: 'GIF size', options: { '1x': '1×', '2x': '2×', '3x': '3×' }, when: gifsOn, only: 'vertical',
-      help: 'How tall a GIF is, in emote heights (3× by default); at 1× its line is no taller than one with emotes. The demo has no GIF. Vertical layout only (a row draws GIFs at emote height), with Show GIFs posted in chat on (Emotes).' },
+    gif_size: { label: 'GIF size', options: { '1x': '1×', '2x': '2×', '3x': '3×' }, when: gifSizeOn,
+      help: 'How tall a GIF is, in emote heights (3× by default); at 1× its line is no taller than one with emotes. The demo has no GIF. In a horizontal row only with Let big emotes grow the row on (Emotes); without it a row draws GIFs at emote height. Needs Show GIFs posted in chat (Emotes).' },
     emotes_7tv: { label: '7TV', logo: '7tv', help: 'Channel and global emotes, updated live when the channel changes them. Also shown in Kick chat.' },
     emotes_bttv: { label: 'BetterTTV', logo: 'bttv' },
     emotes_ffz: { label: 'FrankerFaceZ', logo: 'ffz' },
     emote_scale: { label: 'Emote size', widget: 'range', unit: '%',
       help: 'Emotes, cheers and GIFs next to the text (100% by default). Images load at the size drawn, up to the largest each emote service has: past that they look soft. A GIF drawn taller than 200 px loads Giphy’s original file. An emote taller than its line makes the line taller: with Medium text, above about 150% (165% without a box) a reply’s header no longer fits a horizontal row along the bottom of the suggested 100 px tall source.' },
-    emote_only: { label: 'Emote-only messages', options: { normal: 'Normal', big: 'Big', huge: 'Huge' }, only: 'vertical',
-      help: 'A message of emotes alone, drawn two (Big) or three (Huge) times as tall. Gigantified emotes keep their own size, and a very wide emote is fitted to the column. Vertical layout only.' },
-    giant_emotes: { label: 'Gigantified emotes', only: 'vertical',
-      help: 'Twitch’s Gigantify an Emote power-up draws the emote three times as tall. Off draws it like any other emote, from a smaller image. Vertical layout only (a row draws it at emote height either way).' },
+    emote_only: { label: 'Emote-only messages', options: { normal: 'Normal', big: 'Big', huge: 'Huge' }, when: bigDrawn,
+      help: 'A message of emotes alone, drawn two (Big) or three (Huge) times as tall. Gigantified emotes keep their own size, and a very wide emote is fitted to the column. In a horizontal row only with Let big emotes grow the row on (below); without it a row draws them at emote height.' },
+    row_grow: { label: 'Let big emotes grow the row', only: 'horizontal',
+      help: 'Draws emote-only messages (Emote-only messages), GIFs (GIF size, Advanced) and gigantified emotes as big as the vertical layout does, and lets their messages grow the row taller to fit them; the text stays on one line. The source has to be tall enough for them, or they are cut off: about 150 px for Huge with Medium text, more with larger text or Name on its own line (Look). Off draws them at emote height. Horizontal layout only.' },
+    giant_emotes: { label: 'Gigantified emotes', when: bigDrawn,
+      help: 'Twitch’s Gigantify an Emote power-up draws the emote three times as tall. Off draws it like any other emote, from a smaller image. In a horizontal row only with Let big emotes grow the row on (Emotes); without it a row draws it at emote height either way.' },
     badges: { label: 'Show badges', help: 'Master switch for every badge source below.' },
     badges_twitch: { label: 'Twitch', logo: 'twitch', when: badgesOn },
     badges_kick: { label: 'Kick', logo: 'kick', when: badgesOn },
@@ -315,7 +322,7 @@
   // id, linked at the foot of the section as "More in Advanced".
   var GROUPS = [
     { id: 'look', title: 'Look', note: 'Quick looks, layout, text, names, boxes and how new messages come in.',
-      keys: ['layout', 'align', 'text_align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_color',
+      keys: ['layout', 'align', 'text_align', 'row_align', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline', 'name_color',
         'name_line', 'bg', 'bg_color', 'accent_bar', 'animate', 'enter_style'],
       subs: [{ title: 'Layout', first: 'layout' }, { title: 'Text', first: 'size' }, { title: 'Names', first: 'name_color' },
         { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
@@ -331,7 +338,7 @@
     { id: 'filters', title: 'Filters', note: 'Who and what stays out of the overlay.',
       keys: ['bots', 'hide_commands', 'block', 'block_words', 'links', 'role_filter'], more: 'adv-filters' },
     { id: 'emotes', title: 'Emotes', note: 'Twitch and Kick emotes are always shown.',
-      keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only'], more: 'adv-emotes' },
+      keys: ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only', 'row_grow'], more: 'adv-emotes' },
     { id: 'badges', title: 'Badges & paints', note: 'Each badge source has its own switch.',
       foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
       keys: ['badges'].concat(BADGE_SUBS, ['paints', 'stv_lookup', 'readable', 'badge_size']), more: 'adv-lighter' },
@@ -369,7 +376,7 @@
   // Its first sentence names every PRESET_KEYS setting (tests/builder-dom.test.js holds it to that): a look resets each.
   var PRESETS_HELP = 'Sets text size, weight and color, shadow, outline, box, name-color bar, spacing, whether the name ' +
     'has a line of its own, and emote and badge size. Your font, name colors, layout and position stay. Big & bold ' +
-    'can be cut off in a 1920 × 100 horizontal source.';
+    'can be cut off in a 1920 × 100 horizontal source, and Cards wants one about 130 px tall.';
 
   // ---------- pure helpers (unit tested) ----------
 

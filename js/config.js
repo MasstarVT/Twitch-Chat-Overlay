@@ -50,6 +50,8 @@
     layout: { type: 'enum', values: ['vertical', 'horizontal'], def: 'vertical' },
     align: { type: 'enum', values: ['bottom', 'top'], def: 'bottom' },
     text_align: { type: 'enum', values: ['left', 'center', 'right'], def: 'left' },
+    // Where a horizontal row's messages sit while they don't fill it (right: at the right end, as always).
+    row_align: { type: 'enum', values: ['left', 'center', 'right'], def: 'right' },
     line_width: { type: 'int', min: 0, max: 100, lowest: 5, def: 0 },
     pad_x: { type: 'int', min: 0, max: 200, def: 8 },
     edge_fade: { type: 'int', min: 0, max: 10, def: 0 },
@@ -105,6 +107,8 @@
     emotes_ffz: { type: 'bool', def: true },
     emote_scale: { type: 'int', min: 50, max: 200, def: 100 },
     emote_only: { type: 'enum', values: ['normal', 'big', 'huge'], def: 'normal' },
+    // A horizontal row draws emote_only, gif_size and gigantified emotes at their column sizes, and grows to fit them.
+    row_grow: { type: 'bool', def: false },
     giant_emotes: { type: 'bool', def: true },
     badges: { type: 'bool', def: true },
     badges_twitch: { type: 'bool', def: true },
@@ -142,7 +146,7 @@
     'reply_style', 'mentions', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight',
     'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'event_subs', 'event_gifts', 'event_raids',
     'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words', 'min_length', 'links',
-    'command_prefixes', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll'];
+    'command_prefixes', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'row_align', 'row_grow'];
 
   // words: at most this many phrases, each at most this many characters (a longer one is left out).
   var MAX_WORDS = 50, MAX_WORD_LEN = 40;

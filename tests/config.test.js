@@ -12,7 +12,7 @@ describe('spec', () => {
       shadow_color: '', shadow_style: 'filter', outline: 0, outline_color: '',
       names: true, name_weight: 'heavy', name_line: false, name_font: '', name_color: '', name_fallback: '', name_sep: 'colon',
       bg: 0, bg_color: '', accent_bar: false, bg_shape: 'round', bg_width: 'fit', spacing: 'normal', layout: 'vertical', align: 'bottom',
-      text_align: 'left', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true, enter_style: 'slide',
+      text_align: 'left', row_align: 'right', line_width: 0, pad_x: 8, edge_fade: 0, row_sep: 'none', animate: true, enter_style: 'slide',
       enter_ms: 180, fade: 0, fade_out_ms: 1000, exit_style: 'fade', smooth_scroll: false, max: 50, bots: false, hide_commands: false, command_prefixes: '!', block: [], block_words: [], allow_users: [],
       role_filter: 'all', min_length: 0, links: 'show',
       events: true, event_subs: true, event_gifts: true, event_raids: true, event_bits_badge: true, event_announcements: true,
@@ -20,7 +20,7 @@ describe('spec', () => {
       history: 5, shared: true, timestamps: 'off', mentions: 'off', mention_color: '', keywords: [], highlight_users: [],
       keyword_color: '', points_highlight: true, points_color: '', role_style: 'off', broadcaster_color: '', mod_color: '',
       vip_color: '', gifs: true,
-      gif_size: '3x', emotes_7tv: true, emotes_bttv: true, emotes_ffz: true, emote_scale: 100, emote_only: 'normal', giant_emotes: true,
+      gif_size: '3x', emotes_7tv: true, emotes_bttv: true, emotes_ffz: true, emote_scale: 100, emote_only: 'normal', row_grow: false, giant_emotes: true,
       badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
       badges_ffzap: true, badges_chatterino: true, badges_homies: true, homies_lists: 'all', badge_size: 100,
       paints: true, paint_images: 'animated', stv_lookup: true, readable: true, readable_level: 45, demo: false, debug: false
@@ -512,6 +512,27 @@ describe('coerce', () => {
       exit_style: 'slide' })).toString(), 'enter_style=drop&enter_ms=300&fade=30&fade_out_ms=0&exit_style=slide');
     assert.deepEqual(config.parse('enter_style=fade&fade_out_ms=2500'), Object.assign(config.defaults(),
       { enter_style: 'fade', fade_out_ms: 2500 }));
+  });
+
+  // 1.6.1: where a horizontal row's messages sit while they don't fill it, and whether big emotes grow it. Both live, both
+  // out of the URL (and settings.js) at their defaults, which are 1.6.0's row.
+  test('row_align and row_grow: live, today\'s row by default, and out of the URL until changed', () => {
+    assert.deepEqual(config.SPEC.row_align, { type: 'enum', values: ['left', 'center', 'right'], def: 'right' });
+    assert.deepEqual(config.SPEC.row_grow, { type: 'bool', def: false });
+    assert.deepEqual(['Left', ' center ', 'RIGHT', 'start', 'middle', ''].map((v) => config.coerce('row_align', v)),
+      ['left', 'center', 'right', undefined, undefined, undefined]);
+    assert.deepEqual(['1', 'on', '0', 'off', 'maybe'].map((v) => config.coerce('row_grow', v)), [true, true, false, false, undefined]);
+    ['row_align', 'row_grow'].forEach((k) => assert.ok(config.LIVE_KEYS.includes(k), k + ' is live'));
+    assert.equal(config.toParams(config.defaults()).toString(), '');
+    assert.deepEqual(config.toObject(Object.assign(config.defaults(), { row_align: 'right', row_grow: false })), {});
+    // In SPEC's order: row_align after text_align (Look > Layout), row_grow after emote_only (Emotes).
+    assert.equal(config.toParams(Object.assign(config.defaults(), { layout: 'horizontal', row_align: 'left', text_align: 'center',
+      emote_only: 'huge', row_grow: true, giant_emotes: false })).toString(),
+    'layout=horizontal&text_align=center&row_align=left&emote_only=huge&row_grow=1&giant_emotes=0');
+    assert.deepEqual(config.parse('row_align=center&row_grow=yes'), Object.assign(config.defaults(), { row_align: 'center', row_grow: true }));
+    assert.deepEqual(config.parse('row_align=left', { row_align: 'center', row_grow: true }),
+      Object.assign(config.defaults(), { row_align: 'left', row_grow: true }), 'settings.js, the URL over it');
+    assert.equal(config.parse('row_align=bogus', { row_align: 'center' }).row_align, 'center', 'an invalid URL value keeps settings.js');
   });
 
   test('smooth_scroll: a live switch, off by default and out of the URL until turned on', () => {

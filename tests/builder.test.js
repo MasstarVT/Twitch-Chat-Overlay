@@ -807,7 +807,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
     return out;
   };
   assert.deepStrictEqual(outline(g('look')), [
-    ['Layout', 'layout', 'align', 'text_align'],
+    ['Layout', 'layout', 'align', 'text_align', 'row_align'],
     ['Text', 'size', 'font', 'text_weight', 'text_color', 'shadow', 'outline'],
     ['Names', 'name_color', 'name_line'],
     ['Box', 'bg', 'bg_color', 'accent_bar'],
@@ -903,7 +903,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting st
   assert.strictEqual(builder.widgetFor('name_font'), 'font');
   assert.strictEqual(builder.widgetFor('readable_level'), 'stepper');
   // The common sizes are on their own tabs, after what is there already.
-  assert.deepStrictEqual(g('emotes').keys, ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only']);
+  assert.deepStrictEqual(g('emotes').keys, ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only', 'row_grow']);
   assert.deepStrictEqual(g('badges').keys.slice(-4), ['paints', 'stv_lookup', 'readable', 'badge_size']);
   assert.strictEqual(g('look').more, 'adv-text');
   assert.strictEqual(g('events').more, 'adv-events');
@@ -980,11 +980,13 @@ test('the look options grey out while the setting they need is off, and their he
     assert.strictEqual(off(k, needs[k][1]), false, k + ' on');
     assert.ok(builder.META[k].help.indexOf(needs[k][2]) >= 0, k + ' help names ' + needs[k][2]);
   });
-  // Two more needs each: no separator is drawn under a name on its own line in a column (overlay.css hides .colon),
-  // and one Name color for everyone is never lightened.
+  // Two more needs each: no separator is drawn under a name on its own line, in a column or (1.6.1) in a row (overlay.css
+  // hides .colon), and one Name color for everyone is never lightened.
   assert.strictEqual(off('name_sep', { name_line: true }), true);
-  assert.strictEqual(off('name_sep', { name_line: true, layout: 'horizontal' }), false);
-  assert.match(builder.META.name_sep.help, /Name on its own line \(Look\) in a vertical layout/);
+  assert.strictEqual(off('name_sep', { name_line: true, layout: 'horizontal' }), true);
+  assert.strictEqual(off('name_sep', { layout: 'horizontal' }), false);
+  assert.match(builder.META.name_sep.help, /isn’t drawn under Name on its own line \(Look\)\./);
+  assert.doesNotMatch(builder.META.name_sep.help, /vertical layout/);
   assert.strictEqual(off('readable_level', { name_color: 'ff8800' }), true);
   assert.strictEqual(off('readable_level', { name_fallback: 'ff8800' }), false);
   assert.match(builder.META.readable_level.help, /not used while a Name color \(Look\) is set/);
@@ -1020,16 +1022,47 @@ test('the look options grey out while the setting they need is off, and their he
     assert.strictEqual(off('mention_color', Object.assign({ mentions: 'off' }, over)), true, 'mentions off ' + at);
   }));
   // Column only: off in a row whatever else is set.
-  ['bg_width', 'name_line', 'text_align', 'emote_only', 'gif_size', 'giant_emotes', 'smooth_scroll'].forEach((k) => {
+  ['bg_width', 'text_align', 'smooth_scroll'].forEach((k) => {
     assert.strictEqual(builder.META[k].only, 'vertical', k);
     assert.strictEqual(off(k, { bg: 40, layout: 'horizontal' }), true, k);
     assert.match(builder.META[k].help, /Vertical layout only/, k);
   });
-  // Row only: the mark between messages.
-  assert.strictEqual(builder.META.row_sep.only, 'horizontal');
-  assert.strictEqual(off('row_sep'), true);
-  assert.strictEqual(off('row_sep', { layout: 'horizontal' }), false);
-  assert.match(builder.META.row_sep.help, /Horizontal layout only/);
+  // 1.6.1: a name on its own line makes cards of a row, which wants about twice the height.
+  assert.strictEqual(builder.META.name_line.only, undefined);
+  assert.strictEqual(off('name_line', { layout: 'horizontal' }), false);
+  assert.strictEqual(off('name_line', { layout: 'horizontal', names: false }), true);
+  assert.match(builder.META.name_line.help, /small card of two lines/);
+  assert.match(builder.META.name_line.help, /about 130 px in place of 100/);
+  assert.doesNotMatch(builder.META.name_line.help, /Vertical layout only/);
+  // Drawn as a column draws them, and in a row only with Let big emotes grow the row (row_grow): off in a row without it,
+  // and their help names it. GIF size still needs GIFs.
+  ['emote_only', 'gif_size', 'giant_emotes'].forEach((k) => {
+    assert.strictEqual(builder.META[k].only, undefined, k);
+    assert.strictEqual(off(k), false, k);
+    assert.strictEqual(off(k, { layout: 'horizontal' }), true, k);
+    assert.strictEqual(off(k, { layout: 'horizontal', row_grow: true }), false, k);
+    assert.strictEqual(off(k, { row_grow: true }), false, k);
+    assert.match(builder.META[k].help, /In a horizontal row only with Let big emotes grow the row on/, k);
+    assert.doesNotMatch(builder.META[k].help, /Vertical layout only/, k);
+  });
+  assert.strictEqual(off('gif_size', { layout: 'horizontal', row_grow: true, gifs: false }), true);
+  // Row only: the mark between messages, the row's alignment and the switch that lets big emotes grow it.
+  ['row_sep', 'row_align', 'row_grow'].forEach((k) => {
+    assert.strictEqual(builder.META[k].only, 'horizontal', k);
+    assert.strictEqual(off(k), true, k);
+    assert.strictEqual(off(k, { layout: 'horizontal' }), false, k);
+    assert.match(builder.META[k].help, /Horizontal layout only/, k);
+  });
+  assert.strictEqual(builder.META.row_align.label, 'Row alignment');
+  assert.deepStrictEqual(builder.META.row_align.options, { left: 'Left', center: 'Center', right: 'Right' });
+  assert.deepStrictEqual(builder.segValues('row_align').map((v) => v.label), ['Left', 'Center', 'Right']);
+  assert.match(builder.META.row_align.help, /newest one is always at the right end/);
+  assert.strictEqual(builder.META.row_grow.label, 'Let big emotes grow the row');
+  assert.strictEqual(builder.widgetFor('row_grow'), 'check');
+  assert.match(builder.META.row_grow.help, /Emote-only messages/);
+  assert.match(builder.META.row_grow.help, /GIF size/);
+  assert.match(builder.META.row_grow.help, /gigantified emotes/);
+  assert.match(builder.META.row_grow.help, /tall enough for them, or they are cut off/);
   // The soft edge's two limits, as the README states them.
   assert.match(builder.META.edge_fade.help, /stays clear unless it is taller than that/);
   assert.match(builder.META.edge_fade.help, /In a row the newest message starts after the fade/);

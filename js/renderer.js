@@ -72,6 +72,8 @@
     // The sizes: images are fetched for the size they are drawn at, and an emote-only line gets its class. gif_size
     // too: a GIF drawn taller than Giphy's 200 px file loads the original (partsFor).
     'text_px', 'badge_size', 'emote_scale', 'emote_only', 'giant_emotes', 'gif_size',
+    // row_grow: a row draws emote-only messages, GIFs and gigantified emotes at their column sizes, from bigger files.
+    'row_grow',
     // The name colors come from deps.nameFor (overlay.js reads these); the rest are drawn into the line.
     'name_color', 'name_fallback', 'readable_level', 'name_sep', 'timestamps', 'reply_style',
     // The highlights are line classes (lineClasses); their colors are #chat variables (ROOT_KEYS).
@@ -96,7 +98,9 @@
     // The animations: new lines take the entrance; a timing or exit change re-times the fades (restartFades).
     'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style',
     // A column's glide: the next new line starts one (glideOf); turned off, a running one stops (stopGlide).
-    'smooth_scroll'];
+    'smooth_scroll',
+    // A row's alignment while it isn't full (a class; trimOverflow and dropLoneSep read it), and row_grow's class.
+    'row_align', 'row_grow'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -182,6 +186,7 @@
     outline_color: { hex: true, def: '' },
     paint_images: { values: ['animated', 'static'], def: 'animated' },
     text_align: { values: ['left', 'center', 'right'], def: 'left' },
+    row_align: { values: ['left', 'center', 'right'], def: 'right' },
     line_width: { min: 0, max: 100, def: 0 },
     pad_x: { min: 0, max: 200, def: 8 },
     edge_fade: { min: 0, max: 10, def: 0 },
@@ -190,6 +195,7 @@
     badge_size: { min: 50, max: 200, def: 100 },
     emote_scale: { min: 50, max: 200, def: 100 },
     emote_only: { values: ['normal', 'big', 'huge'], def: 'normal' },
+    row_grow: { bool: true, def: false },
     gif_size: { values: ['1x', '2x', '3x'], def: '3x' },
     giant_emotes: { bool: true, def: true },
     name_font: { str: true, def: '' },
@@ -782,8 +788,9 @@
     return out;
   }
 
-  // emoteOnly: the line is one modelFor found to be emotes alone (emote_only=big/huge, in a column). rtl: a row's message
-  // that starts right to left (startsRtl): the stylesheet gives it a box of its own, to end in its own ellipsis.
+  // emoteOnly: the line is one modelFor found to be emotes alone (emote_only=big/huge, in a column, or in a row with
+  // row_grow). rtl: a row's message that starts right to left (startsRtl): the stylesheet gives it a box of its own, to
+  // end in its own ellipsis.
   // inlineReply: a chat line with a reply header in a row along the top edge (.inline-reply, css/overlay.css).
   function lineClasses(msg, cfg, kind, action, emoteOnly, rtl, inlineReply) {
     var c = ['line'];
@@ -1169,10 +1176,10 @@
   }
 
   // Tokenizer items -> render parts (plain data; urls resolved, spaces folded into text parts).
-  // opts: { px: font px, dpr, flatBig: big emotes drawn at emote height (horizontal row), gifs, scale: emote_scale
-  // as a factor (1 when left out), giant: false draws gigantified emotes like any other (the default is true),
-  // eo: an emote-only line's factor (emote_only; 1 when left out), gifMul: a GIF's height in emote heights in a column
-  // (gif_size; 3 when left out) }
+  // opts: { px: font px, dpr, flatBig: big emotes and GIFs drawn at emote height (a horizontal row without row_grow), gifs,
+  // scale: emote_scale as a factor (1 when left out), giant: false draws gigantified emotes like any other (the default is
+  // true), eo: an emote-only line's factor (emote_only; 1 when left out), gifMul: a GIF's height in emote heights where
+  // it isn't flat (gif_size; 3 when left out) }
   function partsFor(items, opts) {
     var parts = [];
     if (!Array.isArray(items)) return parts;
@@ -1182,7 +1189,7 @@
     var scale = opts.scale > 0 ? opts.scale : 1;
     // An emote-only line draws its emotes eo times as tall, except a gigantified one, which keeps its 3.
     var eoScale = opts.eo > 1 ? scale * opts.eo : scale;
-    // How tall a GIF is drawn, in CSS px: an emote's height (emote_scale too) times gif_size, or once in a row.
+    // How tall a GIF is drawn, in CSS px: an emote's height (emote_scale too) times gif_size, or once in a flat row.
     var gifPx = px * EMOTE_EM * scale * (opts.flatBig ? 1 : opts.gifMul > 0 ? opts.gifMul : 3);
     var imgs = 0; // emote images so far; a history line can be far longer than Twitch's 500 chars
     for (var i = 0; i < items.length; i++) {
@@ -1284,12 +1291,14 @@
     var color = typeof nm.color === 'string' && nm.color ? nm.color : util.defaultColor(msg.userId, msg.login);
     var paint = typeof nm.paint === 'string' && PAINT_ID_RE.test(nm.paint) ? nm.paint : null;
     var dpr = d.dpr > 0 ? d.dpr : 1;
-    // emote_only=big/huge, in a column: a message of emotes alone gets its class (the stylesheet draws its emotes
-    // --eo times as tall), and its emotes are fetched that much bigger. Only looked for while it is on.
-    var eo = cfg.layout !== 'horizontal' && Object.prototype.hasOwnProperty.call(EMOTE_ONLY, cfg.emote_only)
-      ? EMOTE_ONLY[cfg.emote_only] : 0;
+    // A row draws GIFs, gigantified emotes and emote-only messages at emote height (flat), unless row_grow lets them
+    // grow the row: then they are drawn, and fetched, at their column sizes.
+    var flat = cfg.layout === 'horizontal' && cfg.row_grow !== true;
+    // emote_only=big/huge, in a column (or such a row): a message of emotes alone gets its class (the stylesheet draws
+    // its emotes --eo times as tall), and its emotes are fetched that much bigger. Only looked for while it is on.
+    var eo = !flat && Object.prototype.hasOwnProperty.call(EMOTE_ONLY, cfg.emote_only) ? EMOTE_ONLY[cfg.emote_only] : 0;
     var only = eo > 0 && emoteOnly(d.items);
-    var parts = partsFor(d.items, { px: px, dpr: dpr, flatBig: cfg.layout === 'horizontal', gifs: cfg.gifs !== false,
+    var parts = partsFor(d.items, { px: px, dpr: dpr, flatBig: flat, gifs: cfg.gifs !== false,
       scale: sizeScale(cfg.emote_scale), giant: cfg.giant_emotes !== false, eo: only ? eo : 1,
       gifMul: Object.prototype.hasOwnProperty.call(GIF_MUL, cfg.gif_size) ? Number(GIF_MUL[cfg.gif_size]) : 3 });
     // In a row a message never wraps: one that starts right to left gets the class that ends it in its own ellipsis.
@@ -1804,7 +1813,8 @@
     // (a mod deleted or timed out the newer lines, a /clear or a filter took some, the source got wider), the first line
     // would show it in view with nothing before it: it drops the mark and the space after it. keepSepAfter marks a line
     // that starts at most the row's gap right of the view's left edge, so further in than that (where it sits at home: a
-    // running slide's offset, the row's transform, taken off) is past it.
+    // running slide's offset, the row's transform, taken off) is past it. A row aligned left or center (row_align) that no
+    // longer fills the source sits at its left end or in its middle, wherever that is: its first line is in view then.
     function dropLoneSep() {
       if (!cfg || cfg.layout !== 'horizontal') return;
       var first = linesEl.firstElementChild;
@@ -1812,11 +1822,21 @@
       if (!rec || !rec.keepSep) return;
       var view = rootEl.getBoundingClientRect();
       if (!(view.width > 0)) return;
-      var slid = linesEl.getBoundingClientRect().left - view.left;
+      var box = linesEl.getBoundingClientRect(), slid = box.left - view.left;
       var cs = typeof win.getComputedStyle === 'function' ? win.getComputedStyle(linesEl) : null;
       var gap = cs ? parseFloat(cs.columnGap) || 0 : 0;
-      if (first.getBoundingClientRect().left - slid <= view.left + gap + 1) return;
+      if (first.getBoundingClientRect().left - slid <= view.left + gap + 1 && !(rowAligned() && rowRoom(box, cs))) return;
       unkeepSep(first, rec);
+    }
+    // row_align=left or center: a row that doesn't fill the source sits at its left end or in its middle (the stylesheet's
+    // auto margins take the room left over); one that does ends at the right edge with its newest line, as always.
+    function rowAligned() { return cfg.layout === 'horizontal' && cfg.row_align !== 'right'; }
+    // Such a row has room left at its right end: its last line ends short of .lines' content box (box: .lines' rect, cs:
+    // its computed style, or null where there is none). Both are measured where they are drawn, mid-slide too.
+    function rowRoom(box, cs) {
+      var last = linesEl.lastElementChild;
+      var pad = cs ? parseFloat(cs.paddingRight) || 0 : 0;
+      return !!last && last.getBoundingClientRect().right < box.right - pad - 1;
     }
     function unkeepSep(line, rec) {
       rec.keepSep = false;
@@ -1977,6 +1997,15 @@
         cnt = overflowCount(n, rectAt, cfg.align, view.top - s, view.bottom + s);
       }
       cnt = Math.min(cnt, n - 1);
+      // row_align=left or center: a row that no longer filled the source once these lines left would move the rest (to its
+      // left end, or half as far) after a slide's offset was measured with them in. So the leading lines go only up to one
+      // whose next line starts at or left of where the row starts (.lines' content box): the row still fills the source
+      // and nothing moves, as in a row at the right. A later flush takes the others, which new lines push further out.
+      if (cnt && rowAligned()) {
+        var cs = typeof win.getComputedStyle === 'function' ? win.getComputedStyle(linesEl) : null;
+        var start = linesEl.getBoundingClientRect().left + (cs ? parseFloat(cs.paddingLeft) || 0 : 0);
+        while (cnt > 0 && rectAt(cnt).left > start + 0.5) cnt--;
+      }
       if (cnt) {
         var top = newestFirst(cfg);
         var victims = [], notices = false;
@@ -2274,7 +2303,7 @@
       cl.toggle('case-lower', c.text_case === 'lower');
       cl.toggle('case-smallcaps', c.text_case === 'smallcaps');
       cl.toggle('no-names', !c.names);
-      cl.toggle('name-line', c.name_line); // the stylesheet applies it to a column only
+      cl.toggle('name-line', c.name_line); // the stylesheet applies it with names shown, in either layout
       cl.toggle('bg-full', c.bg_width === 'full'); // and this to a column with bg only
       // shadow_style=text: the shadow goes on the letters (--tshadow), and the line's filter is dropped.
       var shadowText = c.shadow_style === 'text' && c.shadow > 0;
@@ -2289,6 +2318,10 @@
       cl.toggle('sep-dot', c.row_sep === 'dot');
       cl.toggle('sep-bar', c.row_sep === 'bar');
       cl.toggle('sep-diamond', c.row_sep === 'diamond');
+      // row_align and row_grow are for a row too (right, the default, and row_grow=0 add nothing).
+      cl.toggle('row-left', c.row_align === 'left');
+      cl.toggle('row-center', c.row_align === 'center');
+      cl.toggle('row-grow', c.row_grow === true);
       // name_font: names (and reply headers' names) in their own font, only while one is set.
       cl.toggle('has-name-font', !!c.name_font);
       var st = rootEl.style;

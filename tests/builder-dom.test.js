@@ -885,7 +885,7 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
     assert.strictEqual(e.id, undefined, 'only Advanced headings are anchors');
   });
   // Look starts with the quick looks, above its first heading.
-  assert.deepStrictEqual(outline('group-look'), ['quick looks', 'Layout', 'layout', 'align', 'text_align', 'Text', 'size', 'font', 'text_weight',
+  assert.deepStrictEqual(outline('group-look'), ['quick looks', 'Layout', 'layout', 'align', 'text_align', 'row_align', 'Text', 'size', 'font', 'text_weight',
     'text_color', 'shadow', 'outline', 'Names', 'name_color', 'name_line', 'Box', 'bg', 'bg_color', 'accent_bar', 'Animation', 'animate',
     'enter_style']);
   assert.deepStrictEqual(outline('group-advanced'), ['Troubleshooting#adv-trouble', 'debug', 'demo', 'Text#adv-text', 'text_px',
@@ -902,8 +902,9 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   // Filters: no heading, and its foot links Advanced's Filters.
   assert.deepStrictEqual(outline('group-filters'), ['bots', 'hide_commands', 'block', 'block_words', 'links', 'role_filter']);
   assert.strictEqual(p.$('group-filters').children[2].children[0].href, '#adv-filters');
-  // Emotes: no sub-heading, the two sizes after the GIF switch, and its foot links Advanced's Emotes.
-  assert.deepStrictEqual(outline('group-emotes'), ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only']);
+  // Emotes: no sub-heading, the two sizes after the GIF switch, the row's switch for them after them (1.6.1), and its foot
+  // links Advanced's Emotes.
+  assert.deepStrictEqual(outline('group-emotes'), ['emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'gifs', 'emote_scale', 'emote_only', 'row_grow']);
   assert.strictEqual(p.$('group-emotes').children[2].children[0].href, '#adv-emotes');
   const adv = fields('group-advanced').filter((e) => e.tagName === 'H3');
   adv.forEach((e) => assert.strictEqual(e.tabIndex, -1, e.id));
@@ -1120,7 +1121,7 @@ test('the stage-2 dependencies: greyed out while bg, events, first_msg or names 
   const r = p.doc.querySelectorAll('input[name="f-layout"]').filter((x) => x.value === 'horizontal')[0];
   r.checked = true;
   r.dispatch('change');
-  assert.deepStrictEqual(state(), ['bg_width', 'name_line'], 'column only');
+  assert.deepStrictEqual(state(), ['bg_width'], 'column only: the box width (a name line makes cards of a row, 1.6.1)');
   // The range and stepper of this stage: disabled inputs, enabled again.
   flip('f-events', false);
   assert.strictEqual(p.$('f-notice_size').disabled, true);
@@ -1980,11 +1981,11 @@ test('the name colors, the separator, timestamps and the reply header: live, and
   assert.strictEqual(p.text('bar-url'), OVERLAY + '?name_color=ff8800&name_fallback=336699&name_sep=arrow&reply_style=name&timestamps=24h');
   nc.dflt.dispatch('click');
   assert.deepStrictEqual([state(), fb.dflt.disabled], [[], false]);
-  // A name on its own line in a column draws no separator; in a row it does.
+  // A name on its own line draws no separator, in a column or (1.6.1) in a row.
   flip('f-name_line', true);
   assert.deepStrictEqual(state(), ['name_sep']);
   seg('layout', 'horizontal');
-  assert.deepStrictEqual(state(), []);
+  assert.deepStrictEqual(state(), ['name_sep']);
   seg('layout', 'vertical');
   flip('f-name_line', false);
   assert.deepStrictEqual(state(), []);
@@ -2285,7 +2286,8 @@ test('Quick look: a row of five buttons at the top of Look, Default pressed at t
     'whether the name has a line of its own, and emote and badge size\\.'));
   assert.match(help.textContent, /Your font, name colors, layout and position stay\./);
   // Its bigger emotes make their lines taller (css/overlay.css), so only the row's height is worth a word.
-  assert.match(help.textContent, /Big & bold can be cut off in a 1920 × 100 horizontal source\.$/);
+  // Cards puts the name on a line of its own, which in a row (1.6.1) makes each message a card twice as tall.
+  assert.match(help.textContent, /Big & bold can be cut off in a 1920 × 100 horizontal source, and Cards wants one about 130 px tall\.$/);
   assert.doesNotMatch(help.textContent, /reach into the line above/);
   assert.deepStrictEqual(L.btns.map((b) => [b.tagName, b.type, b.textContent]),
     [['BUTTON', 'button', 'Default'], ['BUTTON', 'button', 'Boxed'], ['BUTTON', 'button', 'Outlined'], ['BUTTON', 'button', 'Cards'],
@@ -2380,7 +2382,8 @@ test('a quick look: the form, the URL and the preview follow, live, with a bad c
   assert.strictEqual(p.text('bar-url'), OVERLAY + '?kick=xqc&kick_room=668&font=Roboto&shadow_style=text&name_color=ff8800&align=top' +
     '&block=a_b,c&badges_7tv=0&homies_lists=light&paint_images=static');
   assert.deepStrictEqual(L.pressed(), ['Default']);
-  // In a row the layout stays, and the column-only settings Cards sets are kept, greyed out.
+  // In a row the layout stays, and the column-only setting Cards sets (the box width) is kept, greyed out; its name line
+  // makes cards of a row too (1.6.1).
   const row = p.doc.querySelectorAll('input[name="f-layout"]').filter((x) => x.value === 'horizontal')[0];
   row.checked = true;
   row.dispatch('change');
@@ -2388,7 +2391,7 @@ test('a quick look: the form, the URL and the preview follow, live, with a bad c
   t.mock.timers.tick(2000);
   assert.strictEqual(frame(), first);
   assert.deepStrictEqual([radio('layout'), radio('bg_width'), rowOf(p, 'bg_width').classList.contains('disabled'),
-    rowOf(p, 'name_line').classList.contains('disabled'), L.pressed()], ['horizontal', 'full', true, true, ['Cards']]);
+    rowOf(p, 'name_line').classList.contains('disabled'), L.pressed()], ['horizontal', 'full', true, false, ['Cards']]);
   assert.deepStrictEqual([posted[posted.length - 1].cfg.layout, posted[posted.length - 1].cfg.bg_width], ['horizontal', 'full']);
 });
 
@@ -2530,4 +2533,74 @@ test('a settings.js loaded from the folder ends a run of quick looks, like a pas
   // The note beside the URL says what the file did until the first change, and a look is one.
   L.click('Cards');
   assert.strictEqual(p.text('bar-note'), 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.');
+});
+
+// ---------- horizontal 1.6.1: row alignment, big emotes that grow the row, a name line in a row ----------
+
+test('Row alignment and Let big emotes grow the row: live, greyed out in a column; the emote sizes come back in a row with it', (t) => {
+  const p = open(t, HREF);
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  const first = frame();
+  const posted = [];
+  first.contentWindow = { postMessage: (m) => posted.push(m) };
+  const off = (key) => rowOf(p, key).classList.contains('disabled');
+  const keys = ['text_align', 'row_align', 'name_line', 'emote_only', 'gif_size', 'giant_emotes', 'row_grow'];
+  const state = () => keys.filter(off);
+  const seg = (key, v) => {
+    const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  const flip = (id, v) => { const e = p.$(id); e.checked = v; e.dispatch('change'); };
+  // Row alignment right after Text alignment (Look > Layout), Left, Center and Right, Right at first; the switch under
+  // Emote-only messages.
+  assert.deepStrictEqual(p.doc.querySelectorAll('input[name="f-row_align"]').map((r) => [r.value, r.checked]),
+    [['left', false], ['center', false], ['right', true]]);
+  assert.strictEqual(rowOf(p, 'text_align').nextElementSibling, rowOf(p, 'row_align'));
+  assert.strictEqual(rowOf(p, 'emote_only').nextElementSibling, rowOf(p, 'row_grow'));
+  assert.strictEqual(p.$('f-row_grow').checked, false);
+  assert.deepStrictEqual([p.text('l-row_align'), p.text('l-row_grow')], ['Row alignment', 'Let big emotes grow the row']);
+  assert.deepStrictEqual(state(), ['row_align', 'row_grow'], 'a column: the two row-only settings');
+  seg('layout', 'horizontal');
+  assert.deepStrictEqual(state(), ['text_align', 'emote_only', 'gif_size', 'giant_emotes'], 'a row: the name line applies, the big emotes wait for the switch');
+  flip('f-row_grow', true);
+  assert.deepStrictEqual(state(), ['text_align'], 'with it, the three sizes apply in a row');
+  assert.ok(p.doc.querySelectorAll('input[name="f-emote_only"]').every((r) => !r.disabled));
+  seg('row_align', 'center');
+  seg('emote_only', 'huge');
+  flip('f-name_line', true);
+  t.mock.timers.tick(2000);
+  assert.strictEqual(frame(), first, 'live: the preview keeps its frame');
+  const last = posted[posted.length - 1].cfg;
+  assert.deepStrictEqual([last.layout, last.row_align, last.row_grow, last.emote_only, last.name_line], ['horizontal', 'center', true, 'huge', true]);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?name_line=1&layout=horizontal&row_align=center&emote_only=huge&row_grow=1');
+  // The tab counts: Row alignment is Look's, the switch Emotes'.
+  assert.deepStrictEqual([p.text('count-look'), p.text('count-emotes')], ['3', '2']);
+  // GIF size still needs GIFs; the switch off again greys the three out, values kept.
+  flip('f-gifs', false);
+  assert.deepStrictEqual(state(), ['text_align', 'gif_size']);
+  flip('f-gifs', true);
+  flip('f-row_grow', false);
+  assert.deepStrictEqual(state(), ['text_align', 'emote_only', 'gif_size', 'giant_emotes']);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?name_line=1&layout=horizontal&row_align=center&emote_only=huge', 'kept, greyed out');
+  seg('layout', 'vertical');
+  assert.deepStrictEqual(state(), ['row_align', 'row_grow']);
+  // A paste and Reset follow too; Reset puts the row's defaults back (out of the URL).
+  p.$('paste').value = '?layout=horizontal&row_align=left&row_grow=1';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual(state(), ['text_align']);
+  assert.deepStrictEqual([p.doc.querySelectorAll('input[name="f-row_align"]').filter((r) => r.checked)[0].value, p.$('f-row_grow').checked], ['left', true]);
+  p.$('reset').dispatch('click');
+  assert.deepStrictEqual([state(), p.text('bar-url')], [['row_align', 'row_grow'], OVERLAY]);
+});
+
+test('The row settings\' help says what they do in a row and what they need', (t) => {
+  const p = open(t, HREF);
+  assert.match(p.text('h-row_align'), /Where the messages sit while they don’t fill the row yet\./);
+  assert.match(p.text('h-row_grow'), /The source has to be tall enough for them, or they are cut off/);
+  assert.match(p.text('h-name_line'), /about 130 px in place of 100/);
+  ['emote_only', 'gif_size', 'giant_emotes'].forEach((k) => assert.match(p.text('h-' + k), /Let big emotes grow the row/, k));
+  // Cards' name line makes cards of a row too: its help says how tall a source it wants.
+  assert.match(p.text('h-presets'), /Cards wants one about 130 px tall/);
 });

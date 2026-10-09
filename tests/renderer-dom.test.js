@@ -1888,7 +1888,8 @@ test('overlay.css: the layout rules (stage 4) stay off by default, in their own 
   // carries it, before the header, and its children never do.
   // A line after another, or one that keeps its mark after the line before it left out of view (.keep-sep, renderer-css
   // round 1), in :is() at the specificity of .line + .line. A notice's mark is the row's size (--row-em, on #chat).
-  const seps = selectors.filter((s) => /sep-/.test(s));
+  // name_line's own rules in a row (1.6.1: its marks, the space after them) have a test of their own (below).
+  const seps = selectors.filter((s) => /sep-/.test(s) && !/name-line|^@property/.test(s));
   assert.ok(seps.length >= 5);
   let tops = 0, bottoms = 0;
   seps.forEach((s) => s.split(/,\s*(?=:where)/).forEach((one) => {
@@ -1934,10 +1935,11 @@ test('overlay.css: the stage-2 rules keep today\'s look by default and stay over
   caseRules.forEach((sel) => sel.split(',').forEach((one) =>
     assert.match(one.trim(), /^\.case-(?:upper|lower|smallcaps) \.(?:name|colon|message|reply)$/, one)));
   assert.doesNotMatch(css, /font-variant:/, 'font-variant-caps, not the shorthand that resets ligatures');
-  // name_line: a column only, never a notice, and the message stays where a left-to-right line puts it.
+  // name_line: never a notice, and in a column the message stays where a left-to-right line puts it (a row's cards, 1.6.1,
+  // have a test of their own). The colon goes in either layout.
   // names=0 cancels it (the builder greys it out then), so badges never sit on a row of their own.
   assert.match(css, /:where\(\.layout-vertical\.name-line:not\(\.no-names\) \.line:not\(\.notice\)\) \.message \{\s*display: block;\s*text-align: left;\s*text-align: -webkit-match-parent;\s*\}/);
-  assert.match(css, /:where\(\.layout-vertical\.name-line:not\(\.no-names\) \.line:not\(\.notice\)\) \.colon \{ display: none; \}/);
+  assert.match(css, /\n:where\(\.name-line:not\(\.no-names\) \.line:not\(\.notice\)\) \.colon \{ display: none; \}/);
   Array.from(css.matchAll(/([^{}]*\.name-line[^{}]*)\{/g), (m) => m[1]).forEach((sel) =>
     assert.match(sel, /\.name-line:not\(\.no-names\)/, sel));
   assert.match(css, /\.no-names \.name,\s*\.no-names \.colon \{ display: none; \}/);
@@ -2250,7 +2252,9 @@ test('overlay.css: the stage-6 rules (name font, timestamps) are scoped and stay
     ['.time', ':where(.layout-vertical) .time::after', ':where(.layout-horizontal .line.notice) > .time',
       ':where(.layout-horizontal) .line.rtl > .time',
       ir + '::before,\n' + ir + ' > .time,\n' + ir + ' > .badges,\n' + ir + ' > .colon',
-      sepPre + '.reply + .time::before,\n' + sepPre + '.time:first-child::before']);
+      sepPre + '.reply + .time::before,\n' + sepPre + '.time:first-child::before',
+      // name_line along the top edge (1.6.1): a reply's line is a grid of its two lines, its time on the name line.
+      ':where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply > .time']);
   assert.match(css, /\.time:first-child::before \{\n  font-size: 1\.25em;\n  opacity: \.857;\n\}/);
   // It comes after the mark's own rules, which it beats (or ties) on specificity.
   assert.ok(css.indexOf('.time:first-child::before') > css.indexOf('::before { content: \'\\25C6\'; }'));
@@ -2330,7 +2334,7 @@ test('overlay.css: the stage-7 rules (tints, role bar) are class-only, ordered, 
   // rules for a line with a bar or a tint, renderer-css round 2, are at .line + .line's (0,2,0) through :is(); their mark's
   // ::before is held to the row_sep rules' own shape in the stage-4 test.)
   const sels = Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim())
-    .filter((s) => /mention|keyword|user-hl|role-/.test(s) && !/::before/.test(s));
+    .filter((s) => /mention|keyword|user-hl|role-/.test(s) && !/::before/.test(s) && !/name-line/.test(s));
   assert.ok(sels.length >= 10, 'the scan finds them');
   sels.forEach((sel) => sel.split(/,\n/).forEach((one) => {
     // :is() of single classes counts as one class (follow-up round 1: the bar side of a barred line in a box).
@@ -2557,14 +2561,15 @@ test('overlay.css: a right-to-left quote or row message is a box of its own that
     'padding-left': 'min(.1em + var(--tshadow-room, 0px), 100%)', 'margin-left': 'calc(-1 * min(.1em + var(--tshadow-room, 0px), 100%))' });
   // The end-of-message box moves into the message (a grid would make the line's own one an empty item), as on a reply's
   // line along the top edge (.inline-reply, a flex row: round 4).
-  assert.match(css, /\n:where\(\.layout-horizontal\) \.line\.rtl > \.message::after,\n:where\(\.layout-horizontal\.align-top\) \.line\.inline-reply > \.message::after,\n\.layout-horizontal \.line::after \{\n  content: '';/);
+  assert.match(css, /\n:where\(\.layout-horizontal\) \.line\.rtl > \.message::after,\n:where\(\.layout-horizontal\.align-top\) \.line\.inline-reply > \.message::after,\n:where\(\.layout-horizontal\.name-line:not\(\.no-names\)\) \.line:not\(\.notice\) > \.message::after,\n\.layout-horizontal \.line::after \{\n  content: '';/);
   assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl::after'), { content: 'none' });
   assert.ok(css.indexOf('\n:where(.layout-horizontal) .line.rtl::after {') > css.indexOf('\n.layout-horizontal .line::after {'), 'after it');
   // Only .rtl lines and headers: every selector naming it is on such a line or header, the line's ones in a row only.
   const rtl = [];
   Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim()).forEach((s) => s.split(/,\n/).forEach((one) => { if (/\.rtl\b/.test(one)) rtl.push(one); }));
-  assert.strictEqual(rtl.length, 20);
-  rtl.forEach((one) => assert.match(one, /^(?:\.reply\.rtl\b|:where\(\.layout-(?:vertical|horizontal)[^)]*\) \.(?:reply|line)\.rtl\b)/, one));
+  // (name_line in a row, 1.6.1: a right-to-left message is a block of its own there, so its line is no grid.)
+  assert.strictEqual(rtl.length, 21);
+  rtl.forEach((one) => assert.match(one, /^(?:\.reply\.rtl\b|:where\(\.layout-(?:vertical|horizontal)(?:[^()]|\([^()]*\))*\) \.(?:reply|line)\.rtl\b)/, one));
   rtl.filter((one) => /\.line\.rtl/.test(one)).forEach((one) => assert.match(one, /^:where\(\.layout-horizontal/, one));
 });
 
@@ -2611,9 +2616,10 @@ test('overlay.css: a reply\'s line along the top edge is a flex row in which the
   assert.ok(css.indexOf('\n' + P + ' {') > css.indexOf('\n:where(.layout-horizontal) .line.rtl > .message {'));
   // The header keeps its cap (half the row or line, at most 15em) and its paint containment (the ellipsis).
   assert.match(css, /\n\.layout-horizontal:where\(\.align-top\) \.reply \{ max-width: min\(15em, var\(--reply-max\)\); \}/);
-  // Only along the top edge, only on such a line.
+  // Only along the top edge, only on such a line (with name_line, 1.6.1, a grid of its two lines: a test of its own).
+  const NL = ':where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply';
   Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim()).forEach((s) => s.split(/,\n/).forEach((one) => {
-    if (/inline-reply/.test(one)) assert.ok(one.indexOf(P) === 0, one);
+    if (/inline-reply/.test(one)) assert.ok(one.indexOf(P) === 0 || one.indexOf(NL) === 0, one);
   }));
 });
 
@@ -3039,7 +3045,10 @@ test('overlay.css: a notice\'s row_sep mark, and the space after it, are the row
     ':first-child::before,\n:where(.layout-horizontal.align-top):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice::before ' +
     '{\n  font-size: var(--row-em);\n  line-height: 0;\n}';
   assert.ok(css.indexOf(rule) > css.indexOf('.time:first-child::before {\n  font-size: 1.25em;'), 'after the time\'s rule, which it ties');
-  assert.strictEqual(Array.from(css.matchAll(/var\(--row-em\)/g)).length, 2, 'notices only: a chat line\'s em is the row\'s');
+  // Notices only (name_line's empty first line too, 1.6.1): a chat line's em is the row's.
+  const uses = Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g)).filter((r) => /var\(--row-em\)/.test(r[2]));
+  assert.strictEqual(uses.length, 3);
+  uses.forEach((r) => selectorList(r[1]).forEach((one) => assert.match(one, /\.notice\b/, one)));
 });
 
 test('overlay.css: in a row a notice\'s line keeps the row\'s size, so its text sits on the chat text\'s baseline', () => {
@@ -3056,7 +3065,8 @@ test('overlay.css: in a row a notice\'s line keeps the row\'s size, so its text 
   assert.ok(at(':where(.layout-horizontal .line.notice) > .time { font-size: calc(.8 * var(--notice-size, .85em)); }') > at('.time {'));
   // A bigger notice (notice_size above 100) along the bottom: its parts' lines never taller than a chat line, so it grows
   // upward only; along the top the row lines its messages up by their baseline.
-  assert.match(css, /\n:where\(\.layout-horizontal\.align-bottom \.line\.notice\) > \* \{\n  line-height: min\(var\(--line-height, 1\.35\) \* var\(--row-em\), var\(--line-height, 1\.35\) \* 1em\);\n\}/);
+  // With name_line (1.6.1) in either row: its text is on the line under an empty one.
+  assert.match(css, /\n:where\(\.layout-horizontal\.align-bottom \.line\.notice\) > \*,\n:where\(\.layout-horizontal\.name-line:not\(\.no-names\) \.line\.notice\) > \* \{\n  line-height: min\(var\(--line-height, 1\.35\) \* var\(--row-em\), var\(--line-height, 1\.35\) \* 1em\);\n\}/);
   assert.match(css, /\n#chat\.layout-horizontal\.align-top \.lines \{ align-items: baseline; \}/);
   // line_width: a row's notice line is in the row's em, so its cap is --line-max (as a chat line's), after the column's.
   assert.ok(at(':where(.layout-horizontal).has-maxw .line.notice { max-width: min(100%, var(--line-max, 100%)); }') >
@@ -3126,4 +3136,245 @@ test('overlay.css: in a box a highlighted or tinted line keeps the box\'s .4em s
   assert.match(tinted, /\n  border-top-left-radius: min\(var\(--bg-radius, \.3em\), \.4em\);\n  border-bottom-left-radius: min\(var\(--bg-radius, \.3em\), \.4em\);\n/);
   assert.ok(at(':where(.has-bg) .line:is(.accent') > at(':where(.has-bg) .line.mention,') &&
     at(':where(.has-bg) .line:is(.accent, .first-msg, .role-bar):where(') > at(':where(.has-bg) .line:is(.accent, .first-msg, .role-bar) {'));
+});
+
+// ---------- horizontal 1.6.1: name_line in a row, row_align, row_grow ----------
+
+test('row_align and row_grow: a class on #chat only off their defaults, in either layout; row_align never redraws a line', (t) => {
+  const s = setup(t, {});
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  const one = (k, v, more) => { s.r.setConfig(Object.assign({ [k]: v }, more)); return rootExtras(s); };
+  assert.deepStrictEqual(['left', 'center', 'right'].map((v) => one('row_align', v).cls), [['row-left'], ['row-center'], []]);
+  assert.deepStrictEqual([true, false].map((v) => one('row_grow', v).cls), [['row-grow'], []]);
+  assert.deepStrictEqual(one('row_align', 'bogus'), { cls: [], style: {} }, 'a partial cfg\'s bad value is the default');
+  // The stylesheet scopes them to a row; the classes stay across a layout switch, as text_align's and row_sep's do.
+  assert.deepStrictEqual(one('row_align', 'center', { row_grow: true, layout: 'horizontal' }), { cls: ['row-center', 'row-grow'], style: {} });
+  s.r.setConfig({ layout: 'horizontal' });
+  assert.deepStrictEqual(rootExtras(s), { cls: [], style: {} });
+  s.r.push(chat('amy', 'hi'));
+  s.r.push(resub('bob', 'still here'));
+  s.r.flush();
+  const lines = () => JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  const before = lines();
+  s.r.setConfig({ layout: 'horizontal', row_align: 'left' });
+  assert.strictEqual(lines(), before);
+});
+
+// A row as the stylesheet lays it out with row_align: W px wide, gap px between messages, each character 10 px (as
+// rowLayout). Messages that don't fill it sit at its left end, in its middle or at its right end; a full row ends at the
+// right edge, its oldest messages past the left one. .lines has no padding here. moves: every slide's start offset.
+function alignedRow(s, W, gap, align) {
+  const width = typeof W === 'function' ? W : () => W;
+  const g = gap || 0;
+  s.doc.defaultView.getComputedStyle = () => ({ paddingLeft: '0px', paddingRight: '0px', columnGap: g + 'px' });
+  s.doc.layout = (el) => {
+    const cw = width();
+    if (el === s.root || el === s.linesEl) return { left: 0, right: cw, width: cw, top: 0, bottom: 50, height: 50 };
+    const list = s.lines(), i = list.indexOf(el);
+    if (i < 0) return null;
+    const w = list.map((l) => l.textContent.length * 10);
+    const free = cw - w.reduce((a, b) => a + b, 0) - g * (w.length - 1);
+    let x = free < 0 ? free : align === 'left' ? 0 : align === 'center' ? free / 2 : free;
+    for (let j = 0; j < i; j++) x += w[j] + g;
+    return { left: x, right: x + w[i], width: w[i], top: 0, bottom: 50, height: 50 };
+  };
+  const moves = [];
+  let tf = '';
+  Object.defineProperty(s.linesEl.style, 'transform', { get: () => tf, set: (v) => { tf = v; if (v && v !== 'none') moves.push(v); } });
+  return moves;
+}
+
+// Four 100 px messages one at a time into a 300 px row, then a fifth: the slide each new one starts (how far the newest
+// old message moved left as it went in). The row fills at the third and overflows at the fourth.
+[['right', ['translateX(100px)', 'translateX(100px)', 'translateX(100px)']],
+  ['left', ['translateX(100px)']],
+  ['center', ['translateX(50px)', 'translateX(50px)', 'translateX(100px)']]].forEach(([align, want]) => {
+  test('row_align=' + align + ': a new message slides the row only as far as the old ones moved; once full, as at right', (t) => {
+    const s = setup(t, { layout: 'horizontal', animate: true, row_align: align });
+    const moves = alignedRow(s, 300, 0, align);
+    ['a', 'b', 'c', 'd'].forEach((n) => { s.r.push(chat(n, 'x'.repeat(7))); s.r.flush(); s.tick(1000); });
+    assert.deepStrictEqual(moves, want);
+    assert.strictEqual(s.lines().length, 4, 'nothing trimmed: the first message is in view at the start of the last slide');
+    // Full: the next one slides 100 px as at right, and the trim takes the message out of view at its start.
+    s.r.push(chat('e', 'x'.repeat(7)));
+    s.r.flush();
+    assert.deepStrictEqual(moves.slice(want.length), ['translateX(100px)']);
+    s.tick(1000);
+    s.r.push(chat('f', ''));
+    s.r.flush();
+    assert.deepStrictEqual(s.lines().map((l) => l.textContent.charAt(0)), ['c', 'd', 'e', 'f']);
+  });
+});
+
+// A trim that would leave the row short of the source moves the rest at once (to its left end, or half that), after
+// the slide's offset was measured with them in: at left and center, a message out of view goes only once the row still
+// fills the source without it.
+[['right', ['b', 'c'], ['c', 'd'], ['c', 'd', 'e']], ['left', ['a', 'b', 'c'], ['b', 'c', 'd'], ['c', 'd', 'e']],
+  ['center', ['a', 'b', 'c'], ['b', 'c', 'd'], ['c', 'd', 'e']]].forEach(([align, one, two, three]) => {
+  test('row_align=' + align + ': the trim takes a message out of view only while the row still fills the source without it', (t) => {
+    const s = setup(t, { layout: 'horizontal', animate: false, row_align: align });
+    alignedRow(s, 300, 20, align);
+    const first = () => s.lines().map((l) => l.textContent.charAt(0));
+    // 100 + 20 + 100 + 20 + 170 = 410 px: a at -110..-10 is out of view, b starts at 10 (at 0 once a went, left aligned).
+    s.r.push(chat('a', 'x'.repeat(7)));
+    s.r.push(chat('b', 'y'.repeat(7)));
+    s.r.push(chat('c', 'z'.repeat(14)));
+    s.r.flush();
+    assert.deepStrictEqual(first(), one);
+    // d (100 px) pushes them further out: now a leaves the row still full.
+    s.r.push(chat('d', 'w'.repeat(7)));
+    s.r.flush();
+    assert.deepStrictEqual(first(), two);
+    s.r.push(chat('e', 'v'.repeat(7)));
+    s.r.flush();
+    assert.deepStrictEqual(first(), three);
+  });
+});
+
+test('row_align=left: a kept row_sep mark goes once the row has room at its right end (its first message at the left, in view)', (t) => {
+  const row = { layout: 'horizontal', animate: false, row_sep: 'bar', row_align: 'left' };
+  const s = setup(t, row);
+  let W = 300;
+  alignedRow(s, () => W, 0, 'left');
+  s.r.push(chat('a', 'x'.repeat(7))); // 100 px
+  s.r.push(chat('b', 'y'.repeat(17))); // 200 px
+  s.r.flush();
+  const c = chat('c', 'z'.repeat(12)); // 150 px: a at -150..-50 goes (b at -50..150 still fills the row), b keeps its mark
+  s.r.push(c);
+  s.r.flush();
+  assert.deepStrictEqual(classes(s), ['line keep-sep', 'line']);
+  // A wider source that the two still fill (350 px in 320): b at -30..170, the mark stays.
+  W = 320;
+  s.r.setConfig(row);
+  s.tick(0);
+  assert.deepStrictEqual(classes(s), ['line keep-sep', 'line']);
+  // c deleted: b alone, at the left end of the row (0..200) with room after it. At right it would sit at 100..300, past
+  // the gap after the left edge; at left it sits right there, so the room decides.
+  s.r.clearMessage(c.id);
+  assert.deepStrictEqual(s.texts(), ['y'.repeat(17)]);
+  assert.deepStrictEqual(classes(s), ['line']);
+});
+
+test('row_grow: a live switch redraws a row\'s emote-only and gigantified lines from the files for their column size, and back', (t) => {
+  const tw = (name) => ({ provider: 'twitch', name: name, w: 28, h: 28,
+    urls: { 1: 'https://e/' + name + '/1', 2: 'https://e/' + name + '/2', 4: 'https://e/' + name + '/4' } });
+  const s = setup(t, { layout: 'horizontal', emote_only: 'big' }, {
+    tokensFor: (m) => (m.text === 'only' ? [{ type: 'emote', emote: tw('Kappa'), sp: false, overlays: [] }]
+      : m.text === 'giant' ? [{ type: 'text', text: 'so big', sp: false }, { type: 'emote', emote: tw('Pog'), sp: true, big: true, overlays: [] }]
+        : [{ type: 'text', text: 'hi', sp: false }, { type: 'emote', emote: tw('Kappa'), sp: true, overlays: [] }])
+  });
+  s.r.push(chat('amy', 'only'));
+  s.r.push(chat('bob', 'giant'));
+  s.r.push(chat('cy', 'words'));
+  s.r.flush();
+  const snap = () => s.lines().map((l) => [l.className].concat(l.byClass('emote-stack').map((e) => e.className + ' ' + e.firstElementChild.src)));
+  const lines = () => JSON.stringify(s.lines().map((l) => [l.className, Object.assign({}, l.style), l.textContent]));
+  const flat = [['line', 'emote-stack https://e/Kappa/2'], ['line', 'emote-stack big https://e/Pog/2'], ['line', 'emote-stack https://e/Kappa/2']];
+  assert.deepStrictEqual(snap(), flat, 'a row: everything at emote height (42 px: the 2x files), the .big class kept');
+  const before = lines();
+  s.r.setConfig({ layout: 'horizontal', emote_only: 'big', row_grow: true });
+  assert.deepStrictEqual(snap(), [['line emote-only', 'emote-stack https://e/Kappa/4'], ['line', 'emote-stack big https://e/Pog/4'],
+    ['line', 'emote-stack https://e/Kappa/2']], '84 and 126 px: the 4x files; a line with words as before');
+  assert.ok(s.root.classList.contains('row-grow'));
+  s.r.setConfig({ layout: 'horizontal', emote_only: 'big' });
+  assert.deepStrictEqual(snap(), flat);
+  assert.strictEqual(lines(), before);
+  assert.ok(!s.root.classList.contains('row-grow'));
+});
+
+test('overlay.css: name_line in a row makes each message a card of two lines, scoped to a row with names shown', () => {
+  const css = overlayCss();
+  const decls = (sel) => {
+    const m = Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g)).filter((r) => r[1].trim() === sel)[0];
+    assert.ok(m, sel);
+    const d = {};
+    m[2].split(';').forEach((x) => { const i = x.indexOf(':'); if (i > 0) d[x.slice(0, i).trim()] = x.slice(i + 1).trim(); });
+    return d;
+  };
+  const at = (s) => css.indexOf('\n' + s);
+  const NL = ':where(.layout-horizontal.name-line:not(.no-names))';
+  // The message: a box of its own on the line under the name, that never wraps (the row's white-space) and ends in an
+  // ellipsis of its own, with room at its ends for an outline, a shadow or ink past them; at the left like a column's.
+  assert.deepStrictEqual(decls(':where(.layout-horizontal.name-line:not(.no-names) .line:not(.notice)) > .message'), { display: 'block',
+    'overflow-x': 'clip', 'text-overflow': 'ellipsis', padding: '0 calc(.1em + var(--tshadow-room, 0px))',
+    margin: '0 calc(-.1em - var(--tshadow-room, 0px))', 'text-align': '-webkit-match-parent' });
+  assert.match(css, /> \.message \{\n  display: block;\n  overflow-x: clip;\n  text-overflow: ellipsis;\n[^}]*text-align: left;\n  text-align: -webkit-match-parent;\n\}/);
+  // The colon goes in either layout; the row's end-of-message box moves into the message (after the rule it ties).
+  assert.match(css, /\n:where\(\.name-line:not\(\.no-names\) \.line:not\(\.notice\)\) \.colon \{ display: none; \}/);
+  assert.deepStrictEqual(decls(NL + ' .line:not(.notice)::after'), { content: 'none' });
+  assert.ok(at(NL + ' .line:not(.notice)::after {') > at('.layout-horizontal .line::after {'));
+  // A right-to-left message is a block of its own anyway: no grid (after the grid's rule, which it ties).
+  assert.deepStrictEqual(decls(NL + ' .line.rtl'), { display: 'block' });
+  assert.ok(at(NL + ' .line.rtl {') > at(':where(.layout-horizontal) .line.rtl {'));
+  // The name line: an empty box as tall as a badge, on the badges' middle line.
+  assert.deepStrictEqual(decls(':where(.layout-horizontal.name-line:not(.no-names) .line:not(.notice)) > .name::after'),
+    { content: '\'\'', 'line-height': 'var(--badge-h, 1em)', 'vertical-align': 'middle' });
+  // A notice: an empty first line (a zero-width space) as tall as a name line, in the row's size; after the top row's
+  // notice mark rule (line-height 0), which it ties.
+  const notice = NL + ' :is(.line, .line + .line, .line.keep-sep).notice::before';
+  assert.deepStrictEqual(decls(notice), { content: '\'\\200B\'', display: 'block', 'font-size': 'var(--row-em)',
+    'line-height': 'max(var(--line-height, 1.35) * var(--row-em), var(--badge-h, 1em))' });
+  assert.ok(at(notice + ' {') > at(':where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child::before,'));
+  // Along the top edge a reply's line is a grid: the mark, the header, the time, the badges and the name on its first
+  // row (the header gives way, down to nothing; the name keeps its width), the message across the whole card under them.
+  // After the flex row's rules.
+  const G = ':where(.layout-horizontal.align-top.name-line:not(.no-names)) .line.inline-reply';
+  assert.deepStrictEqual(decls(G), { display: 'grid', 'align-items': 'baseline',
+    'grid-template-columns': 'max-content minmax(0, max-content) max-content max-content max-content minmax(0, 1fr)' });
+  assert.deepStrictEqual([G + '::before', G + ' > .reply', G + ' > .time', G + ' > .badges', G + ' > .name', G + ' > .message']
+    .map((sel) => decls(sel)['grid-area']), ['1 / 1', '1 / 2', '1 / 3', '1 / 4', '1 / 5', '2 / 1 / 3 / -1']);
+  assert.ok(at(G + ' {') > at(':where(.layout-horizontal.align-top) .line.inline-reply > .message {'));
+  // row_sep: the mark in a slot of its glyph's width, and the line under it as far in as the name after it (--sep-hang,
+  // a length worked out on #chat); without a box a barred or tinted card has its mark in its border already.
+  assert.match(css, /\n@property --sep-hang \{ syntax: '<length>'; inherits: true; initial-value: 0px; \}/);
+  assert.deepStrictEqual(decls(NL + ':where(.sep-dot, .sep-bar, .sep-diamond)'), { '--sep-hang': 'calc(var(--sep-w) + var(--row-gap, 1em))' });
+  assert.deepStrictEqual(decls(':where(.layout-horizontal.has-bg.name-line:not(.no-names)):where(.sep-dot, .sep-bar, .sep-diamond)'),
+    { '--sep-hang': 'calc(var(--sep-w) + .5em)' });
+  assert.deepStrictEqual(decls(NL + ':where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep):not(.notice) > .message'),
+    { 'margin-left': 'calc(var(--sep-hang) - .1em - var(--tshadow-room, 0px))' });
+  assert.deepStrictEqual(decls(NL + ':where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep).notice > :first-child'),
+    { 'margin-left': 'var(--sep-hang)' });
+  // Every rule naming .name-line: names shown, in a row (or the column's own two, and the colon's in either), never #chat.
+  Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim()).forEach((s) => selectorList(s).forEach((one) => {
+    if (!/name-line/.test(one)) return;
+    assert.match(one, /\.name-line:not\(\.no-names\)/, one);
+    assert.match(one, /^:where\((?:\.layout-horizontal[\w.:()-]*|\.layout-vertical\.name-line[^)]*\)?|\.name-line)/, one);
+    assert.doesNotMatch(one, /#chat/, one);
+  }));
+});
+
+test('overlay.css: row_align moves a row that isn\'t full with auto margins alone, which a full row never takes', () => {
+  const css = overlayCss();
+  const rows = Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g)).filter((r) => /row-(?:left|center)/.test(r[1]))
+    .map((r) => r[1].trim() + ' {' + r[2] + '}');
+  assert.deepStrictEqual(rows, [':where(.layout-horizontal.row-left) .line:last-child { margin-right: auto; }',
+    ':where(.layout-horizontal.row-center) .line:first-child { margin-left: auto; }',
+    ':where(.layout-horizontal.row-center) .line:last-child { margin-right: auto; }']);
+  // After `.layout-horizontal .line { margin: 0 }`, which they tie at (0,2,0); the row still packs at its end.
+  assert.ok(css.indexOf('\n:where(.layout-horizontal.row-left)') > css.indexOf('\n.layout-horizontal .line {'));
+  assert.match(css, /\n#chat\.layout-horizontal \.lines \{[^}]*justify-content: flex-end;/);
+});
+
+test('overlay.css: row_grow draws a row\'s big images at their column sizes, growing their message away from the row\'s edge', () => {
+  const css = overlayCss();
+  const at = (s) => css.indexOf('\n' + s);
+  const rules = Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g)).filter((r) => /row-grow/.test(r[1]));
+  assert.deepStrictEqual(rules.map((r) => r[1].trim()), ['.layout-horizontal:where(.row-grow) .emote-stack.big',
+    '.layout-horizontal:where(.row-grow) .gif',
+    ':where(.layout-horizontal.row-grow.align-bottom) :is(.emote-stack.big, .line.emote-only .emote-stack, .gif)',
+    ':where(.layout-horizontal.row-grow.align-top) :is(.emote-stack.big, .line.emote-only .emote-stack, .gif)']);
+  assert.strictEqual(rules[0][2].trim(), '--eh: calc(var(--emote-h, 1.75em) * 3);');
+  assert.ok(at('.layout-horizontal:where(.row-grow) .emote-stack.big') > at('.layout-horizontal .emote-stack.big'), 'after the row\'s own, which it ties');
+  assert.ok(at('.layout-horizontal:where(.row-grow) .gif') > at('.layout-horizontal .gif {'), 'after the row\'s own, which it ties');
+  // The GIF's box (reserved up front, 16:9) at gif_size's height; its margins an emote's for that height (the row's own
+  // rule with --emote-h times --gif-mul), so a 1x GIF is as the row draws it without row_grow.
+  const H = 'var(--emote-h, 1.75em) * var(--gif-mul, 3)';
+  const gif = rules[1][2].replace(/\s+/g, ' ');
+  assert.ok(gif.indexOf('width: calc(' + H + ' * 16 / 9);') >= 0 && gif.indexOf('height: calc(' + H + ');') >= 0 &&
+    gif.indexOf('max-height: calc(' + H + ');') >= 0, gif);
+  const rowGif = /\n\.layout-horizontal \.gif \{[^}]*margin: ([^;]+);/.exec(css)[1].replace(/\s+/g, ' ');
+  assert.strictEqual(/margin: ([^;]+);/.exec(gif)[1], rowGif.split('- var(--emote-h, 1.75em)').join('- ' + H));
+  assert.deepStrictEqual(rules.slice(2).map((r) => r[2].trim()), ['vertical-align: bottom;', 'vertical-align: top;']);
+  // Off (no class) the row is as before: GIFs and gigantified emotes at emote height.
+  assert.match(css, /\n\.layout-horizontal \.emote-stack\.big \{ --eh: var\(--emote-h, 1\.75em\); \}/);
 });

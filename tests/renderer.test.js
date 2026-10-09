@@ -303,6 +303,36 @@ test('modelFor: text_px, badge_size and emote_scale pick the files for the size 
   assert.deepStrictEqual(at({ text_px: 8, size: 'large' }), at({ text_px: 8 }));
 });
 
+// 1.6.1: row_grow lets a row draw emote-only messages, GIFs and gigantified emotes at their column sizes, so it fetches
+// them at those sizes too (the stylesheet draws them; nothing is ever drawn bigger than the file picked for it). Without
+// it a row is 1.6.0's: everything at emote height, from the files for that.
+test('modelFor: row_grow fetches a row\'s emote-only, gigantified and GIF images at a column\'s sizes; off, a row is as before', () => {
+  const msg = { id: 'rg', userId: '1', login: 'a', displayName: 'A' };
+  const only = () => [{ type: 'emote', emote: emote('twitch', 'Kappa'), sp: false, overlays: [emote('7tv', 'Zw', { zw: true })] }];
+  const giant = () => [{ type: 'emote', emote: emote('twitch', 'Pog'), big: true, sp: false, overlays: [] },
+    { type: 'text', text: 'wow', sp: true }];
+  const m = (cfg, items) => R.modelFor(msg, R.normalizeCfg(cfg), { kind: 'chat', items: items, dpr: 1 });
+  const row = { layout: 'horizontal' }, grow = { layout: 'horizontal', row_grow: true };
+  // Off (the default): emote_only adds nothing in a row, and the gigantified emote's file is emote height's (42 px: 2x).
+  assert.deepStrictEqual(m(Object.assign({ emote_only: 'huge' }, row), only()), m(row, only()));
+  assert.strictEqual(m(row, giant()).parts[0].url, 'https://cdn.example/Pog/2');
+  assert.strictEqual(R.sigOf(m(Object.assign({ row_grow: false }, row), giant())), R.sigOf(m(row, giant())));
+  // On: the line is .emote-only and its emotes (zero-width too) come from the files for 3x (126 px: past 4x, the largest),
+  // as in a column; the gigantified emote from its 3x file (4x); a line with words is no emote-only line.
+  const on = m(Object.assign({ emote_only: 'huge' }, grow), only());
+  assert.deepStrictEqual([on.cls, on.parts[0].url, on.parts[0].ov[0].url], ['line emote-only', 'https://cdn.example/Kappa/4',
+    'https://cdn.example/Zw/4']);
+  assert.deepStrictEqual(on, m({ emote_only: 'huge' }, only()), 'a column\'s model');
+  assert.deepStrictEqual(m(grow, giant()).parts, m({}, giant()).parts);
+  assert.strictEqual(m(Object.assign({ emote_only: 'big' }, grow), giant()).cls, 'line');
+  // emote_only=normal (the default) with row_grow: no class, the usual files, as a column.
+  assert.deepStrictEqual(m(grow, only()), m({}, only()));
+  // giant_emotes=0 still draws a gigantified emote like any other.
+  assert.deepStrictEqual(m(Object.assign({ giant_emotes: false }, grow), giant()).parts, m(Object.assign({ giant_emotes: false }, row), giant()).parts);
+  // A column never reads it.
+  assert.deepStrictEqual(m({ row_grow: true, emote_only: 'big' }, only()), m({ emote_only: 'big' }, only()));
+});
+
 test('giant_emotes=0: a gigantified emote is drawn and fetched like any other; partsFor without it is today\'s', () => {
   const big = () => [{ type: 'emote', emote: emote('twitch', 'K'), big: true, sp: false, overlays: [emote('7tv', 'Z', { zw: true })] }];
   const today = R.partsFor(big(), { px: 24, dpr: 1, gifs: true });
@@ -1407,6 +1437,11 @@ test('a GIF drawn taller than Giphy\'s 200 px file loads the original as WebP, w
   [[{ text_px: 39 }], [{ size: 'large', emote_scale: 125 }], [{ text_px: 96, gif_size: '2x' }], [{ text_px: 96 }, 2],
     [{ text_px: 96, emote_scale: 150, layout: 'horizontal' }], [{ size: 'medium', emote_scale: 200 }]]
     .forEach((c) => assert.deepStrictEqual(gif(c[0], c[1]), big, JSON.stringify(c)));
+  // 1.6.1: a row with row_grow draws a GIF at gif_size, as a column does: 39 px text at 3x takes the original, 1x keeps
+  // the 200 px file (68 px), and without row_grow a row's GIF is emote height whatever gif_size is.
+  assert.deepStrictEqual(gif({ text_px: 39, layout: 'horizontal', row_grow: true }), big);
+  assert.deepStrictEqual(gif({ text_px: 39, layout: 'horizontal', row_grow: true, gif_size: '1x' }), small);
+  assert.deepStrictEqual(gif({ text_px: 39, layout: 'horizontal', gif_size: '3x' }), small);
   // Only the known URL shape has an original to swap in; a GIF without one keeps what it has.
   const other = [{ type: 'gif', url: 'https://media.giphy.com/media/abc/200.webp', orig: 'https://i.giphy.com/abc.gif', title: 'g' }];
   assert.deepStrictEqual(gif({ text_px: 96 }, 1, other), { t: 'gif', url: other[0].url, title: 'g', orig: other[0].orig });
@@ -1588,8 +1623,12 @@ test('every live config key is handled by the renderer', () => {
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
     'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale',
     'emote_only', 'gif_size', 'name_font', 'mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color',
-    'vip_color', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll'];
+    'vip_color', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'row_align', 'row_grow'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
+  // 1.6.1: row_align is a class and what the trim and the kept row_sep marks go by, never drawn into a line; row_grow is a
+  // class and picks the files (and the emote-only class) of the lines it lets grow the row.
+  assert.ok(R.RERENDER_KEYS.indexOf('row_align') < 0);
+  assert.ok(R.RERENDER_KEYS.indexOf('row_grow') >= 0);
   // The animations time the lines (new ones, and restartFades): they never rebuild one.
   ['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].forEach((k) => assert.ok(R.RERENDER_KEYS.indexOf(k) < 0, k));
   // The highlights are line classes, so they rebuild the lines; their colors are #chat variables only.

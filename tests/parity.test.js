@@ -294,7 +294,8 @@ const PREREQ = {
   badges_chatterino: { badges: true },
   badges_homies: { badges: true },
   platform_icons: { channel: 'home', kick: 'kickname' },
-  name_line: { names: true, layout: 'vertical' },
+  // name_line: either layout since 1.6.1.
+  name_line: { names: true },
   bg_color: { bg: 40 },
   bg_shape: { bg: 40 },
   bg_width: { bg: 40, layout: 'vertical' },
@@ -307,7 +308,12 @@ const PREREQ = {
   paint_images: { paints: true },
   text_align: { layout: 'vertical' },
   row_sep: { layout: 'horizontal' },
+  // 1.6.1: a row's alignment while it isn't full, and big emotes that grow the row (the transcript's gigantified emote and
+  // emote-only lines then come from bigger files and get their class).
+  row_align: { layout: 'horizontal' },
+  row_grow: { layout: 'horizontal', emote_only: 'huge' },
   size: { text_px: 0 },
+  // emote_only, gif_size and giant_emotes: a column (or, since 1.6.1, a row with row_grow).
   emote_only: { layout: 'vertical' },
   // 40 px text: the transcript's GIF is drawn 210 px tall at 3x, past Giphy's 200 px file, so gif_size picks its file.
   gif_size: { gifs: true, layout: 'vertical', text_px: 40 },
