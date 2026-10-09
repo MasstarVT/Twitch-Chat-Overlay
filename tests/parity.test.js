@@ -33,7 +33,14 @@ const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 // - With kick_room the Kick channel lookup (sub badge images, the channel's 7TV set) is retried like every other load once
 //   it fails, where 1.5.2 asked once: both boots set kick_room, the capture's lookup always fails, and its 6 s take in
 //   the retry 3 s later, so each lists kick-lookup(kickname) twice (intake loaders).
-function withFixes(name, old) {
+// - history=N asks recent-messages for 4N+20 lines (40 at the default 5) and shows the newest N chat lines the filters let
+//   through, where 1.5.2 asked for N and showed fewer when bots, commands or notices were among them (intake loaders; the
+//   capture's 3-line history is all shown either way).
+// - With shared=0 a Shared Chat partner's line still reaches renderer.push, which refuses it (shouldShow), so the renderer
+//   knows it was said: a reply to it after a /clear keeps its header. 1.5.2 dropped it before push. The 'filtered' boot
+//   (shared=0) lists those pushes, refused (shown and showNow false), and their columns in the clear picks; taken from now
+//   here after checking each is a mirrored line the 'defaults' boot shows.
+function withFixes(name, old, now) {
   const out = plain(old);
   if (name === 'models' || name === 'dom') {
     const isDev = name === 'models' ? (x) => !!x && x.url === 'img/logos/Badge.svg' && x.title === 'MasstarVT developer'
@@ -71,7 +78,37 @@ function withFixes(name, old) {
       const at = out[b].loaders.indexOf('kick-lookup(kickname)');
       assert.ok(at >= 0 && out[b].loaders.lastIndexOf('kick-lookup(kickname)') === at, b + ': 1.5.2 looked it up once');
       out[b].loaders.splice(at, 0, 'kick-lookup(kickname)');
+      const h = out[b].loaders.indexOf('history(home,5)');
+      assert.ok(h >= 0, b + ': 1.5.2 asked for the default 5 lines');
+      out[b].loaders[h] = 'history(home,40)';
+      out[b].loaders.sort();
     });
+    assert.strictEqual(new URLSearchParams(cap.INTAKE_BOOTS.filtered).get('shared'), '0', 'filtered sets shared=0');
+    const shownAtDefaults = new Set(out.defaults.records.filter((r) => r.shown && r.msg.mirrored).map((r) => r.msg.id));
+    const f = out.filtered, fn = now.filtered;
+    const isNew = (r) => r.msg.mirrored === true && r.shown === false;
+    const added = fn.records.filter(isNew);
+    assert.ok(added.length > 0, 'intake: the transcript has Shared Chat partner lines');
+    added.forEach((r) => {
+      assert.ok(shownAtDefaults.has(r.msg.id), r.msg.id + ' is a partner line the defaults boot shows');
+      assert.strictEqual(r.showNow, false, r.msg.id);
+    });
+    assert.ok(f.records.every((r) => !isNew(r)), '1.5.2 never pushed one');
+    const records = [], picks = f.clearAllPicks.map(() => []);
+    let k = 0;
+    fn.records.forEach((r, i) => {
+      if (isNew(r)) {
+        records.push(r);
+        picks.forEach((p, j) => p.push(fn.clearAllPicks[j][i]));
+      } else {
+        records.push(f.records[k]);
+        picks.forEach((p, j) => p.push(f.clearAllPicks[j][k]));
+        k++;
+      }
+    });
+    assert.strictEqual(k, f.records.length, 'every 1.5.2 record is there, in order');
+    f.records = records;
+    f.clearAllPicks = picks;
   }
   return out;
 }
@@ -80,7 +117,7 @@ function withFixes(name, old) {
 // bug fixes above.
 function sameAsFixture(name, now) {
   assert.strictEqual(cap.toJson(fixture(name)) + '\n', fixtureText(name), 'parity-' + name + '.json reads back as written');
-  const want = withFixes(name, fixture(name));
+  const want = withFixes(name, fixture(name), plain(now));
   assert.deepStrictEqual(plain(now), want);
   assert.strictEqual(cap.toJson(now), cap.toJson(want), 'parity-' + name + '.json: same key order');
 }

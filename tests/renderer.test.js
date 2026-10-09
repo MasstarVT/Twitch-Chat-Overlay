@@ -561,7 +561,9 @@ test('DeletedIds expire after the TTL and are capped', () => {
   e.prune(1600);
   assert.strictEqual(e.has('y', 1600), false);
   assert.strictEqual(e.has('x', 1600), true);
-  assert.strictEqual(R.DELETED_TTL_MS, 600000);
+  // A day, as a ban or a clear is (it was 10 minutes, a ban or clear an hour: a later reply put the moderated text back).
+  assert.strictEqual(R.DELETED_TTL_MS, 86400000);
+  assert.strictEqual(R.CLEARED_TTL_MS, 86400000);
   assert.strictEqual(R.DELETED_CAP, 5000);
 });
 
@@ -944,6 +946,25 @@ test('links=shorten: each link as its host name, as text; what follows a link st
   assert.deepStrictEqual(R.replyModel(reply, true, true), { name: '@A', short: true });
   const m = (cfg) => R.modelFor({ login: 'b', reply: reply }, R.normalizeCfg(cfg), { kind: 'chat', items: [] }).reply.body;
   assert.deepStrictEqual([m({}), m({ links: 'hide' }), m({ links: 'shorten' })], ['look https://x.com/a', 'look https://x.com/a', 'look x.com']);
+});
+
+// links=shorten drew a link as its host, while the keyword and mention tints still read the whole link: a line tinted for
+// a word or an @name only in a path nobody sees.
+test('links=shorten: the keyword and mention tints go by the host a link is drawn as', () => {
+  const cls = (cfg, text) => R.lineClasses({ login: 'viewer', text: text }, R.normalizeCfg(cfg), 'chat', false);
+  const clip = 'look at this https://www.twitch.tv/somebody/clip/FunnyClipName';
+  assert.strictEqual(cls({ channel: 'somebody', keywords: ['clip'], links: 'shorten' }, clip), 'line', 'drawn: look at this www.twitch.tv');
+  assert.strictEqual(cls({ channel: 'somebody', keywords: ['clip'] }, clip), 'line keyword', 'links=show draws the path');
+  assert.strictEqual(cls({ keywords: ['twitch'], links: 'shorten' }, clip), 'line keyword', 'the host is drawn, and matched');
+  const yt = 'see https://www.youtube.com/@chan/videos';
+  assert.strictEqual(cls({ channel: 'chan', mentions: 'at', links: 'shorten' }, yt), 'line');
+  assert.strictEqual(cls({ channel: 'chan', mentions: 'at' }, yt), 'line mention');
+  assert.strictEqual(cls({ channel: 'chan', mentions: 'at', links: 'shorten' }, 'hi @chan https://x.com/a'), 'line mention');
+  // A reply's "@Parent" is still left out first.
+  const reply = { login: 'viewer', text: '@Bob https://x.com/clip', reply: { name: 'Bob', login: 'bob' } };
+  assert.strictEqual(R.lineClasses(reply, R.normalizeCfg({ keywords: ['clip', 'bob'], links: 'shorten' }), 'chat', false), 'line');
+  assert.strictEqual(renderer.drawnText('see https://x.com/a', { links: 'shorten' }), 'see x.com');
+  assert.strictEqual(renderer.drawnText('see https://x.com/a', { links: 'hide' }), 'see https://x.com/a');
 });
 
 test('links=shorten: an international site name in its own letters, as links=show draws it, not its xn-- form', () => {

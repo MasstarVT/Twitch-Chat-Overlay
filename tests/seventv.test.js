@@ -420,6 +420,50 @@ describe('state routing', () => {
     assert.deepEqual(calls, [['42', NEW_SET]]);
   });
 
+  // One 7TV account can own the overlay's Twitch channel and its Kick channel ('kick'). The owner mapped to one room, and
+  // user.update's connection index was ignored: every switch went to whichever room registered the owner last.
+  test('user.update goes by the connection it names: one account\'s Twitch and Kick rooms each get their own switch', () => {
+    const calls = [];
+    const state = stv.createState({ onSetSwitch: function (roomId, setId) { calls.push([roomId, setId]); } });
+    const tw = new Map(), kk = new Map();
+    state.registerChannelSet('71092938', CHANNEL_SET, tw, OWNER, 0);
+    state.registerChannelSet('kick', CHANNEL_SET, kk, OWNER, 1);
+    // A set both use: one update reaches both maps.
+    state.handleDispatch('emote_set.update', { id: CHANNEL_SET, pushed: [{ key: 'emotes', value: v3Emote('N', 'New', 0, 0) }] });
+    assert.ok(tw.has('New') && kk.has('New'));
+    const sw = (index, to) => state.handleDispatch('user.update', { id: OWNER, updated: [{ key: 'connections', index: index,
+      value: [{ key: 'emote_set_id', old_value: CHANNEL_SET, value: to }] }] });
+    sw(1, NEW_SET);
+    sw(0, OTHER_SET);
+    sw(2, PERSONAL_SET); // a connection the overlay doesn't show
+    assert.deepEqual(calls, [['kick', NEW_SET], ['71092938', OTHER_SET]]);
+    // Which room changed isn't known (an event without an index): each room not already on the new set confirms its own
+    // over REST (null), so neither takes the other's set.
+    calls.length = 0;
+    state.handleDispatch('user.update', { id: OWNER, updated: [{ key: 'connections', value: [
+      { key: 'emote_set_id', old_value: CHANNEL_SET, value: NEW_SET }] }] });
+    assert.deepEqual(calls, [['71092938', null]], 'the Kick room already switched to it');
+    // Forgetting one room leaves the other's routing.
+    state.forgetRoom('kick');
+    state.registerChannelSet('71092938', CHANNEL_SET, tw, OWNER, 0);
+    calls.length = 0;
+    sw(0, NEW_SET);
+    assert.deepEqual(calls, [['71092938', NEW_SET]]);
+  });
+
+  test('user.update: a room whose connection index isn\'t known shares its owner unsure; alone it switches as before', () => {
+    const calls = [];
+    const state = stv.createState({ onSetSwitch: function (roomId, setId) { calls.push([roomId, setId]); } });
+    state.registerChannelSet('71092938', CHANNEL_SET, new Map(), OWNER, 0);
+    state.registerChannelSet('kick', OTHER_SET, new Map(), OWNER); // loaded without it (the v4 fallback has none)
+    switchTo(state, NEW_SET);
+    assert.deepEqual(calls, [['71092938', null], ['kick', null]], 'both confirm over REST');
+    calls.length = 0;
+    state.forgetRoom('71092938');
+    switchTo(state, NEW_SET);
+    assert.deepEqual(calls, [['kick', NEW_SET]], 'the only room the owner has: as before');
+  });
+
   test('cosmetic.create adds at most CAPS.extraCosmetics unknown paints and badges', () => {
     const s = setup();
     const cap = stv.CAPS.extraCosmetics;
@@ -991,6 +1035,19 @@ describe('loaders', () => {
     assert.deepEqual(await stv._sources.channelV4('1'), { emotes: new Map(), setId: null, ownerId: OWNER });
     v3 = { status: 200, body: { data: { users: { userByConnection: null } } } };
     assert.equal(await stv._sources.channelV4('1'), null);
+  });
+
+  test('loadChannel gives the channel\'s place among its 7TV account\'s connections (connIndex), when it is listed', async (t) => {
+    const user = { id: OWNER, connections: [{ id: '71092938', platform: 'TWITCH' }, { id: '676', platform: 'KICK' }] };
+    let conns = user;
+    mockFetch(t, function (url) {
+      return { status: 200, body: { id: /kick/.test(url) ? '676' : '71092938', emote_set_id: NEW_SET, emote_set: { id: NEW_SET, emotes: [] }, user: conns } };
+    });
+    assert.deepEqual(await stv.loadChannel('676', 'kick'), { emotes: new Map(), setId: NEW_SET, ownerId: OWNER, connIndex: 1 });
+    assert.deepEqual(await stv.loadChannel('71092938'), { emotes: new Map(), setId: NEW_SET, ownerId: OWNER, connIndex: 0 });
+    // Another platform's connection with the same id is not this one; none listed gives none.
+    conns = { id: OWNER, connections: [{ id: '676', platform: 'TWITCH' }] };
+    assert.deepEqual(await stv.loadChannel('676', 'kick'), { emotes: new Map(), setId: NEW_SET, ownerId: OWNER });
   });
 
   test('an active set id whose set did not resolve is not "no set" (the shown emotes are kept)', async (t) => {

@@ -217,8 +217,8 @@ test('a Twitch /clear in a combined chat keeps the headers of Kick replies, and 
   assert.strictEqual(header('tw reply 3'), null);
 });
 
-// A deleted id is kept 10 minutes, a ban or a clear an hour: a reply line still on screen after that (a slow chat) got the
-// moderated text back in its header as soon as anything redrew it (a 7TV emote set update, a badge load).
+// A deletion, a ban and a clear are kept a day: a reply line still on screen after that got the moderated text back in its
+// header as soon as anything redrew it (a 7TV emote set update, a badge load).
 test('a reply whose quote was moderated keeps it out when its line is redrawn after the moderation has expired', (t) => {
   const s = setup(t);
   const del = chat('troll', 'DELETED WORDS');
@@ -232,7 +232,7 @@ test('a reply whose quote was moderated keeps it out when its line is redrawn af
   [del, ban, clr].forEach((m) => s.r.push(replyTo(m, 'amy', 'reply to ' + m.login)));
   s.r.flush();
   assert.deepStrictEqual(s.lines().map(replyText), [null, null, null]);
-  s.tick(2 * 3600000);
+  s.tick(25 * 3600000);
   s.r.rerender();
   assert.deepStrictEqual(s.lines().map(replyText), [null, null, null]);
   assert.ok(!/WORDS/.test(s.root.textContent));
@@ -242,14 +242,39 @@ test('a reply whose quote was moderated keeps it out when its line is redrawn af
   assert.strictEqual(replyText(s.lines()[3]), '↪ @troll: DELETED WORDS');
 });
 
-test('a chat clear is kept an hour, as a ban is', (t) => {
+// They were kept 10 minutes (a deletion) and an hour (a timeout, ban or clear): a reply that came later, from a viewer
+// replying to a deleted or greyed-out message in Chatterino, put the moderated text back on stream in its header.
+test('a deletion, a timeout or ban and a chat clear are kept a day for the reply headers of later replies', (t) => {
+  const s = setup(t, { max: 50 });
+  const del = chat('troll', 'DELETED WORDS');
+  const ban = chat('banned', 'BANNED WORDS');
+  [del, ban].forEach((m) => s.r.push(m));
+  s.r.flush();
+  s.r.clearMessage(del.id);
+  s.r.clearUser(ban.userId);
+  const late = (ms, label) => {
+    s.tick(ms);
+    s.r.push(replyTo(del, 'amy', label + ' del'));
+    s.r.push(replyTo(ban, 'amy', label + ' ban'));
+    s.r.flush();
+    return s.lines().slice(-2).map(replyText);
+  };
+  assert.deepStrictEqual(late(11 * 60000, '11 min'), [null, null]);
+  assert.deepStrictEqual(late(50 * 60000, '61 min'), [null, null]);
+  assert.deepStrictEqual(late(22 * 3600000, '23 h'), [null, null]);
+  assert.ok(!/WORDS/.test(s.root.textContent));
+  // After a day the overlay no longer knows: a reply then is drawn as it comes.
+  assert.deepStrictEqual(late(3600000, '24 h'), ['↪ @troll: DELETED WORDS', '↪ @banned: BANNED WORDS']);
+});
+
+test('a chat clear is kept a day, as a ban is', (t) => {
   const s = setup(t);
   const old = { id: 'p0', userId: 'u-x', login: 'x', displayName: 'x', text: 'before' };
   s.r.clearAll();
   s.r.push(replyTo(old, 'amy', 'one'));
   s.r.flush();
   assert.strictEqual(replyText(s.lines()[0]), null);
-  s.tick(3599000);
+  s.tick(86399000);
   s.r.push(replyTo(old, 'amy', 'two'));
   s.r.flush();
   assert.strictEqual(replyText(s.lines()[1]), null);
@@ -1523,6 +1548,102 @@ test('paint_images=static: a still rule per animated paint only while static; th
   s.r.rerender();
   assert.strictEqual(sheet().length, 4);
   assert.strictEqual(s.r.stats().paints, 3);
+});
+
+// A v3 paint's still frame is found after the paint is drawn (overlay.js asks 7TV's CDN): the renderer cached "none" for
+// good on the first answer, so the paint kept animating.
+test('paint_images=static: a still frame not known yet (undefined) is asked again, and goes in at once when found', (t) => {
+  const still = { P1: undefined, P2: undefined };
+  const s = setup(t, { paint_images: 'static' }, {
+    nameFor: (m) => ({ text: m.displayName, color: '#FFFFFF', paintId: m.login === 'amy' ? 'P1' : 'P2' }),
+    paintRule: (id) => '.painted.p-' + id + '{background-image:url("https://cdn.7tv.app/' + id + '")}',
+    paintStaticRule: (id) => still[id]
+  });
+  const sheet = () => s.doc.head.children.find((e) => e.getAttribute('data-tco') === 'paints').sheet.cssRules.slice();
+  s.r.push(chat('amy', '1'));
+  s.r.push(chat('bo', '2'));
+  s.r.flush();
+  assert.strictEqual(sheet().length, 2, 'the paints, no still rule yet');
+  const rule = '.paint-static .painted.p-P1{background-image:url("https://cdn.7tv.app/P1/1x_static.webp")}';
+  still.P1 = rule;
+  s.r.stillReady('P1');
+  assert.deepStrictEqual(sheet().slice(2), [rule], 'found: in at once, for the line already drawn');
+  s.r.stillReady('P1');
+  // P2 has none after all (null): cached, and asked no more.
+  still.P2 = null;
+  s.r.rerender(() => true);
+  s.r.setConfig({ paint_images: 'static', size: 'large' });
+  still.P2 = '.paint-static .painted.p-P2{background-image:url("https://cdn.7tv.app/late")}';
+  s.r.rerender(() => true);
+  s.r.stillReady('P2');
+  assert.deepStrictEqual(sheet().slice(2), [rule]);
+  // Not while paint_images is animated, and not for a paint not drawn.
+  s.r.setConfig({});
+  still.P3 = '.paint-static .painted.p-P3{background-image:url("https://cdn.7tv.app/x")}';
+  s.r.stillReady('P3');
+  assert.strictEqual(sheet().length, 3);
+});
+
+// The Kick chatroom the overlay found it had wrongly joined: its lines go, but nothing was moderated.
+test('drop: the lines a predicate picks go, queued or shown, without noting a clear or a deletion', (t) => {
+  const s = setup(t, { max: 20 });
+  const isKick = (m) => m.platform === 'kick';
+  const kk = chat('kk', 'wrong room', { platform: 'kick', id: 'kick:1', userId: 'kick:9' });
+  s.r.push(chat('tw', 'twitch'));
+  s.r.push(kk);
+  s.r.flush();
+  s.r.hold(true);
+  s.r.push(chat('k2', 'queued', { platform: 'kick', id: 'kick:2', userId: 'kick:8' }));
+  s.r.drop(isKick);
+  s.r.hold(false);
+  assert.deepStrictEqual(s.texts(), ['twitch']);
+  // A reply quoting a Kick message the overlay never saw keeps its header (a clear would have taken it), and the dropped id
+  // is not refused as deleted.
+  s.r.push(Object.assign(replyTo({ id: 'kick:0', userId: 'kick:7', login: 'old', displayName: 'old', text: 'older kick' }, 'ann', 'kick reply'),
+    { platform: 'kick', id: 'kick:3', userId: 'kick:6' }));
+  assert.strictEqual(s.r.push(Object.assign({}, kk)), true);
+  s.r.flush();
+  assert.deepStrictEqual(s.texts(), ['twitch', 'kick reply', 'wrong room']);
+  assert.strictEqual(replyText(s.lines()[1]), '↪ @old: older kick');
+});
+
+// History older than the lines shown is noted, not shown: a reply to it after a /clear or its author's timeout from before
+// it keeps its header.
+test('note: a message noted but not shown counts as said, after a clear and after its author\'s timeout', (t) => {
+  const s = setup(t, { max: 20 });
+  s.r.clearAll();
+  const after = chat('bob', 'said after the clear');
+  const unseen = chat('cy', 'never noted');
+  s.r.note(after);
+  s.r.clearUser('u-sam');
+  const sam = chat('sam', 'back again');
+  s.r.note(sam);
+  [after, unseen, sam].forEach((m) => s.r.push(replyTo(m, 'amy', 're ' + m.login)));
+  s.r.flush();
+  assert.deepStrictEqual(s.texts(), ['re bob', 're cy', 're sam'], 'noted messages are not shown');
+  assert.deepStrictEqual(s.lines().map(replyText), ['↪ @bob: said after the clear', null, '↪ @sam: back again']);
+});
+
+// removeLine measured the row (two layout reads) for every line a trim, the max cap or a clear took from a row with marks,
+// each after the last one's removal had dirtied the layout: ~150 ms for a 200-line backlog. Now once per batch.
+test('row_sep: a backlog trimmed from a row with marks is measured once, not once per line; the marks come out the same', (t) => {
+  const run = (sep) => {
+    const s = setup(t, { layout: 'horizontal', animate: false, row_sep: sep, max: 200 });
+    rowLayout(s, 300);
+    s.r.hold(true);
+    for (let i = 0; i < 200; i++) s.r.push(chat('a', 'x'.repeat(7))); // 100 px each: three fit
+    const before = s.doc.reads;
+    s.r.hold(false);
+    const out = { reads: s.doc.reads - before, classes: s.lines().map((l) => l.className) };
+    s.r.destroy();
+    t.mock.timers.reset();
+    return out;
+  };
+  const none = run('none'), dot = run('dot');
+  assert.deepStrictEqual(none.classes, ['line', 'line', 'line']);
+  assert.deepStrictEqual(dot.classes, ['line keep-sep', 'line', 'line'], 'the first line left keeps its mark');
+  // The trim's one measurement (the row and its last victim) and dropLoneSep's check of the kept mark: 5, not 2 per line.
+  assert.ok(dot.reads - none.reads <= 6, 'reads: ' + dot.reads + ' with marks, ' + none.reads + ' without');
 });
 
 test('overlay.css: the stage-3 rules (outline, text-only shadow, name-color bar) stay off by default and overridable', () => {

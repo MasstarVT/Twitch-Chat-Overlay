@@ -285,6 +285,24 @@ describe('fromV3', () => {
     assert.deepEqual(Object.keys(p), ['id', 'name', 'bgImage', 'bgColor', 'filter']);
   });
 
+  // paint_images=static: overlay.js asks the CDN for the file v3StillUrl names, and setStill takes it once it loads.
+  test('v3StillUrl / setStill: a v3 image paint\'s still frame beside its file, taken only once it is known to be there', () => {
+    const v3 = (url) => pc.fromV3({ id: ID, function: 'URL', image_url: url, stops: [], shadows: [] });
+    const p = v3(IMG + '1x.webp');
+    assert.equal(pc.v3StillUrl(p), IMG + '1x_static.webp');
+    assert.equal(pc.v3StillUrl(v3('https://cdn.7tv.app/paint/' + ID + '/2x.webp')), 'https://cdn.7tv.app/paint/' + ID + '/2x_static.webp');
+    ['1x_static.webp', '1x.gif', 'paint.png', '1x.webp?x=1', '5x.webp'].forEach((f) => assert.equal(pc.v3StillUrl(v3(IMG + f)), null, f));
+    assert.equal(pc.v3StillUrl(v3('https://example.com/paint/' + ID + '/1x.webp')), null, 'off the CDN (fromV3 drops it)');
+    assert.equal(pc.v3StillUrl(pc.fromV3({ id: ID, function: 'LINEAR_GRADIENT', stops: [{ at: 0, color: -1 }], shadows: [] })), null);
+    assert.equal(pc.v3StillUrl(null), null);
+    assert.equal(pc.staticRuleFor(p), null);
+    assert.equal(pc.setStill(p, 'https://cdn.7tv.app/paint/other/1x_static.webp'), false, 'only the file it named');
+    assert.equal(pc.setStill(p, IMG + '1x_static.webp'), true);
+    assert.equal(pc.staticRuleFor(p), '.paint-static .painted.p-' + ID + '{background-image:url("' + IMG + '1x_static.webp")}');
+    assert.equal(pc.v3StillUrl(p), null, 'it has one now');
+    assert.equal(pc.ruleFor(p), '.painted.p-' + ID + '{background-image:url("' + IMG + '1x.webp")}', 'the paint itself as before');
+  });
+
   test('empty stops (shadow-only paints): no gradient, shadows kept', () => {
     const p = pc.fromV3({ id: ID, function: 'LINEAR_GRADIENT', color: null, angle: 0, stops: [],
       shadows: [{ x_offset: 0, y_offset: 0, radius: 1, color: -4656385 }] });

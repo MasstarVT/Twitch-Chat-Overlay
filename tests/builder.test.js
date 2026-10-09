@@ -570,6 +570,11 @@ test('parsePasted reads overlay URLs, bare queries and settings.js', () => {
   assert.strictEqual(builder.parsePasted('forsen'), null);
   assert.strictEqual(builder.parsePasted('https://example.com/overlay.html?foo=1'), null);
   assert.strictEqual(builder.parsePasted('{"nope":1}'), null);
+
+  // A '#' typed in a value is part of it, as the overlay reads the URL (it cut the value and what came after).
+  const r4 = builder.parsePasted('https://chat.masstar.org/overlay.html?channel=xqc&text_color=#ff8800&keywords=c#,java&size=large');
+  assert.strictEqual(r4.count, 4);
+  assert.deepStrictEqual([r4.cfg.text_color, r4.cfg.keywords, r4.cfg.size], ['ff8800', ['c#', 'java'], 'large']);
 });
 
 test('parsePasted reads settings.example.js as shipped and once edited by hand', () => {

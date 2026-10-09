@@ -565,7 +565,9 @@
     if (q >= 0) search = s.slice(q + 1);
     else if (s.indexOf('=') > 0) search = s;
     else return null;
-    search = search.split('#')[0];
+    // A '#' typed in a value (text_color=#ff8800, keywords=c#) is part of it, as the overlay reads it (config.withHash).
+    var h = search.indexOf('#');
+    if (h >= 0) search = config.withHash(search.slice(0, h), search.slice(h + 1));
     var params = new URLSearchParams(search);
     // As config.parse reads a query: keys lowercased, the last value wins.
     var fromUrl = {};

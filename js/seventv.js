@@ -191,21 +191,39 @@
     return validId(oid) ? { emotes: new Map(), setId: null, ownerId: oid } : null;
   }
 
+  // Where this channel's connection is in its 7TV account's list (user.connections), or -1: a user.update names the
+  // connection whose set changed by that index (one account can hold a Twitch and a Kick connection, each with its own
+  // set).
+  function connIndexOf(r, id, platform) {
+    var conns = r.user && Array.isArray(r.user.connections) ? r.user.connections : [];
+    for (var i = 0; i < conns.length; i++) {
+      var c = conns[i];
+      if (c && util.idStr(c.id) === id && String(c.platform).toUpperCase() === platform) return i;
+    }
+    return -1;
+  }
+
   // platform: 'twitch' (default) or 'kick' (a Kick user id).
   function channelV3(id, platform) {
-    return util.fetchJson(V3 + '/users/' + (platform === 'kick' ? 'kick' : 'twitch') + '/' + id, { timeout: 20000 }).then(function (r) {
+    var plat = platform === 'kick' ? 'kick' : 'twitch';
+    return util.fetchJson(V3 + '/users/' + plat + '/' + id, { timeout: 20000 }).then(function (r) {
       if (!r || util.isNotFound(r) || !r.user) return null;
+      var out;
       if (!r.emote_set) {
         // An active set id with no set object is a glitch on 7TV's side, not "no set": fail so the
         // loader retries and falls back to v4, instead of wiping the emotes already shown.
         if (validId(util.idStr(r.emote_set_id))) throw new Error('7tv channel: active set ' + util.idStr(r.emote_set_id) + ' did not resolve');
-        return noSet(r.user.id);
+        out = noSet(r.user.id);
+      } else {
+        out = {
+          emotes: mapFrom(r.emote_set.emotes, normalizeActiveEmoteV3),
+          setId: util.idStr(r.emote_set_id || r.emote_set.id) || null,
+          ownerId: util.idStr(r.user.id) || null
+        };
       }
-      return {
-        emotes: mapFrom(r.emote_set.emotes, normalizeActiveEmoteV3),
-        setId: util.idStr(r.emote_set_id || r.emote_set.id) || null,
-        ownerId: util.idStr(r.user.id) || null
-      };
+      var at = out ? connIndexOf(r, id, plat.toUpperCase()) : -1;
+      if (at >= 0) out.connIndex = at;
+      return out;
     });
   }
 
@@ -385,28 +403,41 @@
     var extraPaints = 0, extraBadges = 0;                 // entries added by cosmetic.create
     var setRooms = new Map();                 // channel setId -> Map<roomId, emotesMap>
     var roomSet = new Map();                  // roomId -> channel setId
-    var ownerRoom = new Map();                // channel owner's 7TV id -> roomId
-    var switched = new Map();                 // ownerId -> last set id announced via onSetSwitch
+    // channel owner's 7TV id -> Map<roomId, the room's connection index in that account (-1: not known)>. One account
+    // can own two of the overlay's rooms: the Twitch channel and the Kick channel ('kick').
+    var ownerRooms = new Map();
+    var switched = new Map();                 // roomId -> last set id announced via onSetSwitch ('': none)
 
     function emit(x) { if (bus) bus.emit('changed', x); }
 
-    function registerOwner(roomId, ownerId) {
+    // A room has one owner: registering it drops it from any other owner's rooms.
+    function dropOwned(rid) {
+      ownerRooms.forEach(function (rooms, oid) {
+        if (rooms.delete(rid) && !rooms.size) ownerRooms.delete(oid);
+      });
+    }
+
+    // connIndex: the room's connection index in the owner's account (loadChannel's connIndex), when known.
+    function registerOwner(roomId, ownerId, connIndex) {
       var rid = util.idStr(roomId), oid = util.idStr(ownerId);
       if (!rid || !validId(oid)) return false;
-      ownerRoom.set(oid, rid);
+      dropOwned(rid);
+      var rooms = ownerRooms.get(oid);
+      if (!rooms) { rooms = new Map(); ownerRooms.set(oid, rooms); }
+      rooms.set(rid, typeof connIndex === 'number' && connIndex >= 0 && connIndex % 1 === 0 ? connIndex : -1);
       return true;
     }
 
     // Route emote_set.update for setId into emotesMap (the RoomContext's own Map).
     // A null setId (the channel has no active set) drops the room's old routing.
-    function registerChannelSet(roomId, setId, emotesMap, ownerId) {
+    function registerChannelSet(roomId, setId, emotesMap, ownerId, connIndex) {
       var rid = util.idStr(roomId), sid = util.idStr(setId);
-      if (ownerId !== undefined && ownerId !== null) registerOwner(rid, ownerId);
+      if (ownerId !== undefined && ownerId !== null) registerOwner(rid, ownerId, connIndex);
       if (!rid || !(emotesMap instanceof Map)) return false;
       unroute(rid);
-      // A registered set supersedes any switch still in flight for this room's owner, so a stale
-      // "last announced" entry can never suppress a later switch.
-      ownerRoom.forEach(function (r, oid) { if (r === rid) switched.delete(oid); });
+      // A registered set supersedes any switch still in flight for this room, so a stale "last announced" entry can
+      // never suppress a later switch.
+      switched.delete(rid);
       if (!validId(sid)) return false;
       roomSet.set(rid, sid);
       var rooms = setRooms.get(sid);
@@ -430,7 +461,8 @@
     function forgetRoom(roomId) {
       var rid = util.idStr(roomId);
       unroute(rid);
-      ownerRoom.forEach(function (r, oid) { if (r === rid) { ownerRoom.delete(oid); switched.delete(oid); } });
+      dropOwned(rid);
+      switched.delete(rid);
     }
 
     function mergeCatalog(cat) {
@@ -525,16 +557,54 @@
       if (changed) emit({ userId: uid });
     }
 
-    // body.updated:[{key:'connections', value:[{key:'emote_set_id', old_value, value}, {key:'emote_set', value:{id}}]}]
+    // The owner's rooms a connection change is for: the room whose connection index it names, when every room's is
+    // known (none: a connection the overlay doesn't show, such as the Kick one of a Twitch-only overlay); the only room
+    // when the owner has one; else every room, unsure.
+    function roomsFor(rooms, index) {
+      var all = [], known = true, hit = [];
+      rooms.forEach(function (ci, rid) {
+        all.push(rid);
+        if (ci < 0) known = false;
+        else if (ci === index) hit.push(rid);
+      });
+      if (known && index >= 0) return { rids: hit, sure: true };
+      return { rids: all, sure: all.length === 1 };
+    }
+
+    function announce(rid, next, cleared, sure, ownerId) {
+      // Dedupe against the last announced set while a switch is pending (so A->B->A still reaches
+      // onSetSwitch), else against the registered one.
+      var cur = switched.has(rid) ? switched.get(rid) : roomSet.get(rid);
+      if (!validId(next)) {
+        // The owner turned their set off: announce null once (the overlay confirms it with a reload).
+        if (!cleared || !cur) return;
+        switched.set(rid, '');
+        if (opts.onSetSwitch) opts.onSetSwitch(rid, null, ownerId);
+        return;
+      }
+      if (cur === next) return;
+      if (!sure) {
+        // One of the owner's rooms switched, and which isn't known: each that doesn't have the new set confirms its own
+        // over REST (null), so no room takes another connection's set.
+        switched.delete(rid);
+        if (opts.onSetSwitch) opts.onSetSwitch(rid, null, ownerId);
+        return;
+      }
+      switched.set(rid, next);
+      if (opts.onSetSwitch) opts.onSetSwitch(rid, next, ownerId);
+    }
+
+    // body.updated:[{key:'connections', index (the connection's place in the account's list), value:[{key:'emote_set_id',
+    // old_value, value}, {key:'emote_set', value:{id}}]}]
     function onUserUpdate(body) {
       var ownerId = util.idStr(body.id);
-      var rid = ownerRoom.get(ownerId);
-      if (!rid) return;
-      var byId = '', bySet = '', cleared = false;
+      var rooms = ownerRooms.get(ownerId);
+      if (!rooms || !rooms.size) return;
       var upd = Array.isArray(body.updated) ? body.updated : [];
       for (var i = 0; i < upd.length; i++) {
         var u = upd[i];
         if (!u || u.key !== 'connections' || !Array.isArray(u.value)) continue;
+        var byId = '', bySet = '', cleared = false;
         for (var j = 0; j < u.value.length; j++) {
           var v = u.value[j];
           if (!v) continue;
@@ -543,21 +613,11 @@
             if (!validId(byId) && validId(util.idStr(v.old_value))) cleared = true; // set turned off
           } else if (v.key === 'emote_set' && v.value && typeof v.value === 'object' && !bySet) bySet = util.idStr(v.value.id);
         }
+        var next = validId(byId) ? byId : bySet;
+        var index = typeof u.index === 'number' && u.index >= 0 && u.index % 1 === 0 ? u.index : -1;
+        var to = roomsFor(rooms, index);
+        for (var k = 0; k < to.rids.length; k++) announce(to.rids[k], next, cleared, to.sure, ownerId);
       }
-      var next = validId(byId) ? byId : bySet;
-      // Dedupe against the last announced set while a switch is pending (so A->B->A still reaches
-      // onSetSwitch), else against the registered one.
-      var cur = switched.has(ownerId) ? switched.get(ownerId) : roomSet.get(rid);
-      if (!validId(next)) {
-        // The owner turned their set off: announce null once (the overlay confirms it with a reload).
-        if (!cleared || !cur) return;
-        switched.set(ownerId, '');
-        if (opts.onSetSwitch) opts.onSetSwitch(rid, null, ownerId);
-        return;
-      }
-      if (cur === next) return;
-      switched.set(ownerId, next);
-      if (opts.onSetSwitch) opts.onSetSwitch(rid, next, ownerId);
     }
 
     function handleDispatch(type, body) {

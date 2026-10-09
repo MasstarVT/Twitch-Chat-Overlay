@@ -640,6 +640,44 @@ describe('parse', () => {
     assert.deepEqual(settings, { block: ['A'] });
     assert.notEqual(cfg.block, settings.block);
   });
+
+  // A '#' typed in a hand-written URL starts the fragment: the overlay read only location.search, so the value and every
+  // setting after it were lost (text_color=#ff8800&size=large gave no color and medium text).
+  test('withHash: a \'#\' typed in a URL value is read back as part of it; a real fragment after a whole value is left', () => {
+    const read = (url) => {
+      const q = url.indexOf('?'), f = url.indexOf('#', q);
+      return config.parse(config.withHash(f < 0 ? url.slice(q) : url.slice(q, f), f < 0 ? null : url.slice(f + 1)));
+    };
+    const pick = (cfg, keys) => keys.map((k) => cfg[k]);
+    assert.deepEqual(pick(read('?text_color=#ff8800&size=large'), ['text_color', 'size']), ['ff8800', 'large']);
+    assert.deepEqual(pick(read('?keywords=c#,java&fade=30'), ['keywords', 'fade']), [['c#', 'java'], 30]);
+    assert.deepEqual(pick(read('?command_prefixes=!#&max=20'), ['command_prefixes', 'max']), ['!#', 20]);
+    assert.deepEqual(pick(read('?channel=#xqc&size=large'), ['channel', 'size']), ['xqc', 'large']);
+    assert.deepEqual(pick(read('?channel=xqc&block_words=c#'), ['channel', 'block_words']), ['xqc', ['c#']], 'a # at the end');
+    assert.deepEqual(pick(read('?channel=xqc&bg_color=#123&bg=50'), ['bg_color', 'bg']), ['112233', 50]);
+    // A fragment after a whole value: the value stays what it was before the '#'.
+    assert.deepEqual(pick(read('?channel=forsen&size=small&bots=1#frag'), ['channel', 'size', 'bots']), ['forsen', 'small', true]);
+    assert.deepEqual(pick(read('?size=small#frag'), ['size']), ['small']);
+    assert.deepEqual(pick(read('?fade=30#x&max=7'), ['fade', 'max']), [30, 7]);
+    assert.deepEqual(pick(read('?kick=xqc&kick_room=668#x'), ['kick', 'kick_room']), ['xqc', '668']);
+    // No '#': the query as it was.
+    assert.equal(config.withHash('?a=1&b=2', null), 'a=1&b=2');
+    assert.equal(config.withHash('a=1&b=x%23y', undefined), 'a=1&b=x%23y');
+  });
+
+  // ?channel=xqc! was refused as if no channel were set: the overlay said to add one.
+  test('refusedChannels: a Twitch or Kick name the URL or settings.js gave that coerce refuses', () => {
+    assert.deepEqual(config.refusedChannels('?channel=xqc!&kick=bad!name'),
+      { channel: { value: 'xqc!', from: 'url' }, kick: { value: 'bad!name', from: 'url' } });
+    assert.deepEqual(config.refusedChannels('?Channel=my%20channel'), { channel: { value: 'my channel', from: 'url' }, kick: null });
+    assert.deepEqual(config.refusedChannels('?channel=xqc&kick=kickname&channel=xqc.'), { channel: { value: 'xqc.', from: 'url' }, kick: null },
+      'the last value, as parse reads it');
+    assert.deepEqual(config.refusedChannels('?channel=xqc&kick=', { channel: 'bad!', kick: 'also bad!' }), { channel: null, kick: null },
+      'settings.js values the URL overrides');
+    assert.deepEqual(config.refusedChannels('', { Channel: 'xqc.', kick: 'fine' }), { channel: { value: 'xqc.', from: 'settings' }, kick: null });
+    assert.deepEqual(config.refusedChannels('?channel=&kick=%20'), { channel: null, kick: null }, 'empty is no name');
+    assert.deepEqual(config.refusedChannels('', { channel: true, kick: ['x'] }), { channel: null, kick: null });
+  });
 });
 
 describe('toParams / toObject', () => {

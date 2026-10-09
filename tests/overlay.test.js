@@ -52,7 +52,8 @@ async function boot(t, opts) {
   const h = {
     calls: [], pushed: [], cleared: [], rerenders: 0, refilters: 0, listeners: {}, links: [],
     els: { chat: fakeEl('div'), hint: fakeEl('div'), debug: fakeEl('div') },
-    irc: null, kick: null, stv: null, bttvLive: null, lookupWants: [], clearPreds: [],
+    irc: null, kick: null, kickClients: [], stv: null, stvClients: 0, bttvLive: null, lookupWants: [], clearPreds: [],
+    refused: [], dropped: [], noted: [], redrawn: [],
     called(name) { return this.calls.filter((c) => c[0] === name); },
     feed(raw) { this.irc.receive(globalThis.TCO.ircParse.parseLine(raw)); },
     S() { return globalThis.TCO.overlay.state(); }
@@ -105,8 +106,10 @@ async function boot(t, opts) {
   // Kick's channel API is refused by default (what a CORS / Cloudflare block looks like).
   stub(T.kick, 'lookupChannel', 'kick-lookup', () => Promise.reject(new TypeError('Failed to fetch')));
   T.kick.createKick = function (o) {
-    h.kick = { opts: o, started: 0, kicks: 0, start() { this.started++; }, kick() { this.kicks++; },
+    h.kick = { opts: o, started: 0, kicks: 0, stopped: 0, start() { this.started++; }, kick() { this.kicks++; },
+      stop() { this.stopped++; },
       send(event, data) { o.onEvent(globalThis.TCO.kick.parseEvent('App\\Events\\' + event, JSON.stringify(data))); } };
+    h.kickClients.push(h.kick);
     return h.kick;
   };
   T.irc.createIrc = function (o) {
@@ -126,30 +129,47 @@ async function boot(t, opts) {
   const createState = T.seventv.createState;
   T.seventv.createState = function (o) { h.onSetSwitch = o.onSetSwitch; h.stvStateOpts = o; return createState(o); };
   T.seventv.createEventClient = function (o) {
-    h.stv = { opts: o, kicks: 0, objects: [], removed: [], addChannel() {}, start() {},
+    h.stvClients++;
+    h.stv = { opts: o, kicks: 0, objects: [], removed: [], channels: [], started: 0, addChannel(id) { this.channels.push(id); },
+      start() { this.started++; },
       addObject(type, id) { this.objects.push(id); }, removeObject(type, id) { this.removed.push(id); }, kick() { this.kicks++; } };
     return h.stv;
   };
   T.seventv.createLookup = function () { return { want(uid) { h.lookupWants.push(uid); } }; };
   T.bttv.createLive = function (o) { h.bttvLive = { opts: o, kicks: 0, start() {}, kick() { this.kicks++; } }; return h.bttvLive; };
-  T.renderer.createRenderer = function (o) {
-    h.deps = o.deps;
-    return {
-      push(m) { if (!o.deps.shouldShow(m)) return false; h.pushed.push(m); return true; },
-      clearUser(u) { h.cleared.push('user:' + u); },
-      clearAll(pred) {
-        if (pred) { h.clearPreds.push(pred); h.cleared.push('some'); } else h.cleared.push('all');
-      },
-      clearMessage(id) { h.cleared.push('msg:' + id); },
-      rerender(pred) {
-        h.rerenders++;
-        h.pushed.forEach((m) => { if (typeof pred === 'function') pred(m); });
-        return 0;
-      },
-      refilter() { h.refilters++; h.pushed = h.pushed.filter((m) => o.deps.shouldShow(m)); },
-      setConfig() {}, hold() {}, hasUser() { return false; }, stats() { return null; }
+  if (opts.realRenderer) {
+    // The real renderer, drawing into a tests/fake-dom.js document.
+    const fdoc = require('./fake-dom.js').createDocument();
+    const chat = fdoc.createElement('div');
+    fdoc.body.appendChild(chat);
+    h.els.chat = chat;
+    const real = T.renderer.createRenderer;
+    T.renderer.createRenderer = function (o) { h.deps = o.deps; return real(o); };
+    h.lines = () => chat.firstElementChild.children;
+  } else {
+    T.renderer.createRenderer = function (o) {
+      h.deps = o.deps;
+      return {
+        push(m) { if (!o.deps.shouldShow(m)) { h.refused.push(m); return false; } h.pushed.push(m); return true; },
+        note(m) { h.noted.push(m); },
+        clearUser(u) { h.cleared.push('user:' + u); },
+        clearAll(pred) {
+          if (pred) { h.clearPreds.push(pred); h.cleared.push('some'); } else h.cleared.push('all');
+        },
+        clearMessage(id) { h.cleared.push('msg:' + id); },
+        drop(pred) { h.dropped.push(pred); h.pushed = h.pushed.filter((m) => !pred(m)); },
+        rerender(pred) {
+          h.rerenders++;
+          const hit = [];
+          h.pushed.forEach((m) => { if (typeof pred === 'function' && pred(m)) hit.push(m); });
+          h.redrawn.push(hit);
+          return 0;
+        },
+        refilter() { h.refilters++; h.pushed = h.pushed.filter((m) => o.deps.shouldShow(m)); },
+        setConfig() {}, hold() {}, hasUser() { return false; }, stats() { return null; }
+      };
     };
-  };
+  }
   if (opts.stubs) opts.stubs(T, h);
   T.overlay.boot();
   await settle();
@@ -480,7 +500,8 @@ const h0 = {};
 
 test('history: on by default with 5 lines; history=0 (URL or settings.js) and demo=1 make no request', async (t) => {
   let h = await boot(t);
-  assert.deepStrictEqual(h.called('history'), [['history', 'home', 5, { timeout: 4000 }]]);
+  // 5 chat lines are shown: more raw lines are asked for (4 * 5 + 20), as notices and hidden lines count toward the limit.
+  assert.deepStrictEqual(h.called('history'), [['history', 'home', 40, { timeout: 4000 }]]);
 
   h = await boot(t, { search: '?channel=home&history=0' });
   assert.strictEqual(h.called('history').length, 0, 'history=0 never asks recent-messages');
@@ -1650,4 +1671,362 @@ test('links=shorten: Twitch and Kick text shows each link as its host, never as 
   sender(h)({ links: 'show' });
   assert.deepStrictEqual(text(h.deps.tokensFor(tw)), ['look https://clips.twitch.tv/abc?x=1 now', 'emote:Kappa']);
   assert.deepStrictEqual(text(h.deps.tokensFor(kk)), ['kick www.example.org/page', 'emote:KEKW']);
+});
+
+// ---------- overlay-runtime follow-up fixes ----------
+
+// A kick_room left from an older builder URL (it kept the old channel's id when a Kick name was retyped) or mistyped: the
+// overlay stayed in that chatroom for the whole stream, though its own lookup, which got through, named another one.
+test('Kick with kick_room: a lookup that gives the channel another chatroom moves the overlay there; the wrong room\'s lines go', async (t) => {
+  const answer = (room) => ({ chatroomId: room, userId: '', slug: 'newchan', username: 'NewChan',
+    subBadges: [{ months: 1, url: 'https://files.kick.com/sub/1' }] });
+  const look = deferred();
+  let h = await boot(t, { search: '?channel=home&kick=newchan&kick_room=111&history=0', stubs(T) { T.kick.lookupChannel = () => look.promise; } });
+  join(h);
+  const wrong = h.kick;
+  assert.strictEqual(wrong.opts.room, '111', 'kick_room is joined at once');
+  wrong.send('ChatMessageEvent', kickChat('elsewhere', 'another channel\'s chat'));
+  h.feed(priv('viewer', 'twitch line'));
+  look.resolve(answer('222'));
+  await settle();
+  assert.strictEqual(wrong.stopped, 1, 'the wrong chatroom is left');
+  assert.deepStrictEqual(h.kickClients.map((k) => k.opts.room), ['111', '222']);
+  assert.strictEqual(h.kick.started, 1);
+  assert.deepStrictEqual(texts(h), ['twitch line'], 'its lines go, Twitch\'s stay');
+  assert.deepStrictEqual(h.cleared, [], 'as lines that were never the channel\'s, not as moderation');
+  assert.strictEqual(h.S().kickSubBadges.length, 1, 'the lookup\'s extras apply as before');
+  h.kick.send('ChatMessageEvent', kickChat('fan', 'the channel\'s own chat'));
+  assert.deepStrictEqual(texts(h), ['twitch line', 'the channel\'s own chat']);
+
+  // Kick events still waiting for Twitch history go too.
+  const hist = deferred(), look2 = deferred();
+  h = await boot(t, { search: '?channel=home&kick=newchan&kick_room=111', stubs(T) {
+    T.kick.lookupChannel = () => look2.promise;
+    T.irc.loadHistory = () => hist.promise;
+  } });
+  join(h);
+  h.kick.send('ChatMessageEvent', kickChat('elsewhere', 'buffered wrong line'));
+  h.feed(priv('viewer', 'buffered twitch line'));
+  look2.resolve(answer('222'));
+  await settle();
+  h.kick.send('ChatMessageEvent', kickChat('fan', 'right line'));
+  hist.resolve([]);
+  await settle();
+  assert.deepStrictEqual(texts(h), ['buffered twitch line', 'right line']);
+
+  // The same chatroom, a channel Kick doesn't know (null) or a lookup that fails: kick_room stays.
+  for (const lookup of [() => Promise.resolve(answer('111')), () => Promise.resolve(null), () => Promise.reject(new TypeError('Failed to fetch'))]) {
+    h = await boot(t, { search: '?kick=newchan&kick_room=111', stubs(T) { T.kick.lookupChannel = lookup; } });
+    await settle();
+    assert.deepStrictEqual(h.kickClients.map((k) => [k.opts.room, k.stopped]), [['111', 0]]);
+  }
+});
+// The Kick channel's 7TV set was loaded once and never registered or subscribed: emotes added or removed mid-stream, and
+// set switches, never reached Kick lines, and a Kick-only overlay had no 7TV live socket at all.
+const STV_OWNER = '01GJTZ1F90000AXQX83F1Y559G';
+const SET_A = '01FE9DRF000009TR6M9N941CYW';
+const SET_B = '01HB76NJV00002MN9KWN633MB1';
+const SET_C = '01JJJ74CRHZBRMCM8F4Y2WBN6R';
+const stvEmote = (name) => ({ provider: '7tv', id: 'e-' + name, name: name, w: 28, h: 28, urls: { 1: 'https://cdn.7tv.app/emote/e-' + name + '/1x.webp' } });
+const v3Emote = (name) => ({ id: 'e-' + name, name: name, flags: 0, data: { id: 'e-' + name, flags: 0,
+  host: { url: '//cdn.7tv.app/emote/e-' + name, files: [{ name: '1x.webp', format: 'WEBP', width: 28, height: 28 }] } } });
+const setSwitch = (index, from, to) => ({ id: STV_OWNER, updated: [{ key: 'connections', index: index, nested: true,
+  value: [{ key: 'emote_set_id', old_value: from, value: to }] }] });
+const emoteNames = (h, m) => h.deps.tokensFor(m).filter((i) => i.type === 'emote').map((i) => i.emote.name);
+// A streamer whose Twitch and Kick channels are one 7TV account (connections 0 and 1), both on set A at first. k.kickLoads:
+// the Kick user ids its set was loaded by.
+function kick7tv(k) {
+  return function (T) {
+    T.kick.lookupChannel = () => Promise.resolve({ chatroomId: '668', userId: '77', slug: 'kickname', username: 'KickName', subBadges: [] });
+    T.seventv.loadChannel = (id, plat) => {
+      if (plat === 'kick') k.kickLoads.push(id);
+      return Promise.resolve({ emotes: new Map([['OLD', stvEmote('OLD')]]), setId: SET_A, ownerId: STV_OWNER, connIndex: plat === 'kick' ? 1 : 0 });
+    };
+    T.seventv.loadSet = (id) => Promise.resolve(new Map([['IN_' + id.slice(-4), stvEmote('IN_' + id.slice(-4))]]));
+  };
+}
+
+test('Kick 7TV: the Kick channel\'s set gets live updates (one dispatch for a set Twitch shares), Kick lines redraw, reconnects refetch', async (t) => {
+  const k = { kickLoads: [] };
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0', stubs: kick7tv(k) });
+  join(h);
+  await settle();
+  const S = h.S();
+  h.kick.send('ChatMessageEvent', kickChat('fan', 'NEW OLD'));
+  h.feed(priv('viewer', 'NEW OLD'));
+  const [kk, tw] = h.pushed;
+  assert.deepStrictEqual([emoteNames(h, kk), emoteNames(h, tw)], [['OLD'], ['OLD']]);
+  assert.deepStrictEqual(h.stv.channels, [HOME], 'one socket, following the Twitch channel');
+  assert.ok(h.stv.objects.includes(SET_A) && h.stv.objects.includes(STV_OWNER));
+  t.mock.timers.tick(200);
+  h.redrawn.length = 0;
+  // The streamer adds an emote to the set both channels use: one dispatch reaches both.
+  S.stv.handleDispatch('emote_set.update', { id: SET_A, pushed: [{ key: 'emotes', value: v3Emote('NEW') }] });
+  t.mock.timers.tick(120);
+  assert.deepStrictEqual([emoteNames(h, kk), emoteNames(h, tw)], [['NEW', 'OLD'], ['NEW', 'OLD']]);
+  assert.ok(h.redrawn.some((hit) => hit.includes(kk)), 'the Kick line already shown is redrawn');
+  // ... and removes one.
+  S.stv.handleDispatch('emote_set.update', { id: SET_A, pulled: [{ key: 'emotes', old_value: { id: 'e-OLD', name: 'OLD' } }] });
+  assert.deepStrictEqual(emoteNames(h, kk), ['NEW']);
+  // A 7TV reconnect (7TV has no resume) refetches the Kick set as well as the Twitch one.
+  assert.deepStrictEqual(k.kickLoads, ['77']);
+  h.stv.opts.onReady();
+  h.stv.opts.onReady();
+  await settle();
+  assert.deepStrictEqual(k.kickLoads, ['77', '77']);
+});
+
+test('Kick 7TV: a set switch on the streamer\'s Kick connection reaches Kick lines only, a Twitch one Twitch lines only', async (t) => {
+  const k = { kickLoads: [] };
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0', stubs: kick7tv(k) });
+  join(h);
+  await settle();
+  const S = h.S(), home = S.rooms.home();
+  S.stv.handleDispatch('user.update', setSwitch(1, SET_A, SET_B));
+  await settle();
+  assert.strictEqual(S.kickCtx.stv.setId, SET_B);
+  assert.deepStrictEqual(Array.from(S.kickStv.keys()), ['IN_' + SET_B.slice(-4)]);
+  assert.strictEqual(home.stv.setId, SET_A, 'the Twitch channel keeps its set');
+  assert.deepStrictEqual(Array.from(home.stv.emotes.keys()), ['OLD']);
+  assert.ok(h.stv.objects.includes(SET_B));
+  assert.deepStrictEqual(h.stv.removed, [], 'set A stays subscribed: the Twitch channel still uses it');
+  S.stv.handleDispatch('user.update', setSwitch(0, SET_A, SET_C));
+  await settle();
+  assert.strictEqual(home.stv.setId, SET_C);
+  assert.strictEqual(S.kickCtx.stv.setId, SET_B);
+  assert.deepStrictEqual(h.stv.removed, [SET_A], 'now nothing uses set A');
+  S.stv.handleDispatch('emote_set.update', { id: SET_B, pushed: [{ key: 'emotes', value: v3Emote('KICKNEW') }] });
+  assert.ok(S.kickStv.has('KICKNEW') && !home.stv.emotes.has('KICKNEW'));
+  // The Kick connection's set turned off: confirmed over REST, as the Twitch one's is.
+  S.stv.handleDispatch('user.update', setSwitch(1, SET_B, null));
+  await settle();
+  assert.deepStrictEqual(k.kickLoads, ['77', '77']);
+});
+
+test('Kick 7TV: a Kick-only overlay opens the 7TV live socket for the Kick channel\'s set; none with 7TV emotes off', async (t) => {
+  const k = { kickLoads: [] };
+  const h = await boot(t, { search: '?kick=kickname&kick_room=668', stubs: kick7tv(k) });
+  await settle();
+  assert.strictEqual(h.stvClients, 1);
+  assert.strictEqual(h.stv.started, 1);
+  assert.deepStrictEqual(h.stv.channels, [], 'no Twitch channel to follow');
+  assert.deepStrictEqual(h.stv.objects.slice().sort(), [STV_OWNER, SET_A].sort());
+  h.kick.send('ChatMessageEvent', kickChat('fan', 'NEW'));
+  h.S().stv.handleDispatch('emote_set.update', { id: SET_A, pushed: [{ key: 'emotes', value: v3Emote('NEW') }] });
+  assert.deepStrictEqual(emoteNames(h, h.pushed[0]), ['NEW']);
+  const g = await boot(t, { search: '?kick=kickname&kick_room=668&emotes_7tv=0', stubs: kick7tv({ kickLoads: [] }) });
+  await settle();
+  assert.strictEqual(g.stvClients, 0);
+});
+
+// user.update names the connection whose set changed by its index; the overlay sent every switch to the Twitch channel.
+test('7TV: a Twitch-only overlay leaves a set switch on the streamer\'s Kick connection alone', async (t) => {
+  const h = await boot(t, { search: '?channel=home&history=0', stubs: kick7tv({ kickLoads: [] }) });
+  join(h);
+  await settle();
+  const home = h.S().rooms.home();
+  h.S().stv.handleDispatch('user.update', setSwitch(1, SET_A, SET_B));
+  await settle();
+  assert.strictEqual(home.stv.setId, SET_A);
+  assert.deepStrictEqual(Array.from(home.stv.emotes.keys()), ['OLD']);
+  h.S().stv.handleDispatch('user.update', setSwitch(0, SET_A, SET_C));
+  await settle();
+  assert.strictEqual(home.stv.setId, SET_C);
+});
+// Turned on live in the builder's preview, paints or 7TV badges loaded the catalog but looked nobody up: the chatters on
+// screen (and anyone who spoke while it was off) stayed unpainted until they spoke again, unlike after a reload.
+test('paints or 7TV badges turned on live: the chatters already shown or seen lately are looked up, as on a reload', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=668&history=0&paints=0&badges_7tv=0' });
+  join(h);
+  h.feed(priv('amy', 'hello'));
+  h.feed(priv('bob', 'hi'));
+  h.kick.send('ChatMessageEvent', kickChat('kfan', 'kick hi'));
+  assert.deepStrictEqual(h.lookupWants, []);
+  const wanted = () => Array.from(new Set(h.lookupWants)).sort();
+  const send = sender(h);
+  send({ paints: true });
+  assert.deepStrictEqual(wanted(), ['u-amy', 'u-bob'], 'Kick chatters are never looked up by Twitch id');
+  // Off, a new chatter, then on again: everyone is asked for (the lookup skips those it knows).
+  send({ paints: false });
+  h.feed(priv('cy', 'hey'));
+  h.lookupWants.length = 0;
+  send({ paints: true });
+  assert.deepStrictEqual(wanted(), ['u-amy', 'u-bob', 'u-cy']);
+  // Another 7TV switch while one is already on looks nobody up again.
+  h.lookupWants.length = 0;
+  send({ badges_7tv: true });
+  assert.deepStrictEqual(h.lookupWants, []);
+  // 7TV badges alone do it too.
+  send({ paints: false, badges_7tv: false });
+  h.lookupWants.length = 0;
+  send({ badges_7tv: true });
+  assert.deepStrictEqual(wanted(), ['u-amy', 'u-bob', 'u-cy']);
+});
+
+// deliver dropped a partner's line before the renderer while shared=0, so after a /clear (or a timeout) the renderer never
+// knew it was said: a home viewer's reply to it lost its header, as if it were a message from before the clear.
+test('shared=0: a reply to what a Shared Chat partner says after a /clear or a timeout keeps its header', async (t) => {
+  const h = await boot(t, { search: '?channel=home&history=0&shared=0', realRenderer: true });
+  join(h);
+  t.mock.timers.tick(3000);
+  await settle();
+  const replyTo = (id, login, body, text) => priv('amy', text, { 'reply-parent-msg-id': id, 'reply-parent-user-id': 'u-' + login,
+    'reply-parent-user-login': login, 'reply-parent-display-name': login, 'reply-parent-msg-body': body.replace(/ /g, '\\s') });
+  const headers = () => {
+    t.mock.timers.tick(300);
+    return h.lines().map((l) => { const r = l.byClass('reply')[0]; return r ? r.textContent : null; });
+  };
+  h.feed(priv('pat', 'partner before', { id: 'p0', 'source-room-id': PARTNER }));
+  h.feed('@room-id=' + HOME + ' :tmi.twitch.tv CLEARCHAT #home');
+  h.feed(priv('pat', 'partner after', { id: 'p1', 'source-room-id': PARTNER }));
+  h.feed(replyTo('p1', 'pat', 'partner after', '@pat yes'));
+  h.feed(replyTo('p0', 'pat', 'partner before', '@pat no'));
+  assert.deepStrictEqual(headers(), ['↪ @pat: partner after', null], 'a message from before the clear still loses it');
+  // A partner chatter timed out, then back: a reply to what they say afterwards keeps it.
+  h.feed('@room-id=' + HOME + ';target-user-id=u-sam :tmi.twitch.tv CLEARCHAT #home :sam');
+  h.feed(priv('sam', 'sam is back', { id: 's1', 'source-room-id': PARTNER }));
+  h.feed(replyTo('s1', 'sam', 'sam is back', '@sam welcome'));
+  assert.deepStrictEqual(headers().slice(-1), ['↪ @sam: sam is back']);
+  assert.ok(h.lines().every((l) => !/partner|sam is back/.test(l.byClass('message').map((m) => m.textContent).join(''))),
+    'the partner\'s own lines still don\'t show');
+});
+
+// The overlay asked recent-messages for exactly `history` raw lines, and notices, moderation lines and hidden bots among
+// them left fewer chat lines on screen.
+test('history=N shows the newest N chat lines the filters let through; moderation in the history still applies', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const all = [
+    priv('a', 'one'), priv('b', 'two'), priv('troll', 'troll line'), priv('c', 'three'), priv('nightbot', 'Follow the stream!'),
+    usernotice('resub', 'x', 'resub text'), priv('d', 'four'), priv('x', 'deleted', { 'rm-deleted': '1' }),
+    priv('y', 'gone later', { id: 'gl' }),
+    '@room-id=' + HOME + ';target-msg-id=gl :tmi.twitch.tv CLEARMSG #home :gone later', priv('e', 'five'),
+    '@room-id=' + HOME + ';target-user-id=u-troll :tmi.twitch.tv CLEARCHAT #home :troll', priv('streamelements', 'an ad'),
+    priv('f', 'six')
+  ];
+  let asked = 0;
+  const msgs = (h) => { t.mock.timers.tick(300); return h.lines().map((l) => l.byClass('message').map((m) => m.textContent).join('')); };
+  let h = await boot(t, { realRenderer: true, stubs(T) {
+    T.irc.loadHistory = (l, limit) => { asked = limit; return Promise.resolve(all.slice(-limit).map(P)); };
+  } });
+  join(h);
+  t.mock.timers.tick(3000);
+  await settle();
+  assert.strictEqual(asked, 40);
+  assert.deepStrictEqual(msgs(h), ['two', 'three', 'four', 'five', 'six']);
+
+  // Lines older than those shown are still known as said: after a /clear in the history, a reply to one of them keeps its
+  // header, and one to a message from before the clear doesn't.
+  const hist = [priv('a', 'before the clear', { id: 'h0' }), '@room-id=' + HOME + ' :tmi.twitch.tv CLEARCHAT #home',
+    priv('b', 'after one', { id: 'h1' }), priv('c', 'after two', { id: 'h2' }), priv('d', 'after three', { id: 'h3' }),
+    priv('e', 'after four', { id: 'h4' })];
+  h = await boot(t, { search: '?channel=home&history=2', realRenderer: true, stubs(T) {
+    T.irc.loadHistory = () => Promise.resolve(hist.map(P));
+  } });
+  join(h);
+  t.mock.timers.tick(3000);
+  await settle();
+  assert.deepStrictEqual(msgs(h), ['after three', 'after four']);
+  const reply = (id, login, body) => priv('amy', 'yes', { 'reply-parent-msg-id': id, 'reply-parent-user-id': 'u-' + login,
+    'reply-parent-user-login': login, 'reply-parent-display-name': login, 'reply-parent-msg-body': body.replace(/ /g, '\\s') });
+  h.feed(reply('h1', 'b', 'after one'));
+  h.feed(reply('h0', 'a', 'before the clear'));
+  msgs(h);
+  assert.deepStrictEqual(h.lines().slice(-2).map((l) => { const r = l.byClass('reply')[0]; return r ? r.textContent : null; }),
+    ['↪ @b: after one', null]);
+});
+// links=shorten draws a link as its host, but block_words, min_length and a quoted header's check read the whole link.
+test('links=shorten: block_words, min_length and a quote\'s check go by the host a link is drawn as', async (t) => {
+  const h = await boot(t, { search: '?channel=home&history=0&links=shorten&block_words=clip,spoiler&min_length=20' });
+  const show = (text) => h.deps.shouldShow(chatMsg(priv('viewer', text)));
+  const clip = 'look at this https://www.twitch.tv/somebody/clip/FunnyClipName';
+  const slug = 'https://clips.twitch.tv/LongClipSlug'; // drawn as clips.twitch.tv: 15 characters
+  assert.deepStrictEqual([show(clip), show(slug), show('a clip here, long enough to show')], [true, false, false]);
+  assert.strictEqual(h.deps.quoteHidden({ login: 'x', body: 'see https://x.com/spoiler' }), false, 'the header draws x.com');
+  assert.strictEqual(h.deps.quoteHidden({ login: 'x', body: 'spoiler alert' }), true);
+  // links=show: the whole link is drawn, matched and counted.
+  sender(h)({ links: 'show' });
+  assert.deepStrictEqual([show(clip), show(slug)], [false, true]);
+  assert.strictEqual(h.deps.quoteHidden({ login: 'x', body: 'see https://x.com/spoiler' }), true);
+});
+
+// paint_images=static never stilled a paint in 7TV's older v3 format: it names one image and not whether it is animated.
+test('paint_images=static: a v3 image paint\'s still frame is asked for once, and used when it loads; a still paint is left', async (t) => {
+  const probes = [];
+  globalThis.Image = function () { probes.push(this); };
+  t.after(() => { delete globalThis.Image; });
+  const h = await boot(t, { search: '?channel=home&history=0&paint_images=static' });
+  const S = h.S(), pc = globalThis.TCO.paintCss;
+  const base = 'https://cdn.7tv.app/paint/01FQB6K5T0000BDD0YMN21KEXX/layer/01JAMR1DWJ14HBYADTC6Q634WR/';
+  const v3 = (id) => pc.fromV3({ id: id, function: 'URL', image_url: base + '1x.webp', stops: [], shadows: [] });
+  S.stv.paints.set('ANIM', v3('ANIM'));
+  S.stv.paints.set('STILL', v3('STILL'));
+  const ready = [];
+  S.renderer.stillReady = (id) => ready.push(id);
+  assert.strictEqual(h.deps.paintStaticRule('ANIM'), undefined, 'not known yet');
+  assert.strictEqual(h.deps.paintStaticRule('ANIM'), undefined);
+  assert.strictEqual(h.deps.paintStaticRule('STILL'), undefined);
+  assert.deepStrictEqual(probes.map((p) => p.src), [base + '1x_static.webp', base + '1x_static.webp'], 'once per paint');
+  probes[0].onload();
+  probes[1].onerror(); // 7TV keeps no still frame beside a still image
+  assert.deepStrictEqual(ready, ['ANIM']);
+  assert.strictEqual(h.deps.paintStaticRule('ANIM'),
+    '.paint-static .painted.p-ANIM{background-image:url("' + base + '1x_static.webp")}');
+  assert.strictEqual(h.deps.paintStaticRule('STILL'), null);
+  // A gradient has nothing to still: nothing is asked for.
+  S.stv.paints.set('GRAD', pc.fromV3({ id: 'GRAD', function: 'LINEAR_GRADIENT', stops: [{ at: 0, color: -1 }], shadows: [] }));
+  assert.strictEqual(h.deps.paintStaticRule('GRAD'), null);
+  assert.strictEqual(probes.length, 2);
+});
+
+// A '#' typed in a hand-written URL started the fragment: that value and every setting after it were lost.
+test('a \'#\' typed in an overlay URL value is part of it, and the settings after it are read', async (t) => {
+  const run = async (href) => {
+    const q = href.indexOf('?'), f = href.indexOf('#', q);
+    const h = await boot(t, { search: f < 0 ? href.slice(q) : href.slice(q, f), stubs() { globalThis.location.href = href; } });
+    return h.S().cfg;
+  };
+  const at = 'https://chat.masstar.org/overlay.html';
+  let c = await run(at + '?channel=home&text_color=#ff8800&size=large');
+  assert.deepStrictEqual([c.text_color, c.size], ['ff8800', 'large']);
+  c = await run(at + '?channel=home&keywords=c#,java&fade=30');
+  assert.deepStrictEqual([c.keywords, c.fade], [['c#', 'java'], 30]);
+  c = await run(at + '?channel=home&command_prefixes=!#&max=20');
+  assert.deepStrictEqual([c.command_prefixes, c.max], ['!#', 20]);
+  c = await run(at + '?channel=#xqc&size=large');
+  assert.deepStrictEqual([c.channel, c.size], ['xqc', 'large']);
+  c = await run(at + '?channel=home&block_words=c#');
+  assert.deepStrictEqual(c.block_words, ['c#'], 'a # at the very end too');
+  c = await run(at + '?channel=home&size=small&bots=1#frag');
+  assert.deepStrictEqual([c.size, c.bots], ['small', true], 'a real fragment after a whole value leaves it');
+});
+
+// ?channel=xqc! (or 'xqc.', 'my channel', kick=bad!name) was refused as if no channel were set: the hint said to add one.
+test('an invalid channel or Kick name says so, also while the other platform\'s chat loads', async (t) => {
+  let h = await boot(t, { search: '?channel=xqc!' });
+  assert.strictEqual(h.els.hint.hidden, false);
+  assert.strictEqual(h.els.hint.children[0].textContent,
+    'Twitch channel "xqc!" in the overlay URL isn\'t a valid name: use letters, numbers and _ only.');
+  assert.strictEqual(h.calls.length, 0, 'nothing loads');
+  h = await boot(t, { search: '?kick=bad!name' });
+  assert.strictEqual(h.els.hint.children[0].textContent,
+    'Kick channel "bad!name" in the overlay URL isn\'t a valid name: use letters, numbers, _ and - only.');
+  // The other platform's chat loads, and the hint stays (a join doesn't clear it).
+  h = await boot(t, { search: '?channel=my%20channel&kick=kickname&kick_room=668' });
+  assert.ok(h.kick, 'Kick chat loads');
+  h.kick.opts.onStatus('joined');
+  assert.strictEqual(h.els.hint.hidden, false);
+  assert.match(h.els.hint.children[0].textContent, /^Twitch channel "my channel" in the overlay URL/);
+  h = await boot(t, { search: '?channel=home&kick=bad!name' });
+  join(h);
+  assert.strictEqual(h.els.hint.hidden, false);
+  assert.match(h.els.hint.children[0].textContent, /^Kick channel "bad!name"/);
+  // No channel at all, and a valid one: as before.
+  h = await boot(t, { search: '' });
+  assert.match(h.els.hint.children[0].textContent, /^No channel set\./);
+  h = await boot(t, { search: '?channel=home' });
+  join(h);
+  assert.strictEqual(h.els.hint.hidden, true);
+  // settings.js, said as such (last: boot() leaves TCO_SETTINGS in place until the test ends).
+  h = await boot(t, { search: '', settings: { channel: 'xqc.' } });
+  assert.match(h.els.hint.children[0].textContent, /^Twitch channel "xqc\." in settings\.js isn't a valid name/);
 });

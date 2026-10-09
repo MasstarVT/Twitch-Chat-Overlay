@@ -42,9 +42,12 @@
   var FLUSH_FALLBACK_MS = 250;
   var FLUSH_GAP_MS = 100;     // busy chat: at most one flush (layout + paint) per this many ms
   var SWEEP_MS = 1000;        // fade safety sweep, in case animationend never fires
-  var DELETED_TTL_MS = 600000;
+  // Moderation is kept for reply headers about as long as a stream lasts (a reply can come long after: Chatterino lets a
+  // viewer reply to a deleted or greyed-out message), the caps bounding the memory: deleted messages, and timed-out /
+  // banned users and chat clears, whose earlier messages a reply then quotes without its header.
+  var DELETED_TTL_MS = 86400000;
   var DELETED_CAP = 5000;
-  var CLEARED_TTL_MS = 3600000; // timed-out / banned users: replies quoting their earlier messages lose the header
+  var CLEARED_TTL_MS = 86400000;
   var CLEARED_CAP = 1000;
   var MAX_CLEARS = 8;           // chat clears kept for reply headers (one per platform is the usual most)
   var MAX_IMAGES = 200;       // emote images per message (base + overlays); the rest render as their names
@@ -677,30 +680,35 @@
     return m;
   }
 
-  // A chat line that mentions the channel: its name in the text (as drawn: visibleText), or a reply to the channel. The
-  // channel's own lines don't count (on Twitch its login, on Kick its slug).
-  function mentionsChannel(msg, m) {
+  // A chat line that mentions the channel: its name in the text (as drawn: visibleText, and drawnText's links), or a reply
+  // to the channel. The channel's own lines don't count (on Twitch its login, on Kick its slug).
+  function mentionsChannel(msg, m, cfg) {
     var kick = msg.platform === 'kick';
     var login = typeof msg.login === 'string' ? msg.login.toLowerCase() : '';
     if (kick ? m.kickKey && slugKey(login) === m.kickKey : m.channel && login === m.channel) return false;
     var to = msg.reply && typeof msg.reply === 'object' && typeof msg.reply.login === 'string' ? msg.reply.login.toLowerCase() : '';
     if (to && (kick ? m.kickKey && slugKey(to) === m.kickKey : m.channel && to === m.channel)) return true;
-    return typeof msg.text === 'string' && m.mention.test(visibleText(msg.text));
+    return typeof msg.text === 'string' && m.mention.test(visibleText(drawnText(msg.text, cfg)));
   }
+
+  // links=shorten: a text with each link as the host name it is drawn as (overlay.js tokensFor shortens the drawn text so),
+  // so the keywords, mentions, block_words and min_length match and count what is seen, not a path that isn't drawn.
+  function drawnText(text, cfg) { return cfg && cfg.links === 'shorten' ? shortenLinks(text) : text; }
 
   // A chat line's text as it is drawn, for the keywords: a Twitch reply without its leading "@Parent" while replies are on
   // (overlay.js tokensFor leaves it out with tokenizer.stripReplyPrefix, whose rule this is; with replies=0 it is drawn,
-  // and matched); a Kick line as Kick sends it. overlay.js matches block_words against the same text (shownText).
+  // and matched); a Kick line as Kick sends it; links as drawnText draws them. overlay.js matches block_words against
+  // the same text (shownText).
   function shownText(msg, cfg) {
     var t = msg.text, r = msg.reply;
-    if (cfg.replies === false || msg.platform === 'kick' || !r || typeof r !== 'object' || t.charAt(0) !== '@') return t;
+    if (cfg.replies === false || msg.platform === 'kick' || !r || typeof r !== 'object' || t.charAt(0) !== '@') return drawnText(t, cfg);
     var low = t.toLowerCase(), names = [r.name, r.login];
     for (var i = 0; i < names.length; i++) {
       if (!names[i]) continue;
       var n = '@' + String(names[i]).toLowerCase();
-      if (low.indexOf(n) === 0 && (low.length === n.length || low.charAt(n.length) === ' ')) return t.slice(n.length).replace(/^ /, '');
+      if (low.indexOf(n) === 0 && (low.length === n.length || low.charAt(n.length) === ' ')) return drawnText(t.slice(n.length).replace(/^ /, ''), cfg);
     }
-    return t;
+    return drawnText(t, cfg);
   }
 
   // The text (as drawn: visibleText) has a keyword (a pattern of keywords folded by foldDottedI): as it is, or with a
@@ -742,7 +750,7 @@
   function highlightClasses(msg, cfg, highlighted) {
     var out = [], m = matchersFor(cfg);
     var tint = highlighted ? 'highlight' : '';
-    if (!tint && m.mention && mentionsChannel(msg, m)) tint = 'mention';
+    if (!tint && m.mention && mentionsChannel(msg, m, cfg)) tint = 'mention';
     if (!tint && m.keyword && typeof msg.text === 'string' && hasKeyword(shownText(msg, cfg), m.keyword)) tint = 'keyword';
     if (!tint && m.users && typeof msg.login === 'string' && m.users[msg.login.toLowerCase()] === 1) tint = 'user-hl';
     if (tint && !highlighted) out.push(tint);
@@ -1162,7 +1170,7 @@
     var clears = [];
     var heard = new Map();
     // Messages whose reply quote was found moderated: it stays out for good, also when the line is redrawn after the
-    // deletion, ban or clear has expired from the lists above (a 7TV emote set update an hour later redraws it).
+    // deletion, ban or clear has left the lists above (expired, or pushed out by their caps in a busy chat).
     var goneQuotes = new WeakSet();
     var byId = new Map();        // msg id / source id -> line
     var byUser = new Map();      // user id -> Set<line>
@@ -1259,6 +1267,9 @@
     function ensureStill(id) {
       if (stillState.has(id)) return;
       var rule = callDep('paintStaticRule', id);
+      // undefined: not known yet (overlay.js is looking for a v3 paint's still frame): asked again on the next render, or
+      // at once when it is found (stillReady).
+      if (rule === undefined && typeof deps.paintStaticRule === 'function') return;
       var sheet = typeof rule === 'string' && rule ? paintSheet() : null;
       if (!sheet) { stillState.set(id, false); return; }
       try {
@@ -1550,10 +1561,11 @@
     // row_sep: a line's mark, and the space after it, is drawn only after another line (.line + .line). When the first
     // line of a row leaves while out of view past the left edge (trimmed, or its fade ran out there), the line after it
     // would lose them in view, its box narrowing at once: it keeps them instead (.keep-sep, put back on a rerender). A
-    // first line that leaves in view takes the mark after it along, as before.
-    function keepSepAfter(line) {
+    // first line that leaves in view takes the mark after it along, as before. leading: line is the last of a run of
+    // lines leaving together from the row's start (removeLines), so the line after it is the new first.
+    function keepSepAfter(line, leading) {
       var next = line.nextElementSibling;
-      if (!next || line !== linesEl.firstElementChild || !rowMarks(cfg)) return;
+      if (!next || !(leading || line === linesEl.firstElementChild) || !rowMarks(cfg)) return;
       var nrec = recs.get(next);
       if (!nrec || nrec.keepSep) return;
       var view = rootEl.getBoundingClientRect();
@@ -1583,12 +1595,12 @@
       rec.keepSep = false;
       line.classList.remove('keep-sep');
     }
-    // The single place a line leaves the DOM; clears every index.
-    function removeLine(line) {
+    // The single place a line leaves the DOM; clears every index. batch: removeLines has done keepSepAfter's part.
+    function removeLine(line, batch) {
       if (!line) return;
       var rec = recs.get(line);
       if (rec) {
-        keepSepAfter(line);
+        if (!batch) keepSepAfter(line);
         for (var i = 0; i < rec.ids.length; i++) {
           if (byId.get(rec.ids[i]) === line) byId.delete(rec.ids[i]);
         }
@@ -1602,6 +1614,18 @@
         recs.delete(line);
       }
       detach(line);
+    }
+    // Several lines at once (a trim, the max cap, faded lines, a filter, a clear): what removeLine one by one would leave,
+    // with keepSepAfter's measurement done once, on the last of the lines leaving from the row's start, before any goes.
+    // One by one, each removal after the first forced a layout of the whole row (a 200-line backlog: ~150 ms).
+    function removeLines(list) {
+      if (!list.length) return;
+      if (rowMarks(cfg)) {
+        var gone = new Set(list), last = null;
+        for (var l = linesEl.firstElementChild; l && gone.has(l); l = l.nextElementSibling) last = l;
+        if (last) keepSepAfter(last, true);
+      }
+      for (var i = 0; i < list.length; i++) removeLine(list[i], true);
     }
 
     // A notice renders as a .notice line plus (when the user wrote something) a chat line under it.
@@ -1668,14 +1692,16 @@
       }
       if (groups <= cfg.max) return false;
       var top = newestFirst(cfg);
-      for (; groups > cfg.max; groups--) {
-        var edge = top ? linesEl.lastElementChild : linesEl.firstElementChild;
-        var gid = gidOf(edge);
+      // From the oldest end, whole groups at a time.
+      var kids = children(), victims = [], step = top ? -1 : 1, at = top ? kids.length - 1 : 0;
+      for (; groups > cfg.max && kids[at]; groups--) {
+        var gid = gidOf(kids[at]);
         do {
-          removeLine(edge);
-          edge = top ? linesEl.lastElementChild : linesEl.firstElementChild;
-        } while (edge && gid !== null && gidOf(edge) === gid);
+          victims.push(kids[at]);
+          at += step;
+        } while (kids[at] && gid !== null && gidOf(kids[at]) === gid);
       }
+      removeLines(victims);
       return true;
     }
 
@@ -1687,7 +1713,7 @@
         var rec = recs.get(line);
         if (rec && now - rec.born >= limit) dead.push(line);
       }
-      for (var i = 0; i < dead.length; i++) removeLine(dead[i]);
+      removeLines(dead);
       return dead.length > 0;
     }
 
@@ -1728,7 +1754,8 @@
         var top = newestFirst(cfg);
         var victims = [];
         for (var i = 0; i < cnt; i++) victims.push(top ? kids[n - 1 - i] : kids[i]);
-        for (var j = 0; j < victims.length; j++) removeLine(victims[j]);
+        // Measured just now, nothing changed since: removeLines' one measurement costs no layout.
+        removeLines(victims);
       }
       // Every flush, and every resize (a wider source moves the row right): a kept mark that is no longer kept for anything.
       dropLoneSep();
@@ -1837,15 +1864,16 @@
 
     function sweepFilters() {
       if (typeof deps.shouldShow !== 'function') return;
-      var list = children(), notices = false;
+      var list = children(), notices = false, out = [];
       for (var i = 0; i < list.length; i++) {
         var rec = recs.get(list[i]);
         // Each line by its own message: a resub's text line is a chat message (see buildGroup).
         if (rec && !showable(rec.msg)) {
           if (rec.kind === 'notice') notices = true;
-          removeLine(list[i]);
+          out.push(list[i]);
         }
       }
+      removeLines(out);
       queue.filter(function (en) { return showable(en.msg); });
       // A resub's text line left without its notice shows the time itself now (timestamps; see noticeDrawn).
       if (notices && cfg && cfg.timestamps !== 'off') rerender(function (m) { return m.noticeId !== undefined; });
@@ -2121,17 +2149,21 @@
       scheduleTrim();
     }
 
-    // ----- public API -----
-    function push(msg) {
-      if (destroyed || !msg || typeof msg !== 'object') return false;
-      var now = Date.now();
-      var id = util.idStr(msg.id), sid = util.idStr(msg.sourceId);
-      // After a chat clear: what is said from now on is newer than it (clearedBefore), shown or not.
+    // After a chat clear: what is said from now on is newer than it (clearedBefore), shown or not.
+    function heardNow(id, sid, now) {
       if (clears.length) pruneClears(now);
       if (clears.length) {
         hear(id);
         if (sid !== id) hear(sid);
       }
+    }
+
+    // ----- public API -----
+    function push(msg) {
+      if (destroyed || !msg || typeof msg !== 'object') return false;
+      var now = Date.now();
+      var id = util.idStr(msg.id), sid = util.idStr(msg.sourceId);
+      heardNow(id, sid, now);
       if (id) {
         if (deleted.has(id, now) || byId.has(id)) return false;
         if (queue.some(function (en) { return util.idStr(en.msg.id) === id; })) return false;
@@ -2149,14 +2181,23 @@
       return true;
     }
 
+    // A message that was said but is not to be shown (history older than the lines shown), noted as push notes one: a
+    // clear or timeout from before it doesn't take the header off a reply quoting it.
+    function note(msg) {
+      if (destroyed || !msg || typeof msg !== 'object') return;
+      var now = Date.now();
+      var id = util.idStr(msg.id), uid = util.idStr(msg.userId);
+      heardNow(id, util.idStr(msg.sourceId), now);
+      if (id && uid && cleared.has(uid, now)) spoke.add(id, now, ++mseq);
+    }
+
     function clearUser(userId) {
       var uid = util.idStr(userId);
       if (!uid || destroyed) return;
       cleared.add(uid, Date.now(), ++mseq);
       queue.filter(function (en) { return util.idStr(en.msg.userId) !== uid; });
       var set = byUser.get(uid);
-      var list = set ? Array.from(set) : [];
-      for (var i = 0; i < list.length; i++) removeLine(list[i]);
+      removeLines(set ? Array.from(set) : []);
       // Other people's replies quoting this user lose the header (see replyGone).
       rerenderReplies(function (r) { return util.idStr(r.userId) === uid; });
       // A row moves right when newer lines go (no resize to trim on): in the same frame, not one later.
@@ -2198,13 +2239,15 @@
           forget(en.msg);
           return false;
         });
+        var out = [];
         for (i = 0; i < list.length; i++) {
           rec = recs.get(list[i]);
           if (!rec || !covers(pred, rec.src || rec.msg)) continue;
           forget(rec.msg);
           if (rec.src) forget(rec.src);
-          removeLine(list[i]);
+          out.push(list[i]);
         }
+        removeLines(out);
         dropLoneSep();
         return;
       }
@@ -2223,6 +2266,27 @@
       if (glideOf(cfg)) stopGlide();
       else clearSlide();
       linesEl.textContent = '';
+    }
+
+    // A paint's still frame that deps.paintStaticRule didn't know yet (undefined) is known now: its rule goes in at once,
+    // for the lines already drawn with the paint (the rule is a class rule, so they need no redraw).
+    function stillReady(id) {
+      if (destroyed || !cfg || cfg.paint_images !== 'static' || paintState.get(id) !== true) return;
+      ensureStill(id);
+    }
+
+    // The queued and on-screen lines pred(msg) picks go, as lines that should never have come (the overlay found it had
+    // joined the wrong Kick chatroom), not as moderation: no clear or deletion is noted, so replies keep their headers.
+    function drop(pred) {
+      if (destroyed || typeof pred !== 'function') return;
+      queue.filter(function (en) { return !covers(pred, en.msg); });
+      var list = children(), out = [];
+      for (var i = 0; i < list.length; i++) {
+        var rec = recs.get(list[i]);
+        if (rec && covers(pred, rec.src || rec.msg)) out.push(list[i]);
+      }
+      removeLines(out);
+      dropLoneSep();
     }
 
     // Rebuild the content of on-screen lines where pred(msg) is true (all lines without pred).
@@ -2309,9 +2373,12 @@
 
     return {
       push: push,
+      note: note,
       clearUser: clearUser,
       clearMessage: clearMessage,
       clearAll: clearAll,
+      drop: drop,
+      stillReady: stillReady,
       rerender: rerender,
       setConfig: setConfig,
       hold: hold,
@@ -2339,6 +2406,7 @@
     hasLink: hasLink,
     shortenLinks: shortenLinks,
     shortenItems: shortenItems,
+    drawnText: drawnText,
     _internal: {
       FONT_PX: FONT_PX,
       EMOTE_EM: EMOTE_EM,

@@ -418,20 +418,66 @@
     return cfg;
   }
 
-  // search: URLSearchParams | string ; settings: window.TCO_SETTINGS (optional)
-  // Precedence: defaults < settings.js < URL params.
-  function parse(search, settings) {
-    var cfg = defaults();
-    applyObject(cfg, settings);
-    var setKick = cfg.kick;
+  // The settings a query names: keys lowercased, the last value wins, own keys only ('__proto__', 'constructor' aren't
+  // settings).
+  function urlValues(search) {
     var params = typeof search === 'string' || search === undefined || search === null
       ? new URLSearchParams(search || '')
       : search;
     var fromUrl = {};
     params.forEach(function (value, key) {
       var k = String(key).toLowerCase();
-      if (own(SPEC, k)) fromUrl[k] = value; // last value wins; own keys only ('__proto__', 'constructor' aren't settings)
+      if (own(SPEC, k)) fromUrl[k] = value;
     });
+    return fromUrl;
+  }
+
+  // A hand-written URL's query with a '#' in it read back as part of a value. search: the part between '?' and the first
+  // '#'; hash: the part after that '#' (null when there is none). A '#' typed in a value (text_color=#ff8800, keywords=c#,
+  // channel=#xqc) starts the URL's fragment, which cut that value and every setting after it. overlay.html uses no
+  // fragment, so it goes back on as '%23' + itself; only where that spoils the value the '#' cut (a real fragment after a
+  // whole value, as in 'bots=1#top') is that value kept as it was before the '#'. Returns the query, without the '?'.
+  function withHash(search, hash) {
+    var q = String(search || '').replace(/^\?/, '');
+    if (hash === null || hash === undefined) return q;
+    var before = [], joined = [];
+    new URLSearchParams(q).forEach(function (v, k) { before.push([k, v]); });
+    new URLSearchParams(q + '%23' + String(hash).replace(/^#/, '')).forEach(function (v, k) { joined.push([k, v]); });
+    var i = before.length - 1, cut = joined[i];
+    if (i >= 0 && cut && cut[0] === before[i][0] && cut[1] !== before[i][1]) {
+      var k = String(cut[0]).toLowerCase();
+      if (own(SPEC, k) && coerce(k, cut[1]) === undefined) cut[1] = before[i][1];
+    }
+    var out = new URLSearchParams();
+    for (var j = 0; j < joined.length; j++) out.append(joined[j][0], joined[j][1]);
+    return out.toString();
+  }
+
+  // The Twitch channel and Kick channel the URL or settings.js named with a value coerce refuses ('xqc!', 'my channel'):
+  // { channel, kick }, each null or { value (as written, trimmed), from: 'url' | 'settings' }. A URL key is read as parse
+  // reads it; a settings.js one only when the URL doesn't give that key, as parse lets the URL's win.
+  function refusedChannels(search, settings) {
+    var fromUrl = urlValues(search), out = { channel: null, kick: null };
+    ['channel', 'kick'].forEach(function (key) {
+      var v, from = 'url';
+      if (own(fromUrl, key)) v = fromUrl[key];
+      else if (settings && typeof settings === 'object') {
+        from = 'settings';
+        Object.keys(settings).forEach(function (sk) { if (sk.toLowerCase() === key) v = settings[sk]; });
+      }
+      if ((typeof v !== 'string' && typeof v !== 'number') || String(v).trim() === '' || coerce(key, v) !== undefined) return;
+      out[key] = { value: String(v).trim(), from: from };
+    });
+    return out;
+  }
+
+  // search: URLSearchParams | string ; settings: window.TCO_SETTINGS (optional)
+  // Precedence: defaults < settings.js < URL params.
+  function parse(search, settings) {
+    var cfg = defaults();
+    applyObject(cfg, settings);
+    var setKick = cfg.kick;
+    var fromUrl = urlValues(search);
     applyObject(cfg, fromUrl);
     // An explicit empty channel= clears a settings.js channel (an invalid non-empty one still falls back).
     if (own(fromUrl, 'channel') && String(fromUrl.channel).trim() === '') cfg.channel = '';
@@ -528,6 +574,8 @@
     WORD_SEP: WORD_SEP,
     defaults: defaults,
     parse: parse,
+    withHash: withHash,
+    refusedChannels: refusedChannels,
     applyObject: applyObject,
     coerce: coerce,
     isDefault: isDefault,

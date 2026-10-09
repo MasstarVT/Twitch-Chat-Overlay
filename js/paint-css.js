@@ -153,9 +153,8 @@
   }
 
   // v3: {id, name, function, color, angle, shape, image_url, repeat, stops:[{at, color:int}], shadows:[{x_offset, y_offset, radius, color:int}]}
-  // An image paint names one file and doesn't say whether it is animated. 7TV's CDN keeps a <n>x_static.webp only
-  // beside an animated one, so guessing that name would blank a still paint: a v3 paint has no bgImageStatic, and
-  // paint_images=static leaves it as it is.
+  // An image paint names one file and doesn't say whether it is animated, so it has no bgImageStatic: v3StillUrl names
+  // the file its still frame would be, which overlay.js asks for before setStill takes it.
   function fromV3(p) {
     if (!p || !ID_RE.test(p.id || '')) return null;
     var image = null;
@@ -190,10 +189,28 @@
 
   // paint_images=static: the paint's still images, for #chat.paint-static only (one class more than ruleFor's
   // selector, and no #chat in it, so OBS Custom CSS written as `#chat .name { ... }` still wins). null for a paint
-  // without an animated image, and for one in the older v3 format.
+  // without an animated image, and for one in the older v3 format until setStill gave it its still frame.
   function staticRuleFor(paint) {
     if (!paint || !ID_RE.test(paint.id || '') || !paint.bgImageStatic) return null;
     return '.paint-static .painted.' + className(paint.id) + '{background-image:' + paint.bgImageStatic + '}';
+  }
+
+  // A v3 image paint (one file on 7TV's CDN, cdn.7tv.app/paint/<id>[/layer/<id>]/<n>x.webp): where its still frame would
+  // be, the <n>x_static.webp beside it. The CDN keeps one only beside an animated file, so it is a guess until it loads
+  // (a still paint has none, and is left as it is). null for anything else: a gradient, a v4 paint, another file.
+  var V3_IMAGE_RE = /^url\("(https:\/\/cdn\.7tv\.app\/paint\/[0-9A-Za-z]{1,40}(?:\/layer\/[0-9A-Za-z]{1,40})?\/[1-4]x)\.webp"\)$/;
+  function v3StillUrl(paint) {
+    if (!paint || paint.bgImageStatic || typeof paint.bgImage !== 'string') return null;
+    var m = V3_IMAGE_RE.exec(paint.bgImage);
+    return m ? m[1] + '_static.webp' : null;
+  }
+  // The still frame v3StillUrl named, once it loaded: the paint now has one (staticRuleFor). False for any other URL.
+  function setStill(paint, url) {
+    if (!paint || typeof url !== 'string' || url !== v3StillUrl(paint)) return false;
+    var u = cssUrl(url);
+    if (!u) return false;
+    paint.bgImageStatic = u;
+    return true;
   }
 
   return {
@@ -205,6 +222,8 @@
     fromV3: fromV3,
     ruleFor: ruleFor,
     staticRuleFor: staticRuleFor,
+    v3StillUrl: v3StillUrl,
+    setStill: setStill,
     className: className,
     ID_RE: ID_RE
   };

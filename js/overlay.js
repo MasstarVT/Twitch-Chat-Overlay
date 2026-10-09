@@ -35,6 +35,9 @@
   // A Shared Chat room part that failed is retried on the room's next message after this delay (doubling).
   var PART_RETRY_MS = 30000;
   var PART_RETRY_MAX_MS = 300000;
+  // The Kick channel's own 7TV set is kept like a room's (S.kickCtx), under this key, which is no Twitch room id: its
+  // live updates and set switches reach Kick lines as the home channel's reach Twitch lines.
+  var KICK_STV = 'kick';
 
   var T; // root.TCO, resolved at boot
   var S = null;
@@ -203,6 +206,7 @@
   function onChanged(e) {
     if (!e) return;
     if (e.all) return scheduleRerender(true);
+    if (e.roomId === KICK_STV) return scheduleRerender(isKick);
     if (e.roomId) return scheduleRerender(function (m) { return roomIdOf(m) === e.roomId; });
     if (e.userId) return scheduleRerender(function (m) { return m.userId === e.userId; });
     if (e.setId) return scheduleRerender(function (m) { return effective(m.userId).sets.indexOf(e.setId) >= 0; });
@@ -251,7 +255,7 @@
     var maps = [];
     if (S.cfg.emotes_7tv) {
       var home = S.rooms.home();
-      if (S.kickStv.size) maps.push(S.kickStv);
+      if (S.kickStv.size) maps.push(S.kickStv); // S.kickCtx.stv.emotes
       else if (home) maps.push(home.stv.emotes);
       maps.push(S.stvGlobal);
     }
@@ -452,10 +456,36 @@
     var p = S.stv.paints.get(id);
     return p ? T.paintCss.ruleFor(p) : null;
   }
-  // paint_images=static: the paint's still frame (the renderer asks only then).
+  // paint_images=static: the paint's still frame (the renderer asks only then, for a paint it draws). A paint in 7TV's
+  // older v3 format (when the v4 paint list failed, or one newer than the list) names one image and not whether it is
+  // animated: the still frame beside it is asked for once, and the renderer gets undefined (ask again) meanwhile.
   function paintStaticRule(id) {
     var p = S.stv.paints.get(id);
-    return p ? T.paintCss.staticRuleFor(p) : null;
+    if (!p) return null;
+    var rule = T.paintCss.staticRuleFor(p);
+    return rule || probeStill(id, p);
+  }
+  var stillProbes = new Map(); // paint id -> 'pending' | 'none' (no still frame, or none to look for)
+  function probeStill(id, p) {
+    var st = stillProbes.get(id);
+    if (st) return st === 'pending' ? undefined : null;
+    var url = T.paintCss.v3StillUrl(p);
+    if (!url || typeof root.Image !== 'function') return null;
+    stillProbes.set(id, 'pending');
+    var probe = new root.Image();
+    probe.onload = function () {
+      // A still paint has no such file (404): only one that loads is a still frame.
+      var cur = S.stv.paints.get(id);
+      if (cur && T.paintCss.setStill(cur, url)) {
+        stillProbes.delete(id);
+        if (S.renderer.stillReady) S.renderer.stillReady(id);
+      } else {
+        stillProbes.set(id, 'none');
+      }
+    };
+    probe.onerror = function () { stillProbes.set(id, 'none'); };
+    probe.src = url;
+    return undefined;
   }
 
   // A reply's text without its leading "@Parent" (it is shown without it).
@@ -466,10 +496,11 @@
   }
   // A chat line's text as it is drawn (tokensFor), for block_words: a Twitch reply without its leading "@Parent" while
   // replies are on (with replies=0 it is drawn, and matched); a Kick line as Kick sends it (a Kick reply's text doesn't
-  // name the parent). The renderer's keywords go by the same rule (renderer.shownText).
+  // name the parent); with links=shorten, each link as the host it is drawn as. The renderer's keywords go by the same
+  // rule (renderer.shownText).
   function shownText(m, cfg) {
     var t = m.text || '';
-    return cfg.replies && !isKick(m) ? replyStripped(m, t) : t;
+    return T.renderer.drawnText(cfg.replies && !isKick(m) ? replyStripped(m, t) : t, cfg);
   }
 
   // "!cmd", also when sent as a reply ("@Parent !cmd", shown without the "@Parent" prefix). command_prefixes: the
@@ -490,10 +521,11 @@
   // (default-ignorable) characters at either end don't count: Chatterino and 7TV send a repeated message with
   // ' U+E0000' after it, and a zero-width space or word joiner is drawn as nothing too. Only at the ends, so the joiner
   // inside an emoji sequence stays (and an emoji's own variation sign or tag characters are part of its grapheme anyway).
+  // With links=shorten a link counts as the host it is drawn as.
   var EDGE_BLANK_RE = /^[\s\p{Default_Ignorable_Code_Point}]+|[\s\p{Default_Ignorable_Code_Point}]+$/gu;
   var graphemes;
   function textLength(m) {
-    var t = replyStripped(m, T.tokenizer.cleanText(m.text || '', m.action).text).replace(EDGE_BLANK_RE, '');
+    var t = T.renderer.drawnText(replyStripped(m, T.tokenizer.cleanText(m.text || '', m.action).text), S.cfg).replace(EDGE_BLANK_RE, '');
     if (graphemes === undefined) {
       graphemes = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter() : null;
     }
@@ -551,7 +583,8 @@
       return true;
     }
     if (!r || typeof r.body !== 'string' || !r.body || cfg.reply_style === 'name') return false;
-    if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(r.body, T.renderer.filtersFor(cfg).block)) return true;
+    // The quote as the header draws it (links=shorten shortens it as the message's own text).
+    if (cfg.block_words && cfg.block_words.length && T.renderer.hasWords(T.renderer.drawnText(r.body, cfg), T.renderer.filtersFor(cfg).block)) return true;
     return cfg.links === 'hide' && T.renderer.hasLink(r.body);
   }
 
@@ -582,14 +615,10 @@
         fillMap(ctx.stv.emotes, r.emotes);
         ctx.stv.setId = r.setId || null;
         ctx.stv.ownerId = r.ownerId || null;
+        ctx.stv.connIndex = r.connIndex;
         if (isHome) {
-          S.stv.registerChannelSet(ctx.id, ctx.stv.setId, ctx.stv.emotes, ctx.stv.ownerId);
-          if (S.stvEvents) {
-            if (ctx.stv.setId) S.stvEvents.addObject('emote_set.update', ctx.stv.setId);
-            if (ctx.stv.ownerId) S.stvEvents.addObject('user.update', ctx.stv.ownerId);
-            // A reload that found a different (or no) set drops the old one's subscription.
-            if (S.stvEvents.removeObject && oldSetId && oldSetId !== ctx.stv.setId) S.stvEvents.removeObject('emote_set.update', oldSetId);
-          }
+          S.stv.registerChannelSet(ctx.id, ctx.stv.setId, ctx.stv.emotes, ctx.stv.ownerId, ctx.stv.connIndex);
+          subscribeSet(ctx.stv, oldSetId);
         }
       } });
     }
@@ -750,20 +779,56 @@
   }
 
   // ---------- live sockets ----------
+  // The 7TV EventAPI socket, one for the overlay: the Twitch channel's cosmetics and entitlements, and live changes to
+  // the 7TV sets of the Twitch channel and of the Kick channel (S.kickCtx), whichever asks for it first.
+  function ensureStvEvents() {
+    var cfg = S.cfg;
+    if (S.stvEvents || cfg.demo || !(cfg.emotes_7tv || cfg.paints || (cfg.badges && cfg.badges_7tv))) return S.stvEvents;
+    var hellos = 0;
+    S.stvEvents = T.seventv.createEventClient({
+      state: S.stv,
+      // 7TV has no resume: after a reconnect, refetch the channel sets in case updates were missed.
+      onReady: function () {
+        if (++hellos > 1 && S.cfg.emotes_7tv) {
+          reloadHome(['7tv-channel']);
+          reloadKickSet();
+        }
+      }
+    });
+    var home = S.rooms.home();
+    if (home) {
+      S.stvEvents.addChannel(home.id);
+      S.stvChannel = home.id;
+      subscribeSet(home.stv);
+    }
+    subscribeSet(S.kickCtx.stv);
+    S.stvEvents.start();
+    return S.stvEvents;
+  }
+  // A 7TV set the overlay draws from (the home channel's, the Kick channel's), and its owner (set switches), on the
+  // EventAPI. oldSetId: the set it had before, dropped unless the other one still uses it.
+  function subscribeSet(stv, oldSetId) {
+    var ev = S.stvEvents;
+    if (!ev) return;
+    if (stv.setId) ev.addObject('emote_set.update', stv.setId);
+    if (stv.ownerId) ev.addObject('user.update', stv.ownerId);
+    // A reload that found a different (or no) set drops the old one's subscription.
+    if (ev.removeObject && oldSetId && oldSetId !== stv.setId && !setInUse(oldSetId)) ev.removeObject('emote_set.update', oldSetId);
+  }
+  function setInUse(setId) {
+    var home = S.rooms.home();
+    return !!(home && home.stv.setId === setId) || S.kickCtx.stv.setId === setId;
+  }
+
   function startLive(roomId) {
     var cfg = S.cfg;
-    if (!S.stvEvents && (cfg.emotes_7tv || cfg.paints || (cfg.badges && cfg.badges_7tv))) {
-      var hellos = 0;
-      S.stvEvents = T.seventv.createEventClient({
-        state: S.stv,
-        // 7TV has no resume: after a reconnect, refetch the channel set in case updates were missed.
-        onReady: function () { if (++hellos > 1 && S.cfg.emotes_7tv) reloadHome(['7tv-channel']); }
-      });
-      S.stvEvents.addChannel(roomId);
+    var ev = ensureStvEvents();
+    // A socket the Kick channel's set opened before the Twitch channel was known: the channel joins it.
+    if (ev && S.stvChannel !== roomId) {
+      ev.addChannel(roomId);
+      S.stvChannel = roomId;
       var home = S.rooms.home();
-      if (home && home.stv.setId) S.stvEvents.addObject('emote_set.update', home.stv.setId);
-      if (home && home.stv.ownerId) S.stvEvents.addObject('user.update', home.stv.ownerId);
-      S.stvEvents.start();
+      if (home) subscribeSet(home.stv);
     }
     if (!S.bttvLive && (cfg.emotes_bttv || (cfg.badges && cfg.badges_bttv))) {
       S.bttvLive = T.bttv.createLive({
@@ -801,47 +866,64 @@
   }
 
   function onSetSwitch(roomId, newSetId) {
-    // Only the home channel's set is subscribed, so fall back to it when the id isn't a known room.
-    var ctx = (roomId && S.rooms.get(roomId)) || S.rooms.home();
+    // The Kick channel's set (KICK_STV), else the home channel's: only those are subscribed, so fall back to the home
+    // when the id isn't a known room.
+    var kick = roomId === KICK_STV;
+    var ctx = kick ? S.kickCtx : (roomId && S.rooms.get(roomId)) || S.rooms.home();
     if (!ctx) return;
+    var switchKey = kick ? '7tv-set-switch:kick' : '7tv-set-switch';
     if (newSetId === null) {
-      // The owner turned their set off. user.update doesn't say which connection changed, so confirm
-      // over REST: the channel reload clears the set (and its routing) when there really is none now.
-      var pend = S.loads.get('7tv-set-switch');
-      if (pend) { pend.cancel(); S.loads.delete('7tv-set-switch'); }
+      // The owner turned their set off, or one of their rooms switched and which isn't known: confirm over REST, the
+      // channel reload clears the set (and its routing) when there really is none now.
+      var pend = S.loads.get(switchKey);
+      if (pend) { pend.cancel(); S.loads.delete(switchKey); }
       ctx.stv.wantSet = null;
       ctx.stv.switchGen = (ctx.stv.switchGen || 0) + 1;
       // A reload still in flight was started for an older generation and would stand down: restart it.
-      var rl = S.loads.get('reload:7tv-channel');
-      if (rl) { rl.cancel(); S.loads.delete('reload:7tv-channel'); }
-      if (S.cfg.emotes_7tv) reloadHome(['7tv-channel']);
+      var reloadKey = kick ? 'reload:7tv-kick-channel' : 'reload:7tv-channel';
+      var rl = S.loads.get(reloadKey);
+      if (rl) { rl.cancel(); S.loads.delete(reloadKey); }
+      if (S.cfg.emotes_7tv) {
+        if (kick) reloadKickSet();
+        else reloadHome(['7tv-channel']);
+      }
       return;
     }
     if (!T.seventv.isUlid(newSetId)) return;
     ctx.stv.wantSet = newSetId;
-    ctx.stv.switchGen = (ctx.stv.switchGen || 0) + 1; // makes an older reloadHome('7tv-channel') stand down
-    var prev = S.loads.get('7tv-set-switch');
-    if (prev) { prev.cancel(); S.loads.delete('7tv-set-switch'); }
-    track('7tv-set-switch', function () { return T.seventv.loadSet(newSetId); }, function (m) {
+    ctx.stv.switchGen = (ctx.stv.switchGen || 0) + 1; // makes an older reload of the channel's set stand down
+    var prev = S.loads.get(switchKey);
+    if (prev) { prev.cancel(); S.loads.delete(switchKey); }
+    track(switchKey, function () { return T.seventv.loadSet(newSetId); }, function (m) {
       if (ctx.stv.wantSet !== newSetId) return; // superseded by a later switch
       var oldSetId = ctx.stv.setId;
       fillMap(ctx.stv.emotes, m || new Map());
       ctx.stv.setId = newSetId;
-      S.stv.registerChannelSet(ctx.id, newSetId, ctx.stv.emotes, ctx.stv.ownerId);
-      if (S.stvEvents) {
-        S.stvEvents.addObject('emote_set.update', newSetId);
-        // Drop the old set's subscription (when seventv.js offers it), so switches don't pile them up.
-        if (S.stvEvents.removeObject && oldSetId && oldSetId !== newSetId) S.stvEvents.removeObject('emote_set.update', oldSetId);
-      }
+      S.stv.registerChannelSet(ctx.id, newSetId, ctx.stv.emotes, ctx.stv.ownerId, ctx.stv.connIndex);
+      // Drop the old set's subscription (when seventv.js offers it), so switches don't pile them up.
+      subscribeSet(ctx.stv, oldSetId);
       changed({ roomId: ctx.id });
     });
   }
 
   // ---------- chat handling ----------
+  // Whether chatters' 7TV paints or badges are drawn and, for those without a 7TV client, looked up (stv_lookup).
+  function stvStyleOn(c) { return !!(c.stv_lookup && (c.paints || (c.badges && c.badges_7tv))); }
+
   function noteUser(m) {
     if (!m.userId || S.cfg.demo || isKick(m)) return;
     S.recentUsers.set(m.userId, T.util.now());
-    if (S.stvLookup && S.cfg.stv_lookup && (S.cfg.paints || (S.cfg.badges && S.cfg.badges_7tv))) S.stvLookup.want(m.userId);
+    if (S.stvLookup && stvStyleOn(S.cfg)) S.stvLookup.want(m.userId);
+  }
+
+  // Paints or 7TV badges turned on live (the builder's preview): the chatters on screen, and those seen lately (lines
+  // still queued too), are looked up now, as a reload would. Each one once: the lookup skips ids it knows or has queued.
+  function lookUpShown() {
+    S.renderer.rerender(function (m) {
+      if (m.userId && !isKick(m)) S.stvLookup.want(m.userId);
+      return false;
+    });
+    S.recentUsers.map.forEach(function (at, uid) { S.stvLookup.want(uid); });
   }
 
   function deliver(m) {
@@ -849,20 +931,26 @@
       S.liveBuffer.push(m);
       return;
     }
-    if (m.mirrored && !S.cfg.shared) return;
     // A reply to a blocked user keeps its reply: its header, which would quote them, is left out as it is drawn
     // (quotesHidden), so its "@Parent" still goes from its text and the filters, and a live block change redraws it.
-    // Only lines the renderer accepted (not filtered out) load rooms and queue 7TV lookups.
+    // Only lines the renderer accepted (not filtered out) load rooms and queue 7TV lookups. A filtered line still goes
+    // to the renderer, which notes that it was said (a Shared Chat partner's while shared=0 too): a reply quoting it keeps
+    // its header after a /clear or a timeout from before it.
     if (!S.renderer.push(m)) return;
     if (m.mirrored) noteSourceRoom(m);
     noteUser(m);
   }
 
-  function handlePrivmsg(p) {
+  // A PRIVMSG as the chat message deliver takes.
+  function chatFrom(p) {
     var m = T.ircParse.toChatMessage(p);
     if (!m.roomId && S.homeId) m.roomId = S.homeId;
     if (m.msgId === 'highlighted-message') m.highlight = true;
-    deliver(m);
+    return m;
+  }
+
+  function handlePrivmsg(p) {
+    deliver(chatFrom(p));
   }
 
   function handleUsernotice(p) {
@@ -955,20 +1043,66 @@
 
   function connectKick(room) {
     if (S.kick) return;
+    S.kickRoom = String(room);
     S.kick = T.kick.createKick({ room: room, onEvent: onKickEvent, onStatus: onKickStatus });
     S.kick.start();
+  }
+
+  // kick_room named another chatroom than Kick's own answer gives the channel (an id left over from a channel retyped in
+  // an older builder, or a typo): the overlay leaves it for the channel's own. The wrong room's lines go, those on screen
+  // and those waiting for history, as lines that were never this channel's, not as moderation (replies keep headers).
+  function moveKickRoom(room) {
+    T.util.warn('kick: kick_room ' + S.kickRoom + ' is not ' + S.cfg.kick + '\'s chatroom (' + room + '); joining that one');
+    if (S.kick) { S.kick.stop(); S.kick = null; }
+    S.liveBuffer = S.liveBuffer.filter(function (m) { return !m.__kick; });
+    if (S.renderer.drop) S.renderer.drop(isKick);
+    S.kickStatus = 'resolving';
+    connectKick(room);
   }
 
   // The channel lookup's extras: the channel's sub badge images, and its own 7TV set (by Kick user id).
   function applyKickChannel(c) {
     S.kickSubBadges = c.subBadges || [];
     if (c.userId && S.cfg.emotes_7tv) {
-      track('7tv-kick-channel', function () { return T.seventv.loadChannel(c.userId, 'kick'); }, function (r) {
-        if (r) fillMap(S.kickStv, r.emotes);
-        scheduleRerender(isKick);
-      });
+      S.kickCtx.userId = String(c.userId);
+      track('7tv-kick-channel', loadKickSet, applyKickSet);
     }
     scheduleRerender(isKick);
+  }
+  function loadKickSet() { return T.seventv.loadChannel(S.kickCtx.userId, 'kick'); }
+  // The Kick channel's 7TV set (loadChannel's answer): its emotes for Kick lines, routed and subscribed for live
+  // changes like the home channel's. null (no 7TV account, or the glitch loadChannel reports so) keeps what is there.
+  function applyKickSet(r) {
+    if (r) {
+      var k = S.kickCtx.stv, oldSetId = k.setId;
+      fillMap(k.emotes, r.emotes);
+      k.setId = r.setId || null;
+      k.ownerId = r.ownerId || null;
+      k.connIndex = r.connIndex;
+      S.stv.registerChannelSet(KICK_STV, k.setId, k.emotes, k.ownerId, k.connIndex);
+      // A Kick-only overlay has no other reason to open the 7TV socket (which subscribes the set as it opens).
+      if (S.stvEvents) subscribeSet(k, oldSetId);
+      else ensureStvEvents();
+    }
+    scheduleRerender(isKick);
+  }
+  // Refetch the Kick channel's set (a 7TV reconnect may have missed changes, or a switch is to be confirmed), as
+  // reloadHome does the home channel's: tracked, retried, and standing down for a newer set switch.
+  function reloadKickSet() {
+    var k = S.kickCtx;
+    if (!k.userId || !S.cfg.emotes_7tv) return;
+    var key = 'reload:7tv-kick-channel';
+    var prev = S.loads.get(key);
+    if (prev) {
+      if (prev.status === 'pending') return;
+      prev.cancel();
+      S.loads.delete(key);
+    }
+    var gen = k.stv.switchGen || 0;
+    track(key, loadKickSet, function (r) {
+      if ((k.stv.switchGen || 0) !== gen) return;
+      applyKickSet(r);
+    });
   }
 
   // Kick's chat socket needs the numeric chatroom id. kick_room (set by the builder) connects at once; without
@@ -981,8 +1115,14 @@
       connectKick(cfg.kick_room);
       // Chat already works: the lookup only adds the channel's sub badge images and its 7TV set, and is retried like
       // every other load (backoff, back online, after an outage) when it fails, so a start before the network is up
-      // doesn't leave them out for the whole stream. A channel Kick doesn't know (null) is simply left at that.
-      track('kick-channel', lookup, function (c) { if (c) applyKickChannel(c); });
+      // doesn't leave them out for the whole stream. A channel Kick doesn't know (null) is simply left at that. One
+      // that names another chatroom for the channel (lookupChannel checks the answer is this channel's) wins over a
+      // stale kick_room.
+      track('kick-channel', lookup, function (c) {
+        if (!c) return;
+        if (c.chatroomId && String(c.chatroomId) !== S.kickRoom) moveKickRoom(c.chatroomId);
+        applyKickChannel(c);
+      });
       return;
     }
     track('kick-channel', lookup, function (c) {
@@ -1041,6 +1181,30 @@
     }
   }
 
+  // The first of the history lines (chat and moderation, oldest first) whose chat lines are shown: the newest `want`
+  // that the filters let through (shouldShow) and that no later line in the history deletes, times out or clears. A
+  // /clear ends the search: nothing before it is shown.
+  function historyStart(list, want) {
+    var goneIds = new Set(), goneUsers = new Set(), count = 0;
+    for (var i = list.length - 1; i >= 0; i--) {
+      var p = list[i], tags = p.tags;
+      if (p.command === 'CLEARMSG') {
+        if (tags['target-msg-id']) goneIds.add(tags['target-msg-id']);
+      } else if (p.command === 'CLEARCHAT') {
+        if (tags['target-user-id']) goneUsers.add(tags['target-user-id']);
+        else if (!p.params[1]) return i + 1;
+      } else if (tags['rm-deleted'] === undefined && !goneIds.has(tags.id) && !goneUsers.has(tags['user-id']) &&
+          shouldShow(chatFrom(p)) && ++count >= want) {
+        return i;
+      }
+    }
+    return 0;
+  }
+
+  // robotty's limit counts raw lines of every kind (notices, deletions, timeouts), and the filters hide more (bots,
+  // commands, blocked users): so more are asked for, and the newest `history` chat lines that show are shown.
+  function historyLimit(n) { return Math.min(800, n * 4 + 20); }
+
   function startHistory() {
     var cfg = S.cfg;
     if (!cfg.history || !cfg.channel || cfg.demo) return;
@@ -1050,13 +1214,22 @@
       if (done) return;
       done = true;
       S.historyPending = false;
-      (lines || []).forEach(function (p) {
-        // History comes from a third-party service: only replay chat and moderation lines.
-        if (!p || (p.command !== 'PRIVMSG' && p.command !== 'CLEARCHAT' && p.command !== 'CLEARMSG')) return;
-        p.tags = p.tags || {};
+      // History comes from a third-party service: only replay chat and moderation lines.
+      var list = (lines || []).filter(function (p) {
+        return !!p && (p.command === 'PRIVMSG' || p.command === 'CLEARCHAT' || p.command === 'CLEARMSG');
+      });
+      list.forEach(function (p) { p.tags = p.tags || {}; p.params = p.params || []; });
+      var from = historyStart(list, cfg.history);
+      list.forEach(function (p, i) {
         // Already moderated: not shown, but recorded as deleted so replies quoting it get no header.
         if (p.tags['rm-deleted'] !== undefined) { if (p.tags.id) S.renderer.clearMessage(p.tags.id); return; }
         p.tags.historical = '1';
+        if (p.command === 'PRIVMSG' && i < from) {
+          // Older than the lines shown: not shown, but noted as said, in order with the moderation replayed around it, so
+          // a timeout or /clear from before it doesn't take the header off a later reply quoting it.
+          if (S.renderer.note) S.renderer.note(chatFrom(p));
+          return;
+        }
         // Skip lines that also arrived live while history was loading (the live copy is buffered).
         if (p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.markSeen(p.tags.id)) return;
         onLine(p);
@@ -1071,7 +1244,7 @@
     }
     setTimeout(function () { finish([]); }, HISTORY_WAIT_MS);
     // The request is aborted when the wait ends, so late history is not downloaded and parsed for nothing.
-    T.irc.loadHistory(cfg.channel, cfg.history, { timeout: HISTORY_WAIT_MS }).then(finish, function (e) {
+    T.irc.loadHistory(cfg.channel, historyLimit(cfg.history), { timeout: HISTORY_WAIT_MS }).then(finish, function (e) {
       T.util.warn('history load failed', e && e.message);
       finish([]);
     });
@@ -1210,6 +1383,7 @@
     S.cfg = next;
     applyFonts(next);
     S.renderer.setConfig(next);
+    if (S.stvLookup && !next.demo && stvStyleOn(next) && !stvStyleOn(prev)) lookUpShown();
     // Data for badge providers / paints that were off at boot was never loaded: load it now.
     var turnedOn = ['badges', 'paints'].concat(keys.filter(function (k) { return k.indexOf('badges_') === 0; }))
       .some(function (k) { return next[k] && !prev[k]; });
@@ -1252,10 +1426,35 @@
   }
 
   // ---------- boot ----------
+  // The page's query, a '#' typed in a value and what follows it included (config.withHash): read from the whole href,
+  // where a URL ending in '#' still shows it.
+  function pageQuery(loc) {
+    if (!loc) return '';
+    var href = typeof loc.href === 'string' ? loc.href : '', q = href.indexOf('?'), f = href.indexOf('#');
+    if (q < 0 || (f >= 0 && f < q)) return loc.search || '';
+    return T.config.withHash(f < 0 ? href.slice(q) : href.slice(q, f), f < 0 ? null : href.slice(f + 1));
+  }
+
+  // A Twitch or Kick channel name the overlay can't use, said where it was written: in place of "No channel set", and
+  // when the other platform's chat loads, so a typo doesn't leave one platform out without a word.
+  function refusedHint(bad) {
+    var out = [];
+    var say = function (r, what, rule) {
+      if (!r) return;
+      var v = Array.from(r.value);
+      out.push(what + ' "' + (v.length > 40 ? v.slice(0, 40).join('') + '…' : r.value) + '" in ' +
+        (r.from === 'url' ? 'the overlay URL' : 'settings.js') + ' isn\'t a valid name: use ' + rule + ' only.');
+    };
+    say(bad.channel, 'Twitch channel', 'letters, numbers and _');
+    say(bad.kick, 'Kick channel', 'letters, numbers, _ and -');
+    return out.join(' ');
+  }
+
   function boot() {
     if (S) return;
     T = root.TCO;
-    var cfg = T.config.parse(root.location ? root.location.search : '', root.TCO_SETTINGS);
+    var query = pageQuery(root.location);
+    var cfg = T.config.parse(query, root.TCO_SETTINGS);
     T.util.setDebug(cfg.debug);
     var chatEl = el('chat');
 
@@ -1287,12 +1486,17 @@
       historyPending: false,
       liveBuffer: [],
       kick: null,
+      kickRoom: '',
       kickStatus: 'idle',
       kickHintShown: false,
       kickStv: new Map(),
       kickSubBadges: [],
+      stvChannel: null,
       demo: null
     };
+    // The Kick channel's 7TV set as a room's: emotes (S.kickStv), set, owner, its connection index in the owner's 7TV
+    // account, the switch in flight; userId: the Kick user id it loads by.
+    S.kickCtx = { id: KICK_STV, userId: '', stv: { emotes: S.kickStv, setId: null, ownerId: null, connIndex: -1 } };
     S.bus.on('changed', onChanged);
     S.stv = T.seventv.createState({
       bus: S.bus,
@@ -1313,9 +1517,12 @@
 
     var sErr = settingsError();
     if (sErr) showHint('settings.js has an error: ' + sErr, true, true);
+    // A refused channel name stays up (sticky) over a chat that loads: the URL or settings.js is wrong.
+    var badName = sErr || cfg.demo ? '' : refusedHint(T.config.refusedChannels(query, root.TCO_SETTINGS));
+    if (badName) showHint(badName, true, true);
     // Without a channel there is nothing to show: load nothing (also when settings.js is broken).
     if (!cfg.channel && !cfg.kick && !cfg.demo) {
-      if (!sErr) {
+      if (!sErr && !badName) {
         showHint('No channel set. Add ?channel=yourname (Twitch) or ?kick=yourname (Kick) to the overlay URL, or use the builder.', true);
       }
       return;
