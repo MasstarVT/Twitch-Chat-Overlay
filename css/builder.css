@@ -398,10 +398,15 @@ textarea.text { display: block; padding: 10px 12px; line-height: 20px; }
 .tab[aria-selected="true"] { border-color: var(--border-strong); background: var(--panel-2); color: #fff; }
 .tab .mark { display: none; width: 8px; height: 8px; border-radius: 2px; background: transparent; box-shadow: none; }
 .tab[aria-selected="true"] .mark { display: block; background: var(--accent); }
+/* a URL is copied and Add to OBS was never opened: its tab is where to go next (builder.js renderNote) */
+.tab.nudge { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.tab.nudge .go { color: var(--accent-hi); }
 .tab .count { font: 12px/1 var(--mono); color: var(--accent-hi); }
 .tab .count:empty { display: none; }
 .tab .go { flex: none; }
 .tab-rule { display: none; }
+/* in one column the settings' tabs and Add to OBS are one row: the box that holds the settings' tabs drops out */
+.tab-groups { display: contents; }
 /* one column with a mouse: a wheel cannot scroll a sideways row, so the tabs wrap. Touch keeps the swipe row.
    any-hover, not hover: a tablet with a mouse attached still reports its touch screen as the primary pointer. */
 @media (any-hover: hover) and (max-width: 1099px), (any-hover: hover) and (max-height: 599px) {
@@ -697,6 +702,12 @@ label.field-label { cursor: pointer; }
 .bar-head .eyebrow { display: none; color: var(--text); }
 .bar-head .status:not(.warn):not(.ok) { display: none; }
 .bar-head .status { margin-bottom: 8px; }
+/* the copied note runs as one paragraph: bold size and box names, then the link to Add to OBS */
+.bar-head .status.ok { display: block; }
+.bar-head .status.ok strong { white-space: nowrap; }
+.note-link { font-weight: 600; text-decoration-thickness: 1px; text-underline-offset: 3px; white-space: nowrap; }
+.note-link.first { font-weight: 700; color: var(--text); text-decoration-color: var(--accent-hi); text-decoration-thickness: 2px; }
+.note-link.first:hover { color: var(--focus); }
 .bar-url {
   grid-area: url;
   display: flex; align-items: center;
@@ -864,16 +875,19 @@ label.field-label { cursor: pointer; }
     border-right: 1px solid var(--border);
   }
   .app.wide-preview .panel { border-right: 0; }
-  /* It scrolls when the window is too short for it (builder.js keeps the chosen tab in view). No scrollbar:
-     one that shows for a moment narrows the rail, the labels wrap, and then it never goes away. */
-  .rail { grid-column: 1; grid-row: 1; min-height: 0; padding: 24px 12px 8px; border-right: 1px solid var(--border); border-bottom: 0; overflow-y: auto; scrollbar-width: none; }
-  .rail::-webkit-scrollbar { display: none; }
-  /* so the edge it runs on past fades instead (builder.js RAIL_FADE) */
-  .rail.more-below { -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent); mask-image: linear-gradient(#000 calc(100% - 24px), transparent); }
-  .rail.more-above { -webkit-mask-image: linear-gradient(transparent, #000 24px); mask-image: linear-gradient(transparent, #000 24px); }
-  .rail.more-above.more-below { -webkit-mask-image: linear-gradient(transparent, #000 24px, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(transparent, #000 24px, #000 calc(100% - 24px), transparent); }
+  .rail { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; min-height: 0; padding: 24px 12px 8px; border-right: 1px solid var(--border); border-bottom: 0; overflow: hidden; }
   .rail .eyebrow { display: block; padding: 0 12px 12px; }
-  .tabs { flex-direction: column; gap: 4px; padding: 0; overflow: visible; }
+  .tabs { flex: 0 1 auto; min-height: 0; flex-direction: column; gap: 4px; padding: 0; overflow: visible; }
+  /* The settings' tabs scroll when the window is too short for them (builder.js keeps the chosen tab in view);
+     Add to OBS, the last step, stays pinned under them. The 4px padding (taken back by the margin) is room for a
+     focus ring. No scrollbar: one that shows for a moment narrows the rail, the labels wrap, and then it never
+     goes away. */
+  .tab-groups { display: flex; flex-direction: column; gap: 4px; flex: 0 1 auto; min-height: 0; margin: -4px; padding: 4px; overflow-y: auto; scrollbar-width: none; }
+  .tab-groups::-webkit-scrollbar { display: none; }
+  /* so the edge they run on past fades instead (builder.js RAIL_FADE) */
+  .tab-groups.more-below { -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent); mask-image: linear-gradient(#000 calc(100% - 24px), transparent); }
+  .tab-groups.more-above { -webkit-mask-image: linear-gradient(transparent, #000 24px); mask-image: linear-gradient(transparent, #000 24px); }
+  .tab-groups.more-above.more-below { -webkit-mask-image: linear-gradient(transparent, #000 24px, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(transparent, #000 24px, #000 calc(100% - 24px), transparent); }
   .tab { gap: 10px; width: 100%; padding: 0 12px; border-color: transparent; font-size: 15px; white-space: normal; }
   .tab[aria-selected="true"] { border-color: transparent; }
   .tab .mark { display: block; }
@@ -908,7 +922,7 @@ label.field-label { cursor: pointer; }
   .channel, .paste { max-width: none; }
   .rail { padding-top: 12px; padding-bottom: 4px; }
   .rail .eyebrow { display: none; }
-  .tabs { gap: 2px; }
+  .tabs, .tab-groups { gap: 2px; }
   .tab { min-height: 38px; }
   .tab-rule { margin-top: 5px; margin-bottom: 5px; }
   .panel-foot { padding-top: 4px; padding-bottom: 10px; }
@@ -919,7 +933,7 @@ label.field-label { cursor: pointer; }
 @media (min-width: 1100px) and (min-height: 600px) {
   .app.wide-preview .rail { padding-top: 12px; padding-bottom: 4px; }
   .app.wide-preview .rail .eyebrow { display: none; }
-  .app.wide-preview .tabs { gap: 2px; }
+  .app.wide-preview .tabs, .app.wide-preview .tab-groups { gap: 2px; }
   .app.wide-preview .tab { min-height: 38px; }
   .app.wide-preview .tab-rule { margin-top: 5px; margin-bottom: 5px; }
   .app.wide-preview .panel-foot { padding-top: 4px; padding-bottom: 10px; }
@@ -956,6 +970,7 @@ label.field-label { cursor: pointer; }
   /* selection and focus are drawn with color alone, which forced colors flatten; system colors survive */
   .tab[aria-selected="true"] { border-color: Highlight; }
   .tab[aria-selected="true"] .mark { background: Highlight; }
+  .tab.nudge { border-color: LinkText; }
   /* the pressed look is filled, as a selected item is, so the focus ring (an outline) still tells the two apart. In
      its own colors: forced colors would draw a backplate of the canvas color behind the label. */
   .btn[aria-pressed="true"], .btn[aria-pressed="true"]:hover {

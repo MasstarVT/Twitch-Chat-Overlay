@@ -24,7 +24,7 @@
   var HIDDEN_GRACE = 60000; // a live preview left in a hidden tab disconnects after this (ms)
   var BACKDROPS = ['dark', 'light', 'checker', 'busy'];
   var SIZE_LIMITS = { w: [100, 3840], h: [100, 2160] };
-  var RAIL_FADE = 24; // px: the rail's faded edge where it scrolls (css/builder.css .rail.more-below)
+  var RAIL_FADE = 24; // px: the faded edge of the rail's tabs where they scroll (css/builder.css .tab-groups.more-below)
   var OBS_SECTION = 'obs'; // the one section that isn't a group of settings (its markup is in builder.html)
   var UI_DEFAULTS = { w: 450, h: 700, backdrop: 'dark', section: 'look' };
   // Suggested OBS source size per layout: a column, or a full-width bar on a 1080p canvas.
@@ -737,7 +737,7 @@
     var n = Object.keys(changedKeys(cfg)).length;
     return { text: n
       ? 'Holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed. The rest use the defaults.'
-      : 'Every setting is at its default, so the URL only needs the channel.', cls: '' };
+      : 'Every setting is at its default, so the URL only needs the channel' + (cfg.channel && cfg.kick ? 's' : '') + '.', cls: '' };
   }
 
   // A number setting as the form shows it: a name (shadow), a word for zero (fade: Never), or with its unit.
@@ -975,7 +975,7 @@
     return folderSnap === null || folderSnap === undefined ? legacySnap : folderSnap;
   }
   function saveUi() {
-    store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop, section: B.ui.section, folds: B.ui.folds });
+    store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop, section: B.ui.section, folds: B.ui.folds, obs: B.ui.obsSeen });
   }
 
   function announce(text) {
@@ -1666,9 +1666,9 @@
     return row;
   }
 
-  // One tab in the rail and one section in the panel per group. "Add to OBS" is in builder.html already.
+  // One tab in the rail and one section in the panel per group. "Add to OBS" is in builder.html already, under them.
   function buildGroups() {
-    var host = $('groups'), tabs = $('tabs'), rule = $('tab-rule');
+    var host = $('groups'), tabs = $('tab-groups');
     clear(host);
     B.subheads = Object.create(null);
     B.folds = Object.create(null);
@@ -1688,7 +1688,7 @@
       var count = h('span', 'count');
       count.id = 'count-' + g.id;
       tab.appendChild(count);
-      tabs.insertBefore(tab, rule);
+      tabs.appendChild(tab);
 
       var sec = h('section', 'section');
       sec.id = 'group-' + g.id;
@@ -1769,6 +1769,9 @@
     });
     var body = $('panel-body');
     if (body) body.scrollTop = 0;
+    if (id === OBS_SECTION) B.ui.obsSeen = true;
+    // The copied note points to Add to OBS only while it is closed.
+    if (B.copied) renderNote();
     var tab = $('tab-' + id);
     if (!tab) return;
     if (focusTab) tab.focus();
@@ -1776,7 +1779,8 @@
   }
 
   // Keep the chosen tab in view. In one column the tabs can be a row that scrolls sideways; in the app
-  // layout the rail scrolls when the window leaves it too little height. The page itself stays put.
+  // layout the settings' tabs scroll when the window leaves them too little height (Add to OBS, pinned
+  // under them, is always in view). The page itself stays put.
   function showTab() {
     var tab = $('tab-' + B.ui.section), list = $('tabs');
     if (!tab || !list) return;
@@ -1785,8 +1789,8 @@
       if (left < list.scrollLeft) list.scrollLeft = Math.max(0, left - 16);
       else if (right > list.scrollLeft + list.clientWidth) list.scrollLeft = right - list.clientWidth + 16;
     }
-    var rail = list.parentNode;
-    if (rail && rail.scrollHeight > rail.clientHeight) {
+    var rail = $('tab-groups');
+    if (rail.contains(tab) && rail.scrollHeight > rail.clientHeight) {
       var r = rail.getBoundingClientRect(), t = tab.getBoundingClientRect();
       if (t.top < r.top + RAIL_FADE) rail.scrollTop -= r.top + RAIL_FADE - t.top;
       else if (t.bottom > r.bottom - RAIL_FADE) rail.scrollTop += t.bottom - r.bottom + RAIL_FADE;
@@ -1794,10 +1798,10 @@
     railEdges();
   }
 
-  // A rail too long for its window fades out at the edge it runs on past (css/builder.css .more-above,
-  // .more-below): it has no scrollbar, and a cut row of tabs alone does not say there are more.
+  // Tabs too many for their window fade out at the edge they run on past (css/builder.css .more-above,
+  // .more-below): they have no scrollbar, and a cut row of tabs alone does not say there are more.
   function railEdges() {
-    var rail = $('tabs').parentNode, more = rail.scrollHeight - rail.clientHeight;
+    var rail = $('tab-groups'), more = rail.scrollHeight - rail.clientHeight;
     var above = more > 1 && rail.scrollTop > 1, below = more > 1 && rail.scrollTop < more - 1;
     if (above) rail.classList.add('more-above'); else rail.classList.remove('more-above');
     if (below) rail.classList.add('more-below'); else rail.classList.remove('more-below');
@@ -1869,7 +1873,7 @@
       saveUi();
     });
     root.addEventListener('hashchange', function () { if (openHashSection()) saveUi(); });
-    list.parentNode.addEventListener('scroll', railEdges);
+    $('tab-groups').addEventListener('scroll', railEdges);
 
     var mq =root.matchMedia ? root.matchMedia(APP_LAYOUT) : null;
     var orient = function () {
@@ -2310,11 +2314,37 @@
     var note = urlNote(B.cfg, B.ch, B.url);
     // Copied, a warning still shows (a URL too long for the host, no channel, no Kick chatroom id): never a green "paste
     // it into OBS" over what is wrong with it.
-    if (B.copied) note = copiedNote(note);
+    if (B.copied) note = copiedNote(note, B.cfg, B.ui);
     // What a settings.js on disk did at load, until the first change (a warning still comes first).
     else if (B.fileNote && note.cls !== 'warn') note = { text: B.fileNote, cls: 'ok' };
-    n.textContent = note.text;
+    clear(n);
+    if (note.parts) {
+      note.parts.forEach(function (p) { n.appendChild(typeof p === 'string' ? document.createTextNode(p) : h('strong', null, p[0])); });
+      // The way to every step, unless they are open already. Until Add to OBS has been opened once, the link and
+      // the rail's tab stand out a little more: that is where a first overlay goes wrong.
+      if (B.ui.section !== OBS_SECTION) n.appendChild(obsLink(!B.ui.obsSeen));
+    } else {
+      n.textContent = note.text;
+    }
     n.className = 'status' + (note.cls ? ' ' + note.cls : '');
+    $('tab-obs').classList.toggle('nudge', !!note.parts && !B.ui.obsSeen && B.ui.section !== OBS_SECTION);
+  }
+
+  // "Add to OBS steps" in the copied note. Opens the section as its tab does and takes the focus there (to the tab),
+  // so the keyboard goes on from Add to OBS. A link to #obs, so that Ctrl- or middle-click open it anew.
+  function obsLink(first) {
+    var a = h('a', 'note-link' + (first ? ' first' : ''), 'Add to OBS steps'), href = '#' + OBS_SECTION;
+    a.href = href;
+    a.addEventListener('click', function (e) {
+      if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      dropSectionHash();
+      selectSection(OBS_SECTION, true);
+      var main = $('settings');
+      if (!isAppLayout() && main && main.scrollIntoView) main.scrollIntoView();
+      saveUi();
+    });
+    return a;
   }
 
   function renderOutputs() {
@@ -2359,6 +2389,7 @@
     var ws = document.querySelectorAll('.obs-w'), hs = document.querySelectorAll('.obs-h');
     for (var i = 0; i < ws.length; i++) ws[i].textContent = String(B.ui.w);
     for (var j = 0; j < hs.length; j++) hs[j].textContent = String(B.ui.h);
+    if (B.copied) renderNote(); // the copied note names the size
   }
 
   // A button's words: its .lbl when it also holds an icon, else the button itself.
@@ -2422,22 +2453,34 @@
     }
   }
 
-  // The note beside the URL once it is copied: what to do next, or the warning that still applies.
-  function copiedNote(note) {
-    return note.cls === 'warn' ? { text: 'Copied. ' + note.text, cls: 'warn' }
-      : { text: 'Copied. Paste it into an OBS Browser source.', cls: 'ok' };
+  // The note beside the URL once it is copied: the warning that still applies, or what to do next. Next are the two
+  // things in OBS that most often go wrong: the source's size (the preview's, ui.w x ui.h), and the two boxes that
+  // reconnect and wipe the chat on every scene switch, by the first words OBS gives them. parts: the text shown, a
+  // [string] in bold; text: all of it as a screen reader says it (the boxes' whole names, "by" for the times sign).
+  // With both channels the note says the one URL carries both chats, so it doesn't read as Twitch's alone.
+  function copiedNote(note, cfg, ui) {
+    if (note.cls === 'warn') return { text: 'Copied. ' + note.text, cls: 'warn' };
+    var lead = cfg.channel && cfg.kick ? 'Copied: Twitch and Kick chat in one source. ' : 'Copied. ';
+    return {
+      parts: [lead + 'In OBS, add a Browser source at ', [ui.w + ' × ' + ui.h], ' and untick ', ['Shutdown source'], ' and ',
+        ['Refresh browser'], '. '],
+      text: lead + 'In OBS, add a Browser source at ' + ui.w + ' by ' + ui.h + ', and untick Shutdown source when not visible ' +
+        'and Refresh browser when scene becomes active.',
+      cls: 'ok'
+    };
   }
 
-  // The URL was copied: the note beside it says what to do next, until the button resets or the URL changes. A warning
-  // is said again in place of the button's bare "Copied!" (announce keeps the later of the two).
+  // The URL was copied: the note beside it says what to do next, until the URL changes; a warning, until the button
+  // resets. Either is said in place of the button's bare "Copied!" (announce keeps the later of the two), so a screen
+  // reader hears it once.
   function noteCopied(ok) {
     if (!ok) return;
     B.copied = true;
     renderNote();
-    var w = urlNote(B.cfg, B.ch, B.url);
-    if (w.cls === 'warn') announce(copiedNote(w).text);
+    var note = copiedNote(urlNote(B.cfg, B.ch, B.url), B.cfg, B.ui);
+    announce(note.text);
     clearTimeout(B.copiedTimer);
-    B.copiedTimer = setTimeout(function () { B.copied = false; renderNote(); }, FLASH_MS);
+    if (note.cls === 'warn') B.copiedTimer = setTimeout(function () { B.copied = false; renderNote(); }, FLASH_MS);
   }
 
   function download(name, text) {
@@ -2571,10 +2614,11 @@
   }
 
   // Height (px) the settings need to show the whole rail: its tabs down to the last one, and the foot under it.
-  // From the tabs, not the rail, which is as tall as it is given.
+  // From the tabs, not the rail, which is as tall as it is given; plus what the settings' tabs scroll out of view.
   function panelNeed() {
-    var list = $('tabs'), rail = list.parentNode;
-    return Math.ceil(list.getBoundingClientRect().bottom - rail.getBoundingClientRect().top + rail.scrollTop +
+    var list = $('tabs'), rail = list.parentNode, groups = $('tab-groups');
+    return Math.ceil(list.getBoundingClientRect().bottom - rail.getBoundingClientRect().top +
+      Math.max(0, groups.scrollHeight - groups.clientHeight || 0) +
       px(root.getComputedStyle(rail).paddingBottom)) + document.querySelector('.panel-foot').offsetHeight;
   }
 
@@ -2955,7 +2999,8 @@
       copiedTimer: null,
       fileNote: '',
       // folds: a GROUPS fold sub-heading's id ('look-names') -> open, as last left (foldPart fills in the rest)
-      ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop, section: UI_DEFAULTS.section, folds: {} },
+      // obsSeen: Add to OBS has been open in this browser (until then a copied URL points to it harder: renderNote)
+      ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop, section: UI_DEFAULTS.section, folds: {}, obsSeen: false },
       frame: null,
       frameSig: null,
       reloadTimer: null,
@@ -2978,6 +3023,7 @@
       B.ui.h = clampInt(u.h, SIZE_LIMITS.h[0], SIZE_LIMITS.h[1], UI_DEFAULTS.h);
       if (BACKDROPS.indexOf(u.backdrop) >= 0) B.ui.backdrop = u.backdrop;
       if (typeof u.section === 'string' && sectionIds().indexOf(u.section) >= 0) B.ui.section = u.section;
+      if (u.obs === true) B.ui.obsSeen = true;
       if (u.folds && typeof u.folds === 'object') {
         Object.keys(u.folds).forEach(function (id) { if (typeof u.folds[id] === 'boolean') B.ui.folds[id] = u.folds[id]; });
       }

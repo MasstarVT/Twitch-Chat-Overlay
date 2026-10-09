@@ -104,7 +104,9 @@ function memoryStorage() {
 
 test('start: every section has a tab that controls it, and one is open', (t) => {
   const p = open(t, HREF);
-  const tabs = p.$('tabs').children.filter((e) => e.getAttribute('role') === 'tab');
+  // The settings' tabs are in a box of their own (role none) that scrolls apart from Add to OBS.
+  assert.strictEqual(p.$('tab-groups').getAttribute('role'), 'none');
+  const tabs = p.$('tab-groups').children.concat(p.$('tabs').children).filter((e) => e.getAttribute('role') === 'tab');
   assert.deepStrictEqual(tabs.map((e) => e.getAttribute('data-section')), p.builder.sectionIds());
   tabs.forEach((tab) => {
     const panel = p.$(tab.getAttribute('aria-controls'));
@@ -778,15 +780,60 @@ test('Copy URL: a warning beside the URL stays a warning once it is copied, and 
   p.$('bar-copy').dispatch('click');
   assert.deepStrictEqual([p.$('bar-note').className, p.text('bar-note')],
     ['status warn', 'Copied. Add a channel first. Without one the overlay only shows a hint.']);
-  // Nothing to warn of: what to do next, in green, as before.
+  // Nothing to warn of: what to do next, in green, with the preview's size and the two boxes, and the way to Add to OBS.
   t.mock.timers.tick(2000);
   p.$('paste').value = '?channel=forsen';
   p.$('paste-load').dispatch('click');
   p.$('bar-copy').dispatch('click');
-  assert.deepStrictEqual([p.$('bar-note').className, p.text('bar-note')], ['status ok', 'Copied. Paste it into an OBS Browser source.']);
+  assert.deepStrictEqual([p.$('bar-note').className, p.text('bar-note')], ['status ok',
+    'Copied. In OBS, add a Browser source at 450 × 700 and untick Shutdown source and Refresh browser. Add to OBS steps']);
   t.mock.timers.tick(30);
-  assert.strictEqual(p.text('sr-status'), 'Copied!');
+  assert.strictEqual(p.text('sr-status'), 'Copied. In OBS, add a Browser source at 450 by 700, and untick Shutdown source ' +
+    'when not visible and Refresh browser when scene becomes active.', 'said once, in place of the bare Copied!');
+  t.mock.timers.tick(5000);
+  assert.match(p.text('bar-note'), /^Copied\. In OBS/, 'it stays until the URL changes');
   await settle(); // the channel lookup ends
+});
+
+test('Copy URL: the copied note points to Add to OBS, harder until it has been opened, and follows the size', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookups
+  const storage = memoryStorage();
+  const p = open(t, HREF + '?channel=forsen', { storage });
+  fakeCopy(p);
+  const link = () => p.$('bar-note').byClass('note-link')[0];
+  p.$('bar-copy').dispatch('click');
+  assert.ok(link(), 'a link to the steps');
+  assert.strictEqual(link().getAttribute('href') || link().href, '#obs');
+  assert.ok(link().classList.contains('first'), 'Add to OBS never opened: the link stands out');
+  assert.ok(p.$('tab-obs').classList.contains('nudge'), 'and so does its tab');
+  // The size the note names is the preview's.
+  p.$('pw').value = '500';
+  p.$('pw').dispatch('change');
+  assert.match(p.text('bar-note'), /at 500 × 700 /);
+  // Its link opens Add to OBS and takes the focus to its tab; the note then has no link to what is open.
+  const focused = [];
+  p.$('tab-obs').focus = () => focused.push('tab-obs');
+  let stopped = false;
+  link().dispatch('click', { button: 0, preventDefault() { stopped = true; } });
+  assert.strictEqual(stopped, true);
+  assert.strictEqual(p.$('group-obs').hidden, false);
+  assert.deepStrictEqual(focused, ['tab-obs']);
+  assert.strictEqual(link(), undefined);
+  assert.ok(!p.$('tab-obs').classList.contains('nudge'));
+  assert.strictEqual(JSON.parse(storage.getItem('tco-builder-ui')).obs, true, 'remembered');
+  // Back on Look, the link is a plain one from now on.
+  p.$('tabs').dispatch('click', { target: p.$('tab-look') });
+  assert.ok(link() && !link().classList.contains('first'));
+  assert.ok(!p.$('tab-obs').classList.contains('nudge'));
+  // A change to the URL ends the note.
+  p.$('paste').value = '?channel=forsen&kick=xqc&kick_room=668';
+  p.$('paste-load').dispatch('click');
+  assert.doesNotMatch(p.text('bar-note'), /^Copied/);
+  // Both channels: the note does not read as Twitch's alone.
+  p.$('bar-copy').dispatch('click');
+  assert.match(p.text('bar-note'), /^Copied: Twitch and Kick chat in one source\. In OBS/);
+  await settle();
 });
 
 // A field's row, from its label (label < .field-name < .field-head < .field).

@@ -104,6 +104,9 @@
       <nav class="rail" aria-label="Settings sections">
         <p id="rail-h" class="eyebrow">Settings</p>
         <div id="tabs" class="tabs" role="tablist" aria-labelledby="rail-h" aria-orientation="vertical">
+          <!-- The settings' tabs (builder.js adds them). In a short window these scroll and Add to OBS stays
+               pinned under them; in one column this box drops out (css display: contents) and all of it is one row. -->
+          <div id="tab-groups" class="tab-groups" role="none"></div>
           <span id="tab-rule" class="tab-rule" role="presentation"></span>
           <button id="tab-obs" class="tab" type="button" role="tab" aria-controls="group-obs" aria-selected="false" tabindex="-1" data-section="obs">
             <span class="mark"></span><span class="name">Add to OBS</span>

@@ -45,7 +45,7 @@ For Kick, open the builder's **Kick** section, enter your Kick channel and press
 
 1. Fork the repo and delete the `CNAME` file from your fork (it points at chat.masstar.org). Then go to **Settings → Pages**, choose **Deploy from a branch**, and pick `main` / `(root)`.
 2. Open `https://<your-user>.github.io/Twitch-Chat-Overlay/builder.html`. That page is the builder. To pre-fill it, add options to its URL, for example `?channel=yourname`.
-3. Enter your channel at the top, adjust the settings, and press **Copy URL** in the bar along the bottom. The builder's **Add to OBS** section walks through the next two steps.
+3. Enter your channel at the top, adjust the settings, and press **Copy URL** in the bar along the bottom. The note beside the URL then gives the source size and the two boxes to untick, and the builder's **Add to OBS** section walks through the next two steps.
 4. In OBS: **Sources → + → Browser**. Paste the URL, then set **Width** and **Height** to the same size as the builder preview (450 × 700 for the vertical layout, 1920 × 100 for the horizontal one).
 5. In the same dialog, **uncheck** "Shutdown source when not visible" and "Refresh browser when scene becomes active". Leaving them on makes the chat reconnect and clear on every scene switch.
 
