@@ -42,7 +42,7 @@ html {
   scroll-padding-top: calc(var(--dock-h) + 8px);
   scroll-padding-bottom: var(--bar-clear, 160px);
 }
-html:has(#bar-note.warn), html:has(#bar-note.ok) { --bar-clear: 204px; }
+html:has(#bar-note.warn), html:has(#bar-note.ok), html:has(#bar-note.next) { --bar-clear: 204px; }
 html:has(#builder.dock-shut) { scroll-padding-top: 52px; }
 body {
   margin: 0;
@@ -558,6 +558,23 @@ textarea.text { display: block; padding: 10px 12px; line-height: 20px; }
 .fold-body { grid-column: 1 / -1; display: grid; grid-template-columns: inherit; column-gap: inherit; min-width: 0; }
 .fold-body[hidden] { content-visibility: hidden; }
 .fields > .span-all { grid-column: 1 / -1; }
+/* Quick look: its label's line above the looks, at their width, so the label stays over them in a row as wide as two
+   columns (a wide preview's). Undo comes and goes at the end of that line, which is there either way: nothing moves. */
+.field-presets .field-head { flex-direction: column; flex-wrap: nowrap; align-items: stretch; justify-content: flex-start; width: max-content; max-width: 100%; }
+.fields .field.field-presets .field-name { flex: none; flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; }
+.preset-undo {
+  position: relative;
+  margin: 0; padding: 0 2px;
+  border: 0; border-radius: 3px;
+  background: none;
+  color: var(--accent-hi);
+  font-size: 14px; font-weight: 600; line-height: 20px;
+  text-decoration: underline; text-decoration-color: rgba(169, 112, 255, .45); text-underline-offset: 3px;
+  cursor: pointer;
+}
+.preset-undo:hover { color: var(--focus); text-decoration-color: currentColor; }
+/* a 44px reach on a line 20px tall: into the gap above the looks and the row's padding, never onto a look */
+.preset-undo::after { content: ""; position: absolute; inset: -16px -12px -8px; }
 .field { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 0 14px; border-top: 1px solid var(--border); }
 .field-head { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .field-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -765,7 +782,6 @@ label.field-label { cursor: pointer; }
 }
 .diagram-row { display: flex; align-items: flex-start; gap: 8px; }
 .diagram-row .v { flex: 1 1 auto; padding: 12px; }
-.diagram-row .btn { flex: none; padding: 0 14px; }
 .diagram.wh { flex-direction: row; gap: 16px; }
 .diagram.wh .f { display: flex; flex-direction: column; gap: 6px; }
 .diagram.wh .v { width: 96px; min-height: 36px; }
@@ -810,12 +826,16 @@ label.field-label { cursor: pointer; }
 .bar-head { grid-area: head; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 /* in one column the bar stays on screen, so it only speaks up when something is wrong */
 .bar-head .eyebrow { display: none; color: var(--text); }
-.bar-head .status:not(.warn):not(.ok) { display: none; }
+.bar-head .status:not(.warn):not(.ok):not(.next) { display: none; }
 .bar-head .status { margin-bottom: 8px; }
-/* the copied note runs as one paragraph: bold size and box names, then the link to Add to OBS */
-.bar-head .status.ok { display: block; }
+/* the copied note runs as one paragraph: bold size and box names, then the link to Add to OBS; so does the line
+   before the first copy that says what comes next (builder.js nextNote), in the muted note color */
+.bar-head .status.ok, .bar-head .status.next { display: block; }
 .bar-head .status.ok strong { white-space: nowrap; }
+.bar-head .status.next strong { font-weight: 600; color: var(--text); white-space: nowrap; }
 .note-short { display: none; }
+/* the note the next-step line stands in for: only the app layout's bar has the room for both (below) */
+.note-plain { display: none; }
 .note-link { font-weight: 600; text-decoration-thickness: 1px; text-underline-offset: 3px; white-space: nowrap; }
 .note-link.first { font-weight: 700; color: var(--text); text-decoration-color: var(--accent-hi); text-decoration-thickness: 2px; }
 .note-link.first:hover { color: var(--focus); }
@@ -1037,8 +1057,9 @@ label.field-label { cursor: pointer; }
   .bar { grid-area: bar; position: static; display: flex; align-items: center; gap: 20px; min-height: 96px; padding: 12px 24px; }
   .bar-head { flex: none; width: 250px; }
   .bar-head .eyebrow { display: block; }
-  .bar-head .status:not(.warn):not(.ok) { display: flex; }
+  .bar-head .status:not(.warn):not(.ok):not(.next) { display: flex; }
   .bar-head .status { margin-bottom: 0; }
+  .note-plain { display: block; margin-bottom: 2px; }
   .bar-url { flex: 1 1 auto; height: 56px; margin-bottom: 0; padding: 0 16px; font-size: 14px; }
   .cta { padding: 0 24px; }
   #bar-copy { flex: none; min-width: 172px; }

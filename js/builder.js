@@ -1752,9 +1752,10 @@
     return p;
   }
 
-  // The Quick look row at the top of Look: a button per look (the one the settings are at is pressed), then Undo,
-  // hidden until a click changes the look (shown but off, it read as a sixth look). It comes in last, so the looks
-  // never move from under the pointer. Like a field, without a setting's name: it is no setting of its own.
+  // The Quick look row at the top of Look: a button per look (the one the settings are at is pressed), and Undo,
+  // hidden until a click changes the look (shown but off, it read as a sixth look). Undo sits at the end of the
+  // label's line, which is there either way: among the looks it wrapped onto a row of its own and pushed the page
+  // down under the pointer. Like a field, without a setting's name: it is no setting of its own.
   function buildPresets() {
     var row = h('div', 'field field-presets span-all');
     var head = h('div', 'field-head'), name = h('div', 'field-name');
@@ -1773,13 +1774,13 @@
       btns.appendChild(b);
       B.presetBtns[p.id] = b;
     });
-    var undo = h('button', 'btn ghost', 'Undo');
+    var undo = h('button', 'preset-undo', 'Undo');
     undo.type = 'button';
     undo.setAttribute('aria-label', 'Undo quick look');
     undo.disabled = true;
     undo.hidden = true;
     undo.addEventListener('click', undoPreset);
-    btns.appendChild(undo);
+    name.appendChild(undo);
     B.presetUndoBtn = undo;
     head.appendChild(btns);
     row.appendChild(head);
@@ -1900,8 +1901,9 @@
     var body = $('panel-body');
     if (body) body.scrollTop = 0;
     if (id === OBS_SECTION) B.ui.obsSeen = true;
-    // The copied note points to Add to OBS only while it is closed.
-    if (B.copied) renderNote();
+    // The note beside the URL points to Add to OBS only while it is closed, and says what comes next until it has
+    // been open once. (Not before the first render of the URL, which writes the note.)
+    if (B.url) renderNote();
     var tab = $('tab-' + id);
     if (!tab) return;
     if (focusTab) tab.focus();
@@ -2553,7 +2555,11 @@
     if (B.copied) note = copiedNote(note, B.cfg, B.ui);
     // What a settings.js on disk did at load, until the first change (a warning still comes first).
     else if (B.fileNote && note.cls !== 'warn') note = { text: B.fileNote, cls: 'ok' };
+    // Until Add to OBS has been opened once, the note says what comes next.
+    else if (note.cls !== 'warn' && !B.ui.obsSeen) note = nextNote(note);
     clear(n);
+    // The note it stands in for, where the bar has room for it (css/builder.css .note-plain).
+    if (note.plain) n.appendChild(h('span', 'note-plain', note.plain + ' '));
     if (note.parts) {
       // Both are written, and the width shows one (css/builder.css .note-short): a turned phone needs no new note.
       [['note-full', note.parts], ['note-short', note.short]].forEach(function (v) {
@@ -2571,7 +2577,16 @@
     // Without a channel the URL only shows a hint in OBS: Copy URL stays (its note says what is missing) but outlined,
     // so the channel field that still wants a name is the one purple thing to act on.
     $('bar-copy').classList.toggle('alt', !channelOn(B.cfg));
-    $('tab-obs').classList.toggle('nudge', !!note.parts && !B.ui.obsSeen && B.ui.section !== OBS_SECTION);
+    $('tab-obs').classList.toggle('nudge', B.copied && !!note.parts && !B.ui.obsSeen && B.ui.section !== OBS_SECTION);
+  }
+
+  // Before the first copy, the step after it is easy to miss: Add to OBS is the last tab. A line before the link to
+  // it (renderNote), until Add to OBS has been opened once; the copied note says the rest. plain: the note it
+  // replaces, still shown beside it in the app layout's bar.
+  function nextNote(note) {
+    var parts = ['Next: ', ['Copy URL'], ', then the '];
+    return { plain: note.text, parts: parts, short: parts,
+      text: note.text + ' Next: Copy URL, then the Add to OBS steps.', cls: 'next' };
   }
 
   // "Add to OBS steps" in the copied note. Opens the section as its tab does and takes the focus there (to the tab),
@@ -3193,7 +3208,6 @@
 
   function wireOutputs() {
     $('bar-copy').addEventListener('click', function () { copyText(B.url, $('bar-copy'), $('bar-url'), noteCopied); });
-    $('out-copy').addEventListener('click', function () { copyText(B.url, $('out-copy'), $('out-url'), noteCopied); });
     $('settings-copy').addEventListener('click', function () {
       copyText($('out-settings').textContent, $('settings-copy'), $('out-settings'));
     });
@@ -3353,7 +3367,8 @@
       copiedTimer: null,
       fileNote: '',
       // folds: a GROUPS fold sub-heading's id ('look-names') -> open, as last left (foldPart fills in the rest)
-      // obsSeen: Add to OBS has been open in this browser (until then a copied URL points to it harder: renderNote)
+      // obsSeen: Add to OBS has been open in this browser (until then the note beside the URL says it is next, and
+      // points to it harder: renderNote)
       // dockShut: the docked preview is hidden down to its bar (one column: dock)
       ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop, section: UI_DEFAULTS.section, folds: {}, obsSeen: false,
         dockShut: false },

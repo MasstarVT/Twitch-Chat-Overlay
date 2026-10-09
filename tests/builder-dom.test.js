@@ -209,7 +209,8 @@ test('either channel will do: with a Kick one alone, the Twitch field is optiona
   assert.strictEqual(p.$('f-kick').parentNode.parentNode.parentNode.parentNode, p.$('channel-card'));
   assert.strictEqual(p.$('channel').classList.contains('need'), false);
   assert.strictEqual(p.text('channel-status'), 'Optional: add Twitch to show both chats.');
-  assert.strictEqual(p.text('bar-note'), 'Every setting is at its default, so the URL only needs the channel.');
+  // (before Add to OBS has been opened, under the line that says what comes next)
+  assert.deepStrictEqual(p.kids('bar-note', 'note-plain'), ['Every setting is at its default, so the URL only needs the channel. ']);
   assert.strictEqual(p.text('count-platforms'), '', 'the channel and its chatroom id are no changed settings');
   assert.doesNotMatch(p.text('stage-hint'), /Enter a channel/);
   // With neither, the Twitch one asks for a channel, and the Kick one says it will do too.
@@ -824,10 +825,11 @@ test('Copy URL: a warning beside the URL stays a warning once it is copied, and 
   assert.match(p.text('bar-note'), /^Copied\. This URL is too long for the overlay’s host/);
   t.mock.timers.tick(30);
   assert.match(p.text('sr-status'), /^Copied\. This URL is too long/);
-  // Add to OBS's Copy says the same.
+  // A second copy says it again (Add to OBS has no Copy of its own: its step 2 points to this one).
   t.mock.timers.tick(2000);
   assert.match(p.text('bar-note'), /^This URL is too long/);
-  p.$('out-copy').dispatch('click');
+  assert.strictEqual(p.$('out-copy'), null);
+  p.$('bar-copy').dispatch('click');
   assert.match(p.text('bar-note'), /^Copied\. This URL is too long/);
   // Any warning: no channel at all.
   p.$('paste').value = '?bots=1';
@@ -852,6 +854,34 @@ test('Copy URL: a warning beside the URL stays a warning once it is copied, and 
   t.mock.timers.tick(5000);
   assert.match(p.text('bar-note'), /^Copied\. In OBS/, 'it stays until the URL changes');
   await settle(); // the channel lookup ends
+});
+
+// Add to OBS is the last tab, and a first overlay goes wrong there: until it has been opened once, the note beside the
+// URL says what comes next, with a link to it. A warning still comes first; the rail's tab is nudged only once copied.
+test('before the first copy, the note says what is next: Copy URL, then the Add to OBS steps', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookups
+  const storage = memoryStorage();
+  const p = open(t, HREF + '?channel=forsen', { storage });
+  assert.strictEqual(p.$('bar-note').className, 'status next');
+  assert.deepStrictEqual([p.kids('bar-note', 'note-plain'), p.kids('bar-note', 'note-full'), p.kids('bar-note', 'note-short')],
+    [['Every setting is at its default, so the URL only needs the channel. '], ['Next: Copy URL, then the '], ['Next: Copy URL, then the ']]);
+  const link = p.$('bar-note').byClass('note-link')[0];
+  assert.deepStrictEqual([link.textContent, link.getAttribute('href') || link.href, link.classList.contains('first')], ['Add to OBS steps', '#obs', true]);
+  assert.ok(!p.$('tab-obs').classList.contains('nudge'), 'the tab waits for a copy');
+  // A warning comes first, alone.
+  p.$('paste').value = '?bots=1';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([p.$('bar-note').className, p.$('bar-note').byClass('note-link').length], ['status warn', 0]);
+  p.$('paste').value = '?channel=forsen';
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(p.$('bar-note').className, 'status next');
+  // Once Add to OBS has been open, the plain note is back, here and next time.
+  p.$('tabs').dispatch('click', { target: p.$('tab-obs') });
+  p.$('tabs').dispatch('click', { target: p.$('tab-look') });
+  assert.deepStrictEqual([p.$('bar-note').className, p.text('bar-note')], ['status', 'Every setting is at its default, so the URL only needs the channel.']);
+  assert.strictEqual(JSON.parse(storage.getItem('tco-builder-ui')).obs, true, 'remembered');
+  await settle();
 });
 
 test('Copy URL: the copied note points to Add to OBS, harder until it has been opened, and follows the size', async (t) => {
@@ -2378,13 +2408,13 @@ test('the animation options: live, greyed out while animate or fade is off (fade
 
 // ---------- quick looks (stage 10) ----------
 
-// The Quick look row: its buttons, Undo (last), and which look is pressed.
+// The Quick look row: its buttons, Undo (at the end of the label's line), and which look is pressed.
 function looks(p) {
   const row = p.$('group-look').children.filter((e) => e.className === 'fields')[0].children[0];
   const group = row.byClass('btns')[0];
-  const all = group.children, btns = all.slice(0, -1);
+  const btns = group.children;
   return {
-    row, group, btns, undo: all[all.length - 1],
+    row, group, btns, undo: row.byClass('preset-undo')[0],
     pressed: () => btns.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
     // the pressed look is marked by aria-pressed (css/builder.css), never filled like the main action
     filled: () => btns.filter((b) => b.classList.contains('primary')).map((b) => b.textContent),
@@ -2416,7 +2446,8 @@ test('Quick look: a row of five buttons at the top of Look, Default pressed at t
   assert.deepStrictEqual(L.btns.map((b) => [b.className, b.getAttribute('aria-pressed')]),
     [['btn', 'true'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false']]);
   assert.deepStrictEqual([L.undo.textContent, L.undo.className, L.undo.type, L.undo.getAttribute('aria-label'), L.undo.disabled,
-    !!L.undo.hidden], ['Undo', 'btn ghost', 'button', 'Undo quick look', true, true]);
+    !!L.undo.hidden], ['Undo', 'preset-undo', 'button', 'Undo quick look', true, true]);
+  assert.strictEqual(L.undo.parentNode, L.row.byClass('field-name')[0], 'on the label’s line, not among the looks');
   assert.strictEqual(p.text('count-look'), '', 'the row is no changed setting');
 });
 
@@ -2436,14 +2467,14 @@ test('Quick look help: its first sentence names every setting a look sets', (t) 
   Object.keys(phrase).forEach((k) => assert.ok(said.indexOf(phrase[k]) >= 0, 'the help names ' + k + ' ("' + phrase[k] + '"): ' + said));
 });
 
-// Shown but off, Undo read as a sixth look: it is hidden until there is a look to undo, and comes in last.
-test('a quick look click never moves the buttons: Undo, last in the row, shows only while there is a look to undo', (t) => {
+// Shown but off, Undo read as a sixth look: it is hidden until there is a look to undo. Among the looks it wrapped
+// onto a row of its own and pushed the page down; on the label's line it moves nothing.
+test('a quick look click never moves the buttons: Undo, on the label’s line, shows only while there is a look to undo', (t) => {
   const p = open(t, HREF);
   const L = looks(p);
-  const shape = () => L.group.children.map((b) => [b.textContent, !!b.hidden]);
-  const looksOnly = () => shape().slice(0, -1);
+  const looksOnly = () => L.group.children.map((b) => [b.textContent, !!b.hidden]);
   const before = looksOnly();
-  assert.strictEqual(shape().length, 6);
+  assert.strictEqual(before.length, 5);
   const undoShown = () => [!L.undo.hidden, !L.undo.disabled];
   assert.deepStrictEqual(undoShown(), [false, false]);
   L.click('Boxed');
@@ -2698,7 +2729,7 @@ test('a settings.js loaded from the folder ends a run of quick looks, like a pas
   assert.strictEqual(p.text('bar-note'), 'Loaded the settings.js from this folder.');
   // The note beside the URL says what the file did until the first change, and a look is one.
   L.click('Cards');
-  assert.strictEqual(p.text('bar-note'), 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.');
+  assert.deepStrictEqual(p.kids('bar-note', 'note-plain'), ['The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source. ']);
 });
 
 // ---------- horizontal 1.6.1: row alignment, big emotes that grow the row, a name line in a row ----------
