@@ -842,9 +842,10 @@ test('overlay.css: a keyframes rule for every name the renderer writes, animatin
   for (const m of css.matchAll(/@keyframes ([\w-]+) \{([\s\S]*?)\n\}/g)) frames[m[1]] = m[2];
   assert.deepStrictEqual(Object.keys(frames).sort(), R.ENTER_NAMES.concat(R.EXIT_NAMES).sort());
   Object.keys(frames).forEach((n) => {
-    // Opacity and transform run off the main thread; transform-origin (or anything else) would not.
+    // Opacity and transform run off the main thread; transform-origin (or anything else) would not. scan alone
+    // animates clip-path, and says so (README: it costs a little more).
     const props = Array.from(frames[n].matchAll(/([\w-]+):/g), (m) => m[1]);
-    props.forEach((p) => assert.ok(p === 'opacity' || p === 'transform', n + ': ' + p));
+    props.forEach((p) => assert.ok(p === 'opacity' || p === 'transform' || (/^tco-in-scan/.test(n) && p === 'clip-path'), n + ': ' + p));
     const fadesIn = R.ENTER_NAMES.indexOf(n) >= 0;
     assert.match(frames[n], fadesIn ? /from \{ opacity: 0;/ : /to \{ opacity: 0;/, n);
   });
@@ -857,6 +858,49 @@ test('overlay.css: a keyframes rule for every name the renderer writes, animatin
   assert.deepStrictEqual(Array.from(css.matchAll(/([^{}\n]+)\{[^}]*--pop-x:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]), [
     [':where(.layout-vertical.text-center) .lines', '0%'], [':where(.layout-vertical.text-right) .lines', '7.5%']]);
   assert.doesNotMatch(css, /transform-origin/);
+});
+
+test('decodeText: A-Z, a-z and digits past keep become random ones of their kind; nothing else changes', () => {
+  const chars = Array.from('Ab9 héllo! 😀Z');
+  assert.strictEqual(R.decodeText(chars, chars.length, () => 0.5), 'Ab9 héllo! 😀Z');
+  const all = R.decodeText(chars, 0, () => 0);
+  assert.strictEqual(all, 'Aa0 aéaaa! 😀A');
+  assert.strictEqual(Array.from(R.decodeText(chars, 2, () => 0.99)).join(''), 'Ab9 zézzz! 😀Z');
+});
+
+test('enter_style=decode: the name and message letters settle over enter_ms, the line fades in, emotes and the rest stay', (t) => {
+  const s = setup(t, { animate: true, enter_style: 'decode', enter_ms: 400 });
+  s.r.push(chat('Amy42', 'Hello world 123'));
+  s.r.flush();
+  const line = s.lines()[0];
+  const name = line.byClass('name')[0], msg = line.byClass('message')[0];
+  assert.strictEqual(line.style.animation, 'tco-in-decode 400ms ease-out');
+  // Scrambled at once, keeping the spaces and the length.
+  assert.strictEqual(msg.textContent.length, 'Hello world 123'.length);
+  assert.strictEqual(msg.textContent.charAt(5), ' ');
+  assert.notStrictEqual(name.textContent + msg.textContent, 'Amy42Hello world 123');
+  s.tick(200);
+  // Half way: the first half of the characters (name first) are settled.
+  assert.strictEqual(name.textContent, 'Amy42');
+  assert.strictEqual(msg.textContent.slice(0, 4), 'Hell');
+  s.tick(240);
+  assert.deepStrictEqual([name.textContent, msg.textContent], ['Amy42', 'Hello world 123']);
+  // Another style: nothing is scrambled.
+  s.r.setConfig({ animate: true, enter_style: 'fade', enter_ms: 400 });
+  s.r.push(chat('bob', 'plain'));
+  s.r.flush();
+  assert.strictEqual(s.lines()[1].byClass('message')[0].textContent, 'plain');
+});
+
+test('enter_style=decode: a line removed or destroyed mid-way stops; at most DECODE_MAX lines decode at once', (t) => {
+  const s = setup(t, { animate: true, enter_style: 'decode', enter_ms: 1000, max: 50 });
+  for (let i = 0; i < R.DECODE_MAX + 3; i++) s.r.push(chat('u' + i, 'message number ' + i));
+  s.r.flush();
+  const plain = s.lines().filter((l) => /^message number \d+$/.test(l.byClass('message')[0].textContent));
+  assert.strictEqual(plain.length, 3, 'the burst past DECODE_MAX only fades in');
+  s.tick(R.DECODE_TICK_MS * 3);
+  s.r.destroy();
+  s.tick(2000); // no timer left to write into the removed lines
 });
 
 // ---------- flush scheduling ----------

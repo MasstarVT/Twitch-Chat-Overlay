@@ -2417,7 +2417,12 @@ test('Entrance: a list under a button; the option under the pointer or the keys 
   key('t');
   assert.strictEqual(btn.getAttribute('aria-activedescendant'), 'f-enter_style-tilt');
   key('End');
-  assert.strictEqual(btn.getAttribute('aria-activedescendant'), 'f-enter_style-unfold');
+  assert.strictEqual(btn.getAttribute('aria-activedescendant'), 'f-enter_style-decode');
+  // Decode scrambles its own word's letters and settles them, the fade under them as the keyframes.
+  assert.strictEqual(word('decode').style.animation, 'tco-in-decode 500ms ease-out');
+  assert.strictEqual(word('decode').textContent.length, 'Decode'.length);
+  for (let i = 0; i < 15; i++) t.mock.timers.tick(40);
+  assert.strictEqual(word('decode').textContent, 'Decode');
   key('Home');
   assert.strictEqual(btn.getAttribute('aria-activedescendant'), 'f-enter_style-slide');
   // Escape shuts it, choosing nothing.

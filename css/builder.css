@@ -790,6 +790,31 @@ label.field-label { cursor: pointer; }
   from { opacity: 0; transform: scaleY(.2); }
   to { opacity: 1; transform: none; }
 }
+@keyframes tco-in-glitch {
+  from { opacity: 0; transform: translateX(-.3em) skewX(-12deg); }
+  10% { opacity: .8; transform: translateX(.25em) skewX(10deg); }
+  20% { opacity: .3; transform: translateX(-.15em); }
+  30% { opacity: 1; transform: translateX(.12em) skewX(-6deg); }
+  42% { opacity: .5; transform: translateX(-.08em); }
+  55% { opacity: 1; transform: translateX(.05em) skewX(3deg); }
+  70% { transform: translateX(-.03em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-scan {
+  from { opacity: 0; clip-path: inset(-.5em -.5em 100% -.5em); }
+  5% { opacity: 1; }
+  to { opacity: 1; clip-path: inset(-.5em -.5em -.5em -.5em); }
+}
+@keyframes tco-in-scan-x {
+  from { opacity: 0; clip-path: inset(-.5em 100% -.5em -.5em); }
+  5% { opacity: 1; }
+  to { opacity: 1; clip-path: inset(-.5em -.5em -.5em -.5em); }
+}
+@keyframes tco-in-decode {
+  from { opacity: 0; }
+  20% { opacity: 1; }
+  to { opacity: 1; }
+}
 
 /* switch: a checkbox drawn as a track and a knob */
 .switch {

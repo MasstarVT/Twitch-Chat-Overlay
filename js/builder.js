@@ -91,9 +91,25 @@
   var ENTER_FRAMES = { slide: ['tco-in', 'tco-in-x'], fade: ['tco-in-fade', 'tco-in-fade'], pop: ['tco-in-pop', 'tco-in-pop-x'],
     drop: ['tco-in-drop', 'tco-in-drop'], bounce: ['tco-in-bounce', 'tco-in-bounce-x'], spring: ['tco-in-spring', 'tco-in-spring-x'],
     zoom: ['tco-in-zoom', 'tco-in-zoom-x'], flip: ['tco-in-flip', 'tco-in-flip'], tilt: ['tco-in-tilt', 'tco-in-tilt'],
-    unfold: ['tco-in-unfold', 'tco-in-unfold'] };
+    unfold: ['tco-in-unfold', 'tco-in-unfold'], glitch: ['tco-in-glitch', 'tco-in-glitch'], scan: ['tco-in-scan', 'tco-in-scan-x'],
+    decode: ['tco-in-decode', 'tco-in-decode'] };
   // A played entrance lasts Entrance length, but never less than this: 180 ms is over before the eye finds it.
   var PLAY_MIN_MS = 500;
+  // Decode's letters, played on a word as js/renderer.js does on a line (decodeText): A-Z, a-z and 0-9 start as random
+  // ones of their kind and settle from the first to the last, redrawn every DECODE_TICK_MS.
+  var DECODE_TICK_MS = 40;
+  var DECODE_SETS = [[/[A-Z]/, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'], [/[a-z]/, 'abcdefghijklmnopqrstuvwxyz'], [/[0-9]/, '0123456789']];
+  function decodeText(chars, keep, rnd) {
+    var out = '';
+    for (var i = 0; i < chars.length; i++) {
+      var c = chars[i], set = null;
+      if (i >= keep) {
+        for (var j = 0; j < DECODE_SETS.length; j++) if (DECODE_SETS[j][0].test(c)) { set = DECODE_SETS[j][1]; break; }
+      }
+      out += set ? set.charAt(Math.floor((rnd || Math.random)() * set.length)) : c;
+    }
+    return out;
+  }
 
   // text_weight and name_weight: six steps from light to black, on a slider (a row of six choices wraps
   // unevenly on a phone).
@@ -186,8 +202,8 @@
     animate: { label: 'Animate new messages' },
     enter_style: { label: 'Entrance', widget: 'select', play: ENTER_FRAMES, when: animateOn,
       options: { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop', bounce: 'Bounce', spring: 'Spring', zoom: 'Zoom',
-        flip: 'Flip', tilt: 'Tilt', unfold: 'Unfold' },
-      help: 'How a new message comes in. Point at one in the list, or move to it with the arrow keys, to see it play (for at least half a second, so a short one can be seen). Slide rises from below (in a row, in from the right), Bounce rises and bounces as it lands, Pop and Spring grow into place, Zoom shrinks into place, Drop comes down from above, Flip swings down, Tilt rises turned a little, and Unfold opens out. In a row the older messages still glide left to make room. Needs Animate new messages.' },
+        flip: 'Flip', tilt: 'Tilt', unfold: 'Unfold', glitch: 'Glitch', scan: 'Scan', decode: 'Decode' },
+      help: 'How a new message comes in. Point at one in the list, or move to it with the arrow keys, to see it play (for at least half a second, so a short one can be seen). Slide rises from below (in a row, in from the right), Bounce rises and bounces as it lands, Pop and Spring grow into place, Zoom shrinks into place, Drop comes down from above, Flip swings down, Tilt rises turned a little, and Unfold opens out. Glitch flickers and jumps into place, Scan is drawn in from the top (in a row, from the left), and Decode fades in with its letters scrambled, settling one after another: it reads best with an Entrance length of 600 ms or more. Decode scrambles A to Z and digits only, so other scripts and emotes simply fade in. Scan and Decode cost the streaming PC a little more than the others while a message comes in. In a row the older messages still glide left to make room. Needs Animate new messages.' },
     enter_ms: { label: 'Entrance length', widget: 'stepper', step: 50, unit: 'ms', when: animateOn,
       help: 'How long a new message takes to come in, in milliseconds (180 by default). When a message is removed soon after (Remove messages after, in Messages), its fade-out waits for the entrance to end and takes the time left. Needs Animate new messages.' },
     fade: { label: 'Remove messages after', widget: 'stepper', step: 5, unit: 's', zero: 'Never',
@@ -1258,6 +1274,26 @@
           return { value: o.value, label: o.label, li: li, word: word };
         });
         var active = -1;
+        // Decode's letters on a word: settled over ms, or at once (stopDecode) when it plays again or is rewritten.
+        var stopDecode = function (el) {
+          if (!el._tcoDecode) return;
+          clearTimeout(el._tcoDecode.timer);
+          el.textContent = el._tcoDecode.text;
+          el._tcoDecode = null;
+        };
+        var decodeWord = function (el, ms) {
+          stopDecode(el);
+          if (root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+          var d = el._tcoDecode = { text: el.textContent, ticks: 0, timer: null };
+          var chars = Array.from(d.text);
+          var tick = function () {
+            var p = d.ticks++ * DECODE_TICK_MS / ms; // counted in ticks: a word on screen gets each one
+            if (p >= 1) { stopDecode(el); return; }
+            el.textContent = decodeText(chars, Math.floor(p * chars.length));
+            d.timer = setTimeout(tick, DECODE_TICK_MS);
+          };
+          tick();
+        };
         var play = function (el, value) {
           if (!m.play || !m.play[value]) return;
           var name = m.play[value][B.cfg.layout === 'horizontal' ? 1 : 0];
@@ -1265,6 +1301,7 @@
           el.style.animation = 'none';
           void el.offsetWidth; // the same animation again starts over only after a style without it
           el.style.animation = name + ' ' + ms + 'ms ease-out';
+          if (value === 'decode') decodeWord(el, ms); else stopDecode(el);
         };
         var indexOf = function (v) {
           for (var i = 0; i < opts.length; i++) if (opts[i].value === String(v)) return i;
@@ -1338,6 +1375,7 @@
         field.inputs.push(btn);
         field.set = function (v) {
           var i = indexOf(v);
+          stopDecode(shown);
           shown.textContent = i >= 0 ? opts[i].label : String(v);
           opts.forEach(function (o, j) { o.li.setAttribute('aria-selected', j === i ? 'true' : 'false'); });
         };
@@ -3650,6 +3688,7 @@
     start: start,
     META: META,
     ENTER_FRAMES: ENTER_FRAMES,
+    decodeText: decodeText,
     GROUPS: GROUPS,
     BADGE_SUBS: BADGE_SUBS,
     EVENT_SUBS: EVENT_SUBS,

@@ -1124,7 +1124,13 @@ test('the animation options: labels, steppers and what each needs', () => {
   assert.deepStrictEqual([m.enter_ms.label, m.fade_out_ms.label], ['Entrance length', 'Fade-out length']);
   assert.strictEqual(builder.widgetFor('animate'), 'check');
   assert.deepStrictEqual(m.enter_style.options, { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop', bounce: 'Bounce',
-    spring: 'Spring', zoom: 'Zoom', flip: 'Flip', tilt: 'Tilt', unfold: 'Unfold' });
+    spring: 'Spring', zoom: 'Zoom', flip: 'Flip', tilt: 'Tilt', unfold: 'Unfold', glitch: 'Glitch', scan: 'Scan', decode: 'Decode' });
+  // The builder's decode is the renderer's: the same letters for the same random numbers.
+  const R = require('../js/renderer.js')._internal;
+  const seq = () => { let i = 0; return () => [0.1, 0.5, 0.9, 0.3][i++ % 4]; };
+  const chars = Array.from('Gg 9! héllo');
+  assert.strictEqual(builder.decodeText(chars, 0, seq()), R.decodeText(chars, 0, seq()));
+  assert.match(m.enter_style.help, /Decode scrambles A to Z and digits only/);
   // The list plays the overlay's own keyframes: the renderer's names, and css/builder.css has each as overlay.css has it.
   assert.deepStrictEqual(JSON.parse(JSON.stringify(builder.ENTER_FRAMES)), JSON.parse(JSON.stringify(require('../js/renderer.js')._internal.ENTER)));
   assert.strictEqual(m.enter_style.play, builder.ENTER_FRAMES);

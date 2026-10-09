@@ -138,7 +138,8 @@
   var ENTER = { slide: ['tco-in', 'tco-in-x'], fade: ['tco-in-fade', 'tco-in-fade'], pop: ['tco-in-pop', 'tco-in-pop-x'],
     drop: ['tco-in-drop', 'tco-in-drop'], bounce: ['tco-in-bounce', 'tco-in-bounce-x'], spring: ['tco-in-spring', 'tco-in-spring-x'],
     zoom: ['tco-in-zoom', 'tco-in-zoom-x'], flip: ['tco-in-flip', 'tco-in-flip'], tilt: ['tco-in-tilt', 'tco-in-tilt'],
-    unfold: ['tco-in-unfold', 'tco-in-unfold'] };
+    unfold: ['tco-in-unfold', 'tco-in-unfold'], glitch: ['tco-in-glitch', 'tco-in-glitch'], scan: ['tco-in-scan', 'tco-in-scan-x'],
+    decode: ['tco-in-decode', 'tco-in-decode'] };
   // exit_style=slide: the line moves out toward the edge old lines leave by as it fades: the top of a column, the bottom
   // of one with the newest line on top (newestFirst), the left end of a row.
   var EXIT_SLIDE = { up: 'tco-out-slide', down: 'tco-out-slide-down', left: 'tco-out-slide-x' };
@@ -146,7 +147,14 @@
   // Every name onAnimEnd acts on, whatever the settings were when the animation began.
   var ENTER_NAMES = ['tco-in', 'tco-in-x', 'tco-in-fade', 'tco-in-pop', 'tco-in-pop-x', 'tco-in-drop', 'tco-in-bounce',
     'tco-in-bounce-x', 'tco-in-spring', 'tco-in-spring-x', 'tco-in-zoom', 'tco-in-zoom-x', 'tco-in-flip', 'tco-in-tilt',
-    'tco-in-unfold'];
+    'tco-in-unfold', 'tco-in-glitch', 'tco-in-scan', 'tco-in-scan-x', 'tco-in-decode'];
+  // enter_style=decode: the name's and the message's letters A-Z, a-z and digits start as random ones of their own kind
+  // and settle into place from the first to the last over the entrance (enter_ms). Only those, so a line keeps about
+  // its width while it decodes: other letters, emoji, emotes and badges are drawn as they are. Redrawn every
+  // DECODE_TICK_MS; at most DECODE_MAX lines at once (a burst's others only fade in).
+  var DECODE_TICK_MS = 40;
+  var DECODE_MAX = 12;
+  var DECODE_SETS = [[/[A-Z]/, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'], [/[a-z]/, 'abcdefghijklmnopqrstuvwxyz'], [/[0-9]/, '0123456789']];
   var EXIT_NAMES = ['tco-fade', 'tco-out-slide', 'tco-out-slide-down', 'tco-out-slide-x'];
   // Text that draws nothing: spaces, and format and other invisible characters (U+E0000 and U+034F, the suffixes
   // chat clients add to send the same message twice). An emote-only line may have them between its emotes.
@@ -422,6 +430,22 @@
     }
     return parts.join(', ');
   }
+  // decode: chars (code points) with the first `keep` as they are and the rest of A-Z, a-z and 0-9 swapped for a random
+  // one of the same kind. rnd: a random number in [0, 1), Math.random unless a test passes its own.
+  function decodeText(chars, keep, rnd) {
+    var out = '';
+    for (var i = 0; i < chars.length; i++) {
+      var c = chars[i], set = null;
+      if (i >= keep) {
+        for (var j = 0; j < DECODE_SETS.length; j++) if (DECODE_SETS[j][0].test(c)) { set = DECODE_SETS[j][1]; break; }
+      }
+      out += set ? set.charAt(Math.floor((rnd || Math.random)() * set.length)) : c;
+    }
+    return out;
+  }
+  // Whether text has a character decode scrambles.
+  function decodable(text) { return /[A-Za-z0-9]/.test(text); }
+
   // The exit's keyframes for a config: tco-fade, or with exit_style=slide the one toward the edge old lines leave by.
   function exitFor(c) {
     if (!c || c.exit_style !== 'slide') return 'tco-fade';
@@ -1398,6 +1422,7 @@
     var slideAt = 0, slideDx = 0;
     var gliders = [], glideTimer = null; // row_align=left/center: lines easing into the room a leaving line left
     var settleUntil = 0, settleTimer = null;
+    var decoding = [], decodeTimer = null; // enter_style=decode: lines whose letters are settling (startDecode)
     var seq = 0, flushes = 0;
     var ro = null;
     // Images are fetched for this pixel ratio: 1 in OBS, 2 in the builder preview on a HiDPI screen.
@@ -1989,6 +2014,63 @@
       }
       if (top) linesEl.insertBefore(frag, linesEl.firstChild);
       else linesEl.appendChild(frag);
+      if (cfg.animate && cfg.enter_style === 'decode') {
+        for (var di = 0; di < groups.length; di++) for (var dj = 0; dj < groups[di].length; dj++) startDecode(groups[di][dj], now);
+      }
+    }
+
+    // ----- enter_style=decode (see decodeText) -----
+    // The text nodes of a line's name and message, in order, each with its text and its code points.
+    function decodeNodes(line) {
+      var out = [];
+      var walk = function (node) {
+        for (var k = 0; k < node.childNodes.length; k++) {
+          var c = node.childNodes[k];
+          if (c.nodeType === 3) {
+            if (decodable(c.data)) out.push({ node: c, text: c.data, chars: Array.from(c.data) });
+          } else if (c.nodeType === 1) walk(c);
+        }
+      };
+      for (var c = line.firstElementChild; c; c = c.nextElementSibling) {
+        if (c.classList && (c.classList.contains('name') || c.classList.contains('message'))) walk(c);
+      }
+      return out;
+    }
+    function startDecode(line, now) {
+      if (decoding.length >= DECODE_MAX) return;
+      var items = decodeNodes(line);
+      if (!items.length) return;
+      var total = 0;
+      for (var i = 0; i < items.length; i++) total += items[i].chars.length;
+      var d = { line: line, items: items, total: total, start: now, ms: cfg.enter_ms };
+      decoding.push(d);
+      paintDecode(d, 0);
+      if (!decodeTimer) decodeTimer = setTimeout(decodeTick, DECODE_TICK_MS);
+    }
+    // Shows a line's decode p (0 to 1) of the way through: that share of its characters settled, from the first.
+    function paintDecode(d, p) {
+      var keep = Math.floor(p * d.total), at = 0;
+      for (var i = 0; i < d.items.length; i++) {
+        var it = d.items[i];
+        var k = Math.max(0, Math.min(it.chars.length, keep - at));
+        it.node.data = k >= it.chars.length ? it.text : decodeText(it.chars, k);
+        at += it.chars.length;
+      }
+    }
+    function decodeTick() {
+      decodeTimer = null;
+      if (destroyed) return;
+      var now = Date.now(), left = [];
+      for (var i = 0; i < decoding.length; i++) {
+        var d = decoding[i];
+        // Gone, or redrawn (a rerender writes the line anew, with its real text): nothing more to settle.
+        if (d.line.parentNode !== linesEl || !d.line.contains(d.items[0].node)) continue;
+        var p = (now - d.start) / d.ms;
+        paintDecode(d, Math.min(1, p));
+        if (p < 1) left.push(d);
+      }
+      decoding = left;
+      if (decoding.length) decodeTimer = setTimeout(decodeTick, DECODE_TICK_MS);
     }
 
     function gidOf(line) {
@@ -2724,6 +2806,8 @@
       if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
       if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
       if (glideTimer) { clearTimeout(glideTimer); glideTimer = null; }
+      if (decodeTimer) { clearTimeout(decodeTimer); decodeTimer = null; }
+      decoding = [];
       if (ro) { ro.disconnect(); ro = null; }
       linesEl.removeEventListener('animationend', onAnimEnd);
       doc.removeEventListener('visibilitychange', onVisibility);
@@ -2839,6 +2923,9 @@
       animDefaults: animDefaults,
       ENTER: ENTER,
       ENTER_NAMES: ENTER_NAMES,
+      decodeText: decodeText,
+      DECODE_TICK_MS: DECODE_TICK_MS,
+      DECODE_MAX: DECODE_MAX,
       EXIT_NAMES: EXIT_NAMES,
       Ring: Ring,
       DeletedIds: DeletedIds,
