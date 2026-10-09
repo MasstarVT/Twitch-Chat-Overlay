@@ -110,10 +110,14 @@ test('loadHistory: the channel\'s recent messages as historical lines of the joi
     return { status: body === 404 ? 404 : 200, ok: body !== 404, headers: { get: () => null }, text: async () => txt };
   });
   const list = await kick.loadHistory('875396', '875062', { timeout: 3000 });
-  assert.deepStrictEqual(calls, ['https://kick.com/api/v2/channels/875396/messages']);
-  // After a rejoin it is asked of kick.com again: kick.com lets the browser keep a copy for 10 s.
-  await kick.loadHistory('875396', '875062', { timeout: 3000, fresh: true });
-  assert.deepStrictEqual(caches, [undefined, 'no-cache']);
+  // kick.com lets its answer be kept for 10 s, and Cloudflare's edge keeps it whatever the request asks: a copy from
+  // before an outage (or from before the overlay joined) left out what was said and deleted since. Every request has an
+  // address of its own, so the answer is kick.com's as of now; still a plain GET (no preflight).
+  assert.match(calls[0], /^https:\/\/kick\.com\/api\/v2\/channels\/875396\/messages\?_=\d+$/);
+  await kick.loadHistory('875396', '875062', { timeout: 3000 });
+  assert.match(calls[1], /^https:\/\/kick\.com\/api\/v2\/channels\/875396\/messages\?_=\d+$/);
+  assert.notStrictEqual(calls[1], calls[0], 'a second request in the same millisecond gets an address of its own');
+  assert.deepStrictEqual(caches, [undefined, undefined]);
   calls.pop();
   assert.deepStrictEqual(list.map((m) => [m.id, m.roomId, m.text, m.historical]), [
     ['kick:c1', 'kick:875062', 'oldest', true], ['kick:c2', 'kick:875062', 'a reply', true], ['kick:c3', 'kick:875062', 'newest KEKW', true]]);
@@ -128,6 +132,43 @@ test('loadHistory: the channel\'s recent messages as historical lines of the joi
   assert.deepStrictEqual(await kick.loadHistory('875396', '875062'), []);
   body = { data: { messages: 'x' } };
   await assert.rejects(kick.loadHistory('875396', '875062'), /unexpected history response/);
+});
+
+// kick.com's list leaves out a deleted message and a banned user's, but a reply keeps its own copy of the message it
+// answers: a reply quoting one said between the list's oldest and newest message, and not among them, put what a mod
+// took away back on stream in its header. The reply says so (gone), and the overlay leaves the quote out.
+test('loadHistory: a reply quoting a message kick.com left out of its list (inside its time span) is marked gone', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T12:00:00Z') });
+  const at = (s) => '2026-10-08T11:' + s + '+00:00';
+  const item = (id, time, extra) => Object.assign({ id: id, chat_id: 1, user_id: 5, content: 'x', type: 'message', metadata: null,
+    created_at: time, sender: { id: 5, username: 'Fan', identity: { badges: [] } } }, extra || {});
+  const reply = (id, time, pid, ptime) => item(id, time, { type: 'reply', metadata: JSON.stringify({
+    original_sender: { id: 7, username: 'Troll' },
+    original_message: Object.assign({ id: pid, content: 'removed words' }, ptime ? { created_at: ptime } : {}) }) });
+  const messages = [
+    item('newest', at('59:00')),
+    reply('r-gone', at('58:00'), 'p-gone', at('50:00')), // inside the span, not in the list: deleted, or its sender banned
+    reply('r-kept', at('57:00'), 'p-kept', at('45:00')), // in the list
+    reply('r-old', at('56:00'), 'p-old', at('10:00')), // older than the list: nothing to judge it by
+    reply('r-edge', at('55:00'), 'p-edge', at('40:00')), // the oldest's second (kick.com's times are to the second)
+    reply('r-notime', at('54:00'), 'p-notime', null), // no time in the reply's data
+    reply('r-junk', at('53:00'), 'p-junk', at('48:00')), // in the list, as an entry the overlay can't read
+    item('p-junk', at('48:00'), { sender: null }),
+    item('p-kept', at('45:00')),
+    item('oldest', at('40:00'))
+  ];
+  t.mock.method(globalThis, 'fetch', async () => {
+    const txt = JSON.stringify({ data: { messages: messages } });
+    return { status: 200, ok: true, headers: { get: () => null }, text: async () => txt };
+  });
+  const list = await kick.loadHistory('875396', '875062');
+  assert.deepStrictEqual(list.filter((m) => m.reply).map((m) => [m.id, !!m.reply.gone]), [
+    ['kick:r-junk', false], ['kick:r-notime', false], ['kick:r-edge', false], ['kick:r-old', false], ['kick:r-kept', false],
+    ['kick:r-gone', true]]);
+  assert.ok(list.filter((m) => m.reply && m.id !== 'kick:r-gone').every((m) => !('gone' in m.reply)), 'others keep their shape');
+  // The newest's second is no proof either.
+  messages.unshift(reply('r-new', at('59:30'), 'p-new', at('59:30')));
+  assert.ok(!('gone' in (await kick.loadHistory('875396', '875062')).pop().reply));
 });
 
 test('roomFromText takes the number or the whole channel API page', () => {
@@ -241,6 +282,13 @@ test('toMessage: replies (object or JSON-string metadata), bad colors, unknown b
   const plain = JSON.parse(JSON.stringify(meta));
   plain.original_sender.identity = { badges: [{ type: 'moderator' }, { type: 'verified' }] };
   assert.ok(!('bot' in kick.toMessage(chat({ type: 'reply', metadata: plain })).reply));
+  // The quoted message's own time, when the reply's data gives it (kick.com's history does): kick.loadHistory judges by
+  // it whether kick.com left the message out. Only then, so other replies keep their shape.
+  const timed = JSON.parse(JSON.stringify(meta));
+  timed.original_message.created_at = '2026-10-09T08:46:12+00:00';
+  assert.strictEqual(kick.toMessage(chat({ type: 'reply', metadata: timed })).reply.ts, Date.parse('2026-10-09T08:46:12Z'));
+  timed.original_message.created_at = 'soon';
+  assert.ok(!('ts' in kick.toMessage(chat({ type: 'reply', metadata: timed })).reply));
 
   const s = chat().sender;
   const odd = kick.toMessage(chat({ sender: Object.assign({}, s, { identity: { color: 'red', badges: [{ type: 'weird' }, { type: 'VIP', count: -2 }, { type: 'vip' }] } }) }));

@@ -221,6 +221,10 @@
     // bots=0 then leaves the quote out, as it hides the bot's own lines. Set only then, so other replies keep their shape.
     var osIdent = objectOf(os.identity), omSender = objectOf(om.sender), omIdent = omSender && objectOf(omSender.identity);
     if (hasBotBadge(osIdent && osIdent.badges) || hasBotBadge(omIdent && omIdent.badges)) r.bot = true;
+    // When the quoted message was said, when the reply's data gives it (kick.com's history does): loadHistory judges by
+    // it whether kick.com left that message out of its list. Set only then, so other replies keep their shape.
+    var pts = typeof om.created_at === 'string' ? Date.parse(om.created_at) : NaN;
+    if (isFinite(pts)) r.ts = pts;
     return r;
   }
 
@@ -359,31 +363,48 @@
   // the overlay's start-up history: kick.com's API, behind Cloudflare like the channel lookup, so it may be refused (then
   // there is none, as before). Each is a ChatMessageEvent's data without the chatroom id, which the lines are keyed by
   // (chatroomId, the one the overlay joined), so it is set on a copy. Oldest first, marked historical; at most HISTORY_MAX,
-  // none older than a day (robotty keeps Twitch's that long), and [] when there are none. opts.fresh: asked of kick.com
-  // again, not taken from the browser's copy (kick.com lets one be kept for 10 s), as after a rejoin.
+  // none older than a day (robotty keeps Twitch's that long), and [] when there are none. Every request has an address of
+  // its own (?_=): kick.com lets its answer be kept for 10 s, and Cloudflare's edge serves that copy whatever the request
+  // asks, so an answer from before an outage (or from before the overlay joined) left out what was said and deleted since.
+  // kick.com's list leaves out a deleted message and a banned user's, but a reply keeps its own copy of the message it
+  // answers: a reply quoting a message said strictly between the list's oldest and newest (its times are to the second, so
+  // the messages of those two seconds may be missing for no reason) and not in it is marked (reply.gone): the message was
+  // deleted, or its sender banned, and the header would put it back on stream.
   var HISTORY_MAX = 50, HISTORY_AGE_MS = 86400000;
+  var historyBust = 0;
   function loadHistory(channelId, chatroomId, opts) {
     var ch = util.idStr(channelId), room = util.idStr(chatroomId);
     if (!ROOM_RE.test(ch) || !ROOM_RE.test(room)) return Promise.resolve([]);
     var o = { timeout: (opts && opts.timeout) || 10000, maxBytes: 2 * 1024 * 1024 };
-    if (opts && opts.fresh) o.cache = 'no-cache';
-    return util.fetchJson(CHANNEL_API + ch + '/messages', o).then(function (r) {
+    historyBust = Math.max(Date.now(), historyBust + 1);
+    return util.fetchJson(CHANNEL_API + ch + '/messages?_=' + historyBust, o).then(function (r) {
       if (!r || util.isNotFound(r)) return [];
       var data = r.data && typeof r.data === 'object' ? r.data : null;
       if (!data || !Array.isArray(data.messages)) throw new Error('kick: unexpected history response');
       var list = data.messages.slice(0, HISTORY_MAX), now = Date.now(), out = [];
+      // Every entry kick.com listed counts for what it left out, also one the overlay doesn't show (too old, unreadable).
+      var listed = {}, lo = Infinity, hi = -Infinity;
       for (var i = 0; i < list.length; i++) {
         var d = list[i];
         if (!d || typeof d !== 'object' || Array.isArray(d)) continue;
+        var lid = kickId(d.id), at = Date.parse(d.created_at);
+        if (lid) listed[lid] = true;
+        if (isFinite(at)) {
+          if (at < lo) lo = at;
+          if (at > hi) hi = at;
+        }
         var copy = {};
         for (var k in d) if (hasOwn.call(d, k)) copy[k] = d[k];
         copy.chatroom_id = room;
-        var at = Date.parse(d.created_at);
         var m = isFinite(at) && now - at < HISTORY_AGE_MS ? toMessage(copy) : null;
         if (!m) continue;
         m.historical = true;
         out.push(m);
       }
+      out.forEach(function (m) {
+        var rp = m.reply;
+        if (rp && !hasOwn.call(listed, rp.id) && rp.ts > lo && rp.ts < hi) rp.gone = true;
+      });
       out.sort(function (a, b) { return a.ts - b.ts; });
       return out;
     });

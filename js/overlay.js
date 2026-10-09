@@ -1047,9 +1047,19 @@
     // its header after a /clear or a timeout from before it.
     remember(m);
     if (!S.renderer.push(m)) return;
+    if (!m.historical && m.kind === 'chat') noteLiveShown(m);
     if (m.mirrored) noteSourceRoom(m);
     noteUser(m);
     wantCheers(m);
+  }
+
+  // The newest live chat line shown, per platform (its own clock): a refetch after an outage that lands once live chat
+  // has gone on (asked again after a failure, or after a new outage cut it short) only notes the outage's lines, which
+  // would come under newer ones (replayGap, replayKick).
+  function noteLiveShown(m) {
+    var ts = Number(m.ts) || 0;
+    if (isKick(m)) { if (ts > S.kickLiveTs) S.kickLiveTs = ts; }
+    else if (ts > S.twitchLiveTs) S.twitchLiveTs = ts;
   }
 
   // A line said but not shown (history older than the lines shown): the renderer notes it (a /clear or a timeout from
@@ -1192,6 +1202,8 @@
       if (again || !S.kickHistoryLanded) refetchKick();
     } else if (status === 'closed' || status === 'fatal') {
       if (S.kickGapAbort) S.kickGapAbort();
+      // The rejoin asks for the history itself (a later retry would hold Kick chat for nothing meanwhile).
+      stopKickRetry();
       if (status === 'fatal') {
         kickHint('Kick refused the chat connection' + (detail && detail.code ? ' (error ' + detail.code + ')' : '') +
           '. Kick may have changed its chat server; check for an overlay update.');
@@ -1219,6 +1231,10 @@
     // The new room's first join is no rejoin, and the wrong room's lines are no point to ask after.
     S.kickJoined = false;
     S.kickTs = 0;
+    S.kickLiveTs = 0;
+    S.kickGapAfter = null;
+    stopKickRetry();
+    S.kickTries = 0;
     S.kickStatus = 'resolving';
     connectKick(room);
   }
@@ -1349,6 +1365,8 @@
     } else if (status === 'closed') {
       if (!S.closedAt) S.closedAt = T.util.now();
       if (S.gapAbort) S.gapAbort();
+      // The rejoin asks for the history itself (a later retry would hold chat for nothing meanwhile).
+      stopGapRetry();
     }
   }
 
@@ -1402,12 +1420,18 @@
   }
 
   // Replays the history lines (oldest first; from: the first whose chat lines are shown), with the Kick lines kick
-  // (oldest first, each to be shown) put in among them by time.
-  function replayHistory(list, from, kick) {
+  // (kick.com's, oldest first) put in among them by time: those in keep shown, the rest noted as said, as older Twitch
+  // lines are. Noted, the Kick lines left out still count as seen (S.kickTs): a refetch after a Kick rejoin (refetchKick)
+  // shows only what was said after them, not kick.com's whole list again (up to a day old, under live chat).
+  function replayHistory(list, from, kick, keep) {
     var k = 0;
+    function kickLine(m) {
+      if (keep.indexOf(m) >= 0) deliver(m);
+      else noteSaid(m);
+    }
     list.forEach(function (p, i) {
       var ts = sentAt(p);
-      while (ts && k < kick.length && kick[k].ts < ts) deliver(kick[k++]);
+      while (ts && k < kick.length && kick[k].ts < ts) kickLine(kick[k++]);
       noteTwitchTs(p);
       // Already moderated: not shown, but recorded as deleted so replies quoting it get no header.
       if (p.tags['rm-deleted'] !== undefined) { if (p.tags.id) S.renderer.clearMessage(p.tags.id); return; }
@@ -1422,7 +1446,7 @@
       if (p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.markSeen(p.tags.id)) return;
       onLine(p);
     });
-    while (k < kick.length) deliver(kick[k++]);
+    while (k < kick.length) kickLine(kick[k++]);
   }
 
   // The live chat (and moderation) that waited for history, in order.
@@ -1521,7 +1545,8 @@
       S.historyStarting = false;
       if (!list) list = historyLines(got.twitch);
       var want = cfg.history;
-      var kickShown = (got.kick || []).filter(function (m) { return !!m && isKick(m) && shouldShow(m); }).slice(-want);
+      var kickAll = (got.kick || []).filter(function (m) { return !!m && isKick(m); }).sort(function (a, b) { return a.ts - b.ts; });
+      var kickShown = kickAll.filter(shouldShow).slice(-want);
       var from, kickKept = [];
       if (!kickShown.length) {
         from = historyStart(list, want);
@@ -1537,10 +1562,15 @@
         kickKept = picks.filter(function (x) { return x.m !== undefined; }).map(function (x) { return x.m; })
           .sort(function (a, b) { return a.ts - b.ts; });
       }
-      replayHistory(list, from, kickKept);
+      kickGoneParents(kickAll);
+      replayHistory(list, from, kickAll, kickKept);
       flushLive();
+      // One that failed while its chat is joined is asked again after a while (one not joined yet is asked as it joins),
+      // as long as no line of its own has come since (that would be newer than all of it).
+      if (twitch && !S.historyLanded && !S.twitchTs) retryGapLater();
       // Kick's got nothing because the channel lookup hadn't given the channel's id yet: it is asked for once it has.
       if (kick && kickHow === 'none') refetchKick();
+      else if (kick && kickHow === 'failed' && !S.kickTs) retryKickLater();
     }
     setTimeout(finish, HISTORY_WAIT_MS);
     if (twitch) {
@@ -1561,10 +1591,12 @@
   // most) as at start: every deletion in it is applied, whenever the line was said (robotty marks a deleted line
   // rm-deleted; it keeps no CLEARMSG), and its lines sent after the newest the overlay had seen (S.twitchTs, Twitch's own
   // clock, so the PC's doesn't matter) are replayed in order, timeouts and /clears included, the newest `history` of its
-  // chat lines shown. A new outage drops the request, and the next rejoin asks from the same point (S.gapAfter).
+  // chat lines shown. A new outage drops the request, and the next rejoin asks from the same point (S.gapAfter); so does
+  // a request that failed or got no answer in time, asked again while chat goes on (retryGapLater). A timeout or /clear
+  // replayed then takes only what was said before it (replayClear): live chat that came meanwhile stays.
   // When the start-up history never came (OBS started before the network was up, or recent-messages failed) and no
   // Twitch line has been seen since, the whole of it is asked for at the next join, as at start: the newest `history`
-  // chat lines, however old (no outage to reach back over).
+  // chat lines, however old (no outage to reach back over); and while chat is joined, again after a while.
   var GAP_SLACK_MS = 70000; // the longest a dead socket goes unnoticed (irc.js: a PING every 60 s, 10 s for its PONG)
   function refetchGap() {
     var cfg = S.cfg;
@@ -1572,53 +1604,81 @@
     var whole = !S.historyLanded && !S.twitchTs;
     var after = whole ? 0 : S.gapAfter || S.twitchTs || (S.closedAt ? Math.max(S.closedAt - GAP_SLACK_MS, 1) : 0);
     if (!after && !whole) return;
+    stopGapRetry();
     S.gapAfter = after;
     S.historyPending = true;
     var done = false, list = null, gap = null;
-    // ok: lines came; keep: a new outage cut it short (the next rejoin asks from the same point).
-    function finish(ok, keep) {
+    // Without lines (a new outage cut it short, or the request failed or got no answer in time), S.gapAfter is kept: the
+    // next request asks from the same point, at the next rejoin, or after a while while chat is joined (retryGapLater).
+    function finish(aborted) {
       if (done) return;
       done = true;
       S.gapAbort = null;
       S.historyPending = false;
-      if (!keep) S.gapAfter = 0;
-      if (ok && list) {
+      if (list) {
+        S.gapAfter = 0;
+        S.gapTries = 0;
         S.historyLanded = true;
-        if (whole) replayHistory(list, historyStart(list, cfg.history), []);
-        else replayGap(list, gap);
+        if (whole) replayHistory(list, historyStart(list, cfg.history), [], []);
+        else replayGap(list, gap, after);
+      } else if (!aborted && (!whole || !S.twitchTs)) {
+        // A whole one only while no Twitch line has come (that would be newer than all of it).
+        retryGapLater();
       }
       flushLive();
     }
-    S.gapAbort = function () { finish(false, true); };
+    S.gapAbort = function () { finish(true); };
     // By then the lines that came are replayed, whether the bot lists they wait for are known or not.
-    setTimeout(function () { finish(true, false); }, HISTORY_WAIT_MS);
+    setTimeout(function () { finish(false); }, HISTORY_WAIT_MS);
     // Enough lines to reach back over the lines on screen (cfg.max), for their deletions.
     var limit = whole ? historyLimit(cfg.history) : Math.min(800, Math.max(historyLimit(cfg.history), cfg.max * 2));
     T.irc.loadHistory(cfg.channel, limit, { timeout: HISTORY_WAIT_MS }).then(function (l) {
       if (done) return;
       list = historyLines(l);
       if (!whole) gap = gapLines(list, after);
-      whenBotsKnown(whole ? list : gap, cfg.history, function () { finish(true, false); }, function () { return done; });
+      whenBotsKnown(whole ? list : gap, cfg.history, function () { finish(false); }, function () { return done; });
     }, function (e) {
       T.util.warn('history refetch failed', e && e.message);
-      finish(false, false);
+      finish(false);
     });
   }
+  // A Twitch history request that failed or got no answer in time (at start, or after an outage) is asked again while
+  // IRC is joined, after 3 s, 10 s, 30 s, 60 s, then every 5 min (util.retryDelay), until one is answered: the outage's
+  // deletions and bans are applied then, and a quiet channel gets its recent chat. Not while IRC is down (its rejoin asks
+  // at once), and a start-up one no more once a Twitch line has come (refetchGap's own check).
+  function retryGapLater() {
+    if (S.gapRetry || S.ircStatus !== 'joined') return;
+    S.gapRetry = setTimeout(function () {
+      S.gapRetry = null;
+      if (S.ircStatus === 'joined' && (S.gapAfter || (!S.historyLanded && !S.twitchTs))) refetchGap();
+    }, T.util.retryDelay(S.gapTries++));
+  }
+  function stopGapRetry() {
+    if (!S.gapRetry) return;
+    clearTimeout(S.gapRetry);
+    S.gapRetry = null;
+  }
   // The refetched lines (oldest first) said in an outage that began after `after` (a Twitch server time): not deletions
-  // (replayGap applies them all), nor a line that came live since the rejoin (it waits in the buffer).
+  // (replayGap applies them all), nor a line that came live since the rejoin (irc.js has it as seen: it waits in the
+  // buffer, or is on screen). Only looked up: a request cut short before its lines are replayed must leave them unseen,
+  // or the next one (from the same point) would drop them as already shown.
   function gapLines(list, after) {
     return list.filter(function (p) {
       if (sentAt(p) <= after || p.command === 'CLEARMSG' || p.tags['rm-deleted'] !== undefined) return false;
-      return !(p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.markSeen(p.tags.id));
+      return !(p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.hasSeen(p.tags.id));
     });
   }
-  // The refetched lines (list, oldest first): every deletion in them, then the gap's lines (gapLines).
-  function replayGap(list, gap) {
+  // The refetched lines (list, oldest first): every deletion in them, then the gap's lines (gapLines), now marked seen:
+  // one that came live since the answer is left to its live copy (in the buffer). after: the point it was asked from.
+  // Live chat shown since (a request asked again after a failure, or after a new outage cut it short) is newer than all
+  // of the gap: its chat lines are noted as said, not shown under it, so chat stays in time order.
+  function replayGap(list, gap, after) {
     list.forEach(function (p) {
       if (p.command === 'PRIVMSG' && p.tags['rm-deleted'] !== undefined && p.tags.id) S.renderer.clearMessage(p.tags.id);
       else if (p.command === 'CLEARMSG' && p.tags['target-msg-id']) S.renderer.clearMessage(p.tags['target-msg-id']);
     });
-    var from = historyStart(gap, S.cfg.history);
+    gap = gap.filter(function (p) { return !(p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.markSeen(p.tags.id)); });
+    var from = S.twitchLiveTs > after ? gap.length : historyStart(gap, S.cfg.history);
     gap.forEach(function (p, i) {
       noteTwitchTs(p);
       p.tags.historical = '1';
@@ -1626,8 +1686,27 @@
         noteSaid(chatFrom(p));
         return;
       }
-      onLine(p);
+      if (p.command === 'CLEARCHAT') replayClear(p);
+      else onLine(p);
     });
+  }
+  // A timeout, ban or /clear from an outage, replayed. Live chat may have gone on since the rejoin (a request asked again
+  // after a failure, or after a new outage cut the first one short): a line said after it (Twitch's clock) is not taken.
+  // Without one, it is applied as it came (onLine); with one, the lines it covers from before it go one by one, and a
+  // /clear keeps the newer ones out of its reach (its record for reply headers too).
+  function replayClear(p) {
+    var at = sentAt(p), target = T.util.idStr(p.tags['target-user-id']);
+    if (!at || (!target && p.params[1])) { onLine(p); return; }
+    var before = [], newer = false;
+    function covers(m) { return !!m && !isKick(m) && (!target || T.util.idStr(m.userId) === target); }
+    S.said.map.forEach(function (m, id) {
+      if (id !== T.util.idStr(m.id) || !covers(m)) return;
+      if (Number(m.ts) > at) newer = true;
+      else before.push(id);
+    });
+    if (!newer) { onLine(p); return; }
+    if (target) before.forEach(function (id) { S.renderer.clearMessage(id); });
+    else S.renderer.clearAll(function (m) { return covers(m) && !(Number(m.ts) > at); });
   }
 
   // ---------- after a Kick outage ----------
@@ -1638,32 +1717,66 @@
   // since the newest Kick line the overlay had seen (S.kickTs, Kick's own clock) and not seen yet are shown, the newest
   // `history` of them, the rest noted; and a Kick line the overlay had, said strictly between the oldest and newest of
   // them but not among them, was deleted or its sender banned meanwhile: it goes. (kick.com gives times to the second,
-  // so the lines of the two seconds at the ends may be missing for no reason.) The same request is the start-up Kick
-  // history when that never came: no Kick line seen yet, the newest `history` of its lines are shown.
+  // so the lines of the two seconds at the ends may be missing for no reason.) A reply in it quoting a message kick.com
+  // left out the same way loses its header (kickGoneParents). The same request is the start-up Kick history when that
+  // never came: no Kick line seen yet, the newest `history` of its lines are shown. One without an answer (a new outage cut
+  // it short, kick.com failed or took too long) keeps its point (S.kickGapAfter): the next asks from there, at the next
+  // rejoin, or after a while while Kick chat is joined (retryKickLater).
   function refetchKick() {
     var cfg = S.cfg, c = S.kickChannel;
     if (!cfg.history || cfg.demo || !cfg.kick || S.historyStarting || S.kickGap || !c || !c.channelId) return;
-    var after = S.kickTs, done = false;
+    stopKickRetry();
+    var after = S.kickGapAfter !== null ? S.kickGapAfter : S.kickTs, done = false;
+    var whole = !S.kickHistoryLanded && !after;
     var gap = S.kickGap = {};
-    function finish(list) {
+    function finish(list, aborted) {
       if (done) return;
       done = true;
       if (S.kickGap === gap) S.kickGap = null;
       S.kickGapAbort = null;
       if (list) {
+        S.kickGapAfter = null;
+        S.kickTries = 0;
         S.kickHistoryLanded = true;
         replayKick(list, after);
+      } else if (!whole) {
+        S.kickGapAfter = after;
       }
       flushKick();
+      // A whole one only while no Kick line has come (that would be newer than all of it).
+      if (!list && !aborted && (!whole || !S.kickTs)) retryKickLater();
     }
-    S.kickGapAbort = function () { finish(null); };
+    S.kickGapAbort = function () { finish(null, true); };
     setTimeout(function () { finish(null); }, HISTORY_WAIT_MS);
-    // fresh: not the browser's copy of the start-up request (kick.com lets it be kept for 10 s).
-    T.kick.loadHistory(c.channelId, S.kickRoom || c.chatroomId, { timeout: HISTORY_WAIT_MS, fresh: true }).then(function (l) {
+    T.kick.loadHistory(c.channelId, S.kickRoom || c.chatroomId, { timeout: HISTORY_WAIT_MS }).then(function (l) {
       finish(Array.isArray(l) ? l : []);
     }, function (e) {
       T.util.warn('kick history refetch failed', e && e.message);
       finish(null);
+    });
+  }
+  // A Kick history request that failed or got no answer in time (at start, or after a rejoin) is asked again while Kick
+  // chat is joined, with the same backoff as Twitch's (retryGapLater): not while Kick is down (its rejoin asks at once),
+  // and a start-up one no more once a Kick line has come.
+  function retryKickLater() {
+    if (S.kickRetry || S.kickStatus !== 'joined') return;
+    S.kickRetry = setTimeout(function () {
+      S.kickRetry = null;
+      if (S.kickStatus === 'joined' && (S.kickGapAfter !== null || (!S.kickHistoryLanded && !S.kickTs))) refetchKick();
+    }, T.util.retryDelay(S.kickTries++));
+  }
+  function stopKickRetry() {
+    if (!S.kickRetry) return;
+    clearTimeout(S.kickRetry);
+    S.kickRetry = null;
+  }
+  // kick.com's lines (a list from kick.loadHistory) replying to a message kick.com left out of it (reply.gone): the message
+  // was deleted, or its sender banned, before the overlay saw that happen. It counts as deleted, as robotty's rm-deleted
+  // lines do on Twitch, so the reply's header doesn't put it back on stream (nor that of a later reply quoting it).
+  function kickGoneParents(list) {
+    list.forEach(function (m) {
+      var r = m && isKick(m) ? m.reply : null;
+      if (r && r.gone && r.id) S.renderer.clearMessage(r.id);
     });
   }
   // kick.com's recent Kick lines (oldest first) after a rejoin; after: the newest Kick time seen before it.
@@ -1680,13 +1793,16 @@
       if (isKick(m) && id === m.id && m.ts > lo && m.ts < hi && !ids[id]) gone.push(id);
     });
     gone.forEach(function (id) { S.renderer.clearMessage(id); });
+    kickGoneParents(list);
     // Not a line that came live since the rejoin: it waits in the buffer.
     var waiting = {};
     S.kickBuffer.concat(S.liveBuffer.map(function (x) { return x.__kick; })).forEach(function (ev) {
       if (ev && ev.type === 'message' && ev.msg && ev.msg.id) waiting[ev.msg.id] = true;
     });
     var gap = list.filter(function (m) { return m.ts >= after && !S.said.has(m.id) && !waiting[m.id]; });
-    var shown = gap.filter(shouldShow).slice(-S.cfg.history);
+    // Live Kick chat shown since (asked again after a failure, or after a new outage cut it short) is newer than all of
+    // the gap: it is noted as said, not shown under it (replayGap's rule).
+    var shown = S.kickLiveTs > after ? [] : gap.filter(shouldShow).slice(-S.cfg.history);
     gap.forEach(function (m) {
       m.historical = true;
       if (shown.indexOf(m) >= 0) deliver(m);
@@ -1941,13 +2057,20 @@
       historyLanded: false,
       liveBuffer: [],
       twitchTs: 0,
+      twitchLiveTs: 0,
       gapAfter: 0,
       gapAbort: null,
+      gapRetry: null,
+      gapTries: 0,
       kickTs: 0,
+      kickLiveTs: 0,
       kickJoined: false,
       kickHistoryLanded: false,
       kickGap: null,
       kickGapAbort: null,
+      kickGapAfter: null,
+      kickRetry: null,
+      kickTries: 0,
       kickBuffer: [],
       kick: null,
       kickLookup: null,

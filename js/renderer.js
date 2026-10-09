@@ -1079,6 +1079,8 @@
     var shown = '@' + util.capMarks(name.replace(/^@+/, '') || name);
     if (short) return { name: shown, short: true };
     var body = String(reply.body || '').replace(/^\u0001ACTION /, '').replace(/\u0001$/, '').replace(/[\r\n]+/g, ' ');
+    // A quoted repeat's Chatterino/7TV suffix, as the message's own is taken off (tokenizer.cleanText).
+    body = body.replace(/(?: ?\u{E0000})+$/u, '').replace(/ ?͏$/, '');
     if (shorten) body = shortenLinks(body);
     return { name: shown, body: util.capMarks(body) };
   }

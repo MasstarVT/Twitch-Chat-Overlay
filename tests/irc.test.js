@@ -252,10 +252,17 @@ test('duplicate PRIVMSG/USERNOTICE ids are delivered once, even across reconnect
   ws2.open();
   ws2.recv(PRIV + '\r\n');
   assert.strictEqual(s.lines.length, 4);
+  // hasSeen only looks: a history line looked at (not replayed yet) still comes live.
+  assert.strictEqual(s.client.hasSeen('abc-123'), true);
+  assert.strictEqual(s.client.hasSeen('look-1'), false);
+  assert.strictEqual(s.client.hasSeen('look-1'), false);
+  assert.strictEqual(s.client.hasSeen(''), false);
+  ws2.recv(PRIV.replace('id=abc-123', 'id=look-1') + '\r\n');
+  assert.strictEqual(s.lines.length, 5);
   assert.strictEqual(s.client.markSeen('abc-123'), true);
   assert.strictEqual(s.client.markSeen('hist-1'), false);
   ws2.recv(PRIV.replace('id=abc-123', 'id=hist-1') + '\r\n');
-  assert.strictEqual(s.lines.length, 4);
+  assert.strictEqual(s.lines.length, 5);
   s.client.stop();
 });
 

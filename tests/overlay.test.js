@@ -120,6 +120,7 @@ async function boot(t, opts) {
       onLine: o.onLine, onStatus: o.onStatus, kicks: 0,
       start() {}, kick() { this.kicks++; },
       markSeen(id) { const had = seen.has(id); seen.add(id); return had; },
+      hasSeen(id) { return seen.has(id); },
       // like irc.js: a live PRIVMSG id is remembered (and a repeat dropped) before onLine
       receive(p) {
         if (p.command === 'PRIVMSG' && p.tags.id) { if (seen.has(p.tags.id)) return; seen.add(p.tags.id); }
@@ -619,7 +620,9 @@ test('Twitch and Kick history: one history between them, the newest N of both, i
   // Kick 1 is older than the 4 shown; the /clear (Twitch's, before kick 1) never touches Kick lines.
   assert.deepStrictEqual(texts(h), ['kick 3', 'twitch 4', 'twitch 5', 'kick 6']);
   assert.deepStrictEqual(h.cleared, ['some']);
-  assert.deepStrictEqual(h.noted.map((m) => m.text), ['twitch 0', 'twitch 2'], 'older Twitch lines are noted as said');
+  // Older lines are noted as said, Kick's too (in time order): kick 1 counts as seen (S.kickTs).
+  assert.deepStrictEqual(h.noted.map((m) => m.text), ['twitch 0', 'kick 1', 'twitch 2'], 'older lines are noted as said');
+  assert.strictEqual(h.S().kickTs, 1e12 - 54000);
 });
 
 // Twitch doesn't send again what was said, deleted or cleared while the socket was down: a line a mod deleted in an
@@ -664,18 +667,29 @@ test('after an IRC outage: recent-messages is asked again; its deletions apply, 
   h.irc.onStatus('closed');
   join(h);
   assert.strictEqual(asks.length, 3);
+  h.irc.onStatus('closed');
+  join(h);
+  assert.strictEqual(asks.length, 4);
+  asks[3].d.resolve([priv('d', 'missed in the second gap', { id: 'g4', 'tmi-sent-ts': at(65) })].map(P));
+  await settle();
+  assert.deepStrictEqual(texts(h).slice(-1), ['missed in the second gap']);
+  asks[2].d.resolve([priv('x', 'too late', { id: 'x1', 'tmi-sent-ts': at(66) })].map(P));
+  await settle();
+  assert.ok(!texts(h).includes('too late'), 'a dropped request\'s answer is ignored');
+  // Live chat that waited for a dropped request goes on; the next answer's missed lines are older than it: noted as said,
+  // not shown under it (chat stays in time order).
+  h.irc.onStatus('closed');
+  join(h);
   h.feed(priv('live', 'waiting', { id: 'l2', 'tmi-sent-ts': at(70) }));
   h.irc.onStatus('closed');
   assert.deepStrictEqual(texts(h).slice(-1), ['waiting'], 'the waiting live chat goes on');
   join(h);
-  assert.strictEqual(asks.length, 4);
-  asks[3].d.resolve([priv('d', 'missed in the second gap', { id: 'g4', 'tmi-sent-ts': at(65) }),
+  assert.strictEqual(asks.length, 6);
+  asks[5].d.resolve([priv('e', 'missed in the third gap', { id: 'g5', 'tmi-sent-ts': at(68) }),
     priv('live', 'waiting', { id: 'l2', 'tmi-sent-ts': at(70) })].map(P));
   await settle();
-  assert.deepStrictEqual(texts(h).slice(-2), ['waiting', 'missed in the second gap']);
-  asks[2].d.resolve([priv('x', 'too late', { id: 'x1', 'tmi-sent-ts': at(66) })].map(P));
-  await settle();
-  assert.ok(!texts(h).includes('too late'), 'a dropped request\'s answer is ignored');
+  assert.deepStrictEqual(texts(h).slice(-1), ['waiting']);
+  assert.deepStrictEqual(h.noted.map((m) => m.text).slice(-1), ['missed in the third gap']);
   // A stalled request holds live chat back for 4 s at most.
   h.irc.onStatus('closed');
   join(h);
@@ -838,7 +852,7 @@ test('after a Kick rejoin: kick.com\'s recent chat is asked again; what it leave
     said('k4', 'KickFan', 20, 'said in the outage'), said('k5', 'Other', 21, 'me too'), said('k6', 'KickFan', 22, 'newest')];
   status('joined');
   assert.strictEqual(asks.length, 2);
-  assert.deepStrictEqual(asks[1], ['700', '668', { timeout: 4000, fresh: true }]);
+  assert.deepStrictEqual(asks[1], ['700', '668', { timeout: 4000 }], 'kick.loadHistory asks kick.com itself every time');
   await settle();
   assert.deepStrictEqual(h.cleared, ['msg:kick:k2'], 'deleted while the socket was down');
   assert.deepStrictEqual(texts(h).slice(3), ['said in the outage', 'me too', 'newest'], 'no copy of what was on screen');
@@ -901,6 +915,364 @@ test('Kick: no refetch with history=0; a start-up Kick history the lookup missed
   h.kick.opts.onStatus('joined');
   await settle();
   assert.deepStrictEqual(texts(h), ['older', 'newest'], 'a rejoin adds nothing it had');
+});
+
+// A Twitch + Kick start-up history where every Kick line was older than the Twitch lines shown left them unnoted
+// (S.kickTs stayed 0): the first Kick rejoin then showed kick.com's whole list, up to a day old, under live chat.
+test('after a Kick rejoin: the Kick lines a start-up history left out (Twitch lines were newer) don\'t come back', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const at = (sec) => String(1e12 - (60 - sec) * 1000);
+  const kmsg = (id, ms, text) => Object.assign(globalThis.TCO.kick.toMessage(kickChat('kfan', text, {
+    id: id, created_at: new Date(ms).toISOString() })), { historical: true });
+  const old = () => [kmsg('old1', 1e12 - 3.2 * 3600000, 'kick from 3h ago a'), kmsg('old2', 1e12 - 3.1 * 3600000, 'kick from 3h ago b'),
+    kmsg('old3', 1e12 - 3 * 3600000, 'kick from 3h ago c')];
+  let serve = old, kickAsks = 0;
+  const h = await boot(t, { search: '?channel=home&kick=kickname&history=3', stubs(T) {
+    T.kick.lookupChannel = () => Promise.resolve({ chatroomId: '668', channelId: '700', userId: '', slug: 'kickname', username: 'k', subBadges: [] });
+    T.kick.loadHistory = () => { kickAsks++; return Promise.resolve(serve()); };
+    T.irc.loadHistory = () => Promise.resolve([priv('a', 'twitch 1', { 'tmi-sent-ts': at(1) }), priv('b', 'twitch 2', { 'tmi-sent-ts': at(2) }),
+      priv('c', 'twitch 3', { 'tmi-sent-ts': at(3) })].map(P));
+  } });
+  join(h);
+  await settle();
+  assert.deepStrictEqual(texts(h), ['twitch 1', 'twitch 2', 'twitch 3']);
+  assert.deepStrictEqual(h.noted.map((m) => m.text), ['kick from 3h ago a', 'kick from 3h ago b', 'kick from 3h ago c']);
+  h.kick.opts.onStatus('joined');
+  await settle();
+  h.feed(priv('v', 'live twitch'));
+  // The Kick socket drops before any Kick viewer chats; meanwhile one does.
+  h.kick.opts.onStatus('closed');
+  serve = () => old().concat(kmsg('new1', 1e12 + 5000, 'said in the outage'));
+  h.kick.opts.onStatus('joined');
+  await settle();
+  assert.strictEqual(kickAsks, 2);
+  assert.deepStrictEqual(texts(h), ['twitch 1', 'twitch 2', 'twitch 3', 'live twitch', 'said in the outage']);
+});
+
+// The gap's ids were recorded as seen when the refetch's answer was looked at: a new outage while its picks waited (a
+// Shared Chat partner's bot list, bots=0) dropped the request, and the next rejoin's answer had them all as already shown.
+test('after an IRC outage: a refetch cut short while its picks wait leaves its lines to the next rejoin; a live copy shows once', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const at = (sec) => String(1e12 + sec * 1000);
+  const asks = [];
+  const room = deferred();
+  const h = await boot(t, { search: '?channel=home&history=3', stubs(T) {
+    T.irc.loadHistory = () => { const d = deferred(); asks.push(d); return d.promise; };
+    T.twitchBadges.lookupUserById = () => room.promise; // the partner room loads slowly
+  } });
+  asks[0].resolve([]);
+  await settle();
+  join(h);
+  h.feed(priv('pal', 'before the gap', { id: 'p1', 'tmi-sent-ts': at(2) }));
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(40000);
+  join(h);
+  const gap = () => [priv('pal', 'before the gap', { id: 'p1', 'tmi-sent-ts': at(2) }),
+    priv('x', 'partner line in the gap', { id: 'g1', 'tmi-sent-ts': at(10), 'source-room-id': PARTNER }),
+    priv('y', 'home line in the gap', { id: 'g2', 'tmi-sent-ts': at(12) })].map(P);
+  asks[1].resolve(gap());
+  await settle();
+  assert.strictEqual(h.S().historyPending, true, 'the picks wait for the partner room');
+  h.irc.onStatus('closed');
+  join(h);
+  assert.strictEqual(asks.length, 3, 'asked again from the same point');
+  asks[2].resolve(gap());
+  await settle();
+  t.mock.timers.tick(4000);
+  await settle();
+  assert.deepStrictEqual(texts(h), ['before the gap', 'partner line in the gap', 'home line in the gap']);
+  // A gap line that also comes live after the answer, while the picks wait: shown once, from its live copy.
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(40000);
+  join(h);
+  asks[3].resolve([priv('z', 'partner two', { id: 'g3', 'tmi-sent-ts': at(60), 'source-room-id': PARTNER }),
+    priv('w', 'said as it rejoined', { id: 'g4', 'tmi-sent-ts': at(61) })].map(P));
+  await settle();
+  h.feed(priv('w', 'said as it rejoined', { id: 'g4', 'tmi-sent-ts': at(61) }));
+  t.mock.timers.tick(4000);
+  await settle();
+  assert.deepStrictEqual(texts(h).slice(3), ['partner two', 'said as it rejoined']);
+});
+
+// kick.com's list leaves out a deleted message and a banned user's, but a reply keeps its own copy of the message it
+// answers: one in the start-up history (or a rejoin's refetch) quoting such a message put the removed text on stream.
+test('Kick history: a reply quoting a message kick.com left out (deleted, or its sender banned) shows without the quote', async (t) => {
+  const sec = (s) => new Date(1e12 - (300 - s) * 1000).toISOString();
+  const d = (id, login, s, text, extra) => kickChat(login, text, Object.assign({ id: id, created_at: sec(s) }, extra || {}));
+  const replyTo = (name, pid, ps, body) => ({ type: 'reply', metadata: JSON.stringify({ original_sender: { id: 777, username: name },
+    original_message: { id: pid, content: body, created_at: sec(ps) } }) });
+  // kick.loadHistory marks a reply whose quoted message it left out (gone; tests/kick.test.js).
+  const msg = (x, gone) => {
+    const m = Object.assign(globalThis.TCO.kick.toMessage(x), { historical: true });
+    if (gone) m.reply.gone = true;
+    return m;
+  };
+  const start = () => [msg(d('a1', 'Pal', 10, 'hello')), msg(d('r1', 'Viewer', 30, 'lol', replyTo('Troll', 't1', 20, 'deleted slur here')), true),
+    msg(d('r2', 'Viewer', 35, 'yes', replyTo('Pal', 'a1', 10, 'hello'))), msg(d('a2', 'Pal', 40, 'bye'))];
+  let serve = start;
+  const h = await boot(t, { search: '?kick=kickname&kick_room=668&history=5', realRenderer: true, stubs(T) {
+    T.kick.lookupChannel = () => Promise.resolve({ chatroomId: '668', channelId: '700', userId: '', slug: 'kickname', username: 'k', subBadges: [] });
+    T.kick.loadHistory = () => Promise.resolve(serve());
+  } });
+  const lines = () => {
+    t.mock.timers.tick(300);
+    return h.lines().map((l) => l.textContent);
+  };
+  await settle();
+  t.mock.timers.tick(3000);
+  await settle();
+  assert.deepStrictEqual(lines(), ['Pal: hello', 'Viewer: lol', '↪ @Pal: helloViewer: yes', 'Pal: bye']);
+  // After a rejoin: a reply said in the outage, quoting a message deleted in it too.
+  h.kick.opts.onStatus('joined');
+  h.kick.opts.onStatus('closed');
+  serve = () => start().concat(msg(d('r3', 'Viewer', 300, 'what', replyTo('Troll', 't2', 290, 'more slurs')), true));
+  h.kick.opts.onStatus('joined');
+  await settle();
+  assert.deepStrictEqual(lines().slice(-1), ['Viewer: what']);
+});
+
+// A history request that failed after chat joined was never asked again: recent-messages answering 503 (or nothing in
+// time) a moment after IRC joined left a quiet channel empty; a refetch after an outage that failed once left the
+// outage's deletions and bans on stream for good. Kick's the same.
+test('history: a start-up history that fails after IRC joined is asked again after a while (a hung one too), until a line comes', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const ago = (sec) => String(1e12 - sec * 1000);
+  const recent = () => [priv('fan', 'said 3 min ago', { 'tmi-sent-ts': ago(180) }), priv('fan', 'said 2 min ago', { 'tmi-sent-ts': ago(120) })].map(P);
+  for (const how of ['503', 'hang']) {
+    let asked = 0;
+    const h = await boot(t, { stubs(T) {
+      T.irc.loadHistory = (l, n, o) => {
+        asked++;
+        if (asked > 1) return Promise.resolve(recent());
+        // robotty answers 503 just after IRC joined, or nothing until the overlay stops waiting
+        return new Promise((res, rej) => setTimeout(() => rej(new Error(how)), how === '503' ? 600 : o.timeout));
+      };
+    } });
+    t.mock.timers.tick(how === '503' ? 400 : 1000);
+    join(h);
+    t.mock.timers.tick(how === '503' ? 200 : 3000);
+    await settle();
+    assert.strictEqual(asked, 1, how + ': the join found it still out');
+    assert.deepStrictEqual(texts(h), []);
+    t.mock.timers.tick(2999);
+    assert.strictEqual(asked, 1);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.strictEqual(asked, 2, how + ': asked again 3 s after');
+    assert.deepStrictEqual(texts(h), ['said 3 min ago', 'said 2 min ago']);
+    t.mock.timers.tick(600000);
+    assert.strictEqual(asked, 2, 'answered: asked no more');
+  }
+  // A Twitch line before the retry: the start-up history would be older than it, and is asked no more. A drop cancels a
+  // retry (the rejoin asks at once).
+  for (const live of [true, false]) {
+    let asked = 0;
+    const h = await boot(t, { stubs(T) { T.irc.loadHistory = () => { asked++; return Promise.reject(new Error('503')); }; } });
+    // Failed before the join (an offline start): the join asks (as before), and that one fails too.
+    join(h);
+    await settle();
+    assert.strictEqual(asked, 2);
+    if (live) {
+      h.feed(priv('viewer', 'live line', { 'tmi-sent-ts': String(1e12 + 1000) }));
+      t.mock.timers.tick(600000);
+      assert.strictEqual(asked, 2, 'a line came: no retry');
+      assert.deepStrictEqual(texts(h), ['live line']);
+    } else {
+      h.irc.onStatus('closed');
+      t.mock.timers.tick(600000);
+      assert.strictEqual(asked, 2, 'IRC is down: no retry');
+      join(h);
+      await settle();
+      assert.strictEqual(asked, 3, 'the rejoin asks');
+      t.mock.timers.tick(9999);
+      assert.strictEqual(asked, 3);
+      t.mock.timers.tick(1);
+      await settle();
+      assert.strictEqual(asked, 4, 'then 10 s after its failure (the backoff goes on)');
+    }
+  }
+});
+
+test('after an IRC outage: a refetch that fails is asked again from the same point; its deletions and lines apply then', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const at = (sec) => String(1e12 + sec * 1000);
+  const asks = [];
+  const h = await boot(t, { search: '?channel=home&history=2', stubs(T) {
+    T.irc.loadHistory = () => { const d = deferred(); asks.push(d); return d.promise; };
+  } });
+  asks[0].resolve([]);
+  await settle();
+  join(h);
+  h.feed(priv('troll', 'bad words', { id: 's1', 'tmi-sent-ts': at(1) }));
+  h.feed(priv('pal', 'last before the gap', { id: 'p1', 'tmi-sent-ts': at(2) }));
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(20000);
+  join(h);
+  assert.strictEqual(asks.length, 2);
+  asks[1].reject(new Error('HTTP 503'));
+  await settle();
+  assert.strictEqual(h.S().gapAfter, Number(at(2)), 'its point is kept');
+  t.mock.timers.tick(2999);
+  assert.strictEqual(asks.length, 2);
+  t.mock.timers.tick(1);
+  assert.strictEqual(asks.length, 3, 'asked again 3 s after');
+  // No answer in time either: the next is 10 s after.
+  t.mock.timers.tick(4000);
+  await settle();
+  t.mock.timers.tick(9999);
+  assert.strictEqual(asks.length, 3);
+  t.mock.timers.tick(1);
+  assert.strictEqual(asks.length, 4);
+  asks[3].resolve([
+    priv('troll', 'bad words', { id: 's1', 'tmi-sent-ts': at(1), 'rm-deleted': '1' }),
+    priv('pal', 'last before the gap', { id: 'p1', 'tmi-sent-ts': at(2) }),
+    priv('a', 'missed one', { id: 'g1', 'tmi-sent-ts': at(10) })
+  ].map(P));
+  await settle();
+  assert.deepStrictEqual(h.cleared, ['msg:s1'], 'deleted in the outage');
+  assert.deepStrictEqual(texts(h).slice(2), ['missed one'], 'the outage\'s line (no live chat since)');
+  assert.strictEqual(h.S().gapAfter, 0);
+  t.mock.timers.tick(600000);
+  assert.strictEqual(asks.length, 4, 'answered: asked no more');
+  // Again, while live chat goes on meanwhile: the deletion still applies, and the outage's line, older than the live
+  // one shown, is noted as said, not shown under it. The backoff starts over (3 s).
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(20000);
+  join(h);
+  asks[4].reject(new Error('HTTP 503'));
+  await settle();
+  h.feed(priv('live', 'live after the rejoin', { id: 'l1', 'tmi-sent-ts': at(660) }));
+  assert.deepStrictEqual(texts(h).slice(-1), ['live after the rejoin'], 'live chat goes on');
+  t.mock.timers.tick(3000);
+  assert.strictEqual(asks.length, 6);
+  asks[5].resolve([
+    priv('pal', 'pal said it', { id: 'p2', 'tmi-sent-ts': at(640), 'rm-deleted': '1' }),
+    priv('b', 'missed two', { id: 'g2', 'tmi-sent-ts': at(650) }),
+    priv('live', 'live after the rejoin', { id: 'l1', 'tmi-sent-ts': at(660) })
+  ].map(P));
+  await settle();
+  assert.deepStrictEqual(h.cleared, ['msg:s1', 'msg:p2']);
+  assert.deepStrictEqual(texts(h).slice(-1), ['live after the rejoin']);
+  assert.deepStrictEqual(h.noted.map((m) => m.text).slice(-1), ['missed two']);
+});
+
+// A timeout or /clear from the outage, replayed by a request asked again after live chat went on, took that live chat
+// too (Twitch's own came before it; this one after).
+test('after an IRC outage: a timeout or /clear replayed after a retry takes only what was said before it', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const at = (sec) => String(1e12 + sec * 1000);
+  const asks = [];
+  const h = await boot(t, { stubs(T) {
+    T.irc.loadHistory = () => { const d = deferred(); asks.push(d); return d.promise; };
+  } });
+  asks[0].resolve([]);
+  await settle();
+  join(h);
+  h.feed(priv('troll', 'troll before', { id: 't0', 'tmi-sent-ts': at(1) }));
+  h.feed(priv('pal', 'pal before', { id: 'p0', 'tmi-sent-ts': at(2) }));
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(20000);
+  join(h);
+  asks[1].reject(new Error('HTTP 503'));
+  await settle();
+  // The troll's 10 s timeout (at 5 s) is over: they and the others chat on while the retry waits.
+  h.feed(priv('troll', 'troll back', { id: 't1', 'tmi-sent-ts': at(30) }));
+  h.feed(priv('pal', 'pal live', { id: 'p1', 'tmi-sent-ts': at(31) }));
+  t.mock.timers.tick(3000);
+  asks[2].resolve([
+    priv('troll', 'troll before', { id: 't0', 'tmi-sent-ts': at(1) }),
+    priv('pal', 'pal before', { id: 'p0', 'tmi-sent-ts': at(2) }),
+    '@room-id=' + HOME + ';target-user-id=u-troll;ban-duration=10;tmi-sent-ts=' + at(5) + ' :tmi.twitch.tv CLEARCHAT #home :troll',
+    '@room-id=' + HOME + ';tmi-sent-ts=' + at(7) + ' :tmi.twitch.tv CLEARCHAT #home',
+    priv('gap', 'said after the clear', { id: 'g1', 'tmi-sent-ts': at(8) }),
+    priv('troll', 'troll back', { id: 't1', 'tmi-sent-ts': at(30) }),
+    priv('pal', 'pal live', { id: 'p1', 'tmi-sent-ts': at(31) })
+  ].map(P));
+  await settle();
+  assert.deepStrictEqual(h.cleared, ['msg:t0', 'some'], 'the timeout: the troll\'s line from before it; the /clear: a clear of some');
+  const pred = h.clearPreds[0];
+  assert.deepStrictEqual(h.pushed.filter((m) => pred(m)).map((m) => m.text), ['troll before', 'pal before'],
+    'the /clear takes the lines from before it only');
+  assert.deepStrictEqual(texts(h).slice(-2), ['troll back', 'pal live'], 'live chat said since stays');
+  assert.ok(!pred(h.pushed[h.pushed.length - 1]));
+  assert.deepStrictEqual(h.noted.map((m) => m.text), ['said after the clear'], 'older than the live chat: noted as said');
+});
+
+test('Kick: a history request that fails while Kick chat is joined is asked again; after a rejoin, from the same point', async (t) => {
+  const sec = (s) => new Date(1e12 + s * 1000).toISOString();
+  const said = (id, login, s, text) => kickChat(login, text, { id: id, created_at: sec(s) });
+  const hist = (list) => list.map((d) => Object.assign(globalThis.TCO.kick.toMessage(d), { historical: true }));
+  const look = { chatroomId: '668', channelId: '700', userId: '', slug: 'kickname', username: 'k', subBadges: [] };
+  const asks = [];
+  let h = await boot(t, { search: '?kick=kickname&kick_room=668&history=5', stubs(T) {
+    T.kick.lookupChannel = () => Promise.resolve(look);
+    T.kick.loadHistory = () => { const d = deferred(); asks.push(d); return d.promise; };
+  } });
+  const status = (s) => h.kick.opts.onStatus(s, {});
+  status('joined'); // while the start-up history is out
+  await settle();
+  assert.strictEqual(asks.length, 1);
+  asks[0].reject(new Error('HTTP 503'));
+  await settle();
+  t.mock.timers.tick(2999);
+  assert.strictEqual(asks.length, 1);
+  t.mock.timers.tick(1);
+  assert.strictEqual(asks.length, 2, 'the start-up history, 3 s after it failed');
+  asks[1].resolve(hist([said('a', 'Fan', -100, 'before the overlay'), said('b', 'Fan', -50, 'recent')]));
+  await settle();
+  assert.deepStrictEqual(texts(h), ['before the overlay', 'recent']);
+  // A rejoin whose refetch fails while Kick chat is quiet: asked again 3 s after, from the same point.
+  status('closed');
+  status('joined');
+  assert.strictEqual(asks.length, 3);
+  asks[2].reject(new Error('HTTP 503'));
+  await settle();
+  t.mock.timers.tick(3000);
+  assert.strictEqual(asks.length, 4);
+  asks[3].resolve(hist([said('b', 'Fan', -50, 'recent'), said('m', 'Other', 10, 'said in the outage')]));
+  await settle();
+  assert.deepStrictEqual(texts(h).slice(2), ['said in the outage']);
+  t.mock.timers.tick(600000);
+  assert.strictEqual(asks.length, 4, 'answered: asked no more');
+  // Again, while live Kick chat goes on: the retry still reaches back to before the outage (a line kick.com left out
+  // there goes), and the outage's line, older than the live one shown, is noted as said, not shown under it.
+  status('closed');
+  status('joined');
+  asks[4].reject(new Error('HTTP 503'));
+  await settle();
+  h.kick.send('ChatMessageEvent', said('c', 'Fan', 40, 'live after the rejoin'));
+  t.mock.timers.tick(3000);
+  assert.strictEqual(asks.length, 6);
+  asks[5].resolve(hist([said('b', 'Fan', -50, 'recent'), said('m2', 'Other', 30, 'said in the second outage'),
+    said('c', 'Fan', 40, 'live after the rejoin')]));
+  await settle();
+  assert.deepStrictEqual(h.cleared, ['msg:kick:m'], 'deleted in the outage: kick.com left it out');
+  assert.deepStrictEqual(texts(h).slice(-1), ['live after the rejoin']);
+  assert.deepStrictEqual(h.noted.map((m) => m.text).slice(-1), ['said in the second outage']);
+  // A drop cancels a retry (the rejoin asks at once).
+  status('closed');
+  status('joined');
+  asks[6].reject(new Error('HTTP 503'));
+  await settle();
+  status('closed');
+  t.mock.timers.tick(600000);
+  assert.strictEqual(asks.length, 7);
+  status('joined');
+  assert.strictEqual(asks.length, 8);
+  // A start-up history that failed, then a live Kick line: no retry (it would be older than that line).
+  asks.length = 0;
+  h = await boot(t, { search: '?kick=kickname&kick_room=668&history=5', stubs(T) {
+    T.kick.lookupChannel = () => Promise.resolve(look);
+    T.kick.loadHistory = () => { const d = deferred(); asks.push(d); return d.promise; };
+  } });
+  h.kick.opts.onStatus('joined', {});
+  await settle();
+  asks[0].reject(new Error('HTTP 503'));
+  await settle();
+  h.kick.send('ChatMessageEvent', said('x', 'Fan', 1, 'first live'));
+  t.mock.timers.tick(600000);
+  assert.strictEqual(asks.length, 1);
+  assert.deepStrictEqual(texts(h), ['first live']);
 });
 
 test('history cannot make the overlay load more than a few Shared Chat rooms', async (t) => {

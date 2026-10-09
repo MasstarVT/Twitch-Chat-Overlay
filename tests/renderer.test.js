@@ -210,11 +210,16 @@ test('emoteOnly: emote images alone, with nothing but blanks between them (U+E00
   assert.strictEqual(R.emoteOnly([k, { type: 'cheer', prefix: 'Cheer', amount: 1, urls: {}, sp: true }]), false);
   assert.strictEqual(R.emoteOnly([k, { type: 'gif', url: 'https://media.giphy.com/media/a/200.webp', title: 'g', sp: true }]), false);
   assert.strictEqual(R.emoteOnly([k, sp({ type: 'emote', emote: emote('7tv', 'Gone', { urls: {} }), overlays: [] })]), false);
-  // Real tokenizer output: a duplicate-bypass suffix stays a text item, and still counts as blank.
+  // Real tokenizer output: the duplicate-bypass suffix at the end is taken off (tokenizer.cleanText); one between
+  // emotes stays a text item, and still counts as blank.
   const msg = ircParse.toChatMessage(ircParse.parseLine('@id=1;user-id=5;emotes=25:0-4 :u!u@u PRIVMSG #c :Kappa \u{E0000}'));
   const tk = tokenizer.tokenize(msg, { lookup: () => null });
-  assert.deepStrictEqual(tk.items.map((x) => x.type), ['emote', 'text']);
+  assert.deepStrictEqual(tk.items.map((x) => x.type), ['emote']);
   assert.strictEqual(R.emoteOnly(tk.items), true);
+  const mid = ircParse.toChatMessage(ircParse.parseLine('@id=2;user-id=5;emotes=25:0-4,8-12 :u!u@u PRIVMSG #c :Kappa \u{E0000} Kappa'));
+  const tk2 = tokenizer.tokenize(mid, { lookup: () => null });
+  assert.deepStrictEqual(tk2.items.map((x) => x.type), ['emote', 'text', 'emote']);
+  assert.strictEqual(R.emoteOnly(tk2.items), true);
 });
 
 test('modelFor: emote_only=big/huge marks an emote-only line in a column and fetches its emotes that much bigger', () => {
@@ -1296,6 +1301,12 @@ test('reply header model strips ACTION and newlines; empty parent names give no 
   assert.deepStrictEqual(R.replyModel({ login: 'bob', body: 'a\nb' }), { name: '@bob', body: 'a b' });
   assert.strictEqual(R.replyModel({ body: 'x' }), null);
   assert.strictEqual(R.replyModel(null), null);
+  // A quoted repeat keeps no Chatterino/7TV repeat suffix (' U+E0000', ' U+034F'), whose space was drawn before the cut.
+  const TAG0 = String.fromCodePoint(0xE0000);
+  assert.deepStrictEqual(R.replyModel({ name: 'Bob', body: 'gg wp ' + TAG0 }), { name: '@Bob', body: 'gg wp' });
+  assert.deepStrictEqual(R.replyModel({ name: 'Bob', body: 'gg wp ͏' }), { name: '@Bob', body: 'gg wp' });
+  assert.deepStrictEqual(R.replyModel({ name: 'Bob', body: '\u0001ACTION waves ' + TAG0 + '\u0001' }), { name: '@Bob', body: 'waves' });
+  assert.deepStrictEqual(R.replyModel({ name: 'Bob', body: 'love ❤️' }), { name: '@Bob', body: 'love ❤️' });
 });
 
 // Kick's StreamElements bot is "@StreamElements" (tests/fixtures/kick-streamelements.json): a reply to it is headed

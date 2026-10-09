@@ -620,6 +620,7 @@ async function bootOverlay(search, history) {
     h.irc = {
       onLine: o.onLine, onStatus: o.onStatus, start() {}, kick() {},
       markSeen(id) { const had = seen.has(id); seen.add(id); return had; },
+      hasSeen(id) { return seen.has(id); },
       receive(p) {
         if (p.command === 'PRIVMSG' && p.tags.id) { if (seen.has(p.tags.id)) return; seen.add(p.tags.id); }
         o.onLine(p);

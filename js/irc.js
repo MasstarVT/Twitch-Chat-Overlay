@@ -144,6 +144,10 @@
         var had = seen.has(id);
         seen.set(own(id), true);
         return had;
+      },
+      // Whether a message id was seen, without recording it (a history line looked at, not replayed yet).
+      hasSeen: function (id) {
+        return !!id && seen.has(id);
       }
     };
   }

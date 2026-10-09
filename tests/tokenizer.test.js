@@ -203,6 +203,25 @@ describe('text cleanup', () => {
     assert.equal(tk.cleanText('a' + CGJ + 'b').text, 'a' + CGJ + 'b', 'only a trailing one is removed');
   });
 
+  // Chatterino and 7TV send a repeated message with ' U+E0000' after it: only the U+E0000 was dropped, and the space
+  // before it was drawn (a repeat ended one space wider, past a box's edge or onto an empty line of its own).
+  test('a trailing " \\u{E0000}" (Chatterino/7TV repeat suffix, doubled too) is stripped; other invisible endings stay', () => {
+    const TAG0 = String.fromCodePoint(0xE0000);
+    assert.deepEqual(view(tok('gg wp ' + TAG0).items), ['text:gg wp']);
+    assert.deepEqual(view(tok('gg ' + TAG0 + ' ' + TAG0).items), ['text:gg']);
+    assert.deepEqual(view(tok('gg ' + TAG0 + TAG0).items), ['text:gg']);
+    assert.deepEqual(view(tok('gg wp' + TAG0).items), ['text:gg wp']);
+    assert.deepEqual(view(tok('KEKW ' + TAG0).items), ['emote:KEKW'], 'no text item after the emote');
+    assert.deepEqual(view(tok('Kappa ' + TAG0, { emotes: '25:0-4' }).items), ['emote:Kappa'], 'a Twitch range keeps its emote');
+    assert.equal(tk.cleanText(SOH + 'ACTION dances ' + TAG0 + SOH).text, 'dances');
+    assert.equal(tk.cleanText(SOH + 'ACTION dances ' + TAG0 + SOH).action, true);
+    assert.equal(tk.cleanText('a ' + TAG0 + ' b').text, 'a ' + TAG0 + ' b', 'only at the end');
+    const heart = '❤️';
+    const england = String.fromCodePoint(0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F);
+    assert.equal(tk.cleanText('love ' + heart).text, 'love ' + heart, 'an emoji\'s variation sign stays');
+    assert.equal(tk.cleanText('go ' + england).text, 'go ' + england, 'a flag\'s tag characters stay');
+  });
+
   test('doubled spaces (Chatterino duplicate bypass) collapse', () => {
     assert.deepEqual(view(tok('KEKW  KEKW').items), ['emote:KEKW', 'emote:KEKW']);
   });

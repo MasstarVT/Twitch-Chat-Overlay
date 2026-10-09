@@ -134,6 +134,10 @@
       a = s.action;
     }
     t = t.replace(/ ?\u034F$/, '');         // 7TV/Chatterino duplicate-bypass suffix (U+034F)
+    // Chatterino's and 7TV's newer one, ' U+E0000' (twice on some repeats): its space was drawn, so a repeated message
+    // ended a space wider (past a box's edge, or wrapped onto an empty line). Only U+E0000: other invisible characters at
+    // the end (an emoji's U+FE0F, a flag's tag characters) are part of what was said.
+    t = t.replace(/(?: ?\u{E0000})+$/u, '');
     t = t.replace(/\u{E0002}/gu, '\u200D'); // Chatterino-escaped ZWJ (U+E0002) -> real ZWJ
     return { text: t, action: a };
   }
