@@ -2238,14 +2238,13 @@
     if (had && r.focus) r.focus();
   }
 
-  // The look the settings are at is pressed, filled like the main button (aria-pressed says so to assistive tech).
+  // The look the settings are at is pressed. aria-pressed says so to assistive tech and draws it too (css/builder.css):
+  // marked as a chosen segment is, not filled like the main button, so Copy URL stays the one purple fill.
   function syncPresets() {
     if (!B.presetBtns) return;
     var on = presetOf(B.cfg);
     PRESETS.forEach(function (p) {
-      var b = B.presetBtns[p.id], pressed = p.id === on;
-      b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
-      if (pressed) b.classList.add('primary'); else b.classList.remove('primary');
+      B.presetBtns[p.id].setAttribute('aria-pressed', p.id === on ? 'true' : 'false');
     });
   }
 

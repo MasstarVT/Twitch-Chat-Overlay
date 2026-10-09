@@ -2386,6 +2386,7 @@ function looks(p) {
   return {
     row, group, btns, undo: all[all.length - 1],
     pressed: () => btns.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
+    // the pressed look is marked by aria-pressed (css/builder.css), never filled like the main action
     filled: () => btns.filter((b) => b.classList.contains('primary')).map((b) => b.textContent),
     click: (label) => btns.filter((b) => b.textContent === label)[0].dispatch('click')
   };
@@ -2413,7 +2414,7 @@ test('Quick look: a row of five buttons at the top of Look, Default pressed at t
     [['BUTTON', 'button', 'Default'], ['BUTTON', 'button', 'Boxed'], ['BUTTON', 'button', 'Outlined'], ['BUTTON', 'button', 'Cards'],
       ['BUTTON', 'button', 'Big & bold']]);
   assert.deepStrictEqual(L.btns.map((b) => [b.className, b.getAttribute('aria-pressed')]),
-    [['btn primary', 'true'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false']]);
+    [['btn', 'true'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false'], ['btn', 'false']]);
   assert.deepStrictEqual([L.undo.textContent, L.undo.className, L.undo.type, L.undo.getAttribute('aria-label'), L.undo.disabled,
     !!L.undo.hidden], ['Undo', 'btn ghost', 'button', 'Undo quick look', true, true]);
   assert.strictEqual(p.text('count-look'), '', 'the row is no changed setting');
@@ -2526,7 +2527,7 @@ test('a quick look: the form, the URL and the preview follow, live, with a bad c
   assert.strictEqual(p.text('bar-url'), OVERLAY + '?kick=xqc&kick_room=668&font=Roboto&shadow=0&shadow_style=text&name_line=1' +
     '&name_color=ff8800&bg=80&accent_bar=1&bg_shape=soft&bg_width=full&spacing=loose&align=top&block=a_b,c&badges_7tv=0' +
     '&homies_lists=light&paint_images=static');
-  assert.deepStrictEqual([L.pressed(), L.filled(), L.undo.disabled], [['Cards'], ['Cards'], false]);
+  assert.deepStrictEqual([L.pressed(), L.filled(), L.undo.disabled], [['Cards'], [], false]);
   t.mock.timers.tick(30);
   assert.strictEqual(p.text('sr-status'), 'Applied Cards');
   // Live: posted to the frame, which is never reloaded, and the channel is never looked up again.
@@ -2658,7 +2659,7 @@ test('the pressed look follows every change: an edit by hand, set back, and a pa
   const bg = p.$('f-bg');
   bg.value = '70';
   bg.dispatch('input');
-  assert.deepStrictEqual([L.pressed(), L.filled()], [['Boxed'], ['Boxed']], 'by hand, Boxed is what the settings are');
+  assert.deepStrictEqual([L.pressed(), L.filled()], [['Boxed'], []], 'by hand, Boxed is what the settings are');
   assert.strictEqual(L.undo.disabled, true, 'no look was clicked: nothing to undo');
   seg('outline', '1');
   assert.deepStrictEqual(L.pressed(), []);

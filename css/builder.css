@@ -121,6 +121,10 @@ button, input, textarea { font: inherit; color: inherit; }
 .btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 700; }
 .btn.primary:hover { border-color: #7d37f0; background: #7d37f0; }
 .btn.ghost { background: transparent; }
+/* A pressed button (the quick look the settings are at) is marked as a chosen segment is: raised, white, a Stream
+   Purple Light bar along its foot. Solid purple stays the main action's. The bar is a shape, so it never reads as the
+   focus ring, which goes all the way round. */
+.btn[aria-pressed="true"] { background: var(--panel-2); color: #fff; box-shadow: inset 0 -3px 0 var(--accent-hi); }
 .btn:disabled, .btn:disabled:hover { opacity: .45; border-color: var(--border-strong); cursor: not-allowed; }
 .btns { display: flex; flex-wrap: wrap; gap: 8px; }
 
@@ -575,7 +579,7 @@ label.field-label { cursor: pointer; }
 .field.disabled .field-label, .field.disabled .switch,
 .field.disabled label, .field.disabled button, .field.disabled input,
 .field.disabled input[type=color] { cursor: not-allowed; }
-/* and no hover feedback from a control that does nothing; the chosen option keeps its white on the fill */
+/* and no hover feedback from a control that does nothing; the chosen option keeps its white and its bar */
 .field.disabled .seg label:hover input:not(:checked) + span { color: var(--muted); }
 .field.disabled .step:hover { background: transparent; }
 .field.disabled .text:hover, .field.disabled .stepper:hover, .field.disabled input[type=color]:hover { border-color: var(--field-edge); }
@@ -644,7 +648,13 @@ label.field-label { cursor: pointer; }
   text-align: center;
 }
 .seg label:hover span { color: var(--text); }
-.seg input:checked + span { background: var(--accent); color: #fff; }
+/* Chosen: raised a tone, a hairline round it, white, and a Stream Purple Light bar along its foot (5:1 against the
+   segment and the track). Not the solid purple: that is Copy URL's, and a page of chosen options all filled with it
+   drowned the one action that matters. */
+.seg input:checked + span {
+  background: var(--panel-2); color: #fff;
+  box-shadow: inset 0 -3px 0 var(--accent-hi), inset 0 0 0 1px var(--border-strong);
+}
 .seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
 .seg-small { display: inline-flex; }
 .seg-small label { flex: none; }
@@ -673,7 +683,9 @@ label.field-label { cursor: pointer; }
 }
 /* a 44px touch target around the 26px track */
 .switch::after { content: ""; position: absolute; left: -4px; right: -4px; top: -9px; bottom: -9px; }
-.switch:checked { background: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* On: the knob over to the right in white, a Stream Purple Light edge and a soft purple tint. Not solid purple: a
+   grid of on switches (the badge sources are) out-shouted Copy URL. The knob's place says on or off without color. */
+.switch:checked { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent-hi); }
 .switch:checked::before { transform: translateX(18px); background: #fff; }
 
 /* range */
@@ -1092,7 +1104,7 @@ label.field-label { cursor: pointer; }
   /* the pressed look is filled, as a selected item is, so the focus ring (an outline) still tells the two apart. In
      its own colors: forced colors would draw a backplate of the canvas color behind the label. */
   .btn[aria-pressed="true"], .btn[aria-pressed="true"]:hover {
-    forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText;
+    forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; box-shadow: none;
   }
   .btn[aria-pressed="true"]:focus-visible { outline-color: Highlight; }
   .seg input:focus-visible + span { outline: 3px solid Highlight; outline-offset: 2px; }
