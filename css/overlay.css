@@ -42,6 +42,10 @@ body {
 #chat.size-small { font-size: 18px; }
 #chat.size-medium { font-size: 24px; }
 #chat.size-large { font-size: 32px; }
+/* The chat is a picture of the stream wherever it is drawn: OBS never forces colors, so a Windows contrast theme leaves
+   its picked colors, boxes, tints, outline, bars and paints as OBS draws them in the builder preview and the home demos
+   (whose stages keep their own colors too). The status hint and debug line are the page's own and follow the theme. */
+#chat { forced-color-adjust: none; }
 
 /* layout=vertical: lines sit on the bottom edge (newest last) or the top edge (newest first); overflow is clipped and trimmed.
    The .3em vertical padding leaves room for emotes (negative .3em margins) and shadows at the edge. */
@@ -372,12 +376,13 @@ body {
    - In a box (bg), at most the box's own .2em below its line (--emote-drop): an emote's middle is the text's (half its
      x-height above the baseline), a little below the middle of its line in most fonts, so with .3em it stuck out of the
      bottom of its box (1.3 px at medium, 2.7 px at large). Where the font puts it lower still, the line grows by the
-     rest. */
+     rest. Above it takes the same .2em: `vertical-align: middle` centres the margin box, so -.3em above and -.2em below
+     would lift the image .05em, twice as far into a reply header or a name_line name as without a box. */
 :where(.layout-vertical:not(.has-bg)) { --emote-hang: calc(2 * var(--line-gap, .15em)); }
 :where(.layout-vertical) { --emote-floor: max(0em, (var(--line-height, 1.35) / 2 - .4) * 1em); }
 :where(.has-bg) { --emote-drop: .2em; }
 :where(.layout-vertical, .layout-horizontal) .emote-stack {
-  margin-top: calc(-1 * max(0em, min(.3em, var(--emote-hang, .3em), 2.05em - var(--eh),
+  margin-top: calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), var(--emote-hang, .3em), 2.05em - var(--eh),
     (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));
   margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em),
     var(--emote-hang, .3em), 2.05em - var(--eh), (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));
@@ -406,17 +411,28 @@ body {
 .emote-stack.zs { margin-left: -.05em; }
 
 /* ---------- cheers ---------- */
+/* The image and its amount stay together. A cheer wider than its line (line_width, a big emote_scale or text_px, a narrow
+   source) is fitted to it as an emote is: in a column the cheer is one box at most its line wide, so one that only doesn't
+   fit moves to the next row whole, and only one wider than the line puts its amount under its image; the image is never
+   wider than that box (less its sides), letterboxed. A row never wraps (it ends in an ellipsis): there it is one run. */
 .cheer { white-space: nowrap; }
+:where(.layout-vertical) .cheer {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+}
 .cheer-img {
   height: var(--emote-h, 1.75em);
   width: auto;
   vertical-align: middle;
   margin: -.3em .05em;
+  max-width: calc(100% - .1em);
+  object-fit: contain;
 }
 /* Taller than its line (emote_scale above 100), a line_height below 135, spacing=tight, a box: as an emote's, in either
    layout */
 :where(.layout-vertical, .layout-horizontal) .cheer-img {
-  margin-top: calc(-1 * max(0em, min(.3em, var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em),
+  margin-top: calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em),
     (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
   margin-bottom: calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em),
     var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
@@ -502,12 +518,12 @@ body {
 .layout-horizontal .emote-stack.big { --eh: var(--emote-h, 1.75em); }
 /* An emote's box, with its width reserved up front: a GIF has no size until it loads, and growing then
    would shove the whole row sideways. object-fit: contain letterboxes other shapes. Its margins are an emote's (above):
-   -.3em .05em, with no room above and .2em below once it is taller than its line, and .2em below in a box. */
+   -.3em .05em, with no room above and .2em below once it is taller than its line, and .2em above and below in a box. */
 .layout-horizontal .gif {
   width: calc(var(--emote-h, 1.75em) * 16 / 9);
   height: var(--emote-h, 1.75em);
   max-height: var(--emote-h, 1.75em);
-  margin: calc(-1 * max(0em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)))) .05em
+  margin: calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)))) .05em
     calc(-1 * max(.2em, min(var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
 }
 /* The messages of a row are lined up by their box's edge, so every one is as tall as one with an emote (a cheer, a GIF)
@@ -518,7 +534,7 @@ body {
 .layout-horizontal .line::after {
   content: '';
   line-height: max(var(--badge-h, 1em), var(--emote-h, 1.75em)
-    - max(0em, min(.3em, 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)))
+    - max(0em, min(.3em, var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)))
     - max(.2em, min(var(--emote-drop, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em))));
   vertical-align: middle;
 }

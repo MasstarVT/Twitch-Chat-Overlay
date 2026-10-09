@@ -13,6 +13,9 @@
   var EMOTE_EM = 1.75;        // emote height in em (--emote-h)
   var EMOTE_BASE_PX = 28;     // height of a 1x emote / cheermote
   var BADGE_BASE_PX = 18;     // size of a 1x badge
+  var PAINT_BASE_PX = 32;     // height of a 1x 7TV paint image (1x to 4x)
+  var NAME_BOX_EM = 1.21;     // a painted name's box, Inter's content area: the paint image is stretched over it
+  var PAINT_STRETCH = 1.25;   // how far a paint file may be stretched before a bigger one is taken (see paintScale)
   var GIPHY_FIXED_PX = 200;   // height of Giphy's tallest fixed-height GIF file, the one tokenizer.js asks for
   var SHADOWS = [
     'none',
@@ -109,13 +112,14 @@
   // -.3em .05em, except that it reaches past its line only as far as there is room: one taller than its line (emote_scale
   // above 100) never above it and at most .2em below it, less at a line_height below 135 (--emote-floor below 120), at
   // spacing=tight without a box no more than twice the gap (--emote-hang), and in a box no more than its .2em padding
-  // below (--emote-drop). A row draws GIFs at emote height whatever gif_size is, with the same margins written into its
-  // own rule (.layout-horizontal .gif), so --gif-margin is a column's. It is set on #chat, where --emote-h,
-  // --line-height and the others are too, so the var()s below take #chat's values.
+  // below, and so .2em above too (--emote-drop: equal margins keep it centred on the text). A row draws GIFs at emote
+  // height whatever gif_size is, with the same margins written into its own rule (.layout-horizontal .gif), so
+  // --gif-margin is a column's. It is set on #chat, where --emote-h, --line-height and the others are too, so the var()s
+  // below take #chat's values.
   var GIF_MUL = { '1x': '1', '2x': '2' };
   var EMOTE_ROOM = 'var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), ' +
     '(2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)';
-  var GIF_1X_MARGIN = 'calc(-1 * max(0em, min(.3em, ' + EMOTE_ROOM + '))) .05em ' +
+  var GIF_1X_MARGIN = 'calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), ' + EMOTE_ROOM + '))) .05em ' +
     'calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em), ' + EMOTE_ROOM + ')))';
   // name_sep: what goes between the name and the message (a /me line keeps its space). Never '': the name and
   // the message would run together.
@@ -276,6 +280,12 @@
       (baseH > 0 ? baseH : EMOTE_BASE_PX));
   }
   function wantBadge(px, dpr, scale) { return ceilSafe(px * (scale > 0 ? scale : 1) * (dpr > 0 ? dpr : 1) / BADGE_BASE_PX); }
+  // A 7TV paint's image file (1x to 4x, paint-css.js ruleFor's scale) for a name drawn at px: its box (NAME_BOX_EM) times
+  // the pixel ratio, stretched no more than PAINT_STRETCH, so a name at medium or large in OBS (29 and 39 px tall) keeps
+  // the 1x file it always had, and text_px=96 (116 px) takes the 3x.
+  function paintScale(px, dpr) {
+    return Math.min(4, Math.max(1, ceilSafe(px * NAME_BOX_EM * (dpr > 0 ? dpr : 1) / (PAINT_BASE_PX * PAINT_STRETCH))));
+  }
   // A provider's 1x emote height (dim: 0 when unknown). A short one (an FFZ emote 20 px tall, a wide 7TV one) is its
   // own: it is stretched to the same drawn height, so it needs a bigger file than a 28 px emote. 28 to 31 px count as
   // 28 (7TV's are 32), and anything taller as 32, so odd metadata can't pick a smaller file than those would.
@@ -1287,6 +1297,7 @@
     var recs = new WeakMap();    // line -> {msg, src, kind, gid, born, sig, ids, userId, fadeLater}
     var paintState = new Map();  // paint id -> true (rule inserted) | false (rule rejected)
     var stillState = new Map();  // paint_images=static: paint id -> true (still rule inserted) | false (none)
+    var paintAt = 1;             // the paint files the rules are for (paintScale of the text size and dpr)
     var styleEl = null;
     var held = false, destroyed = false;
     var scheduled = false, rafId = null, flushTimer = null, gapTimer = null, lastFlushAt = 0;
@@ -1355,7 +1366,7 @@
     }
     function ensurePaint(id) {
       if (!paintState.has(id)) {
-        var rule = callDep('paintRule', id);
+        var rule = callDep('paintRule', id, paintAt);
         if (typeof rule !== 'string' || !rule) return false; // not known yet: retried on the next render
         var sheet = paintSheet();
         if (!sheet) return false;
@@ -1376,7 +1387,7 @@
     // before. A paint without an animated image has none, and a rejected one leaves the paint as it was.
     function ensureStill(id) {
       if (stillState.has(id)) return;
-      var rule = callDep('paintStaticRule', id);
+      var rule = callDep('paintStaticRule', id, paintAt);
       // undefined: not known yet (overlay.js is looking for a v3 paint's still frame): asked again on the next render, or
       // at once when it is found (stillReady).
       if (rule === undefined && typeof deps.paintStaticRule === 'function') return;
@@ -1389,6 +1400,28 @@
         util.warn('renderer: still paint rule rejected', id, e && e.message);
         stillState.set(id, false);
       }
+    }
+    // A text size that wants other paint files (paintScale): every paint rule in use is made again for them, in the same
+    // <style>. The names keep their classes, so nothing is redrawn for it. Called once cfg is the new one.
+    function rescalePaints() {
+      var s = paintScale(pxFor(cfg), dpr);
+      if (s === paintAt) return;
+      paintAt = s;
+      if (!paintState.size && !stillState.size) return;
+      var ids = [];
+      paintState.forEach(function (ok, id) { if (ok) ids.push(id); });
+      var sheet = styleEl && styleEl.sheet;
+      if (sheet) {
+        try {
+          while (sheet.cssRules.length) sheet.deleteRule(sheet.cssRules.length - 1);
+        } catch (e) {
+          util.warn('renderer: paint rules not cleared', e && e.message);
+          return;
+        }
+      }
+      paintState.clear();
+      stillState.clear();
+      for (var i = 0; i < ids.length; i++) ensurePaint(ids[i]);
     }
 
     // ----- images: one factory, per-kind fallbacks -----
@@ -2221,6 +2254,7 @@
       var prev = cfg;
       cfg = normalizeCfg(next);
       applyRoot(cfg);
+      rescalePaints();
       queue.resize(cfg.max);
       ensureSweepTimer();
       if (!prev) return;
@@ -2563,6 +2597,7 @@
       EMOTE_ONLY: EMOTE_ONLY,
       wantEmote: wantEmote,
       wantBadge: wantBadge,
+      paintScale: paintScale,
       baseHeight: baseHeight,
       shadowCss: shadowCss,
       tshadow: tshadow,

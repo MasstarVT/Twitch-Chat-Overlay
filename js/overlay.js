@@ -470,17 +470,18 @@
     return { text: m.displayName || m.login || '', color: color, paintId: paintId };
   }
 
-  function paintRule(id) {
+  // scale: the paint files for the name's drawn size (renderer.js paintScale), as paintCss.ruleFor takes it.
+  function paintRule(id, scale) {
     var p = S.stv.paints.get(id);
-    return p ? T.paintCss.ruleFor(p) : null;
+    return p ? T.paintCss.ruleFor(p, scale) : null;
   }
   // paint_images=static: the paint's still frame (the renderer asks only then, for a paint it draws). A paint in 7TV's
   // older v3 format (when the v4 paint list failed, or one newer than the list) names one image and not whether it is
   // animated: the still frame beside it is asked for once, and the renderer gets undefined (ask again) meanwhile.
-  function paintStaticRule(id) {
+  function paintStaticRule(id, scale) {
     var p = S.stv.paints.get(id);
     if (!p) return null;
-    var rule = T.paintCss.staticRuleFor(p);
+    var rule = T.paintCss.staticRuleFor(p, scale);
     return rule || probeStill(id, p);
   }
   var stillProbes = new Map(); // paint id -> 'pending' | 'none' (no still frame, or none to look for)

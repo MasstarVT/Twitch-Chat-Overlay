@@ -122,6 +122,50 @@ describe('fromV4', () => {
     assert.equal(pc.staticRuleFor({ id: '../x', bgImageStatic: 'url("https://cdn.7tv.app/x")' }), null);
   });
 
+  // The 1x file is 32 px tall and is stretched over the whole name: a name drawn big (text_px, a HiDPI preview) was a
+  // blurry stretch of it. ruleFor/staticRuleFor take the scale the renderer wants (renderer.js paintScale).
+  test('image layers: the file for the drawn size (scale 1 to 4), the 1x one without a scale as always', () => {
+    const files = [];
+    [1, 2, 3, 4].forEach((s) => {
+      files.push({ url: IMG + s + 'x_static.webp', mime: 'image/webp', scale: s, frameCount: 1 });
+      files.push({ url: IMG + s + 'x.webp', mime: 'image/webp', scale: s, frameCount: 40 });
+      files.push({ url: IMG + s + 'x.avif', mime: 'image/avif', scale: s, frameCount: 40 });
+    });
+    const grad = { __typename: 'PaintLayerTypeLinearGradient', angle: 90, stops: [{ at: 0, color: hex('#FF0000FF') }, { at: 1, color: hex('#0000FF') }] };
+    const g = 'linear-gradient(90deg, #FF0000FF 0%, #0000FF 100%)';
+    const p = pc.fromV4(v4([{ opacity: 1, ty: grad }, layer({ __typename: 'PaintLayerTypeImage', images: files })], [SHADOW_V4]));
+    const rule = (f) => '.painted.p-' + ID + '{background-image:url("' + IMG + f + '"), ' + g + ';filter:drop-shadow(0px 0px 0.5px #000000FF)}';
+    const still = (f) => '.paint-static .painted.p-' + ID + '{background-image:url("' + IMG + f + '"), ' + g + '}';
+    assert.equal(p.bgImage, 'url("' + IMG + '1x.webp"), ' + g, 'the paint itself as before');
+    assert.equal(p.bgImageStatic, 'url("' + IMG + '1x_static.webp"), ' + g);
+    [undefined, 1, 0, -2, 1.5, 'x', NaN, null].forEach((s) => {
+      assert.equal(pc.ruleFor(p, s), rule('1x.webp'), String(s));
+      assert.equal(pc.staticRuleFor(p, s), still('1x_static.webp'), String(s));
+    });
+    assert.equal(pc.ruleFor(p, 2), rule('2x.webp'));
+    assert.equal(pc.ruleFor(p, 3), rule('3x.webp'));
+    assert.equal(pc.ruleFor(p, 4), rule('4x.webp'));
+    assert.equal(pc.ruleFor(p, 9), rule('4x.webp'), 'past 4x: the largest');
+    assert.equal(pc.staticRuleFor(p, 3), still('3x_static.webp'));
+    assertLonghandsOnly(pc.ruleFor(p, 3));
+    // Only some scales offered: the smallest at least as big, else the largest.
+    const some = (scales) => pc.fromV4(v4([layer({ __typename: 'PaintLayerTypeImage',
+      images: files.filter((f) => scales.indexOf(f.scale) >= 0) })]));
+    const one = (f) => '.painted.p-' + ID + '{background-image:url("' + IMG + f + '")}';
+    assert.equal(pc.ruleFor(some([1, 4]), 2), one('4x.webp'));
+    assert.equal(pc.ruleFor(some([1, 2]), 4), one('2x.webp'));
+    assert.equal(pc.ruleFor(some([1]), 3), one('1x.webp'));
+    assert.equal(pc.ruleFor(some([3, 4]), 1), one('3x.webp'), 'no 1x: the smallest, as before');
+    // A bigger file off cdn.7tv.app is never used: the layer keeps the file it had.
+    const off = pc.fromV4(v4([layer({ __typename: 'PaintLayerTypeImage', images: [files[1],
+      { url: 'https://evil.example/4x.webp', mime: 'image/webp', scale: 4, frameCount: 40 }] })]));
+    assert.equal(pc.ruleFor(off, 4), one('1x.webp'));
+    // A paint without an image layer keeps the fields it always had, and is the same at any scale.
+    const gp = pc.fromV4(v4([{ opacity: 1, ty: grad }]));
+    assert.deepEqual(Object.keys(gp), ['id', 'name', 'bgImage', 'bgColor', 'filter']);
+    assert.equal(pc.ruleFor(gp, 4), pc.ruleFor(gp));
+  });
+
   test('image URLs outside cdn.7tv.app, non-https, protocol-relative or with quotes are rejected', () => {
     const bad = [
       'https://evil.example/paint.webp',
@@ -301,6 +345,32 @@ describe('fromV3', () => {
     assert.equal(pc.staticRuleFor(p), '.paint-static .painted.p-' + ID + '{background-image:url("' + IMG + '1x_static.webp")}');
     assert.equal(pc.v3StillUrl(p), null, 'it has one now');
     assert.equal(pc.ruleFor(p), '.painted.p-' + ID + '{background-image:url("' + IMG + '1x.webp")}', 'the paint itself as before');
+  });
+
+  // A v3 paint names its 1x file; 7TV's CDN keeps 1x to 4x of every paint image beside it (and of its still frame).
+  test('v3 image paints: the file for the drawn size beside the one it names, never a smaller one', () => {
+    const v3 = (url) => pc.fromV3({ id: ID, function: 'URL', image_url: url, stops: [], shadows: [] });
+    const p = v3(IMG + '1x.webp');
+    const one = (u) => '.painted.p-' + ID + '{background-image:url("' + u + '")}';
+    assert.equal(pc.ruleFor(p), one(IMG + '1x.webp'));
+    assert.equal(pc.ruleFor(p, 1), one(IMG + '1x.webp'));
+    assert.equal(pc.ruleFor(p, 3), one(IMG + '3x.webp'));
+    assert.equal(pc.ruleFor(p, 7), one(IMG + '4x.webp'));
+    assert.equal(pc.ruleFor(v3(IMG + '4x.webp'), 2), one(IMG + '4x.webp'), 'it names a bigger one: kept');
+    const flat = 'https://cdn.7tv.app/paint/' + ID + '/1x.webp';
+    assert.equal(pc.ruleFor(v3(flat), 2), one('https://cdn.7tv.app/paint/' + ID + '/2x.webp'));
+    // Any other file is left as it is.
+    ['1x.gif', 'paint.png', '1x.webp?x=1', '5x.webp', 'x1x.webp'].forEach((f) => assert.equal(pc.ruleFor(v3(IMG + f), 3), one(IMG + f), f));
+    // Its still frame (once overlay.js found it) follows the same scale; v3StillUrl still names the 1x one.
+    assert.equal(pc.v3StillUrl(p), IMG + '1x_static.webp');
+    assert.equal(pc.setStill(p, IMG + '1x_static.webp'), true);
+    assert.equal(pc.staticRuleFor(p), '.paint-static .painted.p-' + ID + '{background-image:url("' + IMG + '1x_static.webp")}');
+    assert.equal(pc.staticRuleFor(p, 2), '.paint-static .painted.p-' + ID + '{background-image:url("' + IMG + '2x_static.webp")}');
+    assert.equal(pc.ruleFor(p, 2), one(IMG + '2x.webp'));
+    assert.deepEqual(Object.keys(p), ['id', 'name', 'bgImage', 'bgColor', 'filter', 'bgImageStatic']);
+    // A gradient is the same at any scale.
+    const g = pc.fromV3({ id: ID, function: 'LINEAR_GRADIENT', stops: [{ at: 0, color: -1 }], shadows: [] });
+    assert.equal(pc.ruleFor(g, 4), pc.ruleFor(g));
   });
 
   test('empty stops (shadow-only paints): no gradient, shadows kept', () => {

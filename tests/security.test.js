@@ -318,15 +318,24 @@ test('7TV paints: hostile values never escape their rule, and stay near the name
       { ty: { __typename: 'PaintLayerTypeLinearGradient', angle: '0;x', stops: [{ at: 0, color: { hex: '#fff;}*{' } }, { at: 1, color: { hex: '#ffffff' } }] } },
       { ty: { __typename: 'PaintLayerTypeImage', images: [{ url: 'https://cdn.7tv.app/a b)' }, { url: 'https://cdn.7tv.app.evil.example/x' }] } }],
     shadows: [{ color: { hex: '#000000' }, offsetX: '1px) url(https://evil.example/s)', offsetY: -900, blur: 1e30 }] } }),
-    paintCss.fromV3({ id: 'a5}*{display:none', function: 'LINEAR_GRADIENT', stops: [{ at: 0, color: 255 }] })
+    paintCss.fromV3({ id: 'a5}*{display:none', function: 'LINEAR_GRADIENT', stops: [{ at: 0, color: 255 }] }),
+    // the bigger files a big name takes (ruleFor's scale): a safe 1x, then hostile 2x to 4x
+    paintCss.fromV4({ id: 'a6', data: { layers: [{ ty: { __typename: 'PaintLayerTypeImage', images: [
+      { url: 'https://cdn.7tv.app/paint/a6/layer/l/1x.webp', mime: 'image/webp', scale: 1, frameCount: 9 },
+      { url: 'https://cdn.7tv.app/x");}*{display:none}/2x.webp', mime: 'image/webp', scale: 2, frameCount: 9 },
+      { url: 'https://evil.example/3x.webp', mime: 'image/webp', scale: 3, frameCount: 9 },
+      { url: 'javascript:alert(1)', mime: 'image/webp', scale: 4, frameCount: 9 }] } }] } }),
+    paintCss.fromV3({ id: 'a7', function: 'URL', image_url: 'https://cdn.7tv.app/paint/a7/1x.webp")}*{x:y}/1x.webp' })
   ];
-  hostile.forEach((p, i) => {
-    const rule = paintCss.ruleFor(p);
+  hostile.forEach((p, i) => [undefined, 2, 3, 4, 9].forEach((sc) => {
+    const rule = paintCss.ruleFor(p, sc);
     if (!rule) return;
-    assert.match(rule, /^\.painted\.p-[0-9A-Za-z]+\{[^{}]*\}$/, 'one rule, one block: ' + i);
-    assert.doesNotMatch(rule, /url\((?!"https:\/\/cdn\.7tv\.app\/)/, 'no url() off cdn.7tv.app: ' + i);
-    assert.doesNotMatch(rule, /[;{}]\s*[;{}]|\*|@import|expression|e\+/i, 'nothing smuggled: ' + i);
-  });
+    assert.match(rule, /^\.painted\.p-[0-9A-Za-z]+\{[^{}]*\}$/, 'one rule, one block: ' + i + ' @' + sc);
+    assert.doesNotMatch(rule, /url\((?!"https:\/\/cdn\.7tv\.app\/)/, 'no url() off cdn.7tv.app: ' + i + ' @' + sc);
+    assert.doesNotMatch(rule, /[;{}]\s*[;{}]|\*|@import|expression|e\+/i, 'nothing smuggled: ' + i + ' @' + sc);
+  }));
+  assert.strictEqual(paintCss.ruleFor(hostile[5], 4), '.painted.p-a6{background-image:url("https://cdn.7tv.app/paint/a6/layer/l/1x.webp")}',
+    'no usable bigger file: the 1x one');
   // offsets and blur are clamped, and there are at most MAX_SHADOWS shadows and MAX_LAYERS layers
   const big = paintCss.fromV4({ id: 'b1', data: {
     layers: Array.from({ length: 50 }, () => ({ ty: { __typename: 'PaintLayerTypeLinearGradient', angle: 90, stops: [{ at: 0, color: { hex: '#ff0000' } }, { at: 1, color: { hex: '#0000ff' } }] } })),
@@ -365,14 +374,14 @@ test('7TV still paints (paint_images=static): hostile image URLs never escape th
     { id: 's7}*{x:y', bgImageStatic: 'url("https://cdn.7tv.app/x")' }
   ];
   let rules = 0;
-  hostile.forEach((p, i) => {
-    const rule = paintCss.staticRuleFor(p);
+  hostile.forEach((p, i) => [undefined, 2, 4].forEach((sc) => {
+    const rule = paintCss.staticRuleFor(p, sc);
     if (!rule) return;
-    rules++;
-    assert.match(rule, /^\.paint-static \.painted\.p-[0-9A-Za-z]+\{background-image:[^{}]*\}$/, 'one rule, one block: ' + i);
-    assert.doesNotMatch(rule, /url\((?!"https:\/\/cdn\.7tv\.app\/)/, 'no url() off cdn.7tv.app: ' + i);
-    assert.doesNotMatch(rule, /[;{}]\s*[;{}]|\*|@import|expression|e\+/i, 'nothing smuggled: ' + i);
-  });
+    if (sc === undefined) rules++;
+    assert.match(rule, /^\.paint-static \.painted\.p-[0-9A-Za-z]+\{background-image:[^{}]*\}$/, 'one rule, one block: ' + i + ' @' + sc);
+    assert.doesNotMatch(rule, /url\((?!"https:\/\/cdn\.7tv\.app\/)/, 'no url() off cdn.7tv.app: ' + i + ' @' + sc);
+    assert.doesNotMatch(rule, /[;{}]\s*[;{}]|\*|@import|expression|e\+/i, 'nothing smuggled: ' + i + ' @' + sc);
+  }));
   // Only s6: an unusable still (s4, s5) leaves the layer's animated file, so there is nothing to swap.
   assert.strictEqual(rules, 1);
   assert.strictEqual(paintCss.staticRuleFor(hostile[5]), '.paint-static .painted.p-s6{background-image:url("https://cdn.7tv.app/ok/1x_static.webp")}');

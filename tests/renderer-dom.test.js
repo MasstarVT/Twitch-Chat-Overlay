@@ -1584,6 +1584,65 @@ test('paint_images=static: a still frame not known yet (undefined) is asked agai
   assert.strictEqual(sheet().length, 3);
 });
 
+// 7TV's paint images are 32 px tall at 1x, and every paint rule used that file: a name drawn at text_px=96 (116 px tall)
+// stretched it 3.6 times, blurry. The renderer asks for the file for the name's drawn size, as for emotes and badges.
+test('paintScale: the 7TV paint file (1x to 4x) for a name\'s drawn height; medium and large keep 1x in OBS', () => {
+  const cases = [[24, 1, 1], [18, 1, 1], [32, 1, 1], [33, 1, 1], [34, 1, 2], [40, 1, 2], [60, 1, 2], [66, 1, 2], [67, 1, 3],
+    [96, 1, 3], [8, 1, 1], [24, 2, 2], [32, 2, 2], [96, 2, 4], [24, 3, 3], [24, 0, 1], [24, undefined, 1]];
+  cases.forEach(([px, dpr, want]) => assert.strictEqual(R.paintScale(px, dpr), want, px + ' px at ' + dpr));
+});
+
+test('paints: each rule is made for the name\'s drawn size, and made again in place when that size changes', (t) => {
+  const asked = [];
+  const deps = {
+    nameFor: (m) => ({ text: m.displayName, color: '#FFFFFF', paintId: m.login === 'cy' ? 'P2' : m.login === 'dee' ? 'P3' : 'P1' }),
+    paintRule: (id, scale) => {
+      asked.push(id + '@' + scale);
+      return '.painted.p-' + id + '{background-image:url("https://cdn.7tv.app/' + id + '/' + scale + 'x.webp")}';
+    },
+    paintStaticRule: (id, scale) => id === 'P2' ? null
+      : '.paint-static .painted.p-' + id + '{background-image:url("https://cdn.7tv.app/' + id + '/' + scale + 'x_static.webp")}'
+  };
+  const s = setup(t, {}, deps);
+  const sheet = () => s.doc.head.children.filter((e) => e.getAttribute('data-tco') === 'paints')
+    .map((e) => e.sheet.cssRules.slice());
+  const rules = (sc, still) => ['.painted.p-P2{background-image:url("https://cdn.7tv.app/P2/' + sc + 'x.webp")}',
+    '.painted.p-P1{background-image:url("https://cdn.7tv.app/P1/' + sc + 'x.webp")}'].concat(still
+    ? ['.paint-static .painted.p-P1{background-image:url("https://cdn.7tv.app/P1/' + sc + 'x_static.webp")}'] : []);
+  s.r.push(chat('amy', '1'));
+  s.r.push(chat('cy', '2'));
+  s.r.flush();
+  const names = () => s.lines().map((l) => l.byClass('name')[0].className);
+  assert.deepStrictEqual(sheet(), [rules(1)], 'medium: the 1x files, as always');
+  s.r.setConfig({ size: 'large' });
+  assert.deepStrictEqual(sheet(), [rules(1)], 'large: still 1x, nothing made again');
+  assert.deepStrictEqual(asked, ['P2@1', 'P1@1']);
+  s.r.setConfig({ text_px: 96, paint_images: 'static' });
+  assert.deepStrictEqual(sheet(), [rules(3, true)], 'text_px=96: 3x, in the same <style>, one rule per paint');
+  assert.deepStrictEqual(names(), ['name painted p-P1', 'name painted p-P2'], 'the names keep their classes');
+  s.r.setConfig({ text_px: 60, paint_images: 'static' });
+  assert.deepStrictEqual(sheet(), [rules(2, true)]);
+  s.r.setConfig({});
+  assert.deepStrictEqual(sheet(), [rules(1)], 'back to medium and animated');
+  assert.strictEqual(s.r.stats().paints, 2);
+  // A paint first seen at a size gets that size's file.
+  s.r.setConfig({ text_px: 96 });
+  s.r.push(chat('dee', '3'));
+  s.r.flush();
+  assert.deepStrictEqual(sheet(), [rules(3).concat(['.painted.p-P3{background-image:url("https://cdn.7tv.app/P3/3x.webp")}'])]);
+});
+
+test('paints: a HiDPI page (the builder preview) asks for the file for its pixel ratio', (t) => {
+  const s = setup(t, {}, {
+    nameFor: (m) => ({ text: m.displayName, color: '#FFFFFF', paintId: 'P1' }),
+    paintRule: (id, scale) => '.painted.p-' + id + '{background-image:url("https://cdn.7tv.app/' + scale + 'x.webp")}'
+  }, { dpr: 2 });
+  s.r.push(chat('amy', '1'));
+  s.r.flush();
+  const st = s.doc.head.children.find((e) => e.getAttribute('data-tco') === 'paints');
+  assert.deepStrictEqual(st.sheet.cssRules.slice(), ['.painted.p-P1{background-image:url("https://cdn.7tv.app/2x.webp")}']);
+});
+
 // The Kick chatroom the overlay found it had wrongly joined: its lines go, but nothing was moderated.
 test('drop: the lines a predicate picks go, queued or shown, without noting a clear or a deletion', (t) => {
   const s = setup(t, { max: 20 });
@@ -1828,7 +1887,7 @@ test('the sizes: a font-size or variable on #chat only while changed, gone again
   // the same): the stylesheet's emote rule, with --emote-h for --eh.
   const room = 'var(--emote-hang, .3em), 2.05em - var(--emote-h, 1.75em), (2 * var(--line-height, 1.35) - .65) * 1em - var(--emote-h, 1.75em)';
   assert.deepStrictEqual(['1x', '2x', '3x'].map((v) => one('gif_size', v)),
-    [{ '--gif-mul': '1', '--gif-margin': 'calc(-1 * max(0em, min(.3em, ' + room + '))) .05em ' +
+    [{ '--gif-mul': '1', '--gif-margin': 'calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), ' + room + '))) .05em ' +
       'calc(-1 * max(min(.2em, var(--emote-hang, .3em), var(--emote-floor, .2em)), min(var(--emote-drop, .3em), ' + room + ')))' },
     { '--gif-mul': '2' }, {}]);
   const emoteRule = /\n:where\(\.layout-vertical, \.layout-horizontal\) \.emote-stack \{\s*margin-top: ([^;]+);\s*margin-bottom: ([^;]+);/.exec(overlayCss());
@@ -2222,6 +2281,42 @@ test('overlay.css: a name wider than its line breaks like a long word, instead o
   assert.match(/\n\.layout-horizontal \.line \{([^}]*)\}/.exec(css)[1], /white-space: nowrap;/);
 });
 
+test('overlay.css: a Windows contrast theme (forced colors) leaves the chat as OBS draws it, in the builder preview and the home demos', () => {
+  // Follow-up round 2 (pre-existing): the builder keeps its preview stage out of forced colors, but the preview is a
+  // document of its own (overlay.html in an iframe), forced on its own: text, names, boxes, tints, the outline and the bars
+  // all drew in the theme's colors (shadows dropped), so the colors picked showed nothing of what OBS, which never forces
+  // colors, draws.
+  const css = overlayCss();
+  const rules = Array.from(css.matchAll(/([^{}]+)\{[^}]*forced-color-adjust:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]);
+  assert.deepStrictEqual(rules, [['#chat', 'none']], 'the chat only (inherited by every line): the status hint and debug line keep the theme');
+  assert.doesNotMatch(/\n\.tco-hint \{([^}]*)\}/.exec(css)[1], /forced-color-adjust/);
+  // The stages around the preview and the home demos keep their drawn scene too (the overlay's white text would otherwise
+  // sit on the theme's canvas color).
+  const read = (f) => require('fs').readFileSync(require('path').join(__dirname, '..', 'css', f), 'utf8')
+    .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(read('home.css'), /\n@media \(forced-colors: active\) \{\n  \.stage,\n  \.ticker \{ forced-color-adjust: none; \}\n\}/);
+  assert.match(read('builder.css'), /@media \(forced-colors: active\) \{[^@]*\n  \.stage \{ forced-color-adjust: none; \}/);
+});
+
+test('overlay.css: a cheer wider than its line is fitted to it, as emotes and GIFs are; one that only doesn\'t fit moves on whole', () => {
+  // Follow-up round 2 (pre-existing): `.cheer { white-space: nowrap }` kept its image and amount one unbreakable run, and
+  // the image had no max-width, so a cheer wider than its line (line_width, emote_scale, text_px, a narrow source) ran out
+  // of its box and off the column.
+  const css = overlayCss();
+  // The image: never wider than the cheer's box less its .05em sides, letterboxed like an emote's.
+  const img = /\n\.cheer-img \{([^}]*)\}/.exec(css)[1];
+  assert.match(img, /\n  margin: -\.3em \.05em;\n  max-width: calc\(100% - \.1em\);\n  object-fit: contain;\n$/);
+  // In a column the cheer is one box at most its line wide: it moves to the next row whole when it only doesn't fit, and
+  // its amount goes under its image only when the cheer alone is wider than its line.
+  const col = /\n:where\(\.layout-vertical\) \.cheer \{([^}]*)\}/.exec(css);
+  assert.ok(col, 'the column rule');
+  assert.strictEqual(col[1], '\n  display: inline-block;\n  max-width: 100%;\n  white-space: normal;\n');
+  // A row never wraps (its lines end in an ellipsis): there it stays one inline run, as always. Same specificity, so the
+  // column rule comes after.
+  assert.match(css, /\n\.cheer \{ white-space: nowrap; \}/);
+  assert.ok(css.indexOf('\n:where(.layout-vertical) .cheer {') > css.indexOf('\n.cheer {'));
+});
+
 test('overlay.css: a bar beside a line keeps its room under any tint, a first message\'s channel-points highlight too', () => {
   const css = overlayCss();
   assert.strictEqual(linePadLeft(css, ['line', 'first-msg']), '.4em', 'the helper finds the bar\'s room');
@@ -2368,12 +2463,20 @@ test('overlay.css: in a box an emote, cheer or 1x GIF reaches no further below i
   assert.deepStrictEqual(Array.from(css.matchAll(/([^{}]+)\{[^}]*--emote-drop:/g), (m) => m[1].trim()), [':where(.has-bg)']);
   [[EMOTE_SEL, 'emotes'], [CHEER_SEL, 'cheers']].forEach(([sel, what]) => {
     const bg = (eh, L) => colMargins(css, sel, eh, L, 0.3, true);
-    // The top as before (-.3em at the usual size); the bottom never past -.2em, whatever the size or line_height.
+    const nobg = (eh, L) => colMargins(css, sel, eh, L, 0.3, false);
+    // The bottom never past -.2em, whatever the size or line_height. Follow-up round 2: the top comes to -.2em with it
+    // (it stayed -.3em): `vertical-align: middle` centres the margin box, so unequal margins lifted the image by half the
+    // difference (.05em), twice as far into a reply header or a name_line name above it as without a box. The line grows
+    // by the rest instead.
     assert.deepStrictEqual([1.75, 0.875, 1.9, 2.05, 3.5, 5.25].map((eh) => bg(eh, 1.35)),
-      [[-0.3, -0.2], [-0.3, -0.2], [-0.15, -0.2], [0, -0.2], [0, -0.2], [0, -0.2]], what);
-    assert.deepStrictEqual([1, 1.2, 1.3, 1.5, 2].map((L) => bg(1.75, L)), [[0, -0.1], [0, -0.2], [-0.2, -0.2], [-0.3, -0.2], [-0.3, -0.2]], what + ' line_height');
-    [0.875, 1.75, 1.9, 2.1875, 3.5, 5.25].forEach((eh) => [1, 1.1, 1.25, 1.35, 1.5, 2].forEach((L) =>
-      assert.ok(bg(eh, L)[1] >= -0.2, what + ' ' + eh + ' ' + L)));
+      [[-0.2, -0.2], [-0.2, -0.2], [-0.15, -0.2], [0, -0.2], [0, -0.2], [0, -0.2]], what);
+    assert.deepStrictEqual([1, 1.2, 1.3, 1.5, 2].map((L) => bg(1.75, L)), [[0, -0.1], [0, -0.2], [-0.2, -0.2], [-0.2, -0.2], [-0.2, -0.2]], what + ' line_height');
+    [0.875, 1.75, 1.9, 2.1875, 3.5, 5.25].forEach((eh) => [1, 1.1, 1.25, 1.35, 1.5, 2].forEach((L) => {
+      const b = bg(eh, L), n = nobg(eh, L);
+      assert.ok(b[1] >= -0.2, what + ' ' + eh + ' ' + L);
+      // How far the image rises off the text's middle (half the top margin less the bottom one): never more in a box.
+      assert.ok(b[1] - b[0] <= n[1] - n[0] + 1e-9, what + ' lifted in a box: ' + eh + ' ' + L + ' ' + b + ' vs ' + n);
+    }));
   });
 });
 
@@ -2440,7 +2543,7 @@ test('overlay.css: in a row an emote, cheer or GIF taller than its line stays cl
   const wantBg = sizes.map(([eh, L]) => emoteMargins(css, EMOTE_SEL, eh, L, 0.3, { drop: 0.2 }));
   assert.deepStrictEqual(want.slice(0, 4), [[-0.3, -0.3], [-0.3, -0.3], [-0.15, -0.2], [0, -0.2]], 'none above once taller than its line');
   assert.deepStrictEqual(want.slice(6, 7), [[0, -0.2]], 'line_height 100: .2em below, as before');
-  assert.deepStrictEqual(wantBg.slice(0, 4), [[-0.3, -0.2], [-0.3, -0.2], [-0.15, -0.2], [0, -0.2]], 'in a box');
+  assert.deepStrictEqual(wantBg.slice(0, 4), [[-0.2, -0.2], [-0.2, -0.2], [-0.15, -0.2], [0, -0.2]], 'in a box (equal, follow-up round 2)');
   assert.deepStrictEqual(sizes.map(([eh, L]) => emoteMargins(css, CHEER_SEL, eh, L, 0.3)), want, 'cheers');
   assert.deepStrictEqual(sizes.map(([eh, L]) => emoteMargins(css, CHEER_SEL, eh, L, 0.3, { drop: 0.2 })), wantBg, 'cheers in a box');
   // A row's GIF (emote height there): the same margins, with .05em at its sides as before.
@@ -2466,9 +2569,9 @@ test('overlay.css: in a row an emote, cheer or GIF taller than its line stays cl
     const boxBg = Math.round((eh + wantBg[i][0] + wantBg[i][1]) * 1000) / 1000;
     assert.strictEqual(cssEm(d['line-height'], eh, L, badge, 0.2), Math.max(badge, boxBg), 'bg ' + eh + ' ' + L + ' ' + badge);
   }));
-  // At the defaults it is an emote's 1.15em, which already fits a 1.35em line (in Inter): nothing moves. In a box, 1.25em.
+  // At the defaults it is an emote's 1.15em, which already fits a 1.35em line (in Inter): nothing moves. In a box, 1.35em.
   assert.strictEqual(cssEm(d['line-height'], 1.75, 1.35, 1), 1.15);
-  assert.strictEqual(cssEm(d['line-height'], 1.75, 1.35, 1, 0.2), 1.25);
+  assert.strictEqual(cssEm(d['line-height'], 1.75, 1.35, 1, 0.2), 1.35);
   // Badges keep no vertical margins, so their margin box is their height.
   assert.doesNotMatch(/\n\.badge \{([^}]*)\}/.exec(css)[1], /margin(?:-top|-bottom)?:/);
 });

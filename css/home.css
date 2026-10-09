@@ -457,3 +457,10 @@ h2 + .copy { margin-top: 22px; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
+
+/* A Windows contrast theme: the demos' overlay keeps the colors OBS draws (css/overlay.css), so the drawn scene behind
+   them keeps its own too, as the builder's stage does; on the theme's canvas color the white chat text would vanish. */
+@media (forced-colors: active) {
+  .stage,
+  .ticker { forced-color-adjust: none; }
+}

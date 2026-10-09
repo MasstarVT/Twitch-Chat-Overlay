@@ -103,6 +103,10 @@ class Element extends Node {
           if (/INVALID/.test(rule)) throw new Error('bad rule');
           rules.splice(i, 0, rule);
           return i;
+        },
+        deleteRule(i) {
+          if (!(i >= 0 && i < rules.length)) throw new Error('deleteRule: no rule ' + i);
+          rules.splice(i, 1);
         }
       };
     }

@@ -64,16 +64,30 @@
     return util.isSafeUrl(u, PAINT_HOST_RE) ? 'url("' + u + '")' : null;
   }
 
-  // The smallest webp of a v4 image layer: an animated one when there is one, or with still a single-frame one
-  // (paint_images=static; 7TV gives every animated layer a 1x_static.webp too).
-  function pickV4Image(images, still) {
-    if (!Array.isArray(images)) return null;
+  // The webps of a v4 image layer, smallest scale first: the animated ones when there are any, or with still the
+  // single-frame ones (paint_images=static; 7TV gives every animated layer a <n>x_static.webp too).
+  function v4Files(images, still) {
+    if (!Array.isArray(images)) return [];
     var webp = images.filter(function (im) { return im && im.mime === 'image/webp' && typeof im.url === 'string'; });
     if (!webp.length) webp = images.filter(function (im) { return im && typeof im.url === 'string'; });
     var want = webp.filter(function (im) { return still ? (im.frameCount || 1) <= 1 : (im.frameCount || 1) > 1; });
     var pool = want.length ? want : webp;
     pool.sort(function (a, b) { return (a.scale || 1) - (b.scale || 1); });
-    return pool.length ? pool[0].url : null;
+    return pool;
+  }
+
+  // The scale (2 to 4) a caller wants a paint's images at, or 0 for the files as stored (scale 1, none, or junk).
+  function wantScale(scale) {
+    var s = Math.floor(Number(scale));
+    return s >= 2 ? Math.min(4, s) : 0;
+  }
+
+  // A layer's file for a name drawn s times as tall as a 1x file (7TV's are 32 px tall): the smallest at least that big,
+  // else the largest (as renderer.js picks emotes). Without s, the smallest, as always.
+  function pickAt(pool, s) {
+    if (!pool.length) return null;
+    if (s) for (var i = 0; i < pool.length; i++) if ((pool[i].scale || 1) >= s) return pool[i].url;
+    return pool[s ? pool.length - 1 : 0].url;
   }
 
   function shadowsCss(shadows, pick) {
@@ -102,11 +116,12 @@
   // 7TV draws layer 0 at the bottom; CSS draws the first background-image on top, so walk the layers
   // top-down. A layer's opacity is folded into its colors (CSS cannot fade one background image).
   // bgImageStatic: the same layers with each image's still frame, only for a paint with an animated image.
+  // bgImageAt / bgImageStaticAt (a paint with an image): the same at scales 2 to 4, for a name drawn bigger (ruleFor).
   function fromV4(p) {
     if (!p || !ID_RE.test(p.id || '')) return null;
     var data = p.data || {};
-    var images = [], stills = [];
-    var add = function (css, still) { images.push(css); stills.push(still || css); };
+    var images = [], stills = [], files = [];
+    var add = function (css, still, f) { images.push(css); stills.push(still || css); files.push(f || null); };
     var bgColor = null;
     var layers = Array.isArray(data.layers) ? data.layers.slice(0, MAX_LAYERS) : [];
     for (var i = layers.length - 1; i >= 0; i--) {
@@ -138,8 +153,9 @@
           break;
         }
         case 'PaintLayerTypeImage': {
-          var u = cssUrl(pickV4Image(ty.images));
-          if (u) add(u, cssUrl(pickV4Image(ty.images, true)));
+          var anim = v4Files(ty.images), still = v4Files(ty.images, true);
+          var u = cssUrl(pickAt(anim, 0));
+          if (u) add(u, cssUrl(pickAt(still, 0)), { anim: anim, still: still });
           break;
         }
       }
@@ -149,6 +165,23 @@
     });
     var out = { id: p.id, name: p.name || '', bgImage: images.length ? images.join(', ') : null, bgColor: bgColor, filter: filter };
     if (out.bgImage && stills.join(', ') !== out.bgImage) out.bgImageStatic = stills.join(', ');
+    // Each image layer's file at scales 2 to 4 (a bigger file off cdn.7tv.app leaves the layer's own). A still frame takes
+    // its own bigger file; a layer whose still is its animated file (none, or one off the CDN) takes the animated one's.
+    if (files.some(Boolean)) {
+      out.bgImageAt = {};
+      if (out.bgImageStatic) out.bgImageStaticAt = {};
+      for (var s = 2; s <= 4; s++) {
+        var at = [], stAt = [];
+        for (var k = 0; k < images.length; k++) {
+          var f = files[k];
+          var big = f ? cssUrl(pickAt(f.anim, s)) || images[k] : images[k];
+          at.push(big);
+          stAt.push(f && stills[k] !== images[k] ? cssUrl(pickAt(f.still, s)) || stills[k] : f ? big : stills[k]);
+        }
+        out.bgImageAt[s] = at.join(', ');
+        if (out.bgImageStaticAt) out.bgImageStaticAt[s] = stAt.join(', ');
+      }
+    }
     return out;
   }
 
@@ -176,11 +209,28 @@
 
   function className(id) { return 'p-' + id; }
 
-  // Longhands only: the `background` shorthand would reset background-clip.
-  function ruleFor(paint) {
+  // A paint's images (still: its still frames) for a name drawn `scale` times as tall as a 1x paint file, 2 to 4 (the
+  // renderer's paintScale; 1, none or junk: as stored). A v4 paint has each layer's file at that scale (bgImageAt). A v3
+  // image paint names one file, its 1x: 7TV's CDN keeps the 2x to 4x of a paint image (and of its still frame) beside it,
+  // and never one smaller than the file named is taken.
+  var V3_SCALE_RE = /^(url\("https:\/\/cdn\.7tv\.app\/paint\/[0-9A-Za-z]{1,40}(?:\/layer\/[0-9A-Za-z]{1,40})?\/)([1-4])(x(?:_static)?\.webp"\))$/;
+  function imagesAt(paint, scale, still) {
+    var css = still ? paint.bgImageStatic : paint.bgImage;
+    var s = wantScale(scale);
+    if (!s || !css) return css;
+    if (paint.bgImageAt) {
+      var at = still ? paint.bgImageStaticAt : paint.bgImageAt;
+      return at && typeof at[s] === 'string' && at[s] ? at[s] : css;
+    }
+    var m = V3_SCALE_RE.exec(css);
+    return m && Number(m[2]) < s ? m[1] + s + m[3] : css;
+  }
+
+  // Longhands only: the `background` shorthand would reset background-clip. scale: see imagesAt.
+  function ruleFor(paint, scale) {
     if (!paint || !ID_RE.test(paint.id || '')) return null;
     var decl = [];
-    if (paint.bgImage) decl.push('background-image:' + paint.bgImage);
+    if (paint.bgImage) decl.push('background-image:' + imagesAt(paint, scale, false));
     if (paint.bgColor) decl.push('background-color:' + paint.bgColor);
     if (paint.filter) decl.push('filter:' + paint.filter);
     if (!decl.length) return null;
@@ -190,9 +240,9 @@
   // paint_images=static: the paint's still images, for #chat.paint-static only (one class more than ruleFor's
   // selector, and no #chat in it, so OBS Custom CSS written as `#chat .name { ... }` still wins). null for a paint
   // without an animated image, and for one in the older v3 format until setStill gave it its still frame.
-  function staticRuleFor(paint) {
+  function staticRuleFor(paint, scale) {
     if (!paint || !ID_RE.test(paint.id || '') || !paint.bgImageStatic) return null;
-    return '.paint-static .painted.' + className(paint.id) + '{background-image:' + paint.bgImageStatic + '}';
+    return '.paint-static .painted.' + className(paint.id) + '{background-image:' + imagesAt(paint, scale, true) + '}';
   }
 
   // A v3 image paint (one file on 7TV's CDN, cdn.7tv.app/paint/<id>[/layer/<id>]/<n>x.webp): where its still frame would

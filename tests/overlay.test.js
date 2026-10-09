@@ -423,6 +423,14 @@ test('paints: the renderer gets the still-frame rule from the paint data, next t
   assert.strictEqual(h.deps.paintRule('P1'), pc.ruleFor(p));
   assert.strictEqual(h.deps.paintStaticRule('P1'), '.paint-static .painted.p-P1{background-image:url("' + base + '1x_static.webp")}');
   assert.strictEqual(h.deps.paintStaticRule('nope'), null);
+  // The renderer's scale (the name's drawn size) picks the file.
+  const big = pc.fromV4({ id: 'P2', data: { layers: [{ ty: { __typename: 'PaintLayerTypeImage',
+    images: [1, 3].map((s) => ({ url: base + s + 'x.webp', mime: 'image/webp', scale: s, frameCount: 30 }))
+      .concat([1, 3].map((s) => ({ url: base + s + 'x_static.webp', mime: 'image/webp', scale: s, frameCount: 1 }))) } }] } });
+  h.S().stv.paints.set('P2', big);
+  assert.strictEqual(h.deps.paintRule('P2', 1), '.painted.p-P2{background-image:url("' + base + '1x.webp")}');
+  assert.strictEqual(h.deps.paintRule('P2', 3), '.painted.p-P2{background-image:url("' + base + '3x.webp")}');
+  assert.strictEqual(h.deps.paintStaticRule('P2', 2), '.paint-static .painted.p-P2{background-image:url("' + base + '3x_static.webp")}');
 });
 
 test('BTTV channel data: skipped with emotes_bttv=0 and bots=1, loaded for the bot list with bots=0', async (t) => {
@@ -2337,6 +2345,10 @@ test('paint_images=static: a v3 image paint\'s still frame is asked for once, an
   assert.deepStrictEqual(ready, ['ANIM']);
   assert.strictEqual(h.deps.paintStaticRule('ANIM'),
     '.paint-static .painted.p-ANIM{background-image:url("' + base + '1x_static.webp")}');
+  // A bigger name (the renderer's scale) takes the bigger files beside both, as 7TV's CDN keeps 1x to 4x of each.
+  assert.strictEqual(h.deps.paintStaticRule('ANIM', 3),
+    '.paint-static .painted.p-ANIM{background-image:url("' + base + '3x_static.webp")}');
+  assert.strictEqual(h.deps.paintRule('ANIM', 3), '.painted.p-ANIM{background-image:url("' + base + '3x.webp")}');
   assert.strictEqual(h.deps.paintStaticRule('STILL'), null);
   // A gradient has nothing to still: nothing is asked for.
   S.stv.paints.set('GRAD', pc.fromV3({ id: 'GRAD', function: 'LINEAR_GRADIENT', stops: [{ at: 0, color: -1 }], shadows: [] }));
