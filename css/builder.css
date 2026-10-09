@@ -34,9 +34,16 @@
 
 * { box-sizing: border-box; }
 /* The URL bar sticks to the bottom of the one-column page: keep focused fields clear of it.
-   The bar is about 140px without its note and up to 194px with a three-line one (320px wide). */
-html { -webkit-text-size-adjust: 100%; scroll-padding-bottom: var(--bar-clear, 160px); }
+   The bar is about 140px without its note (128px on a phone) and up to 194px with a three-line one (320px wide).
+   And of the docked preview at the top (--dock-h, builder.js dock): only its bar while it is hidden. */
+html {
+  -webkit-text-size-adjust: 100%;
+  --dock-h: clamp(128px, 28vh, 260px);
+  scroll-padding-top: calc(var(--dock-h) + 8px);
+  scroll-padding-bottom: var(--bar-clear, 160px);
+}
 html:has(#bar-note.warn), html:has(#bar-note.ok) { --bar-clear: 204px; }
+html:has(#builder.dock-shut) { scroll-padding-top: 52px; }
 body {
   margin: 0;
   background: var(--bg);
@@ -375,6 +382,73 @@ textarea.text { display: block; padding: 10px 12px; line-height: 20px; }
   font-size: 13px; line-height: 1.4; text-align: center; text-wrap: pretty;
 }
 
+/* Part of the source, cut to the end the messages come in at (builder.js cropView): the edge it is cut on has no
+   dashed line or grips, as the home page's ticker shows a row's right-hand end, and the chat fades out there. */
+.frame.cut-l, .frame.cut-r, .frame.cut-t, .frame.cut-b { outline: 0; }
+.frame.cut-l::before, .frame.cut-r::before, .frame.cut-t::before, .frame.cut-b::before {
+  content: ""; position: absolute; inset: -1px; z-index: 1; pointer-events: none;
+  border: 1px dashed rgba(255, 255, 255, .45);
+}
+.bd-light .frame::before, .bd-busy .frame::before { border-color: rgba(0, 0, 0, .62); }
+.frame.cut-l::before { border-left: 0; }
+.frame.cut-r::before { border-right: 0; }
+.frame.cut-t::before { border-top: 0; }
+.frame.cut-b::before { border-bottom: 0; }
+.frame.cut-l .grip.a, .frame.cut-l .grip.d, .frame.cut-l .grip.f,
+.frame.cut-r .grip.c, .frame.cut-r .grip.e, .frame.cut-r .grip.h,
+.frame.cut-t .grip.a, .frame.cut-t .grip.b, .frame.cut-t .grip.c,
+.frame.cut-b .grip.f, .frame.cut-b .grip.g, .frame.cut-b .grip.h { display: none; }
+.frame.cut-l .frame-box { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px); mask-image: linear-gradient(to right, transparent, #000 32px); }
+.frame.cut-r .frame-box { -webkit-mask-image: linear-gradient(to left, transparent, #000 32px); mask-image: linear-gradient(to left, transparent, #000 32px); }
+.frame.cut-l.cut-r .frame-box { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+.frame.cut-t .frame-box { -webkit-mask-image: linear-gradient(transparent, #000 32px); mask-image: linear-gradient(transparent, #000 32px); }
+.frame.cut-b .frame-box { -webkit-mask-image: linear-gradient(to top, transparent, #000 32px); mask-image: linear-gradient(to top, transparent, #000 32px); }
+
+/* ---------- one column: the docked preview ----------
+   Editing a setting further down the page would scroll the preview away, and with it what the change did. Once the
+   preview has gone off the top, builder.js docks it (.docked): the stage stays pinned to the top of the window at
+   --dock-h, its tag line moves into the bar under it, and that bar's Preview button hides it down to the bar
+   (.dock-shut) or shows it again. The preview's own place on the page keeps its height, so nothing below jumps. */
+.dock-bar { display: none; }
+.app.docked .stage {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 6;
+  height: var(--dock-h); min-height: 0;
+  padding: 8px 16px 53px;
+  border-bottom: 1px solid var(--border-strong);
+  animation: dock-in .2s cubic-bezier(.16, 1, .3, 1);
+}
+/* and no moon: at this size it would sit against the frame */
+.app.docked .frame-tag, .app.docked .stage-hint, .app.docked .scene .moon { display: none; }
+.app.docked .dock-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  height: 45px;
+  padding: 0 16px 0 8px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.app.docked.dock-shut .stage { height: 46px; padding: 0; animation: none; }
+.app.docked.dock-shut .frame-wrap { visibility: hidden; }
+.app.docked.dock-shut .dock-bar { border-top: 0; }
+/* the Look headings' fold button, in small: a chevron, down while the preview shows */
+.dock-btn {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 44px; padding: 0 8px;
+  border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--text);
+  font-weight: 600; font-size: 14px; line-height: 1.2;
+  cursor: pointer;
+}
+.dock-btn:hover { color: #fff; }
+.dock-btn::before {
+  content: ""; flex: none; width: 7px; height: 7px; margin: 0 3px 0 1px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg); transition: transform .15s ease-out;
+}
+.dock-btn[aria-expanded="true"]::before { transform: translateY(-2px) rotate(45deg); }
+.dock-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.5 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+@keyframes dock-in { from { transform: translateY(-24px); opacity: 0; } }
+
 /* ---------- settings: section rail and one section at a time ---------- */
 .panel { display: flex; flex-direction: column; flex: 1 0 auto; min-width: 0; outline: none; }
 .rail { min-width: 0; border-bottom: 1px solid var(--border); }
@@ -407,11 +481,11 @@ textarea.text { display: block; padding: 10px 12px; line-height: 20px; }
 .tab-rule { display: none; }
 /* in one column the settings' tabs and Add to OBS are one row: the box that holds the settings' tabs drops out */
 .tab-groups { display: contents; }
-/* one column with a mouse: a wheel cannot scroll a sideways row, so the tabs wrap. Touch keeps the swipe row.
-   any-hover, not hover: a tablet with a mouse attached still reports its touch screen as the primary pointer. */
-@media (any-hover: hover) and (max-width: 1099px), (any-hover: hover) and (max-height: 599px) {
-  .tabs { flex-wrap: wrap; }
-}
+/* One row that scrolls sideways, not three or four rows of tabs above the settings (builder.js turns a mouse wheel
+   over it sideways). The end it runs on past fades, as the rail's tabs do (builder.js rowEdges). */
+.tabs.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+.tabs.more-left { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+.tabs.more-left.more-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
 
 /* one column: on the page's 16px gutter and as wide as the channel field (760px and the two gutters) */
 .panel-body { width: 100%; max-width: 792px; padding: 20px 16px 8px; }
@@ -705,6 +779,7 @@ label.field-label { cursor: pointer; }
 /* the copied note runs as one paragraph: bold size and box names, then the link to Add to OBS */
 .bar-head .status.ok { display: block; }
 .bar-head .status.ok strong { white-space: nowrap; }
+.note-short { display: none; }
 .note-link { font-weight: 600; text-decoration-thickness: 1px; text-underline-offset: 3px; white-space: nowrap; }
 .note-link.first { font-weight: 700; color: var(--text); text-decoration-color: var(--accent-hi); text-decoration-thickness: 2px; }
 .note-link.first:hover { color: var(--focus); }
@@ -772,6 +847,12 @@ label.field-label { cursor: pointer; }
   /* the gap beside a portrait frame is narrow: a small moon in it, level with the tag line, so that
      builder.js hides it (tag-on-moon) wherever it would meet the frame */
   .scene .moon { right: 8px; top: 24px; width: 40px; height: 40px; }
+  /* the URL bar stays on screen with the docked preview above it: it gives up some height */
+  .bar { padding: 10px 16px; }
+  .cta { min-height: 48px; font-size: 16px; }
+  /* the copied note in a line: the size and "untick 2 boxes", with the box names in Add to OBS (the link) */
+  .note-full { display: none; }
+  .note-short { display: inline; }
 }
 
 /* a very short window (a phone on its side): the URL bar scrolls with the page */

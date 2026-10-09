@@ -785,8 +785,11 @@ test('Copy URL: a warning beside the URL stays a warning once it is copied, and 
   p.$('paste').value = '?channel=forsen';
   p.$('paste-load').dispatch('click');
   p.$('bar-copy').dispatch('click');
+  // (in full, and in a line for a phone: the stylesheet shows one of the two)
   assert.deepStrictEqual([p.$('bar-note').className, p.text('bar-note')], ['status ok',
-    'Copied. In OBS, add a Browser source at 450 × 700 and untick Shutdown source and Refresh browser. Add to OBS steps']);
+    'Copied. In OBS, add a Browser source at 450 × 700 and untick Shutdown source and Refresh browser. ' +
+    'Copied. 450 × 700, untick 2 boxes. Add to OBS steps']);
+  assert.deepStrictEqual(p.kids('bar-note', 'note-short'), ['Copied. 450 × 700, untick 2 boxes. ']);
   t.mock.timers.tick(30);
   assert.strictEqual(p.text('sr-status'), 'Copied. In OBS, add a Browser source at 450 by 700, and untick Shutdown source ' +
     'when not visible and Refresh browser when scene becomes active.', 'said once, in place of the bare Copied!');

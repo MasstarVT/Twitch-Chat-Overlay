@@ -664,6 +664,28 @@
     return Math.max(0.05, Math.min(1, availW / w, availH / h));
   }
 
+  // In one column a source shown whole can be too small to read: a 1920 × 100 row on a phone is at 19%, and so is a
+  // column in the docked preview. There the preview shows the end the new messages come in at, at a size that reads:
+  // a column at its full width, cut to its bottom (its top with align=top); a row at its full height and at most 60%,
+  // cut to its right-hand end (the left end or the middle with row_align, where its messages sit until they fill it).
+  // Null when the whole source reads well enough, or a cut would gain little. s: the scale; bw, bh: the part shown (px).
+  var CROP_BELOW = 0.45; // a source shown whole at less than this is cut
+  var ROW_SCALE = 0.6; // a cut row: medium text (24px) at about 14px, and room for two or three messages on a phone
+  function cropView(cfg, w, h, availW, availH) {
+    if (!(w > 0) || !(h > 0) || !(availW > 0) || !(availH > 0)) return null;
+    var whole = fitScale(w, h, availW, availH);
+    if (whole >= CROP_BELOW) return null;
+    var row = cfg.layout === 'horizontal';
+    var s = row ? Math.min(1, availH / h, ROW_SCALE) : Math.min(1, availW / w);
+    if (s < whole * 1.25) return null;
+    var at = row ? (cfg.row_align === 'left' ? 'left' : cfg.row_align === 'center' ? 'middle' : 'right')
+      : (cfg.align === 'top' ? 'top' : 'bottom');
+    return { s: s, at: at, bw: Math.floor(Math.min(w * s, availW)), bh: Math.floor(Math.min(h * s, availH)) };
+  }
+  // What the tag line calls a cut part (cropView's at), in full and short.
+  var CROP_NAMES = { right: ['right-hand end', 'right end'], left: ['left-hand end', 'left end'], middle: ['middle', 'middle'],
+    bottom: ['bottom', 'bottom'], top: ['top', 'top'] };
+
   // IVR /v2/twitch/user bare array -> {state:'found', user} | {state:'notfound'} | {state:'error'}.
   // Like the overlay's own lookup: the entry whose login matches, and only with a numeric id. A reply
   // that doesn't fit is 'error' (the overlay still tries the name), never a missing channel.
@@ -975,7 +997,8 @@
     return folderSnap === null || folderSnap === undefined ? legacySnap : folderSnap;
   }
   function saveUi() {
-    store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop, section: B.ui.section, folds: B.ui.folds, obs: B.ui.obsSeen });
+    store(STORE_UI, { w: B.ui.w, h: B.ui.h, backdrop: B.ui.backdrop, section: B.ui.section, folds: B.ui.folds, obs: B.ui.obsSeen,
+      dock: !B.ui.dockShut });
   }
 
   function announce(text) {
@@ -1874,8 +1897,20 @@
     });
     root.addEventListener('hashchange', function () { if (openHashSection()) saveUi(); });
     $('tab-groups').addEventListener('scroll', railEdges);
+    list.addEventListener('scroll', rowEdges, { passive: true });
+    // The one-column row scrolls sideways, which a mouse wheel cannot: over the row it turns the wheel sideways, until
+    // the row's end, where the page scrolls on as before. A trackpad's sideways swipe, and Shift with the wheel, are
+    // left to the browser.
+    list.addEventListener('wheel', function (e) {
+      var more = list.scrollWidth - list.clientWidth;
+      if (isAppLayout() || more <= 1 || e.ctrlKey || e.shiftKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+      var d = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? list.clientWidth : 1);
+      if ((d < 0 && list.scrollLeft <= 0) || (d > 0 && list.scrollLeft >= more - 1)) return;
+      e.preventDefault();
+      list.scrollLeft += d;
+    }, { passive: false });
 
-    var mq =root.matchMedia ? root.matchMedia(APP_LAYOUT) : null;
+    var mq = root.matchMedia ? root.matchMedia(APP_LAYOUT) : null;
     var orient = function () {
       list.setAttribute('aria-orientation', mq && mq.matches ? 'vertical' : 'horizontal');
       fitSoon();
@@ -2319,7 +2354,12 @@
     else if (B.fileNote && note.cls !== 'warn') note = { text: B.fileNote, cls: 'ok' };
     clear(n);
     if (note.parts) {
-      note.parts.forEach(function (p) { n.appendChild(typeof p === 'string' ? document.createTextNode(p) : h('strong', null, p[0])); });
+      // Both are written, and the width shows one (css/builder.css .note-short): a turned phone needs no new note.
+      [['note-full', note.parts], ['note-short', note.short]].forEach(function (v) {
+        var span = h('span', v[0]);
+        v[1].forEach(function (p) { span.appendChild(typeof p === 'string' ? document.createTextNode(p) : h('strong', null, p[0])); });
+        n.appendChild(span);
+      });
       // The way to every step, unless they are open already. Until Add to OBS has been opened once, the link and
       // the rail's tab stand out a little more: that is where a first overlay goes wrong.
       if (B.ui.section !== OBS_SECTION) n.appendChild(obsLink(!B.ui.obsSeen));
@@ -2464,6 +2504,8 @@
     return {
       parts: [lead + 'In OBS, add a Browser source at ', [ui.w + ' × ' + ui.h], ' and untick ', ['Shutdown source'], ' and ',
         ['Refresh browser'], '. '],
+      // a phone's, in a line under the docked preview: the box names are in Add to OBS, where its link goes
+      short: ['Copied. ', [ui.w + ' × ' + ui.h], ', untick 2 boxes. '],
       text: lead + 'In OBS, add a Browser source at ' + ui.w + ' by ' + ui.h + ', and untick Shutdown source when not visible ' +
         'and Refresh browser when scene becomes active.',
       cls: 'ok'
@@ -2630,34 +2672,63 @@
     var wide = wantsWidePreview(B.cfg.layout, B.ui.w, B.ui.h, app);
     $('builder').classList.toggle('wide-preview', wide);
     placeForLayout(wide);
+    dock(true);
+    // Docked and hidden down to its bar: the frame keeps its last fit, for when it shows again.
+    if (B.docked && B.ui.dockShut) {
+      stage.style.height = '';
+      $('dock-note').textContent = B.ui.w + ' × ' + B.ui.h;
+      rowEdges();
+      return;
+    }
     var cs = root.getComputedStyle(stage);
     var padV = px(cs.paddingTop) + px(cs.paddingBottom);
     var aw = stage.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight);
     var tagH = tag.offsetHeight;
-    var extra = tagH + px(root.getComputedStyle(tag.parentNode).rowGap);
-    if (!hint.hidden) extra += hint.offsetHeight + px(cs.rowGap);
+    // (in the docked stage neither the tag line nor the hint is shown)
+    var extra = tagH ? tagH + px(root.getComputedStyle(tag.parentNode).rowGap) : 0;
+    if (!hint.hidden && hint.offsetHeight) extra += hint.offsetHeight + px(cs.rowGap);
     // In the app layout the window is shared out: top bar, the preview's own bar, this stage, the settings
     // (every tab of the rail, and Reset below it) and the URL bar.
     var room = wide && app ? root.innerHeight - document.querySelector('.top').offsetHeight -
       document.querySelector('.bar').offsetHeight - ($('preview').offsetHeight - stage.offsetHeight) - panelNeed() : null;
-    stage.style.height = wide ? wideStageHeight(aw, padV + extra + px(cs.borderTopWidth) +
+    // The docked stage takes its height from the stylesheet (--dock-h).
+    stage.style.height = wide && !B.docked ? wideStageHeight(aw, padV + extra + px(cs.borderTopWidth) +
       px(cs.borderBottomWidth), B.ui.w, B.ui.h, root.innerHeight, room) + 'px' : '';
     var ah = stage.clientHeight - padV - extra;
     var s = fitScale(B.ui.w, B.ui.h, aw, ah);
-    box.style.width = Math.floor(B.ui.w * s) + 'px';
-    box.style.height = Math.floor(B.ui.h * s) + 'px';
+    var cut = app ? null : cropView(B.cfg, B.ui.w, B.ui.h, aw, ah);
+    if (cut) s = cut.s;
+    var bw = cut ? cut.bw : Math.floor(B.ui.w * s), bh = cut ? cut.bh : Math.floor(B.ui.h * s);
+    box.style.width = bw + 'px';
+    box.style.height = bh + 'px';
+    // A docked stage no taller than its frame needs (a row): the settings get the rest.
+    var need = Math.ceil(bh + padV + extra + px(cs.borderTopWidth) + px(cs.borderBottomWidth));
+    if (B.docked && need < stage.offsetHeight) stage.style.height = need + 'px';
+    // A cut part: the source moved so that its chosen end is in the box, and the frame open on the edges it is cut on.
+    var dx = 0, dy = 0, at = cut ? cut.at : '';
+    if (at === 'right') dx = bw - B.ui.w * s;
+    else if (at === 'middle') dx = (bw - B.ui.w * s) / 2;
+    else if (at === 'bottom') dy = bh - B.ui.h * s;
+    var frame = $('frame');
+    frame.classList.toggle('cut-l', at === 'right' || at === 'middle');
+    frame.classList.toggle('cut-r', at === 'left' || at === 'middle');
+    frame.classList.toggle('cut-t', at === 'bottom');
+    frame.classList.toggle('cut-b', at === 'top');
     if (B.frame) {
       B.frame.style.width = B.ui.w + 'px';
       B.frame.style.height = B.ui.h + 'px';
-      B.frame.style.transform = s < 1 ? 'scale(' + s + ')' : 'none';
+      B.frame.style.transform = (dx || dy ? 'translate(' + Math.round(dx) + 'px, ' + Math.round(dy) + 'px) ' : '') +
+        (s < 1 ? 'scale(' + s + ')' : '') || 'none';
     }
     var note = $('scale-note'), pct = Math.round(s * 100) + '%', text = $('tag-text'), src = $('tag-src');
-    var fw = Math.floor(B.ui.w * s), gap = px(root.getComputedStyle(tag).columnGap);
+    var fw = bw, gap = px(root.getComputedStyle(tag).columnGap);
+    var names = cut ? CROP_NAMES[at] : null;
     src.hidden = false;
-    note.textContent = B.ui.w + ' × ' + B.ui.h + (s < 1 ? ' · shown at ' + pct : ' · 100%');
+    note.textContent = B.ui.w + ' × ' + B.ui.h + (names ? ' · ' + names[0] + ' at ' + pct : s < 1 ? ' · shown at ' + pct : ' · 100%');
+    $('dock-note').textContent = note.textContent;
     // A frame too narrow for that line (a phone) gets the short note, and one too narrow even for that
     // drops the words "Browser source", so the tag is no wider than the frame.
-    if (text.offsetWidth + gap + note.offsetWidth > fw) note.textContent = s < 1 ? 'at ' + pct : '100%';
+    if (text.offsetWidth + gap + note.offsetWidth > fw) note.textContent = names ? names[1] + ' · ' + pct : s < 1 ? 'at ' + pct : '100%';
     if (text.offsetWidth + gap + note.offsetWidth > fw) src.hidden = true;
     // In a narrow stage the tag wraps, and the new note can change that: measure once more.
     if (again !== true && tag.offsetHeight !== tagH) { fit(true); return; }
@@ -2674,6 +2745,54 @@
     var rowW = $('tabs').clientWidth;
     if (app || rowW !== B.tabsW) showTab();
     B.tabsW = rowW;
+    rowEdges();
+  }
+
+  // One column: once the preview has gone off the top of the window, its stage is docked there in small (css/builder.css
+  // .docked) and stays in view while the settings scroll under it; it undocks as its place comes back into view. That
+  // place keeps its height meanwhile, so the page under it does not jump. noFit: called from fit(), which goes on to
+  // fit the frame to the stage as it now is.
+  function dock(noFit) {
+    var app = $('builder'), prev = $('preview');
+    if (!app || !prev) return;
+    var want = !isAppLayout() && (B.docked ? prev.getBoundingClientRect().bottom <= 0
+      : prev.getBoundingClientRect().bottom <= 0 && prev.offsetHeight > 0);
+    if (want === !!B.docked) return;
+    if (want) prev.style.height = prev.offsetHeight + 'px';
+    else prev.style.height = '';
+    B.docked = want;
+    app.classList.toggle('docked', want);
+    if (!noFit) fit();
+  }
+
+  function wireDock() {
+    var btn = $('dock-toggle');
+    var show = function () {
+      $('builder').classList.toggle('dock-shut', !!B.ui.dockShut);
+      btn.setAttribute('aria-expanded', B.ui.dockShut ? 'false' : 'true');
+    };
+    btn.addEventListener('click', function () {
+      B.ui.dockShut = !B.ui.dockShut;
+      show();
+      fit();
+      saveUi();
+    });
+    show();
+    var queued = false;
+    root.addEventListener('scroll', function () {
+      if (queued) return;
+      queued = true;
+      var run = function () { queued = false; dock(); };
+      if (root.requestAnimationFrame) root.requestAnimationFrame(run); else setTimeout(run, 16);
+    }, { passive: true });
+  }
+
+  // The one-column row of tabs fades at the end it runs on past (css/builder.css .tabs.more-left), as the rail does.
+  function rowEdges() {
+    var list = $('tabs'), more = list.scrollWidth - list.clientWidth;
+    var row = !isAppLayout() && more > 1;
+    list.classList.toggle('more-left', row && list.scrollLeft > 1);
+    list.classList.toggle('more-right', row && list.scrollLeft < more - 1);
   }
 
   function fitSoon() {
@@ -3000,12 +3119,15 @@
       fileNote: '',
       // folds: a GROUPS fold sub-heading's id ('look-names') -> open, as last left (foldPart fills in the rest)
       // obsSeen: Add to OBS has been open in this browser (until then a copied URL points to it harder: renderNote)
-      ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop, section: UI_DEFAULTS.section, folds: {}, obsSeen: false },
+      // dockShut: the docked preview is hidden down to its bar (one column: dock)
+      ui: { w: UI_DEFAULTS.w, h: UI_DEFAULTS.h, backdrop: UI_DEFAULTS.backdrop, section: UI_DEFAULTS.section, folds: {}, obsSeen: false,
+        dockShut: false },
       frame: null,
       frameSig: null,
       reloadTimer: null,
       postTimer: null,
       fitQueued: false,
+      docked: false, // one column: the stage is pinned to the top of the window (dock)
       tabsW: null,
       sayTimer: null,
       paused: false,
@@ -3024,6 +3146,7 @@
       if (BACKDROPS.indexOf(u.backdrop) >= 0) B.ui.backdrop = u.backdrop;
       if (typeof u.section === 'string' && sectionIds().indexOf(u.section) >= 0) B.ui.section = u.section;
       if (u.obs === true) B.ui.obsSeen = true;
+      if (u.dock === false) B.ui.dockShut = true;
       if (u.folds && typeof u.folds === 'object') {
         Object.keys(u.folds).forEach(function (id) { if (typeof u.folds[id] === 'boolean') B.ui.folds[id] = u.folds[id]; });
       }
@@ -3035,6 +3158,7 @@
     wirePaste();
     wireOutputs();
     wirePreview();
+    wireDock();
     renderSizes();
     // A link can open a section (builder.html#obs); otherwise the one that was open last time. A hash the link's last
     // value reads as its own (?channel=#emotes) opens none (linkSection).
@@ -3092,6 +3216,7 @@
     wideStageHeight: wideStageHeight,
     fieldText: fieldText,
     fitScale: fitScale,
+    cropView: cropView,
     describeIvrUser: describeIvrUser,
     startCfg: startCfg,
     startSearch: startSearch,

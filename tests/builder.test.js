@@ -1385,6 +1385,24 @@ test('fitScale scales down only', () => {
   assert.strictEqual(builder.fitScale(450, 700, 0, 0), 1);
 });
 
+test('cropView: a source too small to read whole shows the end new messages come in at', () => {
+  const v = { layout: 'vertical', align: 'bottom' }, hz = { layout: 'horizontal', row_align: 'right' };
+  // whole is readable enough: no cut
+  assert.strictEqual(builder.cropView(v, 450, 700, 358, 424), null);
+  // a 1920 x 100 row on a phone: its right-hand end at 60%, as tall as the source
+  assert.deepStrictEqual(builder.cropView(hz, 1920, 100, 358, 102), { s: 0.6, at: 'right', bw: 358, bh: 60 });
+  assert.strictEqual(builder.cropView({ layout: 'horizontal', row_align: 'left' }, 1920, 100, 358, 102).at, 'left');
+  assert.strictEqual(builder.cropView({ layout: 'horizontal', row_align: 'center' }, 1920, 100, 358, 102).at, 'middle');
+  // a short stage: the row as tall as there is room for
+  assert.strictEqual(builder.cropView(hz, 1920, 100, 358, 50).s, 0.5);
+  // a column in the docked preview: full width, its bottom (its top with align=top)
+  assert.deepStrictEqual(builder.cropView(v, 450, 700, 358, 150), { s: 358 / 450, at: 'bottom', bw: 358, bh: 150 });
+  assert.strictEqual(builder.cropView({ layout: 'vertical', align: 'top' }, 450, 700, 358, 150).at, 'top');
+  // a cut that would gain little is not made
+  assert.strictEqual(builder.cropView(v, 1920, 800, 358, 150), null);
+  assert.strictEqual(builder.cropView(v, 450, 700, 0, 0), null);
+});
+
 test('describeIvrUser handles the bare-array IVR shape', () => {
   const found = builder.describeIvrUser([{ id: '22484632', login: 'forsen', displayName: 'forsen', logo: 'https://static-cdn.jtvnw.net/x.png', banned: false }]);
   assert.strictEqual(found.state, 'found');
