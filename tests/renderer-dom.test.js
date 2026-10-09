@@ -143,6 +143,68 @@ test('a timeout or ban removes the user\'s text from reply headers, even after t
   assert.deepStrictEqual(s.texts(), ['lol', 'ok']);
 });
 
+// renderer-css round 4: a Shared Chat message has two ids (its own and its source id), and a reply or a deletion may name
+// either. Only the id the deletion named was taken out of reply headers, and only the id a message was pushed with was
+// noted after a timeout.
+const replyById = (parent, pid, login, text) => chat(login, text, { reply: { id: pid, userId: parent.userId, login: parent.login,
+  name: parent.displayName, body: parent.text } });
+[['the home id', 'the source id'], ['the source id', 'the home id']].forEach(([by, named]) => {
+  test('Shared Chat: a deletion by ' + by + ' takes the header off a reply naming the message by ' + named, (t) => {
+    const s = setup(t);
+    const p = chat('pv', 'SECRET', { sourceId: 'src-' + nid });
+    const del = by === 'the home id' ? p.id : p.sourceId, pid = by === 'the home id' ? p.sourceId : p.id;
+    s.r.push(p);
+    s.r.push(replyById(p, pid, 'rv', 'answer'));
+    s.r.flush();
+    assert.strictEqual(replyText(s.lines()[1]), '↪ @pv: SECRET');
+    s.r.clearMessage(del);
+    assert.deepStrictEqual(s.texts(), ['answer']);
+    assert.strictEqual(replyText(s.lines()[0]), null, 'on screen');
+    s.r.push(replyById(p, pid, 'late', 'what was it'));
+    s.r.push(replyById(p, del, 'late2', 'and this'));
+    s.r.flush();
+    assert.deepStrictEqual(s.lines().map(replyText), [null, null, null], 'and on a reply that comes later');
+    assert.ok(!/SECRET/.test(s.root.textContent));
+  });
+});
+
+test('Shared Chat: a deletion of a message the renderer never had takes both ids the caller names (a robotty rm-deleted line)', (t) => {
+  const s = setup(t);
+  const p = { id: 'h-1', sourceId: 's-1', userId: 'u-pv', login: 'pv', displayName: 'pv', text: 'SECRET' };
+  s.r.clearMessage('h-1', 's-1');
+  s.r.push(replyById(p, 's-1', 'rv', 'answer'));
+  s.r.push(replyById(p, 'h-1', 'rv2', 'answer 2'));
+  s.r.flush();
+  assert.deepStrictEqual(s.lines().map(replyText), [null, null]);
+  assert.strictEqual(s.r.push(chat('pv', 'SECRET', { id: 'x-1', sourceId: 's-1' })), false, 'a copy by the other id is refused too');
+  // A deletion the renderer learns the other id of only later (the message is noted after it): replies naming that one
+  // lose the header too.
+  s.r.clearMessage('h-2');
+  s.r.note({ kind: 'chat', id: 'h-2', sourceId: 's-2', userId: 'u-pv', text: 'SECRET 2' });
+  s.r.push(replyById({ userId: 'u-pv', login: 'pv', displayName: 'pv', text: 'SECRET 2' }, 's-2', 'rv3', 'answer 3'));
+  s.r.flush();
+  assert.strictEqual(replyText(s.lines()[2]), null);
+});
+
+['push', 'note'].forEach((how) => {
+  test('Shared Chat: back after a timeout, a reply naming the new message by its source id keeps its header (' + how + ')', (t) => {
+    const s = setup(t);
+    s.r.clearUser('u-pv');
+    s.tick(60000);
+    const back = chat('pv', 'fine words', { sourceId: 'src-' + nid });
+    if (how === 'push') s.r.push(back);
+    else s.r.note(back);
+    s.r.push(replyById(back, back.sourceId, 'rv', 'answer'));
+    s.r.push(replyById(back, back.id, 'rv2', 'answer 2'));
+    s.r.flush();
+    const replies = s.lines().filter((l) => l.byClass('reply').length || /answer/.test(l.textContent));
+    assert.deepStrictEqual(replies.map(replyText), ['↪ @pv: fine words', '↪ @pv: fine words']);
+    // A second timeout covers it by either id.
+    s.r.clearUser('u-pv');
+    assert.deepStrictEqual(replies.map(replyText), [null, null]);
+  });
+});
+
 // A /clear (Twitch) or a chatroom clear (Kick) took the lines, but a reply sent after it still carries the cleared text
 // (Twitch's reply-parent-msg-body, Kick's original_message): the header put it back on stream, as it did before a
 // deletion or a ban was kept out of headers.
@@ -1050,17 +1112,29 @@ test('smooth_scroll in a source that draws nothing (flushes from the fallback ti
   s.tick(R.FLUSH_FALLBACK_MS + 100);
   s.doc.defaultView.dispatch('obsSourceVisibleChanged', { detail: { visible: true } });
   assert.ok(!lay.home() && /^transform /.test(lay.transition()));
-  // A row keeps 1.5's behaviour: its slide is left to play on show.
+  // A row too (renderer-css round 4; 1.5 left its slide to play on show, sweeping the whole row in from the right): a
+  // slide whose time ran out goes home on show, and one still inside its SLIDE_MS plays on.
   const row = another(s, { animate: true, layout: 'horizontal' });
   const moves = rowLayout({ doc: s.doc, root: row.root, linesEl: row.linesEl, lines: row.lines }, 300);
   row.r.push(chat('a', 'x'));
   row.r.flush();
   row.r.push(chat('b', 'y'));
   row.r.flush();
+  assert.strictEqual(moves.length, 1);
+  assert.match(row.linesEl.style.transition, /^transform /, 'sliding');
   s.tick(1000);
   s.doc.defaultView.dispatch('obsSourceVisibleChanged', { detail: { visible: true } });
-  assert.strictEqual(moves.length, 1);
-  assert.match(row.linesEl.style.transition, /^transform /);
+  assert.strictEqual(row.linesEl.style.transition, '', 'stopped, no inline transition left');
+  assert.strictEqual(row.linesEl.style.transform, '', 'home');
+  row.r.push(chat('c', 'z'));
+  row.r.flush();
+  assert.strictEqual(moves.length, 2);
+  s.tick(100);
+  s.doc.defaultView.dispatch('obsSourceVisibleChanged', { detail: { visible: true } });
+  assert.match(row.linesEl.style.transition, /^transform /, 'a slide inside its time plays on');
+  s.tick(1000);
+  s.doc.dispatch('visibilitychange');
+  assert.strictEqual(row.linesEl.style.transition, '', 'visibilitychange sends it home too');
   row.r.destroy();
 });
 
@@ -2169,10 +2243,13 @@ test('overlay.css: the stage-6 rules (name font, timestamps) are scoped and stay
   // In a column a zero-width space after the time lets the line wrap there (follow-up round 1), and a row's notice sizes
   // its time from notice_size (its line keeps the row's size).
   const sepPre = ':where(.layout-horizontal.align-bottom):where(.sep-dot, .sep-bar, .sep-diamond) :is(.line + .line, .line.keep-sep) > ';
-  // A row's line with a right-to-left message puts its time in a grid column of its own (renderer-css round 3).
+  // A row's line with a right-to-left message puts its time in a grid column of its own (renderer-css round 3), and a
+  // reply's line along the top edge keeps its time whole (round 4: a flex item that never shrinks).
+  const ir = ':where(.layout-horizontal.align-top) .line.inline-reply';
   assert.deepStrictEqual(selectors.filter((s) => /\.time\b/.test(s)),
     ['.time', ':where(.layout-vertical) .time::after', ':where(.layout-horizontal .line.notice) > .time',
       ':where(.layout-horizontal) .line.rtl > .time',
+      ir + '::before,\n' + ir + ' > .time,\n' + ir + ' > .badges,\n' + ir + ' > .colon',
       sepPre + '.reply + .time::before,\n' + sepPre + '.time:first-child::before']);
   assert.match(css, /\.time:first-child::before \{\n  font-size: 1\.25em;\n  opacity: \.857;\n\}/);
   // It comes after the mark's own rules, which it beats (or ties) on specificity.
@@ -2478,8 +2555,9 @@ test('overlay.css: a right-to-left quote or row message is a box of its own that
     margin: '0 calc(-.1em - var(--tshadow-room, 0px))' });
   assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl > .message'), { 'grid-column': '7', 'max-width': 'max-content',
     'padding-left': 'min(.1em + var(--tshadow-room, 0px), 100%)', 'margin-left': 'calc(-1 * min(.1em + var(--tshadow-room, 0px), 100%))' });
-  // The end-of-message box moves into the message (a grid would make the line's own one an empty item).
-  assert.match(css, /\n:where\(\.layout-horizontal\) \.line\.rtl > \.message::after,\n\.layout-horizontal \.line::after \{\n  content: '';/);
+  // The end-of-message box moves into the message (a grid would make the line's own one an empty item), as on a reply's
+  // line along the top edge (.inline-reply, a flex row: round 4).
+  assert.match(css, /\n:where\(\.layout-horizontal\) \.line\.rtl > \.message::after,\n:where\(\.layout-horizontal\.align-top\) \.line\.inline-reply > \.message::after,\n\.layout-horizontal \.line::after \{\n  content: '';/);
   assert.deepStrictEqual(decls(':where(.layout-horizontal) .line.rtl::after'), { content: 'none' });
   assert.ok(css.indexOf('\n:where(.layout-horizontal) .line.rtl::after {') > css.indexOf('\n.layout-horizontal .line::after {'), 'after it');
   // Only .rtl lines and headers: every selector naming it is on such a line or header, the line's ones in a row only.
@@ -2488,6 +2566,82 @@ test('overlay.css: a right-to-left quote or row message is a box of its own that
   assert.strictEqual(rtl.length, 20);
   rtl.forEach((one) => assert.match(one, /^(?:\.reply\.rtl\b|:where\(\.layout-(?:vertical|horizontal)[^)]*\) \.(?:reply|line)\.rtl\b)/, one));
   rtl.filter((one) => /\.line\.rtl/.test(one)).forEach((one) => assert.match(one, /^:where\(\.layout-horizontal/, one));
+});
+
+// renderer-css round 4: along the top edge of a row a reply's header sits before its message, capped at half the row or
+// line, but its own time, platform icon and badges came out of the other half, so at line_width 10-20 or in a narrow source
+// the reply's name was cut short or not drawn (the quoted name the only one left on the line). The line is a flex row of
+// its parts there (.inline-reply): the header gives way first, the name only once the parts before it and the name don't
+// fit, and the message keeps a whole ellipsis.
+test('overlay.css: a reply\'s line along the top edge is a flex row in which the header gives way before the name', () => {
+  const css = overlayCss();
+  const P = ':where(.layout-horizontal.align-top) .line.inline-reply';
+  const decls = (sel) => {
+    const m = Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g)).filter((r) => r[1].trim() === sel)[0];
+    assert.ok(m, sel);
+    const d = {};
+    m[2].split(';').forEach((x) => { const i = x.indexOf(':'); if (i > 0) d[x.slice(0, i).trim()] = x.slice(i + 1).trim(); });
+    return d;
+  };
+  assert.deepStrictEqual(decls(P), { display: 'flex', 'align-items': 'baseline' });
+  assert.deepStrictEqual(decls(P + '::before,\n' + P + ' > .time,\n' + P + ' > .badges,\n' + P + ' > .colon'), { flex: 'none' });
+  assert.deepStrictEqual(decls(P + '::after'), { content: 'none' });
+  assert.deepStrictEqual(decls(P + ' > .colon'), { 'white-space': 'pre' });
+  const head = decls(P + ' > .reply');
+  assert.deepStrictEqual(Object.keys(head), ['flex', 'min-width', 'clip-path']);
+  assert.strictEqual(head.flex, '0 1000000 auto', 'a million times the name\'s flex-shrink');
+  assert.strictEqual(head['min-width'], '0');
+  // The clip-path, with no room of its own: its .1em of room for the ↪'s ink (its padding) cut off at the left and nothing
+  // past its empty content at the right (an outline's clip margin showed the ↪ there), so it draws nothing; else 1em out
+  // on every side. 100% is its border box (that room and its content).
+  assert.strictEqual(head['clip-path'], 'inset(-1em max(-1em, 10000 * (.1em - 100%)) -1em max(-1em, .1em + 10000 * (.1em - 100%)))');
+  const insets = (contentEm) => {
+    const w = 0.1 + contentEm; // 100%: the border box, in the header's em
+    return { right: Math.max(-1, 10000 * (0.1 - w)), left: Math.max(-1, 0.1 + 10000 * (0.1 - w)) };
+  };
+  const none = insets(0);
+  assert.ok(Math.abs(none.left - 0.1) < 1e-9 && Math.abs(none.right) < 1e-9, 'no room: an empty clip ' + JSON.stringify(none));
+  // One layout unit (1/64 px) of room in an 18 px header (the .75em of a 24 px row) already lifts the cut.
+  assert.deepStrictEqual(insets(1 / 64 / 18), { right: -1, left: -1 });
+  assert.deepStrictEqual(decls(P + ' > .name,\n' + P + ' > .message'), { 'min-width': '0', 'overflow-x': 'clip', 'text-overflow': 'ellipsis',
+    padding: '0 calc(.1em + var(--tshadow-room, 0px))', margin: '0 calc(-.1em - var(--tshadow-room, 0px))' });
+  assert.deepStrictEqual(decls(P + ' > .name'), { flex: '0 1 auto', 'background-origin': 'content-box' });
+  assert.deepStrictEqual(decls(P + ' > .message'), { flex: '1 0 1.2em', 'max-width': 'max-content' });
+  // After the .rtl grid's rules, which they tie, so a right-to-left reply's line along the top edge is the flex row too.
+  assert.ok(css.indexOf('\n' + P + ' {') > css.indexOf('\n:where(.layout-horizontal) .line.rtl > .message {'));
+  // The header keeps its cap (half the row or line, at most 15em) and its paint containment (the ellipsis).
+  assert.match(css, /\n\.layout-horizontal:where\(\.align-top\) \.reply \{ max-width: min\(15em, var\(--reply-max\)\); \}/);
+  // Only along the top edge, only on such a line.
+  Array.from(css.matchAll(/([^{}]+)\{/g), (m) => m[1].trim()).forEach((s) => s.split(/,\n/).forEach((one) => {
+    if (/inline-reply/.test(one)) assert.ok(one.indexOf(P) === 0, one);
+  }));
+});
+
+test('a reply\'s line gets .inline-reply only in a row along the top edge, live with align, layout and replies', (t) => {
+  const s = setup(t, { layout: 'horizontal', align: 'top', animate: false });
+  const p = chat('amy', 'question');
+  s.r.push(p);
+  s.r.push(replyTo(p, 'bob', 'answer'));
+  s.r.flush();
+  const cls = () => s.lines().map((l) => l.className);
+  assert.deepStrictEqual(cls(), ['line', 'line inline-reply']);
+  s.r.setConfig({ layout: 'horizontal', align: 'bottom', animate: false });
+  assert.deepStrictEqual(cls(), ['line', 'line'], 'a bottom row keeps the header on a row of its own');
+  s.r.setConfig({ layout: 'horizontal', align: 'top', animate: false });
+  assert.deepStrictEqual(cls(), ['line', 'line inline-reply']);
+  s.r.setConfig({ layout: 'vertical', align: 'top', animate: false });
+  assert.deepStrictEqual(cls().sort(), ['line', 'line'], 'nor a column');
+  s.r.setConfig({ layout: 'horizontal', align: 'top', animate: false, replies: false });
+  assert.deepStrictEqual(cls(), ['line', 'line'], 'no header, no class');
+  s.r.setConfig({ layout: 'horizontal', align: 'top', animate: false });
+  assert.deepStrictEqual(cls(), ['line', 'line inline-reply']);
+  // A header taken off (its parent deleted) takes the class along.
+  s.r.clearMessage(p.id);
+  assert.deepStrictEqual(cls(), ['line']);
+  // A right-to-left reply's line is both.
+  s.r.push(replyTo(chat('cy', 'hi'), 'dee', 'مرحبا بكم'));
+  s.r.flush();
+  assert.strictEqual(s.lines()[1].className, 'line rtl inline-reply');
 });
 
 // A column rule's emote margins worked out as numbers (em) from the rule's own text: eh the image's height (--eh, or
@@ -2787,7 +2941,7 @@ function keptRow(t, cfg, opts) {
   if (o.gap) doc.defaultView.getComputedStyle = () => ({ columnGap: o.gap + 'px' });
   const root = doc.createElement('div');
   doc.body.appendChild(root);
-  const r = renderer.createRenderer({ root: root, cfg: cfg, deps: {} });
+  const r = renderer.createRenderer({ root: root, cfg: cfg, deps: o.deps || {} });
   t.after(() => r.destroy());
   const s = { doc, root, r, linesEl: root.firstElementChild, lines: () => root.firstElementChild.children,
     texts: () => root.firstElementChild.children.map((l) => l.byClass('message').map((m) => m.textContent).join('')),
@@ -2798,10 +2952,14 @@ function keptRow(t, cfg, opts) {
 }
 const classes = (s) => s.lines().map((l) => l.className);
 
+// refilter (renderer-css round 4): a bot list that lands later takes the newer lines its bots sent (overlay.js), and no
+// trim followed to drop the kept mark.
+const hiddenIds = new Set();
 [['clearMessage', (s, c) => s.r.clearMessage(c.id)], ['clearUser', (s, c) => s.r.clearUser(c.userId)],
-  ['clearAll(pred)', (s, c) => s.r.clearAll((m) => m.id === c.id)]].forEach(([how, del]) => {
+  ['clearAll(pred)', (s, c) => s.r.clearAll((m) => m.id === c.id)],
+  ['refilter', (s, c) => { hiddenIds.add(c.id); s.r.refilter(); }]].forEach(([how, del]) => {
   test('row_sep: a kept mark goes once deleting the newer lines brings its line into view with nothing before it: ' + how, (t) => {
-    const s = keptRow(t, { layout: 'horizontal', animate: false, row_sep: 'bar' });
+    const s = keptRow(t, { layout: 'horizontal', animate: false, row_sep: 'bar' }, { deps: { shouldShow: (m) => !hiddenIds.has(m.id) } });
     s.r.push(chat('a', 'x'.repeat(7))); // 100 px
     s.r.push(chat('b', 'y'.repeat(17))); // 200 px
     s.r.flush();

@@ -159,7 +159,7 @@ async function boot(t, opts) {
         clearAll(pred) {
           if (pred) { h.clearPreds.push(pred); h.cleared.push('some'); } else h.cleared.push('all');
         },
-        clearMessage(id) { h.cleared.push('msg:' + id); },
+        clearMessage(id, alt) { h.cleared.push('msg:' + id + (alt === undefined ? '' : '|' + alt)); },
         drop(pred) { h.dropped.push(pred); h.pushed = h.pushed.filter((m) => !pred(m)); },
         rerender(pred) {
           h.rerenders++;
@@ -2781,6 +2781,57 @@ test('shared=0: a reply to what a Shared Chat partner says after a /clear or a t
   assert.deepStrictEqual(headers().slice(-1), ['↪ @sam: sam is back']);
   assert.ok(h.lines().every((l) => !/partner|sam is back/.test(l.byClass('message').map((m) => m.textContent).join(''))),
     'the partner\'s own lines still don\'t show');
+});
+
+// renderer-css round 4: a Shared Chat message reaches the home channel with two ids (its own and source-id), and a reply
+// may name it by either. A deletion by one id took the line but left the quote of a reply naming it by the other on stream.
+test('Shared Chat: a deletion by either id takes the quote off replies naming the other (CLEARMSG, robotty rm-deleted)', async (t) => {
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const hist = deferred();
+  const h = await boot(t, { search: '?channel=home&history=5', realRenderer: true, stubs(T) {
+    T.irc.loadHistory = () => hist.promise;
+  } });
+  join(h);
+  const shared = (login, text, id) => priv(login, text, { id: id, 'source-id': 's' + id, 'source-room-id': PARTNER });
+  const replyTo = (pid, text) => priv('rv', '@pv ' + text, { 'reply-parent-msg-id': pid, 'reply-parent-user-id': 'u-pv',
+    'reply-parent-user-login': 'pv', 'reply-parent-display-name': 'pv', 'reply-parent-msg-body': 'SECRET', 'source-room-id': PARTNER });
+  // History: a deleted partner line (both ids on it), and replies naming it by either.
+  hist.resolve([
+    priv('pv', 'SECRET', { id: 'h0', 'source-id': 'sh0', 'source-room-id': PARTNER, 'rm-deleted': '1' }),
+    replyTo('sh0', 'old answer'), replyTo('h0', 'old answer 2')
+  ].map(P));
+  await settle();
+  t.mock.timers.tick(3000);
+  await settle();
+  const view = () => {
+    t.mock.timers.tick(300);
+    return h.lines().map((l) => l.textContent);
+  };
+  assert.deepStrictEqual(view(), ['rv: old answer', 'rv: old answer 2'], 'the rm-deleted line\'s quote goes by either id');
+  h.feed(shared('pv', 'SECRET', 'p1'));
+  h.feed(replyTo('sp1', 'answer'));
+  h.feed(shared('pv', 'SECRET', 'p2'));
+  h.feed(replyTo('p2', 'answer 2'));
+  assert.deepStrictEqual(view().slice(2), ['pv: SECRET', '↪ @pv: SECRETrv: answer', 'pv: SECRET', '↪ @pv: SECRETrv: answer 2']);
+  h.feed('@room-id=' + HOME + ';target-msg-id=p1 :tmi.twitch.tv CLEARMSG #home :SECRET');
+  h.feed('@room-id=' + HOME + ';target-msg-id=sp2 :tmi.twitch.tv CLEARMSG #home :SECRET');
+  assert.deepStrictEqual(view().slice(2), ['rv: answer', 'rv: answer 2']);
+  h.feed(replyTo('sp1', 'late'));
+  h.feed(replyTo('p2', 'late 2'));
+  assert.deepStrictEqual(view().slice(4), ['rv: late', 'rv: late 2'], 'and from replies that come later');
+  assert.ok(!/SECRET/.test(h.lines().map((l) => l.textContent).join('')));
+});
+
+test('Shared Chat: the overlay tells the renderer both ids of a message it deletes, when it has them', async (t) => {
+  const h = await boot(t, { search: '?channel=home&history=0' });
+  join(h);
+  h.feed(priv('pv', 'hello', { id: 'q1', 'source-id': 'sq1', 'source-room-id': PARTNER }));
+  h.feed(priv('amy', 'home line', { id: 'q2' }));
+  h.feed('@room-id=' + HOME + ';target-msg-id=sq1 :tmi.twitch.tv CLEARMSG #home :hello');
+  h.feed('@room-id=' + HOME + ';target-msg-id=q1 :tmi.twitch.tv CLEARMSG #home :hello');
+  h.feed('@room-id=' + HOME + ';target-msg-id=q2 :tmi.twitch.tv CLEARMSG #home :home line');
+  h.feed('@room-id=' + HOME + ';target-msg-id=never :tmi.twitch.tv CLEARMSG #home :x');
+  assert.deepStrictEqual(h.cleared, ['msg:sq1|q1', 'msg:q1|sq1', 'msg:q2', 'msg:never']);
 });
 
 // bots=0 (the default) hid Nightbot's line, but a viewer's reply to it put the bot's text, link and all, back on stream in

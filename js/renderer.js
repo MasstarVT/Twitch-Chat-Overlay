@@ -66,6 +66,8 @@
   var RERENDER_KEYS = ['size', 'badges', 'badges_twitch', 'badges_kick', 'platform_icons', 'badges_7tv', 'badges_bttv',
     'badges_ffz', 'badges_ffzap', 'badges_chatterino', 'badges_homies', 'paints', 'readable', 'replies', 'gifs',
     'first_msg', 'shared', 'layout', // layout: a row draws gigantified emotes at emote height, so it picks smaller files
+    // align: in a row along the top edge a reply's line is laid out as a row of its own parts (.inline-reply).
+    'align',
     'accent_bar',
     // The sizes: images are fetched for the size they are drawn at, and an emote-only line gets its class. gif_size
     // too: a GIF drawn taller than Giphy's 200 px file loads the original (partsFor).
@@ -782,7 +784,8 @@
 
   // emoteOnly: the line is one modelFor found to be emotes alone (emote_only=big/huge, in a column). rtl: a row's message
   // that starts right to left (startsRtl): the stylesheet gives it a box of its own, to end in its own ellipsis.
-  function lineClasses(msg, cfg, kind, action, emoteOnly, rtl) {
+  // inlineReply: a chat line with a reply header in a row along the top edge (.inline-reply, css/overlay.css).
+  function lineClasses(msg, cfg, kind, action, emoteOnly, rtl, inlineReply) {
     var c = ['line'];
     if (kind === 'notice') {
       c.push('notice');
@@ -802,6 +805,7 @@
       }
       if (emoteOnly) c.push('emote-only');
       if (rtl) c.push('rtl');
+      if (inlineReply) c.push('inline-reply');
     }
     if (msg.mirrored) c.push('mirrored');
     if (typeof msg.platform === 'string' && Object.prototype.hasOwnProperty.call(LINE_PLATFORMS, msg.platform)) c.push('platform-' + msg.platform);
@@ -1290,10 +1294,14 @@
       gifMul: Object.prototype.hasOwnProperty.call(GIF_MUL, cfg.gif_size) ? Number(GIF_MUL[cfg.gif_size]) : 3 });
     // In a row a message never wraps: one that starts right to left gets the class that ends it in its own ellipsis.
     var rtl = cfg.layout === 'horizontal' && startsRtl(partsText(parts));
+    var reply = cfg.replies === false || d.noReply ? null : replyModel(msg.reply, cfg.reply_style === 'name', cfg.links === 'shorten');
+    // Along the top edge of a row the header sits before the message on the same row: the line is a row of its parts,
+    // so the header gives way to the reply's own name (the stylesheet).
+    var inlineReply = !!reply && cfg.layout === 'horizontal' && cfg.align === 'top';
     var model = {
       kind: 'chat',
-      cls: lineClasses(msg, cfg, 'chat', action, only, rtl),
-      reply: cfg.replies === false || d.noReply ? null : replyModel(msg.reply, cfg.reply_style === 'name', cfg.links === 'shorten'),
+      cls: lineClasses(msg, cfg, 'chat', action, only, rtl, inlineReply),
+      reply: reply,
       badges: badgeModels(visibleBadges(d.badges, cfg), wantBadge(px, dpr, sizeScale(cfg.badge_size))),
       name: { text: text, color: color, paint: paint },
       // name_sep: one of the fixed NAME_SEPS strings; ': ' for anything else (a partial cfg).
@@ -1346,6 +1354,11 @@
     // mseq, noted only for messages from a cleared user, so a reply to what they said afterwards keeps its header.
     var cleared = new DeletedIds(CLEARED_TTL_MS, CLEARED_CAP);
     var spoke = new DeletedIds(CLEARED_TTL_MS, DELETED_CAP);
+    // Shared Chat: a partner's message has two ids, the home copy's own and the partner's (its source id), and a reply, a
+    // deletion or a robotty rm-deleted line may name either. alias: each one -> the other, for every message pushed or
+    // noted with both, so a deletion by one takes the quotes that name the other, and a reply naming either finds the
+    // deletion or the return after a timeout (quoteModerated). Kept as long as spoke.
+    var alias = new DeletedIds(CLEARED_TTL_MS, DELETED_CAP);
     var mseq = 0;
     // Chat clears (clearAll), oldest first: { seq: mseq at the clear, at: ms, pred: the lines it took (null: all) }. A reply
     // on a line a clear covers loses its header when the message it quotes is from before that clear: one the clear took,
@@ -1733,12 +1746,15 @@
     }
     function quoteModerated(msg, r, now) {
       var pid = util.idStr(r.id);
-      if (pid && deleted.has(pid, now)) return true;
+      // The parent by either of its Shared Chat ids (alias): the reply may name the one the moderation didn't.
+      var other = pid ? alias.get(pid, now) : undefined;
+      if (pid && (deleted.has(pid, now) || deleted.has(other, now))) return true;
       if (clearedBefore(msg, pid, now)) return true;
       var uid = util.idStr(r.userId);
       var at = uid ? cleared.get(uid, now) : undefined;
       if (at === undefined) return false;
       var said = pid ? spoke.get(pid, now) : undefined;
+      if (said === undefined && other) said = spoke.get(other, now);
       return !(said > at); // unknown or older than the latest clear: moderated
     }
     // Rebuild the lines whose reply header quotes what match(reply) picks (after a moderation event).
@@ -2219,9 +2235,10 @@
     // While hidden nothing renders, so CSS animations of lines inserted meanwhile never started.
     // On show: flush, then re-time every line from its arrival (no mass fade-in, correct fades).
     function onShown() {
-      // A column's slide (smooth_scroll) whose time ran out while nothing was drawn would only start once frames
-      // resume, moving lines that are long in place: it is over, so they go home now.
-      if (slideDx > 0 && glideOf(cfg) !== 'left' && Date.now() - slideAt >= SLIDE_MS) stopGlide();
+      // A slide (a row's, or a column's with smooth_scroll) whose time ran out while nothing was drawn would only start
+      // once frames resume, sweeping lines that are long in place across the source: it is over, so they go home now. One
+      // still inside its SLIDE_MS plays on.
+      if (slideDx > 0 && Date.now() - slideAt >= SLIDE_MS) stopGlide();
       flush();
       if (!held && !destroyed) restartFades(Date.now());
     }
@@ -2378,20 +2395,33 @@
       }
     }
 
+    // A message said with both Shared Chat ids: each names the other (alias).
+    function noteAlias(id, sid, now) {
+      if (!id || !sid || id === sid) return;
+      alias.add(id, now, sid);
+      alias.add(sid, now, id);
+    }
+    // Back after a timeout: replies to what this user says from now on keep their header, whichever id they name.
+    function noteSpoke(id, sid, uid, now) {
+      if (!id || !uid || !cleared.has(uid, now)) return;
+      var at = ++mseq;
+      spoke.add(id, now, at);
+      if (sid && sid !== id) spoke.add(sid, now, at);
+    }
+
     // ----- public API -----
     function push(msg) {
       if (destroyed || !msg || typeof msg !== 'object') return false;
       var now = Date.now();
       var id = util.idStr(msg.id), sid = util.idStr(msg.sourceId);
       heardNow(id, sid, now);
+      noteAlias(id, sid, now);
       if (id) {
         if (deleted.has(id, now) || byId.has(id)) return false;
         if (queue.some(function (en) { return util.idStr(en.msg.id) === id; })) return false;
       }
       if (sid && deleted.has(sid, now)) return false;
-      // Back after a timeout: replies to what this user says from now on keep their header.
-      var uid = util.idStr(msg.userId);
-      if (id && uid && cleared.has(uid, now)) spoke.add(id, now, ++mseq);
+      noteSpoke(id, sid, util.idStr(msg.userId), now);
       if (!showable(msg)) return false;
       // Live lines age from arrival (immune to clock skew); history ages from tmi-sent-ts.
       var ts = Number(msg.ts);
@@ -2406,9 +2436,10 @@
     function note(msg) {
       if (destroyed || !msg || typeof msg !== 'object') return;
       var now = Date.now();
-      var id = util.idStr(msg.id), uid = util.idStr(msg.userId);
-      heardNow(id, util.idStr(msg.sourceId), now);
-      if (id && uid && cleared.has(uid, now)) spoke.add(id, now, ++mseq);
+      var id = util.idStr(msg.id), sid = util.idStr(msg.sourceId);
+      heardNow(id, sid, now);
+      noteAlias(id, sid, now);
+      noteSpoke(id, sid, util.idStr(msg.userId), now);
     }
 
     function clearUser(userId) {
@@ -2424,14 +2455,31 @@
       dropLoneSep();
     }
 
-    function clearMessage(msgId) {
+    // altId: the message's other Shared Chat id, when the caller knows it (overlay.js has the message, or a robotty
+    // rm-deleted line carries both). The renderer adds what it knows itself: the alias of a message pushed or noted, and
+    // the ids of the line on screen. Every one counts as deleted, and every quote naming one goes.
+    function clearMessage(msgId, altId) {
       var id = util.idStr(msgId);
       if (!id || destroyed) return;
-      deleted.add(id, Date.now());
-      queue.filter(function (en) { return util.idStr(en.msg.id) !== id && util.idStr(en.msg.sourceId) !== id; });
-      removeLine(byId.get(id));
-      removeLine(byId.get(id + ':m'));
-      rerenderReplies(function (r) { return util.idStr(r.id) === id; });
+      var now = Date.now();
+      var ids = [id];
+      var also = function (x) {
+        x = util.idStr(x);
+        if (x && ids.indexOf(x) < 0) ids.push(x);
+      };
+      also(altId);
+      also(alias.get(id, now));
+      var shown = recs.get(byId.get(id));
+      if (shown) shown.ids.forEach(also);
+      noteAlias(ids[0], ids[1], now);
+      var gone = function (x) { return ids.indexOf(util.idStr(x)) >= 0; };
+      ids.forEach(function (x) { deleted.add(x, now); });
+      queue.filter(function (en) { return !gone(en.msg.id) && !gone(en.msg.sourceId); });
+      ids.forEach(function (x) {
+        removeLine(byId.get(x));
+        removeLine(byId.get(x + ':m'));
+      });
+      rerenderReplies(function (r) { return gone(r.id); });
       dropLoneSep();
     }
 
@@ -2603,8 +2651,13 @@
       setConfig: setConfig,
       hold: hold,
       flush: function () { flush(); },
-      // Drops lines that the filters now reject (e.g. a bot list that landed after they were shown).
-      refilter: function () { if (!destroyed) sweepFilters(); },
+      // Drops lines that the filters now reject (e.g. a bot list that landed after they were shown). A row moves right
+      // when newer lines go (no resize to trim on): a kept mark that comes into view goes in the same frame (dropLoneSep).
+      refilter: function () {
+        if (destroyed) return;
+        sweepFilters();
+        dropLoneSep();
+      },
       hasUser: hasUser,
       stats: stats,
       destroy: destroy

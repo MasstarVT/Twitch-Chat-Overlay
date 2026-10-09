@@ -4,8 +4,9 @@
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement (its bar color
    .ann-primary .ann-blue .ann-green .ann-orange .ann-purple) .notice .mirrored .platform-kick .accent .emote-only
    .mention .keyword .user-hl .role-broadcaster .role-mod .role-vip .role-bar .role-tint .keep-sep .rtl (a row's
-   message that starts right to left; on .reply, a quote that does), badge modifiers .icon .platform (the Twitch /
-   Kick logo) .avatar (a Shared Chat channel) .colored (an FFZ / FFZ:AP badge on its own background color), #chat
+   message that starts right to left; on .reply, a quote that does) .inline-reply (a reply in a row along the top
+   edge), badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel) .colored (an FFZ /
+   FFZ:AP badge on its own background color), #chat
    modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .size-small .size-medium .size-large .has-bg
    .bg-full .no-names .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static
    .text-center .text-right .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .has-name-font.
@@ -540,10 +541,11 @@ body {
   contain: paint;
   margin-right: .5em;
 }
-/* There it shares its row with the message, so it is also never wider than half the row (or half of line_width's cap):
-   the reply's name and message always keep the other half. In px worked out on #chat (--reply-max, a registered length:
-   --line-max and --edge-fade are #chat's em), not a percentage, which the line's own width would depend on. Half the
-   row is half the source less its sides (pad_x, and edge_fade's room at its left end). */
+/* There it shares its row with the message, so it is also never wider than half the row (or half of line_width's cap),
+   and it gives way first to the reply's own time, badges and name (.inline-reply, below), so the message keeps what
+   they leave of the other half. In px worked out on #chat (--reply-max, a registered length: --line-max and --edge-fade
+   are #chat's em), not a percentage, which the line's own width would depend on. Half the row is half the source less
+   its sides (pad_x, and edge_fade's room at its left end). */
 @property --reply-max { syntax: '<length>'; inherits: true; initial-value: 100000px; }
 :where(.layout-horizontal.align-top) {
   --reply-max: min(50vw - (var(--pad-x, 8px) + max(var(--pad-x, 8px), min(var(--edge-fade, 0px), 50vw))) / 2, var(--line-max, 200vw) / 2);
@@ -564,9 +566,10 @@ body {
    or a badge: an empty inline box at its end whose line-height is the tallest of those (its margin box: an emote's height
    less its margins), on the same middle line. Their text then lines up whatever emote_scale, badge_size and line_height
    are. Inline, not an inline-block: a space at the end of a message still collapses. With Inter at the defaults it fits
-   inside the line, as an emote does, so nothing moves. A right-to-left message's line (.rtl, below) has it at the end of
-   its message instead. */
+   inside the line, as an emote does, so nothing moves. A right-to-left message's line (.rtl, below), and a reply's line
+   along the top edge (.inline-reply, below), have it at the end of the message instead. */
 :where(.layout-horizontal) .line.rtl > .message::after,
+:where(.layout-horizontal.align-top) .line.inline-reply > .message::after,
 .layout-horizontal .line::after {
   content: '';
   line-height: max(var(--badge-h, 1em), var(--emote-h, 1.75em)
@@ -580,13 +583,14 @@ body {
    show. There the line is a grid of its parts on one row: the row mark along the top edge, a reply header along the top
    edge, the time, the badges, the name, the colon and the message, each in a column of its own (empty ones take no
    room), on their text's baseline as on one line. Along the bottom edge a reply header is a row of its own above them,
-   across every column. The message is a box of its own (with unicode-bidi: plaintext, above, its line takes its
-   direction from its own text) that takes the room the parts before it leave, up to its own width, and ends in its own
-   ellipsis at its own end (on its left, toward the colon); the name keeps its whole width unless the parts before the
-   message are wider than the line by themselves (then it ends in an ellipsis of its own). The line is as wide as
-   before: its parts, or its reply header if that is wider, up to its cap. The colon keeps its spaces (pre), and the
-   message carries the line's end-of-message box (above). The name and the message clip their sides with room for an
-   outline, a shadow or ink past a letter's edge (padding their margins take back; a painted name's paint still spans
+   across every column; along the top edge a line with a reply header is a flex row instead (.inline-reply, below), so
+   the header gives way to the name. The message is a box of its own (with unicode-bidi: plaintext, above, its line
+   takes its direction from its own text) that takes the room the parts before it leave, up to its own width, and ends
+   in its own ellipsis at its own end (on its left, toward the colon); the name keeps its whole width unless the parts
+   before the message are wider than the line by themselves (then it ends in an ellipsis of its own). The line is as
+   wide as before: its parts, or its reply header if that is wider, up to its cap. The colon keeps its spaces (pre), and
+   the message carries the line's end-of-message box (above). The name and the message clip their sides with room for
+   an outline, a shadow or ink past a letter's edge (padding their margins take back; a painted name's paint still spans
    its text alone), and let their text and images past their line above and below as before. Squeezed to nothing by
    the parts before it, the message keeps no room at its end (a share of its own width there), so its ellipsis, which
    starts at its right edge, shows nowhere. A message that starts left to right keeps the line above. */
@@ -625,6 +629,53 @@ body {
 }
 /* Along the top edge a reply header that starts right to left sits on the same row too (above): an inline flex box. */
 :where(.layout-horizontal.align-top) .reply.rtl { display: inline-flex; }
+/* Along the top edge a reply's line (.inline-reply, set by renderer.js; a right-to-left one's too, over its grid) is a
+   flex row of its parts on their text's baseline, as on one line: the row mark, the reply header, the time, the badges,
+   the name, the colon and the message. Inline, the header took its room (up to its cap, above) before the parts after
+   it, so with a time, a platform icon or badges a narrow line (line_width, a narrow source) cut the reply's own name
+   short or left it out, and the only name on the line was the one it quotes. Here the mark, the time, the badges and the
+   colon keep their whole width; the name keeps its own unless those parts and the name are wider than the line by
+   themselves (then it ends in an ellipsis of its own); the header takes what that leaves, up to its cap, and gives way
+   first (its flex-shrink is a million times the name's: scaled by their widths, the name's share of a lack of room
+   rounds to nothing while the header has room to give); and the message takes the rest, never less than a whole
+   ellipsis (1.2em, or the whole message if that is shorter). The message ends in its own ellipsis, at its own end in
+   its own direction, and carries the line's end-of-message box (above). The colon keeps its spaces (pre). The name and
+   the message clip their sides with room for an outline, a shadow or ink past a letter's edge (padding their margins
+   take back; a painted name's paint still spans its text alone), as in .rtl. A header given no room at all draws
+   nothing: the clip-path then cuts off its .1em of room for the ↪'s ink and everything right of its (empty) content,
+   where an outline's clip margin would show the ↪ (100% is its own width, that room alone); while it has any room the
+   clip-path reaches 1em past every side, so its own clip (contain: paint) is the one that holds. */
+:where(.layout-horizontal.align-top) .line.inline-reply {
+  display: flex;
+  align-items: baseline;
+}
+:where(.layout-horizontal.align-top) .line.inline-reply::before,
+:where(.layout-horizontal.align-top) .line.inline-reply > .time,
+:where(.layout-horizontal.align-top) .line.inline-reply > .badges,
+:where(.layout-horizontal.align-top) .line.inline-reply > .colon { flex: none; }
+:where(.layout-horizontal.align-top) .line.inline-reply::after { content: none; }
+:where(.layout-horizontal.align-top) .line.inline-reply > .colon { white-space: pre; }
+:where(.layout-horizontal.align-top) .line.inline-reply > .reply {
+  flex: 0 1000000 auto;
+  min-width: 0;
+  clip-path: inset(-1em max(-1em, 10000 * (.1em - 100%)) -1em max(-1em, .1em + 10000 * (.1em - 100%)));
+}
+:where(.layout-horizontal.align-top) .line.inline-reply > .name,
+:where(.layout-horizontal.align-top) .line.inline-reply > .message {
+  min-width: 0;
+  overflow-x: clip;
+  text-overflow: ellipsis;
+  padding: 0 calc(.1em + var(--tshadow-room, 0px));
+  margin: 0 calc(-.1em - var(--tshadow-room, 0px));
+}
+:where(.layout-horizontal.align-top) .line.inline-reply > .name {
+  flex: 0 1 auto;
+  background-origin: content-box;
+}
+:where(.layout-horizontal.align-top) .line.inline-reply > .message {
+  flex: 1 0 1.2em;
+  max-width: max-content;
+}
 /* row_sep: a dot, bar or diamond before every message in a row but the first. A pseudo-element can't sit between
    flex items, so it is drawn in the message (in its box, with bg), before its first inline part: after a reply
    header, whose block would put it on a row of its own. In a row along the top edge, where the header sits before its

@@ -631,6 +631,19 @@
     if (uid && platformBot(m)) S.botIds.set(uid, true);
     if (isKick(m) && id && m.ts > S.kickTs) S.kickTs = m.ts;
   }
+  // A deletion (CLEARMSG, a robotty rm-deleted line) names one of a Shared Chat message's two ids: the renderer is told
+  // the other too when the overlay has the message (S.said), or the line carries it (sid), so a reply quoting the
+  // message by the id the deletion didn't name loses its header as well (the renderer also knows the ids of what it was
+  // given).
+  function clearMessage(id, sid) {
+    var key = T.util.idStr(id);
+    if (!key) return;
+    var m = S.said.peek(key);
+    var other = T.util.idStr(sid);
+    if (!other && m && typeof m === 'object') other = T.util.idStr(T.util.idStr(m.id) === key ? m.sourceId : m.id);
+    if (other && other !== key) S.renderer.clearMessage(key, other);
+    else S.renderer.clearMessage(key);
+  }
   // A reply's parent as its own line came, when the overlay was given it.
   function saidParent(r) {
     var id = T.util.idStr(r.id);
@@ -1329,7 +1342,7 @@
       case 'PRIVMSG': return handlePrivmsg(p);
       case 'USERNOTICE': return handleUsernotice(p);
       case 'CLEARCHAT': return handleClearchat(p);
-      case 'CLEARMSG': return S.renderer.clearMessage(p.tags['target-msg-id']);
+      case 'CLEARMSG': return clearMessage(p.tags['target-msg-id']);
       case 'ROOMSTATE':
         if (p.tags['room-id']) onRoomId(p.tags['room-id']);
         return;
@@ -1434,7 +1447,7 @@
       while (ts && k < kick.length && kick[k].ts < ts) kickLine(kick[k++]);
       noteTwitchTs(p);
       // Already moderated: not shown, but recorded as deleted so replies quoting it get no header.
-      if (p.tags['rm-deleted'] !== undefined) { if (p.tags.id) S.renderer.clearMessage(p.tags.id); return; }
+      if (p.tags['rm-deleted'] !== undefined) { clearMessage(p.tags.id, p.tags['source-id']); return; }
       p.tags.historical = '1';
       if (p.command === 'PRIVMSG' && i < from) {
         // Older than the lines shown: not shown, but noted as said, in order with the moderation replayed around it, so
@@ -1674,8 +1687,8 @@
   // of the gap: its chat lines are noted as said, not shown under it, so chat stays in time order.
   function replayGap(list, gap, after) {
     list.forEach(function (p) {
-      if (p.command === 'PRIVMSG' && p.tags['rm-deleted'] !== undefined && p.tags.id) S.renderer.clearMessage(p.tags.id);
-      else if (p.command === 'CLEARMSG' && p.tags['target-msg-id']) S.renderer.clearMessage(p.tags['target-msg-id']);
+      if (p.command === 'PRIVMSG' && p.tags['rm-deleted'] !== undefined) clearMessage(p.tags.id, p.tags['source-id']);
+      else if (p.command === 'CLEARMSG') clearMessage(p.tags['target-msg-id']);
     });
     gap = gap.filter(function (p) { return !(p.command === 'PRIVMSG' && p.tags.id && S.irc && S.irc.markSeen(p.tags.id)); });
     var from = S.twitchLiveTs > after ? gap.length : historyStart(gap, S.cfg.history);
@@ -1705,7 +1718,7 @@
       else before.push(id);
     });
     if (!newer) { onLine(p); return; }
-    if (target) before.forEach(function (id) { S.renderer.clearMessage(id); });
+    if (target) before.forEach(function (id) { clearMessage(id); });
     else S.renderer.clearAll(function (m) { return covers(m) && !(Number(m.ts) > at); });
   }
 
