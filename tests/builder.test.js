@@ -48,8 +48,9 @@ test('a link opens its section when the page loads and when the hash changes', (
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'builder.js'), 'utf8');
   // openHashSection reads the page's hash (unless More in Advanced passes its own) and opens the section it names.
   assert.match(src, /if \(hash === undefined\) hash = root\.location\.hash;\s*var s = sectionFromHash\(hash\);\s*if \(!s\) return false;\s*selectSection\(s, false\);/);
-  // start() asks the hash first, then falls back to the section that was open last time.
-  assert.match(src, /if \(!openHashSection\(\)\) selectSection\(B\.ui\.section, false\);/);
+  // start() asks the hash first (when the link's last value doesn't read it as its own: linkSection), then falls back
+  // to the section that was open last time.
+  assert.match(src, /if \(!linkSection\(root\.location\) \|\| !openHashSection\(\)\) selectSection\(B\.ui\.section, false\);/);
   assert.match(src, /addEventListener\('hashchange', function \(\) \{ if \(openHashSection\(\)\) saveUi\(\); \}\)/);
 });
 
@@ -945,12 +946,14 @@ test('the look options grey out while the setting they need is off, and their he
     shadow_style: [{ shadow: 0 }, { shadow: 1 }, 'Text shadow'],
     outline_color: [{ outline: 0 }, { outline: 1 }, 'Text outline'],
     paint_images: [{ paints: false }, {}, '7TV name paints'],
+    stv_lookup: [{ paints: false, badges_7tv: false }, { paints: false }, '7TV name paints, or Show badges and 7TV'],
     homies_lists: [{ badges_homies: false }, {}, 'Chatterino Homies'],
     size: [{ text_px: 8 }, { text_px: 0 }, 'Exact text size'],
     gif_size: [{ gifs: false }, {}, 'Show GIFs posted in chat'],
     name_fallback: [{ name_color: 'ff8800' }, {}, 'Name color (Look)'],
     name_sep: [{ names: false }, {}, 'Show names'],
     readable_level: [{ readable: false }, {}, 'Brighten dark name colors (Badges & paints)'],
+    readable: [{ name_color: 'ff8800' }, { name_fallback: 'ff8800' }, 'Not used while a Name color (Look) is set'],
     reply_style: [{ replies: false }, {}, 'Show what replies are answering'],
     mention_color: [{}, { mentions: 'at' }, 'Highlight channel mentions (Chat events)'],
     keyword_color: [{}, { keywords: ['gg'] }, 'Highlight words'],
@@ -982,6 +985,17 @@ test('the look options grey out while the setting they need is off, and their he
   assert.strictEqual(off('readable_level', { name_color: 'ff8800' }), true);
   assert.strictEqual(off('readable_level', { name_fallback: 'ff8800' }), false);
   assert.match(builder.META.readable_level.help, /not used while a Name color \(Look\) is set/);
+  // 7TV is asked about chatters only for what the overlay draws of theirs (overlay.js stvStyleOn): with paints off and
+  // the 7TV badges off (or badges off), the lookup switch does nothing, and only then is it greyed out.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'overlay.js'), 'utf8');
+  const body = /function stvStyleOn\(c\) \{ return ([^;]+); \}/.exec(src);
+  assert.ok(body, 'overlay.js stvStyleOn');
+  const looksUp = new Function('c', 'return ' + body[1]);
+  [false, true].forEach((paints) => [false, true].forEach((badges) => [false, true].forEach((stv) => {
+    const over = { paints: paints, badges: badges, badges_7tv: stv };
+    assert.strictEqual(off('stv_lookup', over), !looksUp(Object.assign({}, d, over, { stv_lookup: true })),
+      JSON.stringify(over));
+  })));
   // Column only: off in a row whatever else is set.
   ['bg_width', 'name_line', 'text_align', 'emote_only', 'gif_size', 'giant_emotes', 'smooth_scroll'].forEach((k) => {
     assert.strictEqual(builder.META[k].only, 'vertical', k);
@@ -1204,6 +1218,46 @@ test('startSearch: the builder reads its start-up link as the overlay reads it; 
   assert.deepStrictEqual(start(B + '?channel=xqc&size=large#setup').cfg, Object.assign(config.defaults(), { channel: 'xqc', size: 'large' }));
   assert.strictEqual(builder.startSearch(loc(B + '#obs')), '');
   assert.strictEqual(builder.startSearch(loc(B)), '');
+});
+
+// Any hash that named a section was taken for the page's, though a section's name is a valid login and phrase too:
+// ?channel=#emotes opened Emotes and, a channel-only link with an empty channel, wiped the remembered channel;
+// ?keywords=#events opened Chat events and put every remembered setting back to its default. The overlay reads the
+// channel emotes and the keyword #events.
+test('linkSection: a section\'s name after the link is the page\'s, unless the overlay reads it as part of the last value', () => {
+  const loc = (href) => { const u = new URL(href); return { href: u.href, search: u.search, hash: u.hash, pathname: u.pathname }; };
+  const B = 'https://chat.masstar.org/builder.html';
+  const overlayReads = (href) => config.parse(config.pageQuery(loc(href)));
+  const start = (href, stored) => builder.startCfg(builder.startSearch(loc(href)), stored || null);
+  // Part of the value, as on overlay.html: no section, and the builder reads what the overlay reads.
+  const values = ['?channel=#emotes', '?keywords=#events', '?keywords=#look', '?keywords=c,#events', '?keywords=gg+#obs',
+    '?block=nightbot,#obs', '?block=nightbot+#obs', '?channel=abc&keywords=#filters', '?kick=abc&channel=#badges',
+    '?keywords=gg#filters'];
+  values.forEach((h) => {
+    assert.strictEqual(builder.linkSection(loc(B + h)), '', h);
+    assert.deepStrictEqual(start(B + h).cfg, overlayReads(B + h), h);
+  });
+  assert.deepStrictEqual(overlayReads(B + '?keywords=c,#events').keywords, ['c', '#events']);
+  assert.deepStrictEqual(overlayReads(B + '?block=nightbot+#obs').block, ['nightbot', 'obs']);
+  // A channel-only link keeps the remembered look and names the channel it says; a whole setup is the link's.
+  const s = start(B + '?channel=#emotes', { channel: 'remembered', size: 'large' });
+  assert.deepStrictEqual([s.fromQuery, s.cfg.channel, s.cfg.size], [true, 'emotes', 'large']);
+  const w = start(B + '?keywords=#events', { channel: 'remembered', size: 'large' });
+  assert.deepStrictEqual(w.cfg, Object.assign(config.defaults(), { keywords: ['#events'] }));
+  // The page's: a hash the overlay reads no differently (a value it can't be part of, a key no setting has, no link).
+  const pages = { '?channel=x#obs': 'obs', '?channel=x&#obs': 'obs', '?channel=abc#adv-text': 'advanced',
+    '?channel=abc&size=large#group-look': 'look', '?bots=1#badges': 'badges', '?utm=1#obs': 'obs', '?utm=#events': 'events',
+    '?text_color=ff8800#look': 'look', '?block=nightbot#obs': 'obs', '?channel=#adv-text': 'advanced',
+    '#obs': 'obs', '#adv-text': 'advanced', '#Emotes': 'emotes', '': '' };
+  Object.keys(pages).forEach((h) => {
+    assert.strictEqual(builder.linkSection(loc(B + h)), pages[h], h);
+    assert.deepStrictEqual(start(B + h).cfg, overlayReads(B + h), h);
+  });
+  assert.strictEqual(builder.startSearch(loc(B + '?channel=x#obs')), '?channel=x');
+  // A hash that is no section is the link's either way (?channel=xqc&size=large#setup), and none at all is no section.
+  assert.strictEqual(builder.linkSection(loc(B + '?channel=xqc#setup')), '');
+  assert.strictEqual(builder.linkSection(null), '');
+  assert.strictEqual(builder.linkSection({ href: B, search: '', hash: '' }), '');
 });
 
 test('smallAvatar asks Twitch for the 70x70 rendition', () => {

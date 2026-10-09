@@ -133,7 +133,9 @@ test('every URL property assignment in js/ is a reviewed one', () => {
 test('every navigation call in js/ is a reviewed one', () => {
   const REVIEWED = {
     'home.js': [
-      /^loc\.replace\(BUILDER \+ loc\.search \+ loc\.hash\)$/ // an old builder link: builder.html on this site, query and hash passed on
+      // an old builder link: builder.html on this site, query and hash passed on (home.js passedOn: this page's href from
+      // its '?', or its search + hash)
+      /^loc\.replace\(BUILDER \+ passedOn\(loc\)\)$/
     ]
   };
   const NAV = /([\w$.]*\b(?:location|loc)\.(?:replace|assign)|[\w$.]*\.open)\s*\(([^;]*)\)/g;

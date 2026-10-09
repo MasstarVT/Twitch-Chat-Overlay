@@ -76,6 +76,30 @@ test('start: a builder link is replaced with builder.html, query and hash untouc
   assert.strictEqual(p.made.length, 0);
 });
 
+// A '#' that ends the link is no hash (location.hash is ''), so search + hash dropped it: /?keywords=c# went on as
+// builder.html?keywords=c, where the builder (and the overlay, from the same query) read the keyword c#.
+test('start: a builder link ending in \'#\' is passed on with it, as the builder reads it as part of the last value', () => {
+  const at = (href) => {
+    const u = new URL(href), p = fakePage(u.search, 'https:');
+    Object.assign(p.loc, { href: u.href, hash: u.hash });
+    startWith(p);
+    return p.loc.replaced;
+  };
+  assert.strictEqual(at('https://chat.masstar.org/?keywords=c#'), 'builder.html?keywords=c#');
+  assert.strictEqual(at('https://chat.masstar.org/?channel=#emotes'), 'builder.html?channel=#emotes');
+  assert.strictEqual(at('https://chat.masstar.org/index.html?channel=xqc&size=large#setup'), 'builder.html?channel=xqc&size=large#setup');
+  assert.strictEqual(at('https://chat.masstar.org/?channel=xqc'), 'builder.html?channel=xqc');
+  assert.strictEqual(at('https://chat.masstar.org/?utm=1#'), null, 'not a builder link');
+  // Only ever this page's own query and hash, after builder.html on this site.
+  ['https://chat.masstar.org/?a=1#//evil.example/', 'https://chat.masstar.org/?a=@evil.example#x?y', 'file:///E:/tco/index.html?a=1#']
+    .forEach((h) => {
+      const u = new URL(h);
+      const out = home.passedOn({ href: u.href, search: u.search, hash: u.hash });
+      assert.ok(out.startsWith('?') && u.href.endsWith(out), h);
+    });
+  assert.strictEqual(home.passedOn({ search: '?channel=x', hash: '#obs' }), '?channel=x#obs', 'no href: search + hash');
+});
+
 test('demoSrc: every setting is named and the channel is empty, so a settings.js cannot change a demo', () => {
   home.DEMOS.forEach((d) => {
     assert.match(d.src, /^overlay\.html\?demo=1(?:&[a-z_]+=[a-z0-9]+)*$/, 'a relative URL on this site');

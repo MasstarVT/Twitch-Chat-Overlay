@@ -46,6 +46,9 @@
   function outlineOn(cfg) { return cfg.outline > 0; }
   function paintsOn(cfg) { return !!cfg.paints; }
   function homiesOn(cfg) { return !!(cfg.badges && cfg.badges_homies); }
+  // 7TV is asked about chatters (stv_lookup) only for what the overlay draws of theirs: their paints, or their 7TV
+  // badges. overlay.js stvStyleOn without its stv_lookup term: keep the two the same.
+  function stvCosmeticsOn(cfg) { return !!(cfg.paints || (cfg.badges && cfg.badges_7tv)); }
   function gifsOn(cfg) { return !!cfg.gifs; }
   function repliesOn(cfg) { return !!cfg.replies; }
   function readableOn(cfg) { return !!cfg.readable; }
@@ -265,9 +268,10 @@
       help: 'Still shows the first frame of an animated paint, so painted names stop redrawing many times a second while chat is quiet. Needs 7TV name paints (Badges & paints).' },
     shadow_style: { label: 'Shadow method', options: { filter: 'Whole line', text: 'Text only' }, when: shadowOn,
       help: 'Text only draws the shadow on the letters alone, about half the PC work while animated emotes are on screen. Emotes, badges, GIFs, the box and painted names then have no shadow. Needs Text shadow (Look).' },
-    stv_lookup: { label: 'Look up 7TV cosmetics for every chatter',
-      help: '7TV only announces paints and badges for people running a 7TV extension. This asks 7TV about everyone else, in small rate-limited batches. The answer isn’t checked against subscriptions, so it can show paints for lapsed 7TV subs.' },
-    readable: { label: 'Brighten dark name colors', help: 'Lightens very dark usernames so they stay readable. On a light Box color (white at a Line background of about 50% or more) it darkens light ones instead.' },
+    stv_lookup: { label: 'Look up 7TV cosmetics for every chatter', when: stvCosmeticsOn,
+      help: '7TV only announces paints and badges for people running a 7TV extension. This asks 7TV about everyone else, in small rate-limited batches. The answer isn’t checked against subscriptions, so it can show paints for lapsed 7TV subs. Needs 7TV name paints, or Show badges and 7TV (Badges & paints).' },
+    readable: { label: 'Brighten dark name colors', when: ownNameColors,
+      help: 'Lightens very dark usernames so they stay readable. On a light Box color (white at a Line background of about 50% or more) it darkens light ones instead. Not used while a Name color (Look) is set.' },
     readable_level: { label: 'Name contrast', widget: 'stepper', step: 5, scale: 10, unit: ':1', when: readableOwn,
       help: 'How light Brighten dark name colors makes a dark name: its contrast with black, from 3:1 to 7:1 (4.5:1 by default); on a light Box color, how dark it makes a light name: its contrast with the box. It lightens in steps, so a small change may leave a name as it was. Needs Brighten dark name colors (Badges & paints); not used while a Name color (Look) is set.' },
     badge_size: { label: 'Badge size', widget: 'range', unit: '%',
@@ -2737,12 +2741,25 @@
     document.head.appendChild(s);
   }
 
+  // The section the start-up link's hash opens (sectionFromHash), loc: the builder's location; '' for none. A section's
+  // name is a valid login and phrase too, so it is the page's only where the overlay, reading the same query
+  // (config.pageQuery), takes nothing from it: ?channel=x#obs, ?bots=1#badges and a bare #adv-text open their section,
+  // but ?channel=#emotes names the channel emotes, and ?keywords=#events and ?keywords=c,#events have the keyword
+  // #events, as on overlay.html.
+  function linkSection(loc) {
+    var s = loc ? sectionFromHash(loc.hash) : '';
+    if (!s || !loc.search) return s;
+    var read = function (q) { return JSON.stringify(config.parse(String(q || ''))); };
+    return read(config.pageQuery(loc)) === read(loc.search) ? s : '';
+  }
+
   // The query the builder starts from (startCfg), loc: its location. Read as the overlay reads its own (config.pageQuery):
-  // a '#' typed in a value (text_color=#ff8800, keywords=c#, channel=#xqc) and what follows it are part of the link. A
-  // section's or an Advanced heading's hash (?channel=x#obs, #adv-text) is the page's: it opens that section.
+  // a '#' typed in a value (text_color=#ff8800, keywords=c#, channel=#xqc, channel=#emotes) and what follows it are part
+  // of the link. A section's or an Advanced heading's hash the overlay reads nothing from (?channel=x#obs, #adv-text) is
+  // the page's: it opens that section (linkSection).
   function startSearch(loc) {
     if (!loc) return '';
-    return sectionFromHash(loc.hash) ? String(loc.search || '') : config.pageQuery(loc);
+    return linkSection(loc) ? String(loc.search || '') : config.pageQuery(loc);
   }
 
   function initialCfg() { return startCfg(startSearch(root.location), loadStored(STORE_CFG)); }
@@ -2755,7 +2772,7 @@
     var loc = root.location;
     if (!root.history || !loc) return;
     try {
-      root.history.replaceState(root.history.state, '', loc.pathname + (sectionFromHash(loc.hash) ? loc.hash : ''));
+      root.history.replaceState(root.history.state, '', loc.pathname + (linkSection(loc) ? loc.hash : ''));
     } catch (e) { /* not allowed here: the link stays, and a reload applies it again */ }
   }
 
@@ -2820,8 +2837,9 @@
     wireOutputs();
     wirePreview();
     renderSizes();
-    // A link can open a section (builder.html#obs); otherwise the one that was open last time.
-    if (!openHashSection()) selectSection(B.ui.section, false);
+    // A link can open a section (builder.html#obs); otherwise the one that was open last time. A hash the link's last
+    // value reads as its own (?channel=#emotes) opens none (linkSection).
+    if (!linkSection(root.location) || !openHashSection()) selectSection(B.ui.section, false);
 
     var init = initialCfg();
     // Read before replaceCfg saves: stored settings from another folder's builder aren't "your changes" here.
@@ -2878,6 +2896,7 @@
     describeIvrUser: describeIvrUser,
     startCfg: startCfg,
     startSearch: startSearch,
+    linkSection: linkSection,
     changedKeys: changedKeys,
     tagText: tagText,
     groupCounts: groupCounts,

@@ -1168,10 +1168,19 @@ test('the stage-3 fields: greyed out while shadow, outline, paints or the Homies
   flip('f-paints', false);
   flip('f-badges_homies', false);
   assert.deepStrictEqual(state(), keys);
+  assert.strictEqual(off('stv_lookup'), false, 'paints off: the 7TV badges are still looked up');
   flip('f-badges_homies', true);
   assert.strictEqual(off('homies_lists'), false);
   flip('f-badges', false);
   assert.strictEqual(off('homies_lists'), true, 'badges off too');
+  // The 7TV lookup: greyed out once neither paints nor 7TV badges are drawn, as the overlay then asks 7TV nothing.
+  assert.deepStrictEqual([off('stv_lookup'), p.$('f-stv_lookup').disabled], [true, true], 'paints and badges off');
+  flip('f-badges', true);
+  assert.strictEqual(off('stv_lookup'), false);
+  flip('f-badges_7tv', false);
+  assert.deepStrictEqual([off('stv_lookup'), p.$('f-stv_lookup').disabled], [true, true], 'paints and 7TV badges off');
+  flip('f-paints', true);
+  assert.deepStrictEqual([off('stv_lookup'), p.$('f-stv_lookup').disabled], [false, false], 'paints on');
 });
 
 test('the weights are sliders over their six names; the letter case is a segmented field that may wrap', (t) => {
@@ -1703,6 +1712,55 @@ test('a start-up link with a \'#\' in a value loads all of it, as the overlay re
   });
 });
 
+// A hash naming a section was always the page's: ?channel=#emotes opened Emotes with no channel and, a channel-only link
+// with an empty channel, wiped the remembered one; ?keywords=#events opened Chat events with no keyword and put every
+// remembered setting back to its default. A reload did it again (the hash stayed). The overlay reads the channel emotes
+// and the keyword #events.
+test('a start-up link whose \'#\' value is a section\'s name loads that value, as the overlay reads it, and opens no section', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookups
+  const params = (p) => Object.fromEntries(new URL(p.text('bar-url')).searchParams);
+  const storage = memoryStorage();
+  const stored = () => JSON.parse(storage.getItem('tco-builder-cfg'));
+  const tab = (p) => ['look', 'emotes', 'events', 'filters', 'obs'].filter((s) => !p.$('group-' + s).hidden);
+  const remembered = JSON.stringify({ channel: 'remembered', size: 'large' });
+  storage.setItem('tco-builder-cfg', remembered);
+  await t.test('?channel=#emotes', async (t2) => {
+    let log = null;
+    const p = open(t2, HREF + '?channel=#emotes', { storage, setup: () => { log = fakeHistory(t2); } });
+    assert.strictEqual(p.$('channel').value, 'emotes');
+    assert.deepStrictEqual(tab(p), ['look'], 'the section open last time');
+    assert.deepStrictEqual(stored(), { channel: 'emotes', size: 'large' }, 'the remembered look kept, the channel the link\'s');
+    assert.deepStrictEqual(log, [['replace', '/Twitch-Chat-Overlay/builder.html']], 'the hash read as a value goes with the link');
+    assert.strictEqual(globalThis.location.href, HREF);
+    await settle();
+  });
+  storage.setItem('tco-builder-cfg', remembered);
+  await t.test('?keywords=#events', async (t2) => {
+    let log = null;
+    const p = open(t2, HREF + '?keywords=#events', { storage, setup: () => { log = fakeHistory(t2); } });
+    assert.deepStrictEqual(params(p), { keywords: '#events' });
+    assert.strictEqual(p.$('f-keywords').value, '#events');
+    assert.deepStrictEqual(tab(p), ['look']);
+    assert.deepStrictEqual(stored(), { keywords: ['#events'] }, 'a whole setup: the link\'s');
+    assert.deepStrictEqual(log, [['replace', '/Twitch-Chat-Overlay/builder.html']]);
+    await settle();
+  });
+  await t.test('?keywords=c,#events: a list item too', async (t2) => {
+    const p = open(t2, HREF + '?keywords=c,#events', { storage });
+    assert.deepStrictEqual([params(p), tab(p)], [{ keywords: 'c,#events' }, ['look']]);
+    await settle();
+  });
+  // A hash the overlay reads nothing from is still the page's.
+  await t.test('?channel=x#obs', async (t2) => {
+    let log = null;
+    const p = open(t2, HREF + '?channel=x#obs', { storage, setup: () => { log = fakeHistory(t2); } });
+    assert.deepStrictEqual([p.$('channel').value, tab(p)], ['x', ['obs']]);
+    assert.deepStrictEqual(log, [['replace', '/Twitch-Chat-Overlay/builder.html#obs']]);
+    await settle();
+  });
+});
+
 test('Name contrast reads 4.5:1 and steps by 0.5; typed as 6.1 or 6.1:1; greyed out with Brighten dark name colors off', (t) => {
   const p = open(t, HREF);
   const rl = p.$('f-readable_level');
@@ -1879,7 +1937,7 @@ test('the name colors, the separator, timestamps and the reply header: live, and
   const posted = [];
   first.contentWindow = { postMessage: (m) => posted.push(m) };
   const off = (key) => rowOf(p, key).classList.contains('disabled');
-  const keys = ['name_color', 'name_fallback', 'name_sep', 'readable_level', 'timestamps', 'reply_style', 'name_font'];
+  const keys = ['name_color', 'name_fallback', 'name_sep', 'readable', 'readable_level', 'timestamps', 'reply_style', 'name_font'];
   const state = () => keys.filter(off);
   const seg = (key, v) => {
     const r = p.doc.querySelectorAll('input[name="f-' + key + '"]').filter((x) => x.value === v)[0];
@@ -1907,10 +1965,12 @@ test('the name colors, the separator, timestamps and the reply header: live, and
   seg('name_sep', 'arrow');
   seg('timestamps', '24h');
   seg('reply_style', 'name');
-  // One Name color for everyone: the color for names without one, and the contrast, have nothing left to do.
+  // One Name color for everyone: the color for names without one, Brighten dark name colors and the contrast have
+  // nothing left to do.
   nc.hex.value = 'f80';
   nc.hex.dispatch('change');
-  assert.deepStrictEqual(state(), ['name_fallback', 'readable_level']);
+  assert.deepStrictEqual(state(), ['name_fallback', 'readable', 'readable_level']);
+  assert.strictEqual(p.$('f-readable').disabled, true);
   assert.deepStrictEqual([fb.pick.disabled, fb.hex.disabled, fb.dflt.disabled], [true, true, true]);
   t.mock.timers.tick(2000);
   assert.strictEqual(frame(), first, 'live: the preview keeps its frame');

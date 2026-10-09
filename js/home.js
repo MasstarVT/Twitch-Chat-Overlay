@@ -84,12 +84,20 @@
     return f;
   }
 
+  // What a builder link passes on to builder.html (loc: this page's location, whose search is the link's): its query and
+  // hash, from the '?' on. Read from the href, which keeps a '#' that ends it (location.hash is '' then): the builder
+  // reads ?keywords=c# as the keyword c#, as the overlay does (config.pageQuery).
+  function passedOn(loc) {
+    var href = typeof loc.href === 'string' ? loc.href : '', q = href.indexOf('?'), f = href.indexOf('#');
+    return q >= 0 && (f < 0 || f > q) ? href.slice(q) : String(loc.search || '') + String(loc.hash || '');
+  }
+
   function start() {
     var loc = root.location, doc = root.document;
     if (!loc || !doc) return;
     var config = root.TCO && root.TCO.config;
     if (isBuilderLink(loc.search, config && config.SPEC)) {
-      loc.replace(BUILDER + loc.search + loc.hash);
+      loc.replace(BUILDER + passedOn(loc));
       return;
     }
     function run() {
@@ -102,6 +110,6 @@
 
   return {
     BUILDER: BUILDER, DEMOS: DEMOS, isBuilderLink: isBuilderLink, frameSandbox: frameSandbox, demoSrc: demoSrc,
-    addDemo: addDemo, addToggle: addToggle, start: start
+    addDemo: addDemo, addToggle: addToggle, passedOn: passedOn, start: start
   };
 });
