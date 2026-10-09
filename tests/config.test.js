@@ -688,6 +688,21 @@ describe('parse', () => {
     assert.deepEqual(pick(read('?size=small#frag'), ['size']), ['small']);
     assert.deepEqual(pick(read('?fade=30#x&max=7'), ['fade', 'max']), [30, 7]);
     assert.deepEqual(pick(read('?kick=xqc&kick_room=668#x'), ['kick', 'kick_room']), ['xqc', '668']);
+    // A list of names: a name can't hold a '#' (only lead with one), so a fragment or a bare '#' at the end after the
+    // last name leaves the list as it was before the '#'; it emptied block (the bot showed again) and allow_users (the
+    // filter went off). A '#' leading a name is still read as part of the list.
+    ['block', 'allow_users', 'highlight_users'].forEach((k) => {
+      assert.deepEqual(read('?channel=xqc&' + k + '=nightbot#top')[k], ['nightbot'], k + ' with a fragment');
+      assert.deepEqual(read('?channel=xqc&' + k + '=nightbot#')[k], ['nightbot'], k + ' with a bare # at the end');
+      assert.deepEqual(read('?channel=xqc&' + k + '=nightbot,moobot#top')[k], ['nightbot', 'moobot'], k + ' two names');
+      assert.deepEqual(read('?channel=xqc&' + k + '=nightbot moobot#top&size=large')[k], ['nightbot', 'moobot'], k + ' space');
+    });
+    assert.deepEqual(read('?channel=xqc&block=nightbot,moobot#x,alice').block, ['nightbot', 'moobot'], 'a name lost, though as many');
+    assert.deepEqual(read('?channel=xqc&block=nightbot,#').block, ['nightbot']);
+    assert.deepEqual(read('?channel=xqc&block=#nightbot').block, ['nightbot']);
+    assert.deepEqual(read('?channel=xqc&block=nightbot,#moobot').block, ['nightbot', 'moobot']);
+    assert.deepEqual(read('?channel=xqc&block=nightbot,%20#moobot').block, ['nightbot', 'moobot']);
+    assert.deepEqual(read('?channel=xqc&block=https://kick.com/some-bot#top').block, ['some_bot']);
     // No '#': the query as it was.
     assert.equal(config.withHash('?a=1&b=2', null), 'a=1&b=2');
     assert.equal(config.withHash('a=1&b=x%23y', undefined), 'a=1&b=x%23y');

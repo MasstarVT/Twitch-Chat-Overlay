@@ -446,7 +446,10 @@
   // '#'; hash: the part after that '#' (null when there is none). A '#' typed in a value (text_color=#ff8800, keywords=c#,
   // channel=#xqc) starts the URL's fragment, which cut that value and every setting after it. overlay.html uses no
   // fragment, so it goes back on as '%23' + itself; only where that spoils the value the '#' cut (a real fragment after a
-  // whole value, as in 'bots=1#top') is that value kept as it was before the '#'. Returns the query, without the '?'.
+  // whole value, as in 'bots=1#top') is that value kept as it was before the '#'. A list of names is spoiled when it
+  // loses a name it had before the '#' ('block=nightbot#top'): a name may only lead with a '#', so one after a name is
+  // the fragment's (coerce leaves 'nightbot#top' out of the list rather than refusing it). Returns the query, without
+  // the '?'.
   function withHash(search, hash) {
     var q = String(search || '').replace(/^\?/, '');
     if (hash === null || hash === undefined) return q;
@@ -456,7 +459,16 @@
     var i = before.length - 1, cut = joined[i];
     if (i >= 0 && cut && cut[0] === before[i][0] && cut[1] !== before[i][1]) {
       var k = String(cut[0]).toLowerCase();
-      if (own(SPEC, k) && coerce(k, cut[1]) === undefined) cut[1] = before[i][1];
+      if (own(SPEC, k)) {
+        var nv = coerce(k, cut[1]);
+        if (nv === undefined) cut[1] = before[i][1];
+        else if (SPEC[k].type === 'list') {
+          var had = coerce(k, before[i][1]) || [];
+          for (var h = 0; h < had.length; h++) {
+            if (nv.indexOf(had[h]) < 0) { cut[1] = before[i][1]; break; }
+          }
+        }
+      }
     }
     var out = new URLSearchParams();
     for (var j = 0; j < joined.length; j++) out.append(joined[j][0], joined[j][1]);

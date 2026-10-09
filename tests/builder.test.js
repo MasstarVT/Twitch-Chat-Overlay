@@ -575,6 +575,10 @@ test('parsePasted reads overlay URLs, bare queries and settings.js', () => {
   const r4 = builder.parsePasted('https://chat.masstar.org/overlay.html?channel=xqc&text_color=#ff8800&keywords=c#,java&size=large');
   assert.strictEqual(r4.count, 4);
   assert.deepStrictEqual([r4.cfg.text_color, r4.cfg.keywords, r4.cfg.size], ['ff8800', ['c#', 'java'], 'large']);
+  // A fragment, or a bare '#' at the end, after a list of names leaves the list whole (it pasted as an empty list).
+  assert.deepStrictEqual(builder.parsePasted('https://chat.masstar.org/overlay.html?channel=xqc&block=nightbot#').cfg.block, ['nightbot']);
+  assert.deepStrictEqual(builder.parsePasted('https://chat.masstar.org/overlay.html?channel=xqc&block=nightbot#top').cfg.block, ['nightbot']);
+  assert.deepStrictEqual(builder.parsePasted('?channel=xqc&allow_users=alice#top').cfg.allow_users, ['alice']);
 });
 
 test('parsePasted reads settings.example.js as shipped and once edited by hand', () => {

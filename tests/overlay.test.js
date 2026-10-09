@@ -2013,6 +2013,14 @@ test('a \'#\' typed in an overlay URL value is part of it, and the settings afte
   assert.deepStrictEqual(c.block_words, ['c#'], 'a # at the very end too');
   c = await run(at + '?channel=home&size=small&bots=1#frag');
   assert.deepStrictEqual([c.size, c.bots], ['small', true], 'a real fragment after a whole value leaves it');
+  // A list of names ahead of a fragment or a bare '#' at the end stays whole: block was emptied (the bot showed again)
+  // and allow_users too (the filter went off).
+  c = await run(at + '?channel=home&block=nightbot#top');
+  assert.deepStrictEqual(c.block, ['nightbot']);
+  c = await run(at + '?channel=home&allow_users=alice#');
+  assert.deepStrictEqual(c.allow_users, ['alice']);
+  c = await run(at + '?channel=home&highlight_users=alice,bob#top');
+  assert.deepStrictEqual(c.highlight_users, ['alice', 'bob']);
 });
 
 // ?channel=xqc! (or 'xqc.', 'my channel', kick=bad!name) was refused as if no channel were set: the hint said to add one.
