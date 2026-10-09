@@ -151,3 +151,22 @@ test('README: the URL length note gives the limit the builder warns at, and the 
     assert.match(row, /see \*\*URL length\*\* above/, k);
   });
 });
+
+// How large text_px and emote_scale can get before a horizontal row in the suggested 1920 × 100 source cuts its lines
+// off (measured in headless Chrome on the demo chat). Along the bottom edge a reply's header is a block above its
+// message, so it is cut first: at about 32 px text, or past about 150% emotes with a box (165% without) at medium
+// text. Other lines fit up to about 46 px text. The builder's help and the README give the same limits.
+test('README and builder help: text_px and emote_scale give a horizontal row\'s limits, reply headers included', () => {
+  const builder = require('../js/builder.js');
+  const opts = section('Options');
+  const row = (k) => opts.split('\n').filter((l) => l.indexOf('| `' + k + '` |') === 0)[0] || '';
+  const limits = { text_px: ['about 46 px', 'about 32 px'], emote_scale: ['about 150', '165'] };
+  Object.keys(limits).forEach((k) => {
+    [['builder help', builder.META[k].help], ['README row', row(k)]].forEach((t) => {
+      const where = t[0] + ' of ' + k;
+      assert.match(t[1], /100 px tall source/, where + ' names the 100 px tall source');
+      assert.match(t[1], /reply.s header/, where + ' names a reply\'s header');
+      limits[k].forEach((n) => assert.ok(t[1].indexOf(n) >= 0, where + ' gives "' + n + '"'));
+    });
+  });
+});
