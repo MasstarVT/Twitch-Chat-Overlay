@@ -21,11 +21,13 @@
   // layers, GIFs and cheermotes) per message, at most MAX_ZW zero-width layers on one emote.
   var MAX_CPS = 1000, MAX_IMAGES = 300, MAX_ZW = 4;
 
-  // Global cheermote prefixes verified to exist on the public cheer CDN (2026-09).
-  var CHEER_PREFIXES = ['cheerwhal', 'cheer', 'doodlecheer', 'corgo', 'pride', 'party', 'seemsgood', 'kappa',
+  // Twitch's global cheermote prefixes (Twitch GQL cheerConfig, 2026-10), each on the public cheer CDN. 'pride' is the
+  // older name of PrideCheer, which the CDN still serves. Only Cheer and DoodleCheer have a 100000 tier.
+  var CHEER_PREFIXES = ['cheerwhal', 'cheer', 'doodlecheer', 'corgo', 'pride', 'pridecheer', 'party', 'seemsgood', 'kappa',
     'frankerz', 'uni', 'showlove', 'anon', '4head', 'notlikethis', 'swiftrage', 'muxy', 'streamlabs',
-    'vohiyo', 'mrdestructoid', 'bday', 'ripcheer', 'shamrock', 'kreygasm', 'trihard', 'heyguys'];
-  var CHEER_100K = { cheer: true, doodlecheer: true, anon: true };
+    'vohiyo', 'mrdestructoid', 'bday', 'ripcheer', 'shamrock', 'kreygasm', 'trihard', 'heyguys', 'dansgame', 'failfish',
+    'pjsalt', 'bitboss', 'holidaycheer', 'goal', 'scoops'];
+  var CHEER_100K = { cheer: true, doodlecheer: true };
   var CHEER_RE = new RegExp('^(' + CHEER_PREFIXES.join('|') + ')(\\d{1,7})$', 'i'); // <= 9,999,999 bits
   var TIER_COLORS = { 1: '#979797', 100: '#9C3EE8', 1000: '#1DB2A5', 5000: '#0099FE', 10000: '#F43021', 100000: '#F3A71A' };
 
@@ -51,7 +53,58 @@
     return { provider: 'kick', id: id, name: name, w: 28, h: 28, urls: { 1: url, 2: url, 4: url } };
   }
 
-  function cheerFor(word) {
+  // A channel's own cheermote (twitchBadges.loadCheermotes' map: lower-case prefix -> {prefix, tiers, template}): the
+  // longest prefix in the map that the word starts with, followed by 1-7 digits (a prefix may end in a digit itself).
+  var CHEER_SLOTS_RE = /\b(?:PREFIX|TIER|BACKGROUND|ANIMATION|SCALE|EXTENSION)\b/g;
+  function customCheer(word, map) {
+    var m = word.length <= 40 ? /^([A-Za-z0-9]*?)(\d+)$/.exec(word) : null;
+    if (!m) return null;
+    var digits = m[2];
+    for (var k = digits.length - 1; k >= 0; k--) {
+      var amountText = digits.slice(k);
+      if (amountText.length > 7) break;
+      var prefix = m[1] + digits.slice(0, k);
+      var e = prefix ? map.get(prefix.toLowerCase()) : null;
+      if (!e) continue;
+      var amount = parseInt(amountText, 10);
+      if (!(amount >= 1)) return null;
+      var tier = e.tiers[0];
+      for (var i = 0; i < e.tiers.length; i++) if (amount >= e.tiers[i]) tier = e.tiers[i];
+      var urls = {};
+      [1, 2, 3, 4].forEach(function (scale) {
+        var vals = { PREFIX: prefix.toLowerCase(), TIER: tier, BACKGROUND: 'dark', ANIMATION: 'animated', SCALE: scale, EXTENSION: 'gif' };
+        urls[scale] = e.template.replace(CHEER_SLOTS_RE, function (slot) { return String(vals[slot]); });
+      });
+      return { type: 'cheer', prefix: prefix, amount: amount, tier: tier, color: tierColor(tier), urls: urls, text: word };
+    }
+    return null;
+  }
+
+  // Twitch colors an amount by the highest of its color steps the tier reaches (a channel's tiers may be other numbers).
+  var COLOR_STEPS = [1, 100, 1000, 5000, 10000, 100000];
+  function tierColor(tier) {
+    var c = 1;
+    for (var i = 0; i < COLOR_STEPS.length; i++) if (tier >= COLOR_STEPS[i]) c = COLOR_STEPS[i];
+    return TIER_COLORS[c];
+  }
+
+  // Whether a bits message's text has a word that looks like a cheer (letters and digits, ending in digits) that no global
+  // cheermote is: the channel's own cheermotes are looked up for it (overlay.js), once per channel.
+  function unknownCheers(text) {
+    var words = typeof text === 'string' ? text.slice(0, 2000).split(' ') : [];
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      if (w.length <= 40 && /^[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*\d$/.test(w) && !CHEER_RE.test(w)) return true;
+    }
+    return false;
+  }
+
+  // map: a channel's own cheermotes (optional), looked up first.
+  function cheerFor(word, map) {
+    if (map && map.size) {
+      var own = customCheer(word, map);
+      if (own) return own;
+    }
     var m = CHEER_RE.exec(word);
     if (!m) return null;
     var amount = parseInt(m[2], 10);
@@ -110,7 +163,7 @@
   }
 
   // msg: { text, action, emotes, kickEmotes (Kick emote ranges, in the emotes tag format), gifs, bits, msgId }
-  // opts: { lookup(word) -> emote|null, bttvPrefixes: Set, gifs: bool, cheers: bool }
+  // opts: { lookup(word) -> emote|null, bttvPrefixes: Set, gifs: bool, cheers: bool, cheerMap: the channel's own cheermotes }
   // Emote objects: { provider, id, name, zw, hidden, flags, w, h, urls }
   function tokenize(msg, opts) {
     opts = opts || {};
@@ -226,7 +279,7 @@
         continue;
       }
       if (cheersOn && images < MAX_IMAGES) {
-        var ch = cheerFor(w);
+        var ch = cheerFor(w, opts.cheerMap);
         if (ch) {
           flushPrefixes();
           ch.sp = pc.sp;
@@ -291,6 +344,7 @@
     plainText: plainText,
     cleanText: cleanText,
     cheerFor: cheerFor,
+    unknownCheers: unknownCheers,
     twitchEmote: twitchEmote,
     kickEmote: kickEmote,
     CHEER_PREFIXES: CHEER_PREFIXES,

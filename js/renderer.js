@@ -79,6 +79,8 @@
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared', 'event_subs', 'event_gifts', 'event_raids',
     'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words', 'min_length', 'links',
     'command_prefixes', 'replies'];
+  // Each reply header goes by deps.quoteHidden (overlay.js), which these decide: a change redraws the replies.
+  var REPLY_QUOTE_KEYS = ['block_words', 'block', 'bots', 'hide_commands', 'command_prefixes'];
   // setConfig handles these itself: applyRoot (#chat classes and variables), reordering, fade re-timing, capping.
   var ROOT_KEYS = ['size', 'font', 'shadow', 'bg', 'layout', 'align', 'animate', 'fade', 'max', 'text_weight',
     'text_color', 'line_height', 'text_case', 'names', 'name_weight', 'name_line', 'bg_color', 'bg_shape', 'bg_width',
@@ -844,26 +846,87 @@
   ];
   var LETTER_RE = new RegExp('\\p{L}', 'u');
   var CODE_POINTS_RE = new RegExp('[\\s\\S]', 'gu');
-  // Whether a decoded label could pass for a name in another script (a homograph): one with Cyrillic, Greek or Armenian
-  // letters and letters of any other script too ('www.аpple.com', a Cyrillic 'а' among Latin letters), or one made only
-  // of one such script's Latin look-alikes ('аррӏе.com') where the top-level name (tld, decoded) is neither in that
-  // script ('яндекс.рф') nor its country's. Digits, hyphens and marks don't count. Every other name ('www.müller.de',
-  // '例え.jp', 'кириллица.com') is shown in its letters.
+  // The scripts a name may be written in (UTS 31's Recommended scripts, the ones a browser's address bar shows in their
+  // letters), each matched by Script_Extensions, so a sign some of them share (the Japanese 'ー') counts for each. A
+  // letter of any other script (Cherokee 'Ꭺ', Lisu 'ꓲ', and the other Limited Use or historic ones) keeps the xn-- form.
+  var NAME_SCRIPTS = ['Latin', 'Greek', 'Cyrillic', 'Armenian', 'Hebrew', 'Arabic', 'Thaana', 'Devanagari', 'Bengali',
+    'Gurmukhi', 'Gujarati', 'Oriya', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Sinhala', 'Thai', 'Lao', 'Tibetan', 'Myanmar',
+    'Georgian', 'Hangul', 'Ethiopic', 'Khmer', 'Han', 'Hiragana', 'Katakana', 'Bopomofo'].map(function (name) {
+    return { name: name, re: new RegExp('\\p{Script_Extensions=' + name + '}', 'u') };
+  });
+  // The scripts that may share one name (UTS 39's Highly Restrictive level, as Chromium shows names): Latin with Chinese,
+  // Japanese or Korean. Any other mix ('www.аpple.com', a Cyrillic 'а' among Latin letters) keeps the xn-- form.
+  var NAME_MIXES = [['Latin', 'Han', 'Hiragana', 'Katakana'], ['Latin', 'Han', 'Bopomofo'], ['Latin', 'Han', 'Hangul']];
+  var LATIN_ONLY = ['Latin'];
+  var LATIN_SCRIPT_RE = new RegExp('\\p{Script=Latin}', 'u');
+  // The Latin letters past ASCII a name may use (UTS 39 Identifier_Status=Allowed): not the IPA, phonetic, small-capital
+  // and other rare ones ('ɡoogle' with U+0261, 'ᴀpple' with U+1D00).
+  var LATIN_OK_RE = /[\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u0113\u0116-\u012B\u012E-\u0131\u0134-\u0137\u0139-\u013E\u0141-\u0148\u014A-\u014D\u0150-\u0155\u0158-\u0161\u0164-\u017E\u0181\u0186\u0189\u018A\u018E-\u0192\u0194\u0196-\u0199\u019D\u01A0\u01A1\u01AF\u01B0\u01B2-\u01B4\u01B7\u01CD-\u01D4\u01DD\u01E6-\u01E9\u01EE\u01EF\u01F8\u01F9\u0218-\u021B\u0244\u024C\u024D\u0253\u0254\u0256\u0257\u0259\u025B\u0263\u0268\u0269\u0272\u0289\u028B\u0292\u1E0C\u1E0D\u1E12\u1E13\u1E20\u1E21\u1E24\u1E25\u1E36\u1E37\u1E3C-\u1E3F\u1E42-\u1E4B\u1E5A\u1E5B\u1E62\u1E63\u1E6C\u1E6D\u1E70\u1E71\u1E8C\u1E8D\u1E92\u1E93\u1E9E\u1EA0-\u1EF9\uA78D\uA7AA]/;
+  // Of those, the ones that look like an ASCII letter (UTS 39 confusables): a name whose only other letters are ASCII
+  // ('gıthub', 'aþþle') passes for an ASCII one.
+  var LATIN_LIKE_RE = /^[\u0131\u00FE\u0192\u0263\u0269\u028B]$/;
+  // Signs of no script of their own (Common, Inherited) a name may use, beside ASCII digits and '-': the Japanese 'ー' and
+  // the Arabic vowel signs. Any other (a symbol, an emoji, a loose accent, a joiner) keeps the xn-- form.
+  var SHARED_SIGN_RE = new RegExp('[\\p{Script=Common}\\p{Script=Inherited}]', 'u');
+  var SHARED_OK_RE = /^[\u30FC\u064B-\u0652\u0654\u0655\u0670]$/;
+  // The scripts (NAME_SCRIPTS names) a character can be written in; [] for none of them.
+  function scriptsOf(ch) {
+    var out = [];
+    for (var i = 0; i < NAME_SCRIPTS.length; i++) if (NAME_SCRIPTS[i].re.test(ch)) out.push(NAME_SCRIPTS[i].name);
+    return out;
+  }
+  function overlaps(a, b) {
+    for (var i = 0; i < a.length; i++) if (b.indexOf(a[i]) >= 0) return true;
+    return false;
+  }
+  // Whether a decoded label could pass for another name (a homograph), close to Chromium's rule for showing a name in
+  // its letters: it keeps the xn-- form when it has a character no name should use (a rare Latin letter, a letter of a
+  // script outside NAME_SCRIPTS, a symbol or emoji), mixes scripts other than as NAME_MIXES allows, is Latin with only
+  // ASCII look-alikes past ASCII, or is made only of Cyrillic, Greek or Armenian look-alikes of Latin letters ('аррӏе.com')
+  // where the top-level name (tld, decoded) is neither in that script ('яндекс.рф') nor its country's. ASCII digits and
+  // hyphens don't count. Every other name ('www.müller.de', '例え.jp', 'コーヒー.jp', 'кириллица.com') is shown in its letters.
   function spoofable(label, tld) {
     var chars = label.match(CODE_POINTS_RE) || [];
-    var look = -1, other = false, allLike = true;
+    var sets = [], like = false, past = false, s;
     for (var i = 0; i < chars.length; i++) {
       var ch = chars[i];
-      if (!LETTER_RE.test(ch)) continue;
-      var s = -1;
-      for (var j = 0; j < LOOKALIKE_SCRIPTS.length && s < 0; j++) if (LOOKALIKE_SCRIPTS[j].script.test(ch)) s = j;
-      if (s < 0) { other = true; continue; }
-      if (look >= 0 && look !== s) return true; // two of them
-      look = s;
-      if (!LOOKALIKE_SCRIPTS[s].like.test(ch)) allLike = false;
+      if (/^[0-9-]$/.test(ch)) continue;
+      if (/^[a-z]$/.test(ch)) {
+        s = LATIN_ONLY;
+      } else if (LATIN_SCRIPT_RE.test(ch)) {
+        if (!LATIN_OK_RE.test(ch)) return true;
+        if (LATIN_LIKE_RE.test(ch)) like = true;
+        else past = true;
+        s = LATIN_ONLY;
+      } else {
+        if (SHARED_SIGN_RE.test(ch) && !SHARED_OK_RE.test(ch)) return true;
+        s = scriptsOf(ch);
+        if (!s.length) return true;
+      }
+      sets.push(s);
+    }
+    if (!sets.length) return false;
+    // One script for every character, or else one of the mixes that covers each.
+    var one = sets[0].filter(function (name) {
+      for (var k = 1; k < sets.length; k++) if (sets[k].indexOf(name) < 0) return false;
+      return true;
+    });
+    if (!one.length && !NAME_MIXES.some(function (mix) {
+      for (var k = 0; k < sets.length; k++) if (!overlaps(sets[k], mix)) return false;
+      return true;
+    })) return true;
+    // A Latin name: an ASCII one in disguise when its only letters past ASCII look like ASCII ones.
+    if (one.length === 1 && one[0] === 'Latin') return like && !past;
+    var look = -1, allLike = true;
+    for (var j = 0; j < chars.length; j++) {
+      if (!LETTER_RE.test(chars[j])) continue;
+      var sj = -1;
+      for (var q = 0; q < LOOKALIKE_SCRIPTS.length && sj < 0; q++) if (LOOKALIKE_SCRIPTS[q].script.test(chars[j])) sj = q;
+      if (sj < 0) return false; // a letter of another script: no look-alike name
+      look = sj;
+      if (!LOOKALIKE_SCRIPTS[sj].like.test(chars[j])) allLike = false;
     }
     if (look < 0) return false;
-    if (other) return true;
     var sc = LOOKALIKE_SCRIPTS[look];
     return allLike && !sc.script.test(tld) && sc.tlds.indexOf(tld) < 0;
   }
@@ -957,15 +1020,18 @@
   function hasWords(text, re) { return !!re && typeof text === 'string' && hasKeyword(text, re); }
 
   // short (reply_style=name): the header names who is answered, without what they said ({name, short}). shorten
-  // (links=shorten): links in what they said show as their host name, as in the message itself.
+  // (links=shorten): links in what they said show as their host name, as in the message itself. The header puts one '@'
+  // before the name: a name that has its own (Kick's StreamElements bot is "@StreamElements") gets no second one. A
+  // Twitch name never starts with one, so its header is unchanged.
   function replyModel(reply, short, shorten) {
     if (!reply) return null;
     var name = String(reply.name || reply.login || '');
     if (!name) return null;
-    if (short) return { name: '@' + util.capMarks(name), short: true };
+    var shown = '@' + util.capMarks(name.replace(/^@+/, '') || name);
+    if (short) return { name: shown, short: true };
     var body = String(reply.body || '').replace(/^\u0001ACTION /, '').replace(/\u0001$/, '').replace(/[\r\n]+/g, ' ');
     if (shorten) body = shortenLinks(body);
-    return { name: '@' + util.capMarks(name), body: util.capMarks(body) };
+    return { name: shown, body: util.capMarks(body) };
   }
 
   // With badges off, only the Shared Chat source avatar (provider 'avatar') and the platform icon (provider
@@ -1262,10 +1328,10 @@
     }
     function children() { return Array.prototype.slice.call(linesEl.children); }
 
-    function callDep(name, arg) {
+    function callDep(name, arg, arg2) {
       var fn = deps[name];
       if (typeof fn !== 'function') return undefined;
-      try { return fn(arg); } catch (e) {
+      try { return arg2 === undefined ? fn(arg) : fn(arg, arg2); } catch (e) {
         util.warn('renderer: deps.' + name + ' threw', e);
         return undefined;
       }
@@ -1505,8 +1571,9 @@
         badges: Array.isArray(badges) ? badges : [],
         name: { text: nm.text, color: nm.color, paint: paint },
         dpr: dpr,
-        // A moderated quote, or one the overlay's filters hide (block_words, links=hide; asked again on each redraw).
-        noReply: replyGone(msg, Date.now()) || (!!msg.reply && !!callDep('quoteHidden', msg.reply)),
+        // A moderated quote, or one the overlay's filters hide (bots, hide_commands, block_words, links=hide; asked again on
+        // each redraw, with the reply's message: whose bot list applies depends on where it was said).
+        noReply: replyGone(msg, Date.now()) || (!!msg.reply && !!callDep('quoteHidden', msg.reply, msg)),
         alone: !!alone
       });
     }
@@ -2193,9 +2260,9 @@
       if (restart || retime) restartFades(Date.now(), !restart);
       if (changedAny(prev, cfg, FILTER_KEYS)) sweepFilters();
       if (changedAny(prev, cfg, RERENDER_KEYS)) rerender();
-      // block and block_words decide which reply headers quote a blocked user or a hidden message (deps.quoteHidden):
-      // only replies change.
-      else if (changedAny(prev, cfg, ['block_words', 'block'])) rerender(function (m) { return !!m.reply; });
+      // block, block_words, bots and hide_commands (with its command_prefixes) decide which reply headers quote a blocked
+      // user or a hidden message (deps.quoteHidden): only replies change.
+      else if (changedAny(prev, cfg, REPLY_QUOTE_KEYS)) rerender(function (m) { return !!m.reply; });
       capLines();
       scheduleTrim();
     }

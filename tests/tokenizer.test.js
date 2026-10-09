@@ -438,10 +438,28 @@ describe('cheers', () => {
   test('tier selection and the 100000 cap', () => {
     const tiers = { cheer1: 1, cheer99: 1, cheer100: 100, cheer999: 100, cheer1000: 1000, cheer4999: 1000,
       cheer5000: 5000, cheer9999: 5000, cheer10000: 10000, cheer99999: 10000, cheer100000: 100000, cheer250000: 100000,
-      doodlecheer100000: 100000, anon100000: 100000, kappa100000: 10000, cheerwhal100000: 10000, pride123456: 10000 };
+      doodlecheer100000: 100000, anon100000: 10000, kappa100000: 10000, cheerwhal100000: 10000, pride123456: 10000,
+      pridecheer100000: 10000, goal100000: 10000 };
     for (const w of Object.keys(tiers)) assert.equal(cheer(w).tier, tiers[w], w);
     assert.ok(cheer('cheer100000').urls[1].includes('/cheer/dark/animated/100000/'));
     assert.ok(cheer('kappa100000').urls[1].includes('/kappa/dark/animated/10000/'));
+  });
+
+  // Twitch's global cheermotes (GQL cheerConfig, 2026-10): these 8 were missing, and 'pride' became PrideCheer (the old
+  // name is kept: the CDN still serves it). Anon's tiers end at 10000, as Twitch draws it.
+  test('every current global cheermote is one, in its lower-case CDN folder', () => {
+    const words = { PrideCheer100: 'pridecheer', DansGame100: 'dansgame', FailFish500: 'failfish', PJSalt1: 'pjsalt',
+      BitBoss100: 'bitboss', HolidayCheer100: 'holidaycheer', Goal100: 'goal', Scoops100: 'scoops', Pride100: 'pride' };
+    for (const w of Object.keys(words)) {
+      const r = tok(w + ' gg', { bits: 100 }).items;
+      assert.deepEqual(view(r), ['cheer:' + w, 'text:gg'], w);
+      assert.equal(r[0].prefix, w.replace(/\d+$/, ''), w);
+      assert.ok(r[0].urls[1].startsWith('https://d3aqoihi2n8ty8.cloudfront.net/actions/' + words[w] + '/dark/animated/'), w);
+    }
+    assert.equal(cheer('FailFish500').tier, 100);
+    assert.equal(cheer('Anon100000').tier, 10000);
+    assert.ok(cheer('Anon100000').urls[1].includes('/anon/dark/animated/10000/'));
+    assert.equal(cheer('Anon100000').color, tk.TIER_COLORS[10000]);
   });
 
   test('longest prefix wins (cheerwhal, not cheer)', () => {
@@ -466,6 +484,37 @@ describe('cheers', () => {
     assert.equal(tk.cheerFor('cheer10000000'), null);
     assert.equal(tk.cheerFor('cheer' + '9'.repeat(400)), null);
     assert.deepEqual(view(tok('cheer' + '9'.repeat(400), { bits: 1 }).items), ['text:cheer' + '9'.repeat(400)]);
+  });
+
+  // A channel's own cheermotes (twitchBadges.parseCheermotes' map) once showed as plain text.
+  test('a channel\'s own cheermotes, from its map: tier, color step, the template filled by slot name', () => {
+    const T = 'https://d3aqoihi2n8ty8.cloudfront.net/partner-actions/26301881/c504e25d/TIER/BACKGROUND/ANIMATION/SCALE.EXTENSION';
+    const map = new Map([['sodacheer', { prefix: 'sodaCheer', tiers: [1, 100, 1000, 5000, 10000], template: T }],
+      ['odd2', { prefix: 'odd2', tiers: [1, 500], template: 'https://d3aqoihi2n8ty8.cloudfront.net/actions/PREFIX/BACKGROUND/ANIMATION/TIER/SCALE.EXTENSION' }]]);
+    const r = tok('sodaCheer100 gg Cheer1', { bits: 101 }, { cheerMap: map }).items;
+    assert.deepEqual(view(r), ['cheer:sodaCheer100', 'text:gg', 'cheer:Cheer1']);
+    const at = (s) => T.replace('TIER/BACKGROUND/ANIMATION/SCALE.EXTENSION', '100/dark/animated/' + s + '.gif');
+    assert.deepEqual(r[0], { type: 'cheer', prefix: 'sodaCheer', amount: 100, tier: 100, color: tk.TIER_COLORS[100],
+      urls: { 1: at(1), 2: at(2), 3: at(3), 4: at(4) }, text: 'sodaCheer100', sp: false });
+    assert.equal(tk.cheerFor('SODACHEER99999', map).tier, 10000, 'any letter case');
+    // A prefix ending in a digit: the longest prefix in the map wins; a tier off Twitch's color steps takes the step below.
+    const odd = tk.cheerFor('odd2600', map);
+    assert.deepEqual([odd.prefix, odd.amount, odd.tier, odd.color], ['odd2', 600, 500, tk.TIER_COLORS[100]]);
+    assert.equal(odd.urls[2], 'https://d3aqoihi2n8ty8.cloudfront.net/actions/odd2/dark/animated/500/2.gif');
+    // Not in the map, malformed, or no bits: as before.
+    ['lirikCheer100', 'sodaCheer', 'sodaCheer0', 'sodaCheer100x', 'xsodaCheer100', 'sodaCheer' + '9'.repeat(8)].forEach((w) =>
+      assert.equal(tk.cheerFor(w, map), null, w));
+    assert.equal(tok('sodaCheer100', { bits: 0 }, { cheerMap: map }).items[0].type, 'text');
+    assert.equal(tok('sodaCheer100', { bits: 100 }).items[0].type, 'text', 'without the map');
+    assert.equal(tk.cheerFor('Cheer100', new Map()).tier, 100);
+  });
+
+  test('unknownCheers: a bits message\'s cheer-like word that no global cheermote is', () => {
+    assert.equal(tk.unknownCheers('sodaCheer100 gg'), true);
+    assert.equal(tk.unknownCheers('hi cohhCheer1'), true);
+    ['Cheer100 gg', 'Kappa100 PogChamp', 'gg', '100', '', 'nice 4Head1', 'x'.repeat(41) + '1'].forEach((s) =>
+      assert.equal(tk.unknownCheers(s), false, s));
+    assert.equal(tk.unknownCheers(null), false);
   });
 
   test('cheerFor is exported', () => {

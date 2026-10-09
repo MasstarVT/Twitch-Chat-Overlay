@@ -65,7 +65,7 @@ test('parseChannel reads the chatroom id, user id and safe sub badge images', ()
     ]
   }, 'xqc');
   assert.deepStrictEqual(c, {
-    chatroomId: '668', userId: '676', slug: 'xqc', username: 'xQc',
+    chatroomId: '668', channelId: '668', userId: '676', slug: 'xqc', username: 'xQc',
     subBadges: [
       { months: 1, url: 'https://files.kick.com/channel_subscriber_badges/1/original' },
       { months: 6, url: 'https://files.kick.com/channel_subscriber_badges/2/original' }
@@ -81,6 +81,47 @@ test('parseChannel refuses another channel, a missing chatroom and junk', () => 
   assert.strictEqual(kick.parseChannel('text', 'xqc'), null);
   // A username's underscores are hyphens in its slug.
   assert.strictEqual(kick.parseChannel({ slug: 'adin-ross', chatroom: { id: 5 } }, 'adin_ross').chatroomId, '5');
+  // The channel's own id (its recent messages are kept under it): its chatroom's often differs; junk gives ''.
+  assert.strictEqual(kick.parseChannel({ id: 875396, slug: 'adinross', chatroom: { id: 875062 } }, 'adinross').channelId, '875396');
+  assert.strictEqual(kick.parseChannel({ id: '1 OR 1', slug: 'xqc', chatroom: { id: 668 } }, 'xqc').channelId, '');
+  assert.strictEqual(kick.parseChannel({ slug: 'xqc', chatroom: { id: 668 } }, 'xqc').channelId, '');
+});
+
+// Kick chat started empty ("Kick chat has no recent-message history"): kick.com keeps the newest ~25 under the channel's
+// id, each a ChatMessageEvent's data (newest first, keyed chat_id = the channel id, without the chatroom id).
+test('loadHistory: the channel\'s recent messages as historical lines of the joined chatroom, oldest first', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T12:00:00Z') });
+  const calls = [];
+  const item = (id, at, content, extra) => Object.assign({ id: id, chat_id: 875396, user_id: 5, content: content, type: 'message',
+    metadata: null, created_at: at, sender: { id: 5, slug: 'fan', username: 'Fan', identity: { color: '#E9113C', badges: [] } } }, extra || {});
+  let body = { status: { error: false }, data: { messages: [
+    item('c3', '2026-10-08T11:59:30Z', 'newest [emote:37226:KEKW]'),
+    item('c2', '2026-10-08T11:59:00Z', 'a reply', { type: 'reply', metadata: { original_sender: { id: 7, username: 'Pal' },
+      original_message: { id: 'p1', content: 'hi' } } }),
+    item('c1', '2026-10-08T11:58:00Z', 'oldest'),
+    item('old', '2026-10-06T11:58:00Z', 'two days ago'),
+    item('', '2026-10-08T11:58:00Z', 'no id'), 'junk', null, [1]
+  ], cursor: '1', pinned_message: item('pin', '2026-10-08T11:00:00Z', 'pinned') } };
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    const txt = typeof body === 'string' ? body : JSON.stringify(body);
+    return { status: body === 404 ? 404 : 200, ok: body !== 404, headers: { get: () => null }, text: async () => txt };
+  });
+  const list = await kick.loadHistory('875396', '875062', { timeout: 3000 });
+  assert.deepStrictEqual(calls, ['https://kick.com/api/v2/channels/875396/messages']);
+  assert.deepStrictEqual(list.map((m) => [m.id, m.roomId, m.text, m.historical]), [
+    ['kick:c1', 'kick:875062', 'oldest', true], ['kick:c2', 'kick:875062', 'a reply', true], ['kick:c3', 'kick:875062', 'newest KEKW', true]]);
+  assert.strictEqual(list[2].kickEmotes, '37226:7-10');
+  assert.strictEqual(list[1].reply.name, 'Pal');
+  assert.strictEqual(list[0].ts, Date.parse('2026-10-08T11:58:00Z'));
+  // Nothing to load without both ids; none found, or an unexpected answer.
+  assert.deepStrictEqual(await kick.loadHistory('', '875062'), []);
+  assert.deepStrictEqual(await kick.loadHistory('1/../x', '875062'), []);
+  assert.strictEqual(calls.length, 1);
+  body = 404;
+  assert.deepStrictEqual(await kick.loadHistory('875396', '875062'), []);
+  body = { data: { messages: 'x' } };
+  await assert.rejects(kick.loadHistory('875396', '875062'), /unexpected history response/);
 });
 
 test('roomFromText takes the number or the whole channel API page', () => {

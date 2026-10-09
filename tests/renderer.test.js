@@ -986,26 +986,36 @@ test('links=shorten: an international site name in its own letters, as links=sho
   assert.strictEqual(s('https://xn-x.example/ https://a--b.example/'), 'xn-x.example a--b.example');
   assert.strictEqual(s('https://[::1]:80/x'), '[::1]');
   // Every label decodes as Node's own domainToUnicode does (the same RFC 3492 algorithm), unless it could pass for another
-  // name (below): Cyrillic letters mixed with letters of another script, or Cyrillic look-alikes of Latin letters alone.
+  // name (below): scripts mixed other than Latin with Chinese, Japanese or Korean, a symbol or emoji, or Cyrillic
+  // look-alikes of Latin letters alone. Each label is drawn from one of the pools (the last mixes them all).
   const url = require('node:url');
-  const pool = Array.from('abcxyzäöüßéñçøåæœ日本語例えテスト한국어中文ไทยعربيעבריתкириллица€😀-0123456789');
+  const latin = 'abcxyzäöüßéñçøåæœ', digits = '-0123456789';
+  const pools = [latin, 'кириллицаасеор', '日本語例えテスト' + latin, '한국어中文' + latin, 'ไทย', 'عربي', 'עברית',
+    latin + '日本語例えテスト한국어中文ไทยعربيעבריתкириллица€😀'].map((p) => Array.from(p + digits));
   const like = 'асԁеһіјӏорԛѕԝхуъьҽпгѵѡ';
+  const scriptOf = (c) => (/[0-9-]/.test(c) ? null : latin.includes(c) ? 'Latn' : /\p{sc=Han}/u.test(c) ? 'Hani'
+    : /\p{sc=Hira}/u.test(c) ? 'Hira' : /\p{sc=Kana}/u.test(c) ? 'Kana' : /\p{sc=Hang}/u.test(c) ? 'Hang'
+      : /\p{sc=Cyrl}/u.test(c) ? 'Cyrl' : /\p{sc=Thai}/u.test(c) ? 'Thai' : /\p{sc=Arab}/u.test(c) ? 'Arab'
+        : /\p{sc=Hebr}/u.test(c) ? 'Hebr' : 'symbol');
+  const mixes = [['Latn', 'Hani', 'Hira', 'Kana'], ['Latn', 'Hani', 'Hang']];
   let n = 0, kept = 0, seed = 7;
   const rnd = (k) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return (seed >>> 8) % k; };
-  for (let k = 0; k < 3000; k++) {
+  for (let k = 0; k < 4000; k++) {
+    const pool = pools[rnd(pools.length)];
     let lab = '';
     for (let q = 1 + rnd(12); q > 0; q--) lab += pool[rnd(pool.length)];
     let h;
     try { h = new URL('https://' + lab + '.de/').hostname; } catch (e) { continue; }
     if (h.indexOf('xn--') < 0) continue;
     n++;
-    const letters = Array.from(url.domainToUnicode(h).split('.')[0]).filter((c) => /\p{L}/u.test(c));
-    const cyr = letters.filter((c) => /\p{Script=Cyrillic}/u.test(c));
-    const spoof = cyr.length > 0 && (cyr.length < letters.length || cyr.every((c) => like.includes(c)));
+    const chars = Array.from(url.domainToUnicode(h).split('.')[0]);
+    const used = Array.from(new Set(chars.map(scriptOf).filter(Boolean)));
+    const spoof = used.includes('symbol') || (used.length > 1 && !mixes.some((m) => used.every((x) => m.includes(x)))) ||
+      (used.length === 1 && used[0] === 'Cyrl' && chars.every((c) => /[0-9-]/.test(c) || like.includes(c)));
     if (spoof) kept++;
     assert.strictEqual(s('https://' + lab + '.de/x'), spoof ? h : url.domainToUnicode(h), lab);
   }
-  assert.ok(n > 1000 && kept > 100 && n - kept > 500, 'international names tried: ' + n + ', kept in xn-- form: ' + kept);
+  assert.ok(n > 1000 && kept > 150 && n - kept > 500, 'international names tried: ' + n + ', kept in xn-- form: ' + kept);
   // A reply header's quote too.
   assert.strictEqual(R.replyModel({ name: 'A', body: 'look https://www.müller.de/x' }, false, true).body, 'look www.müller.de');
 });
@@ -1042,6 +1052,27 @@ test('links=shorten: a site name that could pass for another keeps its xn-- form
   assert.strictEqual(s('https://xn--r8jz45g.xn--zckzah/'), '例え.テスト');
   // links=show draws the link as typed, so the shortened form never shows a look-alike the link itself doesn't.
   assert.strictEqual(renderer.drawnText('see https://xn--80ak6aa92e.com/x', { links: 'shorten' }), 'see xn--80ak6aa92e.com');
+});
+
+// Round-1 follow-up only caught Cyrillic, Greek and Armenian look-alikes: 'https://xn--paypa-7g0s.com' (a Lisu letter) was
+// drawn as 'paypaꓲ.com', and Cherokee, IPA and small-capital letters as 'Ꭺpple.com', 'ɡoogle.com', 'ᴀpple.com'.
+test('links=shorten: rare scripts and letters, symbols, and script mixes keep the xn-- form, as Chromium keeps them', () => {
+  const s = renderer.shortenLinks;
+  // A letter of a script no name should use (Lisu, Cherokee), or a Latin letter that isn't one (IPA, small capital).
+  ['https://xn--paypa-7g0s.com/login', 'https://xn--pple-49t.com', 'https://xn--pple-k13a.com', 'https://xn--oogle-qmc.com']
+    .forEach((u) => assert.strictEqual(s(u), new URL(u).hostname, u));
+  assert.strictEqual(s('https://paypaꓲ.com/x'), 'xn--paypa-7g0s.com', 'typed in its letters too');
+  // A Latin name whose only letters past ASCII look like ASCII ones (a dotless i, a thorn) passes for an ASCII name.
+  assert.strictEqual(s('https://gıthub.com/'), new URL('https://gıthub.com/').hostname);
+  assert.strictEqual(s('https://aþþle.com/'), new URL('https://aþþle.com/').hostname);
+  assert.strictEqual(s('https://gıthüb.com/'), 'gıthüb.com', 'with another letter past ASCII it reads as its own');
+  // Symbols and emoji, and scripts mixed other than Latin with Chinese, Japanese or Korean.
+  ['https://i❤.ws/', 'https://😀.de/', 'https://€.de/', 'https://abcไทย.com/', 'https://abcქართ.ge/', 'https://日本ไทย.jp/']
+    .forEach((u) => assert.strictEqual(s(u), new URL(u).hostname, u));
+  // Names in their own letters stay shown so: accents, Japanese with its long-vowel sign, Chinese with Bopomofo, Korean
+  // with Latin, Arabic with its vowel signs.
+  ['ação.br', 'straße.de', 'łódź.pl', 'コーヒー.jp', '日本語かな.jp', '中文ㄅ.tw', 'abc한국어.kr', 'مِصر.eg', 'ไทย.com', 'ελληνικά.gr']
+    .forEach((h) => assert.strictEqual(s('https://' + h + '/x'), h, h));
 });
 
 test('the chat filters\' patterns: built once per cfg object, never stored on it; prefixes escaped; words as keywords', () => {
@@ -1155,6 +1186,17 @@ test('reply header model strips ACTION and newlines; empty parent names give no 
   assert.deepStrictEqual(R.replyModel({ login: 'bob', body: 'a\nb' }), { name: '@bob', body: 'a b' });
   assert.strictEqual(R.replyModel({ body: 'x' }), null);
   assert.strictEqual(R.replyModel(null), null);
+});
+
+// Kick's StreamElements bot is "@StreamElements" (tests/fixtures/kick-streamelements.json): a reply to it is headed
+// "@StreamElements", not "@@StreamElements", in both reply styles. A name that is only '@' signs is kept as it is.
+test('reply header model: a parent name that already starts with "@" gets no second one', () => {
+  assert.deepStrictEqual(R.replyModel({ name: '@StreamElements', login: 'streamelements', body: 'Follow the channel!' }),
+    { name: '@StreamElements', body: 'Follow the channel!' });
+  assert.deepStrictEqual(R.replyModel({ name: '@StreamElements', body: 'x' }, true), { name: '@StreamElements', short: true });
+  assert.deepStrictEqual(R.replyModel({ name: '@@Two', body: 'x' }, true), { name: '@Two', short: true });
+  assert.deepStrictEqual(R.replyModel({ name: '@', body: 'x' }, true), { name: '@@', short: true });
+  assert.deepStrictEqual(R.replyModel({ name: 'Bob', body: 'x' }, true), { name: '@Bob', short: true }, 'other names unchanged');
 });
 
 test('badge models: url by want, bg wrap color, avatar flag, unusable badges dropped', () => {

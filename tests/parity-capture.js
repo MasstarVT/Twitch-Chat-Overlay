@@ -585,6 +585,8 @@ async function bootOverlay(search, history) {
     logo: 'https://static-cdn.jtvnw.net/jtv_user_pictures/home-profile_image-300x300.png', banned: false }));
   stub(T.twitchBadges, 'lookupUserById', 'lookupUserById', (id) => Promise.resolve({ id: id, login: 'partner', displayName: 'Partner',
     logo: B.avatar.urls[1] }));
+  // A channel's own cheermotes (loaded on a bits message with a cheer-like word no global cheermote is; 1.5.2 had none).
+  if (T.twitchBadges.loadCheermotes) stub(T.twitchBadges, 'loadCheermotes', 'cheermotes', ok(() => new Map()));
   stub(T.seventv, 'loadGlobal', '7tv-global', ok(() => maps.stv));
   stub(T.seventv, 'loadChannel', '7tv-channel', ok(() => ({ emotes: new Map(maps.stvHome), setId: null, ownerId: null })));
   stub(T.seventv, 'loadCatalog', '7tv-catalog', never);
@@ -606,6 +608,8 @@ async function bootOverlay(search, history) {
   stub(T.extraBadges, 'loadHomiesSource', 'homies', (i, into) => Promise.resolve(into));
   stub(T.irc, 'loadHistory', 'history', ok(() => (history || []).map((raw) => T.ircParse.parseLine(raw))));
   stub(T.kick, 'lookupChannel', 'kick-lookup', () => Promise.reject(new TypeError('Failed to fetch')));
+  // Kick's recent messages (after a lookup that gives the channel's id; the capture's lookup always fails; 1.5.2 had none).
+  if (T.kick.loadHistory) stub(T.kick, 'loadHistory', 'kick-history', ok(() => []));
   T.kick.createKick = function (o) {
     h.kick = { opts: o, start() {}, kick() {},
       send(event, data) { o.onEvent(globalThis.TCO.kick.parseEvent('App\\Events\\' + event, JSON.stringify(data))); } };

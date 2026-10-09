@@ -58,7 +58,8 @@
   }
 
   // ---------- channel lookup ----------
-  // Kick's channel JSON -> { chatroomId, userId, slug, username, subBadges: [{months, url}] }, or null.
+  // Kick's channel JSON -> { chatroomId, channelId, userId, slug, username, subBadges: [{months, url}] }, or null.
+  // channelId: the channel's own id (its recent messages are kept under it, not under the chatroom's; '' if missing).
   // wantSlug: the channel asked for; a reply for another channel is refused.
   function parseChannel(r, wantSlug) {
     if (!r || typeof r !== 'object') return null;
@@ -68,6 +69,7 @@
     var want = config.normalizeKick(wantSlug);
     if (want && slug && slug !== want && slug !== want.replace(/_/g, '-')) return null;
     var uid = util.idStr(r.user_id);
+    var cid = util.idStr(r.id);
     var user = r.user && typeof r.user === 'object' ? r.user : {};
     var subs = [];
     var list = Array.isArray(r.subscriber_badges) ? r.subscriber_badges.slice(0, 50) : [];
@@ -82,6 +84,7 @@
     subs.sort(function (a, c) { return a.months - c.months; });
     return {
       chatroomId: room,
+      channelId: ROOM_RE.test(cid) ? cid : '',
       userId: ROOM_RE.test(uid) ? uid : '',
       slug: slug || want,
       username: cleanName(user.username) || slug || want,
@@ -340,6 +343,39 @@
     return null;
   }
 
+  // ---------- recent messages ----------
+  // The channel's newest chat messages (kick.com keeps about 25, under the channel's id; its chatroom id gives none), as
+  // the overlay's start-up history: kick.com's API, behind Cloudflare like the channel lookup, so it may be refused (then
+  // there is none, as before). Each is a ChatMessageEvent's data without the chatroom id, which the lines are keyed by
+  // (chatroomId, the one the overlay joined), so it is set on a copy. Oldest first, marked historical; at most HISTORY_MAX,
+  // none older than a day (robotty keeps Twitch's that long), and [] when there are none.
+  var HISTORY_MAX = 50, HISTORY_AGE_MS = 86400000;
+  function loadHistory(channelId, chatroomId, opts) {
+    var ch = util.idStr(channelId), room = util.idStr(chatroomId);
+    if (!ROOM_RE.test(ch) || !ROOM_RE.test(room)) return Promise.resolve([]);
+    var o = { timeout: (opts && opts.timeout) || 10000, maxBytes: 2 * 1024 * 1024 };
+    return util.fetchJson(CHANNEL_API + ch + '/messages', o).then(function (r) {
+      if (!r || util.isNotFound(r)) return [];
+      var data = r.data && typeof r.data === 'object' ? r.data : null;
+      if (!data || !Array.isArray(data.messages)) throw new Error('kick: unexpected history response');
+      var list = data.messages.slice(0, HISTORY_MAX), now = Date.now(), out = [];
+      for (var i = 0; i < list.length; i++) {
+        var d = list[i];
+        if (!d || typeof d !== 'object' || Array.isArray(d)) continue;
+        var copy = {};
+        for (var k in d) if (hasOwn.call(d, k)) copy[k] = d[k];
+        copy.chatroom_id = room;
+        var at = Date.parse(d.created_at);
+        var m = isFinite(at) && now - at < HISTORY_AGE_MS ? toMessage(copy) : null;
+        if (!m) continue;
+        m.historical = true;
+        out.push(m);
+      }
+      out.sort(function (a, b) { return a.ts - b.ts; });
+      return out;
+    });
+  }
+
   // ---------- Pusher client ----------
   // opts: { room: chatroom id, onEvent(ev), onStatus(status, detail), WebSocket?, url? }
   // status: 'open'; 'joined' (subscribed); 'closed' ({code, reason}); 'fatal' ({code, message}: Kick refused
@@ -468,6 +504,7 @@
     apiUrl: apiUrl,
     parseChannel: parseChannel,
     lookupChannel: lookupChannel,
+    loadHistory: loadHistory,
     roomFromText: roomFromText,
     splitEmotes: splitEmotes,
     parseBadges: parseBadges,

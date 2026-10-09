@@ -93,6 +93,55 @@ test('twitchBadges.parseGqlGlobal / parseGqlChannel: flat GQL shapes, null user,
   assert.equal(twitchBadges.parseGqlChannel({ data: { user: { broadcastBadges: null } } }).size, 0);
 });
 
+// A channel's own cheermotes, as Twitch's public GQL answered for sodapoppin (2026-10): a CUSTOM group and the Charity
+// group every channel has (display only, never cheered with).
+const SODA_ID = '26301881';
+const SODA_TEMPLATE = 'https://d3aqoihi2n8ty8.cloudfront.net/partner-actions/26301881/c504e25d-5f46-4422-b649-ae26c68850f5/TIER/BACKGROUND/ANIMATION/SCALE.EXTENSION';
+const GQL_CHEERS_SODA = { data: { user: { cheer: { cheerGroups: [
+  { templateURL: SODA_TEMPLATE, nodes: [{ prefix: 'sodaCheer', type: 'CUSTOM', tiers: [{ bits: 1 }, { bits: 100 }, { bits: 1000 }, { bits: 5000 }, { bits: 10000 }] }] },
+  { templateURL: 'https://d3aqoihi2n8ty8.cloudfront.net/actions/PREFIX/BACKGROUND/ANIMATION/TIER/SCALE.EXTENSION',
+    nodes: [{ prefix: 'Charity', type: 'DISPLAY_ONLY', tiers: [{ bits: 1 }, { bits: 100 }] }] }
+] } } }, extensions: { durationMilliseconds: 12, requestID: '01M4FFFM8GQ9MKDB0HZT3QEZBK' } };
+
+// Custom cheermotes once showed as plain text, the README saying they couldn't be loaded without a login: the same public
+// GQL endpoint the badge fallback uses has them.
+test('twitchBadges.parseCheermotes: a channel\'s own cheermotes; display-only, hostile prefixes and templates are left out', () => {
+  const m = twitchBadges.parseCheermotes(GQL_CHEERS_SODA);
+  assert.deepEqual(Array.from(m.keys()), ['sodacheer']);
+  assert.deepEqual(m.get('sodacheer'), { prefix: 'sodaCheer', tiers: [1, 100, 1000, 5000, 10000], template: SODA_TEMPLATE });
+  // No cheermotes (not an affiliate), or no such user: empty. A GQL error is a failure (retried).
+  assert.equal(twitchBadges.parseCheermotes({ data: { user: { cheer: null } } }).size, 0);
+  assert.equal(twitchBadges.parseCheermotes({ data: { user: null } }).size, 0);
+  assert.throws(() => twitchBadges.parseCheermotes({ errors: [{ message: 'service timeout' }] }), /service timeout/);
+  assert.throws(() => twitchBadges.parseCheermotes({ data: { user: { cheer: null } }, errors: [{ message: 'x' }] }));
+  assert.throws(() => twitchBadges.parseCheermotes(null));
+  const one = (templateURL, node) => twitchBadges.parseCheermotes({ data: { user: { cheer: { cheerGroups: [{ templateURL: templateURL,
+    nodes: [Object.assign({ prefix: 'myCheer', type: 'CUSTOM', tiers: [{ bits: 100 }, { bits: 1 }, { bits: 1 }, { bits: 'x' }, { bits: -5 }] }, node || {})] }] } } } });
+  assert.deepEqual(one(SODA_TEMPLATE).get('mycheer').tiers, [1, 100], 'sorted, unique, positive whole numbers');
+  // Only https on the cheer CDN, with the slots Twitch fills by name, and nothing else in it.
+  ['http://d3aqoihi2n8ty8.cloudfront.net/a/TIER/BACKGROUND/ANIMATION/SCALE.EXTENSION',
+    'https://evil.example/a/TIER/BACKGROUND/ANIMATION/SCALE.EXTENSION',
+    'https://d3aqoihi2n8ty8.cloudfront.net.evil.example/a/TIER/SCALE.EXTENSION',
+    'https://d3aqoihi2n8ty8.cloudfront.net/a/TIER/BACKGROUND/ANIMATION/SCALE.gif',
+    'https://d3aqoihi2n8ty8.cloudfront.net/a/BACKGROUND/ANIMATION/SCALE.EXTENSION',
+    'https://d3aqoihi2n8ty8.cloudfront.net/a"onerror="x/TIER/SCALE.EXTENSION',
+    'https://d3aqoihi2n8ty8.cloudfront.net/a/TIER/SCALE.EXTENSION?x=1', 42, null].forEach((u) => assert.equal(one(u).size, 0, String(u)));
+  ['my cheer', 'a"b', '', 'x'.repeat(31), 5].forEach((p) => assert.equal(one(SODA_TEMPLATE, { prefix: p }).size, 0, String(p)));
+  assert.equal(one(SODA_TEMPLATE, { tiers: [] }).size, 0);
+});
+
+test('twitchBadges.loadCheermotes: one GQL POST with the public Client-ID; a bad room id asks nothing', async (t) => {
+  const calls = stubFetch(t, [['https://gql.twitch.tv/gql', { body: GQL_CHEERS_SODA }]]);
+  const m = await twitchBadges.loadCheermotes(SODA_ID);
+  assert.equal(m.get('sodacheer').prefix, 'sodaCheer');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.headers['Client-ID'], 'kimne78kx3ncx6brgo4mv6wki5h1ko');
+  assert.match(JSON.parse(calls[0].init.body).query, /^query\{user\(id:"26301881"\)\{cheer\{cheerGroups\{templateURL nodes\{prefix type tiers\{bits\}\}\}\}\}\}$/);
+  await assert.rejects(twitchBadges.loadCheermotes('1"){x}'));
+  assert.equal(calls.length, 1);
+});
+
 test('twitchBadges.parseUser: bare array -> {id,login,displayName,logo}; [] -> null', () => {
   const u = twitchBadges.parseUser(IVR_USER_XQC, 'xqc');
   assert.equal(u.id, '71092938');

@@ -1,4 +1,5 @@
-/* Twitch global/channel chat badges (IVR, falling back to Twitch GQL) and IVR user lookups. */
+/* Twitch global/channel chat badges (IVR, falling back to Twitch GQL), IVR user lookups, and a channel's own cheermotes
+   (Twitch GQL). */
 (function (root, factory) {
   var util = typeof require === 'function' ? require('./util.js') : root.TCO.util;
   var badgeResolve = typeof require === 'function' ? require('./badge-resolve.js') : root.TCO.badgeResolve;
@@ -132,6 +133,59 @@
     return fetchUser('id=' + s, null);
   }
 
+  // ---------- channel cheermotes ----------
+  // A channel's own cheermotes (a partner's or affiliate's 'sodaCheer100'), from the same public GQL endpoint the badge
+  // fallback uses: {data:{user:{cheer:{cheerGroups:[{templateURL, nodes:[{prefix, type, tiers:[{bits}]}]}]}}}}. Twitch
+  // fills a group's templateURL by placeholder name (TIER, BACKGROUND, ANIMATION, SCALE, EXTENSION; PREFIX in the global
+  // one), so only one on the cheer CDN with those is kept. Returns Map<lower-case prefix, {prefix, tiers (ascending bits),
+  // template}>; empty for a channel with none (or no such user). A display-only group (Charity) isn't cheered with.
+  var CHEER_CDN_RE = /^d3aqoihi2n8ty8\.cloudfront\.net$/;
+  var CHEER_PREFIX_RE = /^[A-Za-z0-9]{1,30}$/;
+  var CHEER_SLOTS_RE = /\b(?:PREFIX|TIER|BACKGROUND|ANIMATION|SCALE|EXTENSION)\b/g;
+  function cheerTemplate(t) {
+    if (typeof t !== 'string' || !util.isSafeUrl(t, CHEER_CDN_RE)) return null;
+    if (!/\bTIER\b/.test(t) || !/\bSCALE\b/.test(t) || !/\bEXTENSION\b/.test(t)) return null;
+    // Filled in, it must still be a plain https URL on the CDN.
+    var sample = t.replace(CHEER_SLOTS_RE, 'x');
+    return util.isSafeUrl(sample, CHEER_CDN_RE) && !/[?#]/.test(sample) ? t : null;
+  }
+  function parseCheermotes(json) {
+    var data = json && json.data;
+    if (!data) throw hasErrors(json) ? gqlError(json) : badPayload('GQL cheermotes');
+    var out = new Map();
+    var cheer = data.user && data.user.cheer;
+    if (!cheer) {
+      if (data.user && hasErrors(json)) throw gqlError(json);
+      return out;
+    }
+    var groups = Array.isArray(cheer.cheerGroups) ? cheer.cheerGroups.slice(0, 20) : [];
+    for (var g = 0; g < groups.length; g++) {
+      var template = cheerTemplate(groups[g] && groups[g].templateURL);
+      var nodes = template && Array.isArray(groups[g].nodes) ? groups[g].nodes.slice(0, 50) : [];
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (!n || n.type === 'DISPLAY_ONLY' || typeof n.prefix !== 'string' || !CHEER_PREFIX_RE.test(n.prefix)) continue;
+        var key = n.prefix.toLowerCase();
+        if (out.has(key)) continue;
+        var tiers = [];
+        var list = Array.isArray(n.tiers) ? n.tiers.slice(0, 20) : [];
+        for (var k = 0; k < list.length; k++) {
+          var b = Number(list[k] && list[k].bits);
+          if (b >= 1 && b <= 10000000 && b % 1 === 0 && tiers.indexOf(b) < 0) tiers.push(b);
+        }
+        if (!tiers.length) continue;
+        tiers.sort(function (a, c) { return a - c; });
+        out.set(key, { prefix: n.prefix, tiers: tiers, template: template });
+      }
+    }
+    return out;
+  }
+  function loadCheermotes(roomId) {
+    var id = util.idStr(roomId);
+    if (!ID_RE.test(id)) return Promise.reject(new Error('invalid room id: ' + id));
+    return gql('query{user(id:"' + id + '"){cheer{cheerGroups{templateURL nodes{prefix type tiers{bits}}}}}}').then(parseCheermotes);
+  }
+
   return {
     parseIvrBadges: parseIvrBadges,
     parseGqlGlobal: parseGqlGlobal,
@@ -140,6 +194,8 @@
     loadGlobal: loadGlobal,
     loadChannel: loadChannel,
     lookupUser: lookupUser,
-    lookupUserById: lookupUserById
+    lookupUserById: lookupUserById,
+    parseCheermotes: parseCheermotes,
+    loadCheermotes: loadCheermotes
   };
 });
