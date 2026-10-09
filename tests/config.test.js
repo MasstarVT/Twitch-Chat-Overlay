@@ -281,7 +281,7 @@ describe('coerce', () => {
 
   test('words: comma-separated words and phrases, trimmed, lowercased, deduped and capped', () => {
     assert.deepEqual(config.coerce('keywords', 'Good  Game, gg ,GG, overlay,,'), ['good game', 'gg', 'overlay']);
-    assert.deepEqual(config.coerce('keywords', ' Tab\there\nnow '), ['tab here now'], 'any run of spaces is one space');
+    assert.deepEqual(config.coerce('keywords', ' Tab\there  now '), ['tab here now'], 'any run of spaces is one space');
     assert.deepEqual(config.coerce('keywords', 'c++, a.b, (x), !!, ünïcode, 日本語'), ['c++', 'a.b', '(x)', '!!', 'ünïcode', '日本語']);
     // Arrays too (settings.js), and an item may hold commas of its own: the value reads back the same from the URL.
     assert.deepEqual(config.coerce('keywords', ['a,b', 'C', 5, '', true, { a: 1 }, ['x'], null]), ['a', 'b', 'c', '5']);
@@ -320,6 +320,17 @@ describe('coerce', () => {
     assert.deepEqual(config.parse(config.toParams(Object.assign(config.defaults(), { keywords: v }))).keywords, v);
     // A phrase longer than 40 characters is still left out on its own; the ones around it stay.
     assert.deepEqual(config.coerce('keywords', 'a、' + 'x'.repeat(41) + '、b'), ['a', 'b']);
+  });
+
+  test('words: a line break separates phrases too (a settings.js string written one phrase a line), never joins them', () => {
+    assert.deepEqual(config.coerce('keywords', 'a\nb c\r\nd'), ['a', 'b c', 'd']);
+    assert.deepEqual(config.coerce('block_words', ['badword\nworse word', 'third\r']), ['badword', 'worse word', 'third']);
+    assert.deepEqual(config.coerce('block_words', 'gg,\n\nez'), ['gg', 'ez']);
+    assert.ok(config.WORD_SEP.test('\n') && config.WORD_SEP.test('\r'));
+    // A tab or other control character inside a phrase is still a space.
+    assert.deepEqual(config.coerce('keywords', 'good\tgame'), ['good game']);
+    const v = config.coerce('keywords', 'a\nb c');
+    assert.deepEqual(config.parse(config.toParams(Object.assign(config.defaults(), { keywords: v }))).keywords, v);
   });
 
   test('filters and event switches: their values, live, and nothing in the URL at the defaults', () => {
@@ -530,6 +541,23 @@ describe('coerce', () => {
     [true, false].forEach((b) => assert.equal(config.coerce('allow_users', b), undefined, String(b)));
     assert.deepEqual(config.parse('', { allow_users: true }).allow_users, []);
     assert.deepEqual(config.coerce('block', 'true'), ['true'], 'the login true, in a URL');
+  });
+
+  test('list: a Kick name as its kick.com slug (mr-mammal) is the name Kick chat sends (mr_mammal); profile links work too', () => {
+    // Kick spells a username's underscores as hyphens in its slug and kick.com/<slug> links; chat matches the username.
+    ['block', 'allow_users', 'highlight_users'].forEach((k) => {
+      assert.deepEqual(config.coerce(k, 'mr-mammal, x'), ['mr_mammal', 'x'], k);
+      assert.deepEqual(config.coerce(k, 'a-b, A_B, @Some-One'), ['a_b', 'some_one'], k + ': deduped as one name');
+    });
+    assert.deepEqual(config.coerce('block', 'https://kick.com/Mr-Mammal kick.com/popout/some-one/chat www.kick.com/x_y?ref=1'),
+      ['mr_mammal', 'some_one', 'x_y']);
+    assert.deepEqual(config.coerce('highlight_users', 'https://www.twitch.tv/Forsen twitch.tv/popout/xqc/chat m.twitch.tv/a_b/'),
+      ['forsen', 'xqc', 'a_b']);
+    // A Twitch link that names no channel is no name.
+    assert.deepEqual(config.coerce('block', 'https://twitch.tv/videos/123, ok'), ['ok']);
+    assert.deepEqual(config.coerce('block', 'other.com/name, kick.com/, x'), ['x'], 'another site, or no name: left out as before');
+    assert.deepEqual(config.parse(config.toParams(Object.assign(config.defaults(), { block: config.coerce('block', 'mr-mammal') }))).block,
+      ['mr_mammal'], 'reads back the same from the URL');
   });
 
   test('list: large lists dedupe in linear time, first occurrence order kept', () => {

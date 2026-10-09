@@ -771,6 +771,23 @@
     return n;
   }
 
+  // Text pasted into a words field (keywords, block_words) over value's start..end. A list one phrase a line, as a bot or
+  // Twitch exports blocked terms (or a row of spreadsheet cells), would reach the one-line box with its line breaks
+  // turned into spaces: one long phrase. So each run of line breaks or tabs becomes ', ', and so does the edge with
+  // the phrases already around the selection (the spaces there go). Returns { start, end, text }: the range of value to
+  // replace, a little wider than the selection, and what goes there. null: no line break or tab, so the browser pastes it.
+  function pastedWords(value, start, end, text) {
+    var t = String(text === undefined || text === null ? '' : text);
+    if (!/[\r\n\t]/.test(t)) return null;
+    var v = String(value === undefined || value === null ? '' : value);
+    t = t.replace(/[\s,]*[\r\n\t][\s,]*/g, ', ').replace(/^[\s,]+|[\s,]+$/g, '');
+    if (!t) return { start: start, end: end, text: '' };
+    var lead = v.slice(0, start).replace(/\s+$/, ''), tail = v.slice(end).replace(/^\s+/, '');
+    if (lead) t = (config.WORD_SEP.test(lead.slice(-1)) ? ' ' : ', ') + t;
+    if (tail && !config.WORD_SEP.test(tail.charAt(0))) t += ', ';
+    return { start: lead.length, end: v.length - tail.length, text: t };
+  }
+
   // The next multiple of step above or below v, within min..max (1 -> 5 -> 10 … and back down to 1).
   function stepValue(v, dir, step, min, max) {
     var n = dir > 0 ? (Math.floor(v / step) + 1) * step : (Math.ceil(v / step) - 1) * step;
@@ -892,7 +909,12 @@
     try { s.setItem(key, JSON.stringify(v)); } catch (e) { /* quota or blocked */ }
   }
   function saveCfg() {
-    store(STORE_CFG, config.toObject(B.cfg));
+    var o = config.toObject(B.cfg);
+    // A pause in typing commits a new Kick name, but the old channel's chatroom id goes only as the field is left
+    // (onKickChanged). Reloaded or closed before that, with no change event, the builder must not remember the pair:
+    // opened again, it would call the old channel's id the new one's. Without it the new channel is looked up.
+    if (B.kickFor && B.cfg.kick !== B.kickFor) delete o.kick_room;
+    store(STORE_CFG, o);
     // Every file:// page shares one localStorage, so remember which folder these settings came from.
     if (root.location.protocol === 'file:') store(STORE_CFG_PATH, folderOf(root.location.pathname));
   }
@@ -1306,17 +1328,47 @@
           var lcut = null;
           if (spec.type === 'words') {
             lcut = h('p', 'status warn');
+            lcut.id = 'w-' + key;
             row.appendChild(lcut);
           }
+          // While the line shows, it is part of the box's description (after the help), so a screen reader reads it
+          // whenever it comes back to the box, not only in the one announcement. A warning, not an error: what is kept
+          // is a valid list, so aria-invalid isn't set.
           var showCut = function (n) {
             var say = n ? (n === 1 ? '1 phrase was' : n + ' phrases were') + ' left out: up to 50 are used, each up to 40 characters.' : '';
             if (say && say !== lcut.textContent) announce(say);
             lcut.textContent = say;
+            var desc = ((th ? th.id : '') + (say ? ' ' + lcut.id : '')).replace(/^ /, '');
+            if (desc) li.setAttribute('aria-describedby', desc);
+            else if (li.removeAttribute) li.removeAttribute('aria-describedby');
           };
-          li.addEventListener('input', function () {
+          var queue = function () {
             clearTimeout(lt);
             lt = setTimeout(function () { update(key, li.value); }, 400);
-          });
+          };
+          li.addEventListener('input', queue);
+          if (lcut) {
+            // A list pasted one phrase a line (or a row of cells): the box is one line, and the browser would join the
+            // lines with spaces into a single phrase no message has. Each line becomes a phrase of its own (pastedWords).
+            li.addEventListener('paste', function (e) {
+              var cd = e.clipboardData, v = li.value;
+              var a = typeof li.selectionStart === 'number' ? li.selectionStart : v.length;
+              var b = typeof li.selectionEnd === 'number' ? li.selectionEnd : a;
+              var r = pastedWords(v, a, b, cd && cd.getData ? cd.getData('text/plain') : '');
+              if (!r) return;
+              e.preventDefault();
+              // The browser's own insert keeps the paste in the box's undo (Ctrl+Z), and fires input as typing does.
+              var ok = false;
+              try {
+                if (li.setSelectionRange) li.setSelectionRange(r.start, r.end);
+                ok = !!(document.execCommand && document.execCommand('insertText', false, r.text));
+              } catch (err) { ok = false; }
+              if (ok) return;
+              li.value = v.slice(0, r.start) + r.text + v.slice(r.end);
+              try { li.setSelectionRange(r.start + r.text.length, r.start + r.text.length); } catch (err) { /* ignore */ }
+              queue();
+            });
+          }
           li.addEventListener('change', function () {
             clearTimeout(lt);
             var typed = li.value;
@@ -1381,9 +1433,15 @@
           row.appendChild(kst);
           field.statusEl = kst;
           // A refused name looks nothing up: B.cfg still holds the previous channel. A new name's lookup has already
-          // started as it was committed (onKickChanged), so it isn't asked for twice.
-          cbtn.addEventListener('click', function () {
-            if (commitText(true) && kst.className !== 'status busy') checkKick(true);
+          // started as it was committed (onKickChanged), so it isn't asked for twice. A mouse press leaves the box first
+          // (its change commits the name), and kick.com may answer before the button comes up: a lookup started since
+          // the press is this Check's too. The keyboard (detail 0) has no press, so it looks up as before.
+          var pressAsked = -1;
+          cbtn.addEventListener('mousedown', function () { pressAsked = B.kickAsked; });
+          cbtn.addEventListener('click', function (e) {
+            var pressed = !!(e && e.detail > 0) && pressAsked >= 0 && B.kickAsked !== pressAsked;
+            pressAsked = -1;
+            if (commitText(true) && kst.className !== 'status busy' && !pressed) checkKick(true);
           });
           field.inputs.push(cbtn);
         }
@@ -1735,20 +1793,25 @@
   }
 
   // One setting changed from the form. Returns false when the value is invalid.
-  function update(key, raw) {
+  // auto: filled in by the builder (the Kick chatroom id a lookup found), not edited.
+  function update(key, raw, auto) {
     var v = config.coerce(key, raw);
     if (v === undefined) return false;
     if (sameValue(B.cfg[key], v)) return true;
     var prev = B.cfg[key];
     B.cfg[key] = v;
     if (key === 'layout') followLayout(prev, v);
-    onChanged(key);
+    onChanged(key, auto);
     return true;
   }
 
-  function onChanged(key) {
-    dropPresetUndo();
-    B.fileNote = '';
+  function onChanged(key, auto) {
+    // A value the builder filled in is no change of the user's: a run of quick looks keeps its Undo (no look setting
+    // was touched), and the note on what a settings.js did stays.
+    if (!auto) {
+      dropPresetUndo();
+      B.fileNote = '';
+    }
     syncDisabled();
     renderOutputs();
     saveCfg();
@@ -2025,7 +2088,16 @@
     if (!slug || (B.cfg.kick_room && !force)) return;
     box.className = 'status busy';
     box.textContent = 'Looking up “' + slug + '” on Kick…';
-    kick.lookupChannel(slug, { timeout: 8000 }).then(function (c) {
+    B.kickAsked++;
+    // A lookup for this name still out (dropped as another name was typed, then the name typed back) is waited for, not
+    // asked again. Its answer counts only for this call: seq says whether it is still wanted.
+    var req = B.kickReq;
+    if (!req || req.slug !== slug) {
+      req = B.kickReq = { slug: slug, p: kick.lookupChannel(slug, { timeout: 8000 }) };
+      var done = function () { if (B.kickReq === req) B.kickReq = null; };
+      req.p.then(done, done);
+    }
+    req.p.then(function (c) {
       if (seq !== B.kickSeq) return;
       clear(box);
       if (!c) {
@@ -2033,7 +2105,7 @@
         box.textContent = 'No Kick channel called “' + slug + '” was found.';
         return;
       }
-      update('kick_room', c.chatroomId);
+      update('kick_room', c.chatroomId, true);
       B.fields.kick_room.set(B.cfg.kick_room);
       box.className = 'status ok';
       var t = h('span');
@@ -2076,7 +2148,9 @@
   function renderNote() {
     var n = $('bar-note');
     var note = urlNote(B.cfg, B.ch, B.url);
-    if (B.copied) note = { text: 'Copied. Paste it into an OBS Browser source.', cls: 'ok' };
+    // Copied, a warning still shows (a URL too long for the host, no channel, no Kick chatroom id): never a green "paste
+    // it into OBS" over what is wrong with it.
+    if (B.copied) note = copiedNote(note);
     // What a settings.js on disk did at load, until the first change (a warning still comes first).
     else if (B.fileNote && note.cls !== 'warn') note = { text: B.fileNote, cls: 'ok' };
     n.textContent = note.text;
@@ -2188,11 +2262,20 @@
     }
   }
 
-  // The URL was copied: the note beside it says what to do next, until the button resets or the URL changes.
+  // The note beside the URL once it is copied: what to do next, or the warning that still applies.
+  function copiedNote(note) {
+    return note.cls === 'warn' ? { text: 'Copied. ' + note.text, cls: 'warn' }
+      : { text: 'Copied. Paste it into an OBS Browser source.', cls: 'ok' };
+  }
+
+  // The URL was copied: the note beside it says what to do next, until the button resets or the URL changes. A warning
+  // is said again in place of the button's bare "Copied!" (announce keeps the later of the two).
   function noteCopied(ok) {
     if (!ok) return;
     B.copied = true;
     renderNote();
+    var w = urlNote(B.cfg, B.ch, B.url);
+    if (w.cls === 'warn') announce(copiedNote(w).text);
     clearTimeout(B.copiedTimer);
     B.copiedTimer = setTimeout(function () { B.copied = false; renderNote(); }, FLASH_MS);
   }
@@ -2661,6 +2744,8 @@
       ch: { state: 'empty', login: '', user: null },
       chSeq: 0,
       kickSeq: 0,
+      kickAsked: 0, // lookups checkKick has started (the Check button tells its own press's lookup from an earlier one)
+      kickReq: null, // the kick.com lookup still out: { slug, p } (checkKick)
       kickFor: '', // the Kick channel kick_room and the Kick status line are for (checkKick, replaceCfg)
       kickDropped: false, // a lookup for kickFor was dropped while a new name was typed (dropKickLookup)
       fontsOk: Object.create(null), // font names Google Fonts has loaded for the font fields' check (probeFont)
@@ -2769,6 +2854,7 @@
     stepText: stepText,
     parseStep: parseStep,
     wordsLeftOut: wordsLeftOut,
+    pastedWords: pastedWords,
     stepValue: stepValue,
     skipGap: skipGap,
     segValues: segValues,

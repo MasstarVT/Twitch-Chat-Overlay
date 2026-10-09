@@ -467,6 +467,43 @@ test('builder.html?kick=other over a remembered Kick channel looks the new one u
   assert.match(p.text('bar-url'), /overlay\.html\?kick=other&kick_room=999&bg=50$/);
 });
 
+test('Kick field: a name committed by a pause is never remembered with the old channel\'s chatroom id', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const storage = memoryStorage();
+  const stored = () => JSON.parse(storage.getItem('tco-builder-cfg'));
+  const p = open(t, HREF + '?kick=xqc&kick_room=668', { storage });
+  await settle();
+  assert.deepStrictEqual(stored(), { kick: 'xqc', kick_room: '668' });
+  // A pause commits the new name; the old id goes only as the field is left. Reloaded (F5) or closed with the focus
+  // still in the box, no change event comes: the remembered config must not pair the new name with 668.
+  const input = p.$('f-kick');
+  input.value = 'other';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  assert.deepStrictEqual(stored(), { kick: 'other' });
+  // The name typed back: the id is its own again.
+  input.value = 'xqc';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  assert.deepStrictEqual(stored(), { kick: 'xqc', kick_room: '668' });
+  input.value = 'other';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  // The builder opened again: the new channel without an id, so it is looked up; never 668.
+  await t.test('opened again', async (t2) => {
+    const q = open(t2, HREF, { storage });
+    await settle();
+    assert.deepStrictEqual(api.calls, [kickLookup('other')]);
+    assert.deepStrictEqual([q.$('f-kick').value, q.$('f-kick_room').value], ['other', '999']);
+    assert.match(q.text('bar-url'), /overlay\.html\?kick=other&kick_room=999$/);
+  });
+  // Leaving the field (the change) drops the id and looks the name up, as before.
+  input.dispatch('change');
+  await settle();
+  assert.deepStrictEqual(stored(), { kick: 'other', kick_room: '999' });
+});
+
 // The Kick status line under the Kick channel field.
 const kickStatus = (p) => p.$('f-kick').parentNode.parentNode.parentNode.children.filter((e) => e.getAttribute('role') === 'status')[0];
 
@@ -558,6 +595,101 @@ test('Kick field: Check with a name that is not valid looks nothing up and leave
   assert.deepStrictEqual(api.calls.slice(before), [kickLookup('other'), kickLookup('other')]);
 });
 
+test('Kick field: one press of Check asks kick.com once, though the box is left and answered before the button comes up', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF + '?kick=xqc&kick_room=668');
+  const input = p.$('f-kick'), check = input.nextElementSibling, status = kickStatus(p);
+  // The mouse goes down on Check, which leaves the box (change: the new name is committed and looked up); kick.com
+  // answers before the button comes up, then the click.
+  input.value = 'other';
+  check.dispatch('mousedown');
+  input.dispatch('change');
+  await settle();
+  assert.match(status.textContent, /other found\. Chatroom id 999/);
+  check.dispatch('click', { detail: 1 });
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('other')], 'that lookup was this press of Check');
+  assert.match(status.textContent, /other found\. Chatroom id 999/);
+  // Pressed again with nothing new typed: a check of its own, as from the keyboard (no mousedown, detail 0).
+  check.dispatch('mousedown');
+  check.dispatch('click', { detail: 1 });
+  await settle();
+  check.dispatch('click', { detail: 0 });
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('other'), kickLookup('other'), kickLookup('other')]);
+  assert.strictEqual(p.$('f-kick_room').value, '999');
+});
+
+test('Kick field: a name typed away and back while its lookup is out waits for that answer, never asking twice', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF);
+  const input = p.$('f-kick'), check = input.nextElementSibling, room = p.$('f-kick_room'), status = kickStatus(p);
+  api.held = true;
+  input.value = 'xqc';
+  input.dispatch('change');
+  await settle();
+  assert.strictEqual(status.className, 'status busy');
+  // Another name, and a pause: xqc's lookup is dropped. xqc typed back and Check: the lookup still out is waited for.
+  input.value = 'other';
+  input.dispatch('input');
+  t.mock.timers.tick(700);
+  input.value = 'xqc';
+  check.dispatch('click');
+  await settle();
+  assert.strictEqual(status.className, 'status busy');
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc')]);
+  api.release();
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc')]);
+  assert.strictEqual(room.value, '668');
+  assert.match(status.textContent, /xqc found\. Chatroom id 668/);
+  // Its answer, once in, is no answer for later: Check asks again.
+  api.held = false;
+  check.dispatch('click');
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc'), kickLookup('xqc')]);
+});
+
+test('Kick field: the chatroom id filled in by a lookup is no edit: a quick look keeps its Undo, and the focus stays on it', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, HREF);
+  const L = looks(p);
+  const focused = [];
+  L.btns.forEach((b) => { b.focus = () => focused.push(b.textContent); });
+  api.held = true;
+  p.$('f-kick').value = 'xqc';
+  p.$('f-kick').dispatch('keydown', { key: 'Enter', preventDefault() {} });
+  await settle();
+  L.click('Boxed');
+  assert.strictEqual(L.undo.disabled, false);
+  p.doc.activeElement = L.undo;
+  api.release();
+  await settle();
+  assert.strictEqual(p.$('f-kick_room').value, '668');
+  assert.deepStrictEqual([L.undo.disabled, focused], [false, []], 'Undo still offered, the focus left on it');
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=xqc&kick_room=668&shadow=0&bg=70$/);
+  // Undo puts back the look only; the id stays.
+  L.undo.dispatch('click');
+  assert.match(p.text('bar-url'), /overlay\.html\?kick=xqc&kick_room=668$/);
+});
+
+test('Kick field: a settings.js naming a Kick channel without its id keeps its "Loaded" note once the id is filled in', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = kickApi(t);
+  const p = open(t, 'file:///E:/tco/builder.html');
+  const script = p.doc.head.children.filter((e) => e.tagName === 'SCRIPT')[0];
+  t.after(() => { delete globalThis.TCO_SETTINGS; });
+  globalThis.TCO_SETTINGS = { kick: 'xqc' };
+  script.onload();
+  await settle();
+  assert.deepStrictEqual(api.calls, [kickLookup('xqc')]);
+  assert.strictEqual(p.$('f-kick_room').value, '668');
+  assert.strictEqual(p.text('bar-note'), 'Loaded the settings.js from this folder.');
+});
+
 // n phrases of len CJK characters, each one different (9 bytes a character once percent-encoded).
 function cjkPhrases(n, len) {
   return Array.from({ length: n }, (_, i) =>
@@ -603,6 +735,58 @@ test('word lists too long for the host: the bar and Add to OBS say so, and the p
   assert.strictEqual(p.builder.urlTooLong(p.text('bar-url')), false);
   assert.strictEqual(long.hidden, true);
   assert.notStrictEqual(p.$('bar-note').className, 'status warn');
+});
+
+// Copy URL and Copy work through a hidden textarea and execCommand('copy') here (no clipboard API).
+function fakeCopy(p) {
+  const copied = [], make = p.doc.createElement;
+  let last = null;
+  p.doc.createElement = (tag) => {
+    const e = make(tag);
+    if (String(tag).toLowerCase() === 'textarea') { e.select = () => {}; e.setSelectionRange = () => {}; last = e; }
+    return e;
+  };
+  p.doc.execCommand = (cmd) => { if (cmd === 'copy' && last) copied.push(last.value); return cmd === 'copy'; };
+  return copied;
+}
+
+test('Copy URL: a warning beside the URL stays a warning once it is copied, and is said again', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookup
+  const p = open(t, HREF);
+  const copied = fakeCopy(p);
+  const words = cjkPhrases(50, 10);
+  p.$('paste').value = 'https://chat.masstar.org/overlay.html?kick=xqc&kick_room=668&block_words=' +
+    encodeURIComponent(words.join(',')) + '&keywords=' + encodeURIComponent(words.slice().reverse().join(','));
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(p.$('bar-note').className, 'status warn');
+  p.$('bar-copy').dispatch('click');
+  assert.deepStrictEqual(copied, [p.text('out-url')], 'still copied: a host of your own may take it');
+  assert.strictEqual(p.$('bar-note').className, 'status warn');
+  assert.match(p.text('bar-note'), /^Copied\. This URL is too long for the overlay’s host/);
+  t.mock.timers.tick(30);
+  assert.match(p.text('sr-status'), /^Copied\. This URL is too long/);
+  // Add to OBS's Copy says the same.
+  t.mock.timers.tick(2000);
+  assert.match(p.text('bar-note'), /^This URL is too long/);
+  p.$('out-copy').dispatch('click');
+  assert.match(p.text('bar-note'), /^Copied\. This URL is too long/);
+  // Any warning: no channel at all.
+  p.$('paste').value = '?bots=1';
+  p.$('paste-load').dispatch('click');
+  t.mock.timers.tick(2000);
+  p.$('bar-copy').dispatch('click');
+  assert.deepStrictEqual([p.$('bar-note').className, p.text('bar-note')],
+    ['status warn', 'Copied. Add a channel first. Without one the overlay only shows a hint.']);
+  // Nothing to warn of: what to do next, in green, as before.
+  t.mock.timers.tick(2000);
+  p.$('paste').value = '?channel=forsen';
+  p.$('paste-load').dispatch('click');
+  p.$('bar-copy').dispatch('click');
+  assert.deepStrictEqual([p.$('bar-note').className, p.text('bar-note')], ['status ok', 'Copied. Paste it into an OBS Browser source.']);
+  t.mock.timers.tick(30);
+  assert.strictEqual(p.text('sr-status'), 'Copied!');
+  await settle(); // the channel lookup ends
 });
 
 // A field's row, from its label (label < .field-name < .field-head < .field).
@@ -1421,9 +1605,14 @@ test('a words field says how many phrases were left out past 50, or over 40 char
   assert.strictEqual(note.textContent, '6 phrases were left out: up to 50 are used, each up to 40 characters.');
   t.mock.timers.tick(30);
   assert.strictEqual(p.text('sr-status'), note.textContent, 'and said once for a screen reader');
+  // While it shows, the line is part of the box's description, so it is read again whenever the box is.
+  assert.strictEqual(note.id, 'w-block_words');
+  assert.strictEqual(bw.getAttribute('aria-describedby'), 'h-block_words w-block_words');
+  assert.strictEqual(bw.getAttribute('aria-invalid'), null, 'a warning: what is kept is a valid list');
   // What is kept, left again, leaves nothing out.
   bw.dispatch('change');
   assert.strictEqual(note.textContent, '');
+  assert.strictEqual(bw.getAttribute('aria-describedby'), 'h-block_words');
   bw.value = 'gg, ' + 'y'.repeat(41);
   bw.dispatch('change');
   assert.deepStrictEqual([bw.value, note.textContent], ['gg', '1 phrase was left out: up to 50 are used, each up to 40 characters.']);
@@ -1437,10 +1626,63 @@ test('a words field says how many phrases were left out past 50, or over 40 char
   hw.value = 'hype, ' + 'z'.repeat(41);
   hw.dispatch('change');
   assert.match(hnote.textContent, /^1 phrase was left out/);
+  assert.strictEqual(hw.getAttribute('aria-describedby'), 'h-keywords w-keywords');
   p.$('reset').dispatch('click');
   assert.deepStrictEqual([note.textContent, hnote.textContent, bw.value, hw.value], ['', '', '', '']);
+  assert.deepStrictEqual([bw.getAttribute('aria-describedby'), hw.getAttribute('aria-describedby')], ['h-block_words', 'h-keywords']);
   // A list of names has no such line.
   assert.deepStrictEqual(rowOf(p, 'block').children.filter((e) => e.tagName === 'P' && e.classList.contains('warn')), []);
+});
+
+// A paste into a box: clipboard text, the selection it replaces, and whether the page took it over (preventDefault).
+function paste(box, text) {
+  if (typeof box.selectionStart !== 'number') box.selectionStart = box.selectionEnd = box.value.length;
+  let taken = false;
+  box.dispatch('paste', { clipboardData: { getData: (type) => (type === 'text/plain' ? text : '') }, preventDefault() { taken = true; } });
+  return taken;
+}
+
+test('a words field: a list pasted one per line (or in tab-separated cells) is one phrase a line, never one long phrase', (t) => {
+  const store = memoryStorage();
+  const p = open(t, HREF, { storage: store });
+  const stored = () => JSON.parse(store.getItem('tco-builder-cfg') || '{}');
+  const bw = p.$('f-block_words'), kw = p.$('f-keywords');
+  // A one-line box would turn the line breaks into spaces: 'badword worse word third', one phrase no message has.
+  assert.strictEqual(paste(bw, 'badword\nworse word\r\nthird\n'), true);
+  assert.strictEqual(bw.value, 'badword, worse word, third');
+  t.mock.timers.tick(400);
+  assert.deepStrictEqual(stored().block_words, ['badword', 'worse word', 'third'], 'committed as typing is, after the pause');
+  // After what is in the box already, and before it: a separator where none is.
+  bw.selectionStart = bw.selectionEnd = bw.value.length;
+  paste(bw, 'gg\n\n  ez,\n');
+  assert.strictEqual(bw.value, 'badword, worse word, third, gg, ez');
+  bw.value = 'x, y';
+  bw.selectionStart = bw.selectionEnd = 0;
+  paste(bw, 'a\tb');
+  assert.strictEqual(bw.value, 'a, b, x, y');
+  // Over a selection, which it replaces.
+  bw.value = 'one two';
+  bw.selectionStart = 4;
+  bw.selectionEnd = 7;
+  paste(bw, 'three\nfour');
+  assert.strictEqual(bw.value, 'one, three, four');
+  bw.dispatch('change');
+  assert.deepStrictEqual(stored().block_words, ['one', 'three', 'four']);
+  // Nothing but line breaks: the selection goes, as a paste of nothing.
+  bw.selectionStart = 0;
+  bw.selectionEnd = 5;
+  paste(bw, '\r\n\n');
+  assert.strictEqual(bw.value, 'three, four');
+  // One line is the browser's to paste, as it is.
+  kw.value = '';
+  kw.selectionStart = kw.selectionEnd = 0;
+  assert.strictEqual(paste(kw, 'good game'), false);
+  assert.strictEqual(kw.value, '');
+  // Highlight words takes a list the same way, and the browser's own insert (with its undo) is used where it works.
+  const inserted = [];
+  p.doc.execCommand = (cmd, ui, text) => { inserted.push([cmd, text]); return true; };
+  assert.strictEqual(paste(kw, 'hype\r\npog'), true);
+  assert.deepStrictEqual(inserted, [['insertText', 'hype, pog']]);
 });
 
 test('the name colors, the separator, timestamps and the reply header: live, and greyed out while they can\'t apply', (t) => {

@@ -10,7 +10,8 @@
   var WEIGHTS = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
 
   // type: channel | kick | room | enum | int | bool | font | list | words | color | chars
-  // list: Twitch/Kick logins. words: words or phrases, separated by commas only (a phrase keeps its spaces; WORD_SEP).
+  // list: Twitch/Kick logins. words: words or phrases, separated by commas or line breaks (a phrase keeps its spaces;
+  // WORD_SEP).
   // chars: command prefixes, a few signs from PREFIX_CHARS written together ('!?').
   // color: a hex color stored as bare lowercase rrggbb ('' = the overlay's built-in color).
   // int lowest: 0 is off, and the smallest value that does anything else is lowest (1..lowest-1 is raised to it).
@@ -150,7 +151,9 @@
   // Arabic, Persian and Urdu comma (U+060C), and the Armenian, NKo, Ethiopic and Mongolian commas. Without them a list
   // typed with a Japanese IME ('kusa<U+3001>www') would be one phrase that no message ever matches.
   var SEP_CHARS = ',\uff0c\u3001\uff64\ufe50\ufe51\u060c\u055d\u07f8\u1363\u1802\u1808';
-  var WORD_SEP = new RegExp('[' + SEP_CHARS + ']');
+  // words: a line break separates phrases too, so a list written one phrase a line (a settings.js string, a pasted
+  // list) is never one long phrase. Never part of a stored phrase, so the value reads back the same from the URL.
+  var WORD_SEP = new RegExp('[' + SEP_CHARS + '\\r\\n]');
   // list: logins, separated by commas or spaces.
   var LIST_SEP = new RegExp('[\\s' + SEP_CHARS + ']+');
   // chars: the signs a command may start with, and how many of them one value holds at most.
@@ -270,9 +273,16 @@
     return /^[a-z0-9_-]{1,40}$/.test(s) ? s : '';
   }
 
+  // A login in a list of names (block, allow_users, highlight_users) -> lowercased, or ''. Kick spells a username's
+  // underscores as hyphens in its slug and in kick.com/<slug> links, and Kick chat is matched by the username
+  // (kick.loginOf), so '-' is read as '_' (no Twitch login has '-'). A pasted twitch.tv or kick.com link gives its name.
   function normalizeLogin(v) {
     if (typeof v !== 'string' && typeof v !== 'number') return '';
-    var s = String(v || '').trim().replace(/^[@#]+/, '').toLowerCase();
+    var s = String(v || '').trim();
+    if (/^(?:https?:\/\/)?(?:www\.|m\.)?twitch\.tv\//i.test(s)) return normalizeChannel(s);
+    var k = s.replace(/^(?:https?:\/\/)?(?:www\.)?kick\.com\/(?:popout\/)?/i, '');
+    if (k !== s) s = k.split(/[/?#]/)[0];
+    s = s.replace(/^[@#]+/, '').toLowerCase().replace(/-/g, '_');
     return /^[a-z0-9_]{1,25}$/.test(s) ? s : '';
   }
 
@@ -360,10 +370,10 @@
         }
         return out;
       }
-      // Words or phrases, separated by commas only ('good game, gg'), so a phrase keeps its spaces (runs of them, and
-      // control characters, become one space). Stored lowercased (the overlay matches any letter case) and deduped. A
-      // phrase over MAX_WORD_LEN characters is left out, and so is every phrase after the first MAX_WORDS. An array
-      // item may hold commas too (settings.js), so the value always reads back the same from the URL.
+      // Words or phrases, separated by commas ('good game, gg') or line breaks, so a phrase keeps its spaces (runs of
+      // them, and other control characters, become one space). Stored lowercased (the overlay matches any letter case)
+      // and deduped. A phrase over MAX_WORD_LEN characters is left out, and so is every phrase after the first
+      // MAX_WORDS. An array item may hold commas too (settings.js), so the value always reads back the same from the URL.
       case 'words': {
         if (tv === 'boolean') return undefined;
         var items = Array.isArray(v) ? v : [v];

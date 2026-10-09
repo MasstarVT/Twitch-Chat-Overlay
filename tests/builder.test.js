@@ -1374,3 +1374,25 @@ test('quick looks in the URL: Default on a default config is today\'s URL; each 
   assert.strictEqual(builder.overlayUrl(builder.presetCfg(base, 'big'), hosted),
     'https://chat.masstar.org/overlay.html?channel=forsen&size=large&text_weight=bold&shadow=3&emote_scale=125');
 });
+
+test('pastedWords: a list pasted one per line (or in cells) into a words field becomes comma-separated phrases', () => {
+  const pw = builder.pastedWords;
+  // No line break or tab: the browser pastes it as it is.
+  assert.strictEqual(pw('', 0, 0, 'good game'), null);
+  assert.strictEqual(pw('', 0, 0, ''), null);
+  assert.strictEqual(pw('', 0, 0, undefined), null);
+  assert.deepStrictEqual(pw('', 0, 0, 'badword\nworse word\r\nthird\n'), { start: 0, end: 0, text: 'badword, worse word, third' });
+  assert.deepStrictEqual(pw('', 0, 0, ' a ,\n\n, b\t c '), { start: 0, end: 0, text: 'a, b, c' });
+  // Its edges: a comma where the phrases around the selection would run into it, and the spaces there go.
+  assert.deepStrictEqual(pw('gg ', 3, 3, 'a\nb'), { start: 2, end: 3, text: ', a, b' });
+  assert.deepStrictEqual(pw('gg, ', 4, 4, 'a\nb'), { start: 3, end: 4, text: ' a, b' });
+  assert.deepStrictEqual(pw('草、', 2, 2, 'a\nb'), { start: 2, end: 2, text: ' a, b' }, 'an input method\'s comma is one');
+  assert.deepStrictEqual(pw('x y', 0, 0, 'a\nb'), { start: 0, end: 0, text: 'a, b, ' });
+  assert.deepStrictEqual(pw('x, y', 1, 1, 'a\nb'), { start: 1, end: 1, text: ', a, b' });
+  // Over a selection; nothing but line breaks takes the selection away.
+  assert.deepStrictEqual(pw('one two', 4, 7, 'three\nfour'), { start: 3, end: 7, text: ', three, four' });
+  assert.deepStrictEqual(pw('one two', 0, 4, '\r\n'), { start: 0, end: 4, text: '' });
+  // What it gives is read back as the lines were.
+  const v = 'gg', r = pw(v, 2, 2, 'Bad Word\nworse');
+  assert.deepStrictEqual(config.coerce('block_words', v.slice(0, r.start) + r.text + v.slice(r.end)), ['gg', 'bad word', 'worse']);
+});

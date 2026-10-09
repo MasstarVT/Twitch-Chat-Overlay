@@ -1306,6 +1306,21 @@ test('Kick: "@StreamElements" is hidden by bots=0, block=streamelements (or @str
   assert.strictEqual(h.deps.quoteHidden(reply.reply), true);
 });
 
+// Kick spells a username's underscores as hyphens in its kick.com/<slug> link. Copied from there into a list of names,
+// the name was once dropped (config.normalizeLogin took only [a-z0-9_]), so the chatter was never blocked or allowed.
+test('Kick: a chatter named Mr_Mammal is blocked or allowed by mr-mammal, as kick.com spells it, or by the kick.com link', async (t) => {
+  const run = async (q) => {
+    const h = await boot(t, { search: '?kick=kickname&kick_room=668' + q });
+    h.kick.send('ChatMessageEvent', kickChat('Mr_Mammal', 'mammal line'));
+    h.kick.send('ChatMessageEvent', kickChat('KickFan', 'fan line'));
+    return h;
+  };
+  assert.deepStrictEqual(texts(await run('&block=mr-mammal')), ['fan line']);
+  assert.deepStrictEqual(texts(await run('&block=' + encodeURIComponent('https://kick.com/Mr-Mammal'))), ['fan line']);
+  assert.deepStrictEqual(texts(await run('&allow_users=mr-mammal')), ['mammal line']);
+  assert.deepStrictEqual(texts(await run('')), ['mammal line', 'fan line']);
+});
+
 test('Kick: events wait for Twitch history, in order with Twitch lines', async (t) => {
   const hist = deferred();
   const h = await boot(t, {
