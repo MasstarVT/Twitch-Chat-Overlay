@@ -9,3 +9,8 @@ Thumbs.db
 .claude/
 CLAUDE.md
 claude.md
+
+# Design tool files (local only)
+.impeccable/
+DESIGN.md
+PRODUCT.md
