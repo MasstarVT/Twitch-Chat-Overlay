@@ -107,9 +107,13 @@ test('widgets: switches, segmented choices, steppers, sliders, color pickers', (
   config.KEYS.filter((k) => k !== 'channel').forEach((k) => { kinds[k] = builder.widgetFor(k); });
   // The six weights are a slider: six choices in a row wrap unevenly on a phone.
   const SLIDERS = ['text_weight', 'name_weight'];
+  // Ten entrances are a list that plays each one (a row of ten wraps into a block).
+  const LISTS = ['enter_style'];
   Object.keys(config.SPEC).forEach((k) => {
     if (config.SPEC[k].type === 'bool') assert.strictEqual(kinds[k], 'check', k);
-    if (config.SPEC[k].type === 'enum') assert.strictEqual(kinds[k], SLIDERS.indexOf(k) >= 0 ? 'range' : 'seg', k);
+    if (config.SPEC[k].type === 'enum') {
+      assert.strictEqual(kinds[k], SLIDERS.indexOf(k) >= 0 ? 'range' : LISTS.indexOf(k) >= 0 ? 'select' : 'seg', k);
+    }
     if (config.SPEC[k].type === 'color') {
       assert.strictEqual(kinds[k], 'color', k);
       // the picker shows it while the setting is '' (an <input type=color> needs a #rrggbb value)
@@ -1119,9 +1123,23 @@ test('the animation options: labels, steppers and what each needs', () => {
   // Lengths, both (a higher number is slower, so not a "speed").
   assert.deepStrictEqual([m.enter_ms.label, m.fade_out_ms.label], ['Entrance length', 'Fade-out length']);
   assert.strictEqual(builder.widgetFor('animate'), 'check');
-  assert.deepStrictEqual(m.enter_style.options, { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop' });
+  assert.deepStrictEqual(m.enter_style.options, { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop', bounce: 'Bounce',
+    spring: 'Spring', zoom: 'Zoom', flip: 'Flip', tilt: 'Tilt', unfold: 'Unfold' });
+  // The list plays the overlay's own keyframes: the renderer's names, and css/builder.css has each as overlay.css has it.
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(builder.ENTER_FRAMES)), JSON.parse(JSON.stringify(require('../js/renderer.js')._internal.ENTER)));
+  assert.strictEqual(m.enter_style.play, builder.ENTER_FRAMES);
+  const frames = (file) => {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'css', file), 'utf8').replace(/\r\n/g, '\n');
+    const out = {};
+    for (const x of css.matchAll(/@keyframes (tco-in[\w-]*) \{[\s\S]*?\n\}/g)) out[x[1]] = x[0];
+    return out;
+  };
+  const names = [...new Set([].concat(...Object.values(builder.ENTER_FRAMES)))].sort();
+  assert.deepStrictEqual(Object.keys(frames('builder.css')).sort(), names);
+  assert.deepStrictEqual(frames('builder.css'), frames('overlay.css'));
+  assert.match(m.enter_style.help, /to see it play/);
   assert.deepStrictEqual(m.exit_style.options, { fade: 'Fade', slide: 'Slide' });
-  assert.deepStrictEqual(['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].map(builder.widgetFor), ['seg', 'stepper', 'stepper', 'seg']);
+  assert.deepStrictEqual(['enter_style', 'enter_ms', 'fade_out_ms', 'exit_style'].map(builder.widgetFor), ['select', 'stepper', 'stepper', 'seg']);
   // Steps of 50 and 250 ms; a fade-out of 0 shows as Instant (the entrance has no 0: animate=0 is its off switch).
   assert.deepStrictEqual([m.enter_ms.step, m.enter_ms.unit, m.enter_ms.zero], [50, 'ms', undefined]);
   assert.deepStrictEqual([m.fade_out_ms.step, m.fade_out_ms.unit, m.fade_out_ms.zero], [250, 'ms', 'Instant']);

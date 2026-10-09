@@ -136,12 +136,17 @@
   // enter_style: each entrance's keyframes (css/overlay.css) in a column and in a row. slide is the column's rise and
   // the row's slide in from the right, as always; pop grows a row's message from its middle.
   var ENTER = { slide: ['tco-in', 'tco-in-x'], fade: ['tco-in-fade', 'tco-in-fade'], pop: ['tco-in-pop', 'tco-in-pop-x'],
-    drop: ['tco-in-drop', 'tco-in-drop'] };
+    drop: ['tco-in-drop', 'tco-in-drop'], bounce: ['tco-in-bounce', 'tco-in-bounce-x'], spring: ['tco-in-spring', 'tco-in-spring-x'],
+    zoom: ['tco-in-zoom', 'tco-in-zoom-x'], flip: ['tco-in-flip', 'tco-in-flip'], tilt: ['tco-in-tilt', 'tco-in-tilt'],
+    unfold: ['tco-in-unfold', 'tco-in-unfold'] };
   // exit_style=slide: the line moves out toward the edge old lines leave by as it fades: the top of a column, the bottom
   // of one with the newest line on top (newestFirst), the left end of a row.
   var EXIT_SLIDE = { up: 'tco-out-slide', down: 'tco-out-slide-down', left: 'tco-out-slide-x' };
+  var ENTER_STYLES = Object.keys(ENTER);
   // Every name onAnimEnd acts on, whatever the settings were when the animation began.
-  var ENTER_NAMES = ['tco-in', 'tco-in-x', 'tco-in-fade', 'tco-in-pop', 'tco-in-pop-x', 'tco-in-drop'];
+  var ENTER_NAMES = ['tco-in', 'tco-in-x', 'tco-in-fade', 'tco-in-pop', 'tco-in-pop-x', 'tco-in-drop', 'tco-in-bounce',
+    'tco-in-bounce-x', 'tco-in-spring', 'tco-in-spring-x', 'tco-in-zoom', 'tco-in-zoom-x', 'tco-in-flip', 'tco-in-tilt',
+    'tco-in-unfold'];
   var EXIT_NAMES = ['tco-fade', 'tco-out-slide', 'tco-out-slide-down', 'tco-out-slide-x'];
   // Text that draws nothing: spaces, and format and other invisible characters (U+E0000 and U+034F, the suffixes
   // chat clients add to send the same message twice). An emote-only line may have them between its emotes.
@@ -160,7 +165,7 @@
     fade: { min: 0, max: 3600, def: 0 },
     max: { min: 1, max: 200, def: 50 },
     animate: { bool: true, def: true },
-    enter_style: { values: ['slide', 'fade', 'pop', 'drop'], def: 'slide' },
+    enter_style: { values: ENTER_STYLES, def: 'slide' },
     enter_ms: { min: 50, max: 1000, def: IN_MS },
     fade_out_ms: { min: 0, max: 10000, def: FADE_OUT_MS },
     exit_style: { values: ['fade', 'slide'], def: 'fade' },

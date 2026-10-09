@@ -86,6 +86,15 @@
   var TEXT_PX = { small: 18, medium: 24, large: 32 };
   function textPxFrom0(cfg) { return TEXT_PX[cfg && cfg.size] || TEXT_PX.medium; }
 
+  // enter_style: each entrance's keyframes in a column and in a row, as js/renderer.js ENTER (tests hold them equal).
+  // css/builder.css has a copy of each, so the Entrance list plays them on its own words.
+  var ENTER_FRAMES = { slide: ['tco-in', 'tco-in-x'], fade: ['tco-in-fade', 'tco-in-fade'], pop: ['tco-in-pop', 'tco-in-pop-x'],
+    drop: ['tco-in-drop', 'tco-in-drop'], bounce: ['tco-in-bounce', 'tco-in-bounce-x'], spring: ['tco-in-spring', 'tco-in-spring-x'],
+    zoom: ['tco-in-zoom', 'tco-in-zoom-x'], flip: ['tco-in-flip', 'tco-in-flip'], tilt: ['tco-in-tilt', 'tco-in-tilt'],
+    unfold: ['tco-in-unfold', 'tco-in-unfold'] };
+  // A played entrance lasts Entrance length, but never less than this: 180 ms is over before the eye finds it.
+  var PLAY_MIN_MS = 500;
+
   // text_weight and name_weight: six steps from light to black, on a slider (a row of six choices wraps
   // unevenly on a phone).
   var WEIGHT_LABELS = { light: 'Light', regular: 'Regular', semibold: 'Semi-bold', bold: 'Bold', heavy: 'Heavy', black: 'Black' };
@@ -175,8 +184,10 @@
     row_sep: { label: 'Mark between messages', options: { none: 'None', dot: 'Dot', bar: 'Bar', diamond: 'Diamond' }, only: 'horizontal',
       help: 'A small mark in the text color between messages in the row. Horizontal layout only.' },
     animate: { label: 'Animate new messages' },
-    enter_style: { label: 'Entrance', options: { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop' }, when: animateOn,
-      help: 'How a new message comes in: Slide rises from below (in a row, in from the right), Fade fades in, Pop grows from smaller and Drop comes down from above. In a row the older messages still glide left to make room. Needs Animate new messages.' },
+    enter_style: { label: 'Entrance', widget: 'select', play: ENTER_FRAMES, when: animateOn,
+      options: { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop', bounce: 'Bounce', spring: 'Spring', zoom: 'Zoom',
+        flip: 'Flip', tilt: 'Tilt', unfold: 'Unfold' },
+      help: 'How a new message comes in. Point at one in the list, or move to it with the arrow keys, to see it play (for at least half a second, so a short one can be seen). Slide rises from below (in a row, in from the right), Bounce rises and bounces as it lands, Pop and Spring grow into place, Zoom shrinks into place, Drop comes down from above, Flip swings down, Tilt rises turned a little, and Unfold opens out. In a row the older messages still glide left to make room. Needs Animate new messages.' },
     enter_ms: { label: 'Entrance length', widget: 'stepper', step: 50, unit: 'ms', when: animateOn,
       help: 'How long a new message takes to come in, in milliseconds (180 by default). When a message is removed soon after (Remove messages after, in Messages), its fade-out waits for the entrance to end and takes the time left. Needs Animate new messages.' },
     fade: { label: 'Remove messages after', widget: 'stepper', step: 5, unit: 's', zero: 'Never',
@@ -1209,6 +1220,132 @@
         field.helpEl = addHelp(row, key, seg);
         field.inputs = radios;
         field.set = function (v) { radios.forEach(function (r) { r.checked = r.value === String(v); }); };
+        break;
+      }
+      case 'select': {
+        // A choice in a list that opens under a button (a select-only combobox): the focus stays on the button and the
+        // arrow keys move along the options. With META.play (enter_style), the option under the pointer or the keys
+        // plays its animation on its own name, and so does the button's under the pointer. Its name is no <label>: a
+        // click on it would open the list.
+        addLabel(false);
+        var sel = control(h('div', 'select'));
+        var btn = h('button', 'select-btn');
+        btn.type = 'button';
+        btn.id = id;
+        btn.setAttribute('role', 'combobox');
+        btn.setAttribute('aria-haspopup', 'listbox');
+        btn.setAttribute('aria-expanded', 'false');
+        btn.setAttribute('aria-controls', id + '-list');
+        btn.setAttribute('aria-labelledby', 'l-' + key);
+        var shown = h('span', 'select-value');
+        btn.appendChild(shown);
+        sel.appendChild(btn);
+        var list = h('ul', 'select-list');
+        list.id = id + '-list';
+        list.setAttribute('role', 'listbox');
+        list.setAttribute('aria-labelledby', 'l-' + key);
+        list.hidden = true;
+        sel.appendChild(list);
+        field.helpEl = addHelp(row, key, btn);
+        var opts = segValues(key).map(function (o) {
+          var li = h('li', 'select-opt');
+          li.id = id + '-' + o.value;
+          li.setAttribute('role', 'option');
+          li.setAttribute('aria-selected', 'false');
+          var word = h('span', 'select-word', o.label);
+          li.appendChild(word);
+          list.appendChild(li);
+          return { value: o.value, label: o.label, li: li, word: word };
+        });
+        var active = -1;
+        var play = function (el, value) {
+          if (!m.play || !m.play[value]) return;
+          var name = m.play[value][B.cfg.layout === 'horizontal' ? 1 : 0];
+          var ms = Math.max(PLAY_MIN_MS, Number(B.cfg.enter_ms) || 0);
+          el.style.animation = 'none';
+          void el.offsetWidth; // the same animation again starts over only after a style without it
+          el.style.animation = name + ' ' + ms + 'ms ease-out';
+        };
+        var indexOf = function (v) {
+          for (var i = 0; i < opts.length; i++) if (opts[i].value === String(v)) return i;
+          return -1;
+        };
+        var setActive = function (i, playIt) {
+          if (i < 0 || i >= opts.length) return;
+          if (active >= 0) opts[active].li.classList.remove('active');
+          active = i;
+          opts[i].li.classList.add('active');
+          btn.setAttribute('aria-activedescendant', opts[i].li.id);
+          if (opts[i].li.scrollIntoView) opts[i].li.scrollIntoView({ block: 'nearest' });
+          if (playIt) play(opts[i].word, opts[i].value);
+        };
+        var isOpen = function () { return !list.hidden; };
+        var openList = function () {
+          if (isOpen() || btn.disabled) return;
+          list.hidden = false;
+          sel.classList.add('open');
+          btn.setAttribute('aria-expanded', 'true');
+          // all of it in sight: near the foot of the panel it would open past the panel's edge
+          if (list.scrollIntoView) list.scrollIntoView({ block: 'nearest' });
+          setActive(Math.max(0, indexOf(B.cfg[key])), true);
+        };
+        var closeList = function () {
+          if (!isOpen()) return;
+          list.hidden = true;
+          sel.classList.remove('open');
+          btn.setAttribute('aria-expanded', 'false');
+          btn.removeAttribute('aria-activedescendant');
+          if (active >= 0) opts[active].li.classList.remove('active');
+          active = -1;
+        };
+        var choose = function (i) {
+          closeList();
+          if (!opts[i] || opts[i].value === String(B.cfg[key])) return;
+          update(key, opts[i].value);
+          field.set(B.cfg[key]); // update redraws every field but the one that changed
+        };
+        btn.addEventListener('click', function () { if (isOpen()) closeList(); else openList(); });
+        btn.addEventListener('mouseenter', function () { if (!isOpen()) play(shown, B.cfg[key]); });
+        btn.addEventListener('blur', closeList);
+        btn.addEventListener('keydown', function (e) {
+          var k = e.key;
+          if (!isOpen()) {
+            if (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Enter' || k === ' ') { e.preventDefault(); openList(); }
+            return;
+          }
+          if (k === 'ArrowDown') setActive(Math.min(opts.length - 1, active + 1), true);
+          else if (k === 'ArrowUp') setActive(Math.max(0, active - 1), true);
+          else if (k === 'Home') setActive(0, true);
+          else if (k === 'End') setActive(opts.length - 1, true);
+          else if (k === 'Enter' || k === ' ') choose(active);
+          else if (k === 'Escape') closeList();
+          else if (k === 'Tab') { closeList(); return; }
+          else if (k && k.length === 1 && /\S/.test(k)) {
+            // the next option whose name starts with the letter typed, after the one the keys are on
+            for (var n = 1; n <= opts.length; n++) {
+              var j = (active + n) % opts.length;
+              if (opts[j].label.charAt(0).toLowerCase() === k.toLowerCase()) { setActive(j, true); break; }
+            }
+          } else return;
+          e.preventDefault();
+        });
+        opts.forEach(function (o, i) {
+          // pressed, the button keeps the focus (and the list stays open until the click chooses)
+          o.li.addEventListener('mousedown', function (e) { e.preventDefault(); });
+          o.li.addEventListener('mouseenter', function () { setActive(i, true); });
+          o.li.addEventListener('click', function () { choose(i); });
+        });
+        field.inputs.push(btn);
+        field.set = function (v) {
+          var i = indexOf(v);
+          shown.textContent = i >= 0 ? opts[i].label : String(v);
+          opts.forEach(function (o, j) { o.li.setAttribute('aria-selected', j === i ? 'true' : 'false'); });
+        };
+        field.setDisabled = function (off) {
+          if (off) closeList();
+          btn.disabled = off;
+          if (off) row.classList.add('disabled'); else row.classList.remove('disabled');
+        };
         break;
       }
       case 'range': {
@@ -3512,6 +3649,7 @@
   return {
     start: start,
     META: META,
+    ENTER_FRAMES: ENTER_FRAMES,
     GROUPS: GROUPS,
     BADGE_SUBS: BADGE_SUBS,
     EVENT_SUBS: EVENT_SUBS,

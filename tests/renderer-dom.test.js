@@ -621,7 +621,7 @@ test('every entrance hands off to the fade, in a column and in a row, and the fa
   const s = setup(t);
   const exits = { vertical: 'tco-out-slide', horizontal: 'tco-out-slide-x' };
   ['vertical', 'horizontal'].forEach((layout) => {
-    ['slide', 'fade', 'pop', 'drop'].forEach((style) => {
+    Object.keys(R.ENTER).forEach((style) => {
       ['fade', 'slide'].forEach((exit) => {
         const x = another(s, { fade: 30, animate: true, layout: layout, enter_style: style, enter_ms: 300, fade_out_ms: 2000, exit_style: exit });
         x.r.push(chat('amy', 'a'));

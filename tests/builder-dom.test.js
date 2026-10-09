@@ -2383,6 +2383,90 @@ test('event types and filters: a labelled grid under Show subs…, greyed out wi
   assert.deepStrictEqual([p.text('bar-url'), cp.value, cp.disabled, p.$('f-block_words').value, ml.value], [OVERLAY, '!', true, '', 'Off']);
 });
 
+test('Entrance: a list under a button; the option under the pointer or the keys plays its entrance on its name', (t) => {
+  const p = open(t, HREF);
+  const btn = p.$('f-enter_style'), list = p.$('f-enter_style-list');
+  const opt = (v) => p.$('f-enter_style-' + v);
+  const key = (k) => btn.dispatch('keydown', { key: k, preventDefault() {} });
+  const word = (v) => opt(v).children[0];
+  // A combobox button naming the choice, its list shut; every option, the chosen one selected.
+  assert.deepStrictEqual([btn.tagName, btn.getAttribute('role'), btn.getAttribute('aria-haspopup'), btn.getAttribute('aria-expanded'),
+    btn.getAttribute('aria-controls'), btn.getAttribute('aria-labelledby'), btn.textContent, list.hidden],
+  ['BUTTON', 'combobox', 'listbox', 'false', 'f-enter_style-list', 'l-enter_style', 'Slide', true]);
+  assert.strictEqual(list.getAttribute('role'), 'listbox');
+  assert.deepStrictEqual(list.children.map((li) => [li.getAttribute('role'), li.textContent]), Object.entries(p.builder.META.enter_style.options)
+    .map(([, label]) => ['option', label]));
+  assert.deepStrictEqual(list.children.filter((li) => li.getAttribute('aria-selected') === 'true').map((li) => li.id), ['f-enter_style-slide']);
+  // Its name is no <label>: a click on that would open the list.
+  assert.strictEqual(p.$('l-enter_style').tagName, 'SPAN');
+  // The pointer on the shut button plays the chosen entrance on its word, at least half a second long.
+  btn.dispatch('mouseenter');
+  assert.strictEqual(btn.children[0].style.animation, 'tco-in 500ms ease-out');
+  // Opened from the keys: the keys are on the chosen one, which plays.
+  key('ArrowDown');
+  assert.deepStrictEqual([list.hidden, btn.getAttribute('aria-expanded'), btn.getAttribute('aria-activedescendant')],
+    [false, 'true', 'f-enter_style-slide']);
+  assert.strictEqual(word('slide').style.animation, 'tco-in 500ms ease-out');
+  key('ArrowDown');
+  key('ArrowDown');
+  assert.strictEqual(btn.getAttribute('aria-activedescendant'), 'f-enter_style-pop');
+  assert.strictEqual(word('pop').style.animation, 'tco-in-pop 500ms ease-out');
+  assert.strictEqual(opt('pop').classList.contains('active'), true);
+  assert.strictEqual(opt('fade').classList.contains('active'), false);
+  // A letter goes to the next option it starts; End and Home to the ends.
+  key('t');
+  assert.strictEqual(btn.getAttribute('aria-activedescendant'), 'f-enter_style-tilt');
+  key('End');
+  assert.strictEqual(btn.getAttribute('aria-activedescendant'), 'f-enter_style-unfold');
+  key('Home');
+  assert.strictEqual(btn.getAttribute('aria-activedescendant'), 'f-enter_style-slide');
+  // Escape shuts it, choosing nothing.
+  key('Escape');
+  assert.deepStrictEqual([list.hidden, btn.getAttribute('aria-activedescendant'), p.text('bar-url')], [true, null, OVERLAY]);
+  // The pointer: an option it moves onto plays, and a click chooses it.
+  btn.dispatch('click');
+  opt('bounce').dispatch('mouseenter');
+  assert.strictEqual(word('bounce').style.animation, 'tco-in-bounce 500ms ease-out');
+  assert.strictEqual(opt('bounce').dispatch('mousedown', { preventDefault() { this.prevented = true; } }).prevented, true,
+    'the button keeps the focus');
+  opt('bounce').dispatch('click');
+  assert.deepStrictEqual([list.hidden, btn.textContent, p.text('bar-url')], [true, 'Bounce', OVERLAY + '?enter_style=bounce']);
+  assert.strictEqual(opt('bounce').getAttribute('aria-selected'), 'true');
+  assert.strictEqual(opt('slide').getAttribute('aria-selected'), 'false');
+  // Enter chooses the one the keys are on; a longer Entrance length plays at that length; a row plays a row's entrance.
+  const em = p.$('f-enter_ms');
+  em.value = '800';
+  em.dispatch('blur');
+  const pick = (v) => {
+    const r = p.doc.querySelectorAll('input[name="f-layout"]').filter((x) => x.value === v)[0];
+    r.checked = true;
+    r.dispatch('change');
+  };
+  pick('horizontal');
+  key('Enter');
+  key('ArrowUp');
+  assert.strictEqual(word('drop').style.animation, 'tco-in-drop 800ms ease-out');
+  key('s');
+  assert.strictEqual(word('spring').style.animation, 'tco-in-spring-x 800ms ease-out');
+  key('Enter');
+  assert.strictEqual(btn.textContent, 'Spring');
+  assert.match(p.text('bar-url'), /enter_style=spring/);
+  // Leaving the button shuts the list; greyed out, the button can't open it.
+  key('ArrowDown');
+  btn.dispatch('blur');
+  assert.strictEqual(list.hidden, true);
+  const an = p.$('f-animate');
+  an.checked = false;
+  an.dispatch('change');
+  assert.strictEqual(btn.disabled, true);
+  btn.dispatch('click');
+  assert.strictEqual(list.hidden, true);
+  // css/builder.css: the list floats over the fields under it, and reduced motion stops the plays like every animation.
+  const css = fs.readFileSync(path.join(ROOT, 'css', 'builder.css'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(css, /\.select-list \{\n {2}position: absolute;/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n {2}\*, \*::before, \*::after \{ transition: none !important; animation: none !important; \}/);
+});
+
 test('the animation options: live, greyed out while animate or fade is off, each under its switch', (t) => {
   const p = open(t, HREF);
   t.mock.timers.tick(1000); // the demo preview loads
@@ -2413,10 +2497,11 @@ test('the animation options: live, greyed out while animate or fade is off, each
   an.checked = false;
   an.dispatch('change');
   assert.deepStrictEqual(state(), ['enter_style', 'enter_ms']);
-  assert.ok(p.doc.querySelectorAll('input[name="f-enter_style"]').every((r) => r.disabled));
+  assert.strictEqual(p.$('f-enter_style').disabled, true);
   an.checked = true;
   an.dispatch('change');
-  seg('enter_style', 'pop');
+  p.$('f-enter_style').dispatch('click');
+  p.$('f-enter_style-pop').dispatch('click');
   em.parentNode.children[2].dispatch('click');
   assert.strictEqual(em.value, '200 ms');
   seg('exit_style', 'slide');

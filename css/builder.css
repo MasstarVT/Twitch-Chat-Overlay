@@ -686,6 +686,111 @@ label.field-label { cursor: pointer; }
 /* many short choices: they flow onto a second row where the panel is narrower than all of them */
 .seg.wrap { flex-wrap: wrap; }
 
+/* a list that opens under a button (Entrance): the button looks like a text field with a chevron; the list floats
+   over the fields below it. The option the pointer or the arrow keys are on is raised a tone; the chosen one is white
+   with a Stream Purple Light bar along its left edge, as a chosen segment has one along its foot. */
+.select { position: relative; min-width: 0; }
+.select-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; min-height: 44px; padding: 0 14px 0 12px;
+  border: 1px solid var(--field-edge); border-radius: var(--radius-sm);
+  background: var(--field); color: var(--text);
+  font: 600 15px/1.2 var(--font-ui); text-align: left; cursor: pointer;
+}
+.select-btn:hover { border-color: var(--edge); }
+.select-btn:focus-visible { border-color: var(--accent); outline: 2px solid var(--focus); outline-offset: 2px; }
+.select-btn::after {
+  content: ""; flex: none; width: 7px; height: 7px; margin-top: -4px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+}
+.select.open .select-btn::after { margin-top: 4px; transform: rotate(-135deg); }
+.select-value, .select-word { display: inline-block; }
+.select-list {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 100%;
+  margin: 0; padding: 4px; list-style: none;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.select-list[hidden] { display: none; }
+.select-opt {
+  display: flex; align-items: center; min-height: 40px; padding: 0 14px;
+  border-radius: 6px;
+  font-weight: 600; font-size: 15px; line-height: 1.2; color: var(--muted);
+  white-space: nowrap; cursor: pointer;
+}
+.select-opt.active { background: var(--panel); color: var(--text); }
+.select-opt[aria-selected="true"] { color: #fff; box-shadow: inset 3px 0 0 var(--accent-hi); }
+.field.disabled .select-btn:hover { border-color: var(--field-edge); }
+
+/* The overlay's entrances (css/overlay.css, the same text: tests hold them equal), played on the Entrance list's words. */
+@keyframes tco-in {
+  from { opacity: 0; transform: translateY(.4em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-x {
+  from { opacity: 0; transform: translateX(.6em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes tco-in-pop {
+  from { opacity: 0; transform: translateX(var(--pop-x, -7.5%)) scale(.85); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-pop-x {
+  from { opacity: 0; transform: scale(.85); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-drop {
+  from { opacity: 0; transform: translateY(-.4em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-bounce {
+  from { opacity: 0; transform: translateY(.8em); }
+  55% { opacity: 1; transform: translateY(-.2em); }
+  80% { transform: translateY(.06em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-bounce-x {
+  from { opacity: 0; transform: translateX(.8em); }
+  55% { opacity: 1; transform: translateX(-.2em); }
+  80% { transform: translateX(.06em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-spring {
+  from { opacity: 0; transform: translateX(calc(var(--pop-x, -7.5%) * 8 / 3)) scale(.6); }
+  60% { opacity: 1; transform: translateX(calc(var(--pop-x, -7.5%) * -.4)) scale(1.06); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-spring-x {
+  from { opacity: 0; transform: scale(.6); }
+  60% { opacity: 1; transform: scale(1.06); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-zoom {
+  from { opacity: 0; transform: translateX(calc(var(--pop-x, -7.5%) * -5 / 3)) scale(1.25); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-zoom-x {
+  from { opacity: 0; transform: scale(1.25); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-flip {
+  from { opacity: 0; transform: perspective(30em) rotateX(-80deg); }
+  to { opacity: 1; transform: perspective(30em) rotateX(0deg); }
+}
+@keyframes tco-in-tilt {
+  from { opacity: 0; transform: translateY(.5em) rotate(-4deg); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-unfold {
+  from { opacity: 0; transform: scaleY(.2); }
+  to { opacity: 1; transform: none; }
+}
+
 /* switch: a checkbox drawn as a track and a knob */
 .switch {
   -webkit-appearance: none; appearance: none;
@@ -881,6 +986,7 @@ label.field-label { cursor: pointer; }
   .field-text .field-control { flex: 1 1 100%; }
   .field-font .field-control { width: 240px; }
   .field-range .field-control, .field-color .field-control { width: 260px; }
+  .field-select .field-control { width: 200px; }
   .seg { display: inline-flex; }
   .seg label { flex: none; }
   .seg span { padding: 0 13px; white-space: nowrap; }
@@ -1124,6 +1230,8 @@ label.field-label { cursor: pointer; }
 }
 
 @media (forced-colors: active) {
+  /* the option the keys are on keeps a mark where the raised tone is repainted */
+  .select-opt.active { outline: 2px solid Highlight; outline-offset: -2px; }
   .switch { -webkit-appearance: auto; appearance: auto; width: 20px; height: 20px; border-radius: 0; box-shadow: none; }
   .switch::before { content: none; }
   .seg input:checked + span { outline: 2px solid; }

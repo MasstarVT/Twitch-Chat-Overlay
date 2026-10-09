@@ -57,7 +57,8 @@
     edge_fade: { type: 'int', min: 0, max: 10, def: 0 },
     row_sep: { type: 'enum', values: ['none', 'dot', 'bar', 'diamond'], def: 'none' },
     animate: { type: 'bool', def: true },
-    enter_style: { type: 'enum', values: ['slide', 'fade', 'pop', 'drop'], def: 'slide' },
+    enter_style: { type: 'enum', values: ['slide', 'fade', 'pop', 'drop', 'bounce', 'spring', 'zoom', 'flip', 'tilt', 'unfold'],
+      def: 'slide' },
     // No 0: animate=0 is the off switch (a 0 ms entrance would leave the fade waiting on its end).
     enter_ms: { type: 'int', min: 50, max: 1000, def: 180 },
     fade: { type: 'int', min: 0, max: 3600, def: 0 },

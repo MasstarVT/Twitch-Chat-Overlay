@@ -116,6 +116,7 @@ class Element extends Node {
     if (k === 'class') this.className = String(v); // SVG elements get their class this way
   }
   getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attributes, k) ? this.attributes[k] : null; }
+  removeAttribute(k) { delete this.attributes[k]; }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
   removeEventListener(type, fn) {
     const l = this.listeners[type] || [];

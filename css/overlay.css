@@ -913,6 +913,52 @@ body {
   from { opacity: 0; transform: translateY(-.4em); }
   to { opacity: 1; transform: none; }
 }
+/* bounce rises (a row's message comes in from the right), overshoots and settles; spring grows like pop from further
+   and overshoots; zoom shrinks from larger. spring and zoom keep where the text starts as pop does: --pop-x is pop's
+   shift for its scale of .85, so a scale s moves by --pop-x times (1 - s) / .15. flip swings down about its middle,
+   tilt rises turned a little, and unfold opens from a sliver. */
+@keyframes tco-in-bounce {
+  from { opacity: 0; transform: translateY(.8em); }
+  55% { opacity: 1; transform: translateY(-.2em); }
+  80% { transform: translateY(.06em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-bounce-x {
+  from { opacity: 0; transform: translateX(.8em); }
+  55% { opacity: 1; transform: translateX(-.2em); }
+  80% { transform: translateX(.06em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-spring {
+  from { opacity: 0; transform: translateX(calc(var(--pop-x, -7.5%) * 8 / 3)) scale(.6); }
+  60% { opacity: 1; transform: translateX(calc(var(--pop-x, -7.5%) * -.4)) scale(1.06); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-spring-x {
+  from { opacity: 0; transform: scale(.6); }
+  60% { opacity: 1; transform: scale(1.06); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-zoom {
+  from { opacity: 0; transform: translateX(calc(var(--pop-x, -7.5%) * -5 / 3)) scale(1.25); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-zoom-x {
+  from { opacity: 0; transform: scale(1.25); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-flip {
+  from { opacity: 0; transform: perspective(30em) rotateX(-80deg); }
+  to { opacity: 1; transform: perspective(30em) rotateX(0deg); }
+}
+@keyframes tco-in-tilt {
+  from { opacity: 0; transform: translateY(.5em) rotate(-4deg); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tco-in-unfold {
+  from { opacity: 0; transform: scaleY(.2); }
+  to { opacity: 1; transform: none; }
+}
 @keyframes tco-out-slide {
   from { opacity: 1; transform: none; }
   to { opacity: 0; transform: translateY(-.6em); }
