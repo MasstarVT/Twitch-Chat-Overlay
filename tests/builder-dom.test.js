@@ -236,10 +236,10 @@ test('a greyed-out field says what it waits for; a greyed-out switch shows off, 
   assert.deepStrictEqual([needs('shadow_color').hidden, needs('shadow_color').textContent], [false, 'Needs Text shadow (Look).']);
   // A help whose first line says it already gets no second line (Outline color).
   assert.strictEqual(needs('outline_color').hidden, true);
-  // The platform icons: off without a Kick channel, and the help says when they show.
+  // The platform icons: off without both channels, and the help says when they show.
   assert.deepStrictEqual([p.$('f-platform_icons').disabled, p.$('f-platform_icons').checked], [true, false]);
   assert.match(p.text('h-platform_icons'), /^Only when both a Twitch and a Kick channel are set/);
-  p.$('paste').value = '?kick=xqc&kick_room=668';
+  p.$('paste').value = '?channel=home&kick=xqc&kick_room=668';
   p.$('paste-load').dispatch('click');
   assert.deepStrictEqual([p.$('f-platform_icons').disabled, p.$('f-platform_icons').checked], [false, true]);
   assert.strictEqual(needs('shadow_color').hidden, true);
@@ -366,7 +366,7 @@ test('Kick field: Check fills in the chatroom id; when Kick refuses, it links th
   assert.strictEqual(input.value, 'someone_else');
   assert.strictEqual(room.value, '');
   assert.strictEqual(status.className, 'status warn');
-  assert.match(status.textContent, /Kick didn’t allow the lookup/);
+  assert.match(status.textContent, /^Lookup refused\. /);
   // The top bar links to the chatroom id on the Kick tab, where the steps and the page to copy it from are.
   const go = status.children[0].children.filter((e) => e.tagName === 'A')[0];
   assert.deepStrictEqual([go.textContent, go.href], ['Add the chatroom id by hand', '#platforms']);
@@ -2211,7 +2211,7 @@ test('the highlights: live, the words and users as typed lists, and each color g
     [['mention_color', 'keyword_color', 'broadcaster_color', 'mod_color', 'vip_color'], OVERLAY + '?channel=home', '', '']);
 });
 
-// The platform icons need a Kick channel and the mentions a channel to name: until then they draw nothing, in the
+// The platform icons need both channels and the mentions a channel to name: until then they draw nothing, in the
 // preview or in OBS, so they are greyed out (and keep their values) like every other field that needs something.
 test('Show a Twitch or Kick icon, Highlight channel mentions and Mention color: greyed out until a channel they need is set', async (t) => {
   const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
@@ -2236,10 +2236,10 @@ test('Show a Twitch or Kick icon, Highlight channel mentions and Mention color: 
   await settle();
   assert.deepStrictEqual(state(), []);
   assert.strictEqual(p.$('f-platform_icons').disabled, false);
-  // Kick alone: the mentions name it, and the demo preview draws the icons for it.
+  // Kick alone: the mentions name it; the icons need both, as in OBS.
   commit('channel', '');
   await settle();
-  assert.deepStrictEqual(state(), []);
+  assert.deepStrictEqual(state(), ['platform_icons']);
   // Neither: all three greyed out again, and Mention color is greyed out with the mentions off whatever the channels.
   commit('f-kick', '');
   await settle();

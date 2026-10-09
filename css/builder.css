@@ -1103,7 +1103,9 @@ label.field-label { cursor: pointer; }
   .channel { gap: 16px; margin: 0 20px; }
   .ch-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .rail { padding-left: 8px; padding-right: 8px; }
-  .panel { grid-template-columns: 176px minmax(0, 1fr); }
+  /* room for the longest tab (Badges & paints) and its count on one line */
+  .panel { grid-template-columns: 188px minmax(0, 1fr); }
+  .tab { gap: 8px; padding: 0 10px; }
   .panel-body { padding: 24px; }
 }
 /* the stage column is narrower than the preview bar's 610px: the bar tightens so that W x H stays on its row */

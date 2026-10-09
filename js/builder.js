@@ -63,10 +63,9 @@
   function gifSizeOn(cfg) { return gifsOn(cfg) && bigDrawn(cfg); }
   // Text size applies until Exact text size (text_px) takes over.
   function sizeOn(cfg) { return !(cfg.text_px > 0); }
-  // The platform icons need a Kick channel (overlay.js showPlatforms; outside the demo preview the Twitch one too,
-  // but the preview draws them for Kick alone), and a mention a channel to name (renderer.js buildMatchers, demo.js
-  // mentioned). Either name here is a valid one: a refused name is never committed.
-  function kickOn(cfg) { return !!cfg.kick; }
+  // The platform icons need both channels (overlay.js showPlatforms), and a mention a channel to name (renderer.js
+  // buildMatchers, demo.js mentioned). Either name here is a valid one: a refused name is never committed.
+  function bothOn(cfg) { return !!(cfg.channel && cfg.kick); }
   function channelOn(cfg) { return !!(cfg.channel || cfg.kick); }
   // The highlight colors: each only while what it colors is on.
   function mentionsOn(cfg) { return !!cfg.mentions && cfg.mentions !== 'off'; }
@@ -110,7 +109,7 @@
     kick_room: { label: 'Kick chatroom id', placeholder: 'Check fills this in', parse: 'kickRoom',
       bad: 'Use the number only, or paste the whole channel page.',
       help: 'Kick’s chat needs this number. Check, beside the Kick channel in the top bar, fills it in when Kick allows the lookup. If it doesn’t, open the link shown here, and paste that whole page (or the number after "chatroom":{"id":) in this box.' },
-    platform_icons: { label: 'Show a Twitch or Kick icon on each message', when: kickOn,
+    platform_icons: { label: 'Show a Twitch or Kick icon on each message', when: bothOn,
       help: 'Only when both a Twitch and a Kick channel are set. Shows even with badges off.' },
     size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' }, when: sizeOn,
       help: '18, 24 or 32 px. While Exact text size (Advanced) is set, it decides instead.' },
@@ -926,7 +925,7 @@
     var needs = function (k) { return 'Needs ' + n(k) + '.'; };
     var row = 'In a horizontal row, needs ' + n('row_grow') + '.';
     // As its help starts, so the line under it isn't said twice (showWhyOff).
-    if (w === kickOn) return 'Only when both a Twitch and a Kick channel are set.';
+    if (w === bothOn) return 'Only when both a Twitch and a Kick channel are set.';
     if (w === channelOn) return 'Needs a Twitch or Kick channel.';
     if (w === sizeOn) return 'Not used while ' + n('text_px') + ' is set.';
     if (w === ownNameColors) return 'Not used while a ' + n('name_color') + ' is set.';
@@ -2357,7 +2356,7 @@
     if (st === 'typed') {
       box.textContent = 'Press Enter or Check to look up the name.';
     } else if (st === 'empty') {
-      box.textContent = optional ? 'Optional: add Twitch to show both chats.' : 'Enter your channel to preview its emotes and badges.';
+      box.textContent = optional ? 'Optional: add Twitch to show both chats.' : 'Enter your channel to see its emotes and badges.';
     } else if (st === 'bad') {
       box.textContent = 'That isn’t a valid Twitch name. Use letters, numbers and _ only.';
     } else if (st === 'checking') {
@@ -2426,6 +2425,8 @@
     if (box.className === 'status busy') { dropKickLookup(); return; }
     clear(box);
     box.className = 'status';
+    // With no Kick channel before it, the line that says one is optional stays.
+    kickIdle();
   }
 
   // The Kick status line with nothing to report: with no Kick channel, that one is optional (either channel will do).
@@ -2487,7 +2488,8 @@
       B.kickRefused = true;
       // The steps go under the chatroom id on the Kick tab (with the page to copy it from); this line links there.
       var t = h('span');
-      t.appendChild(document.createTextNode('Kick didn’t allow the lookup. '));
+      // Short, so that it fits on one line under the box in the app layout's top bar.
+      t.appendChild(document.createTextNode('Lookup refused. '));
       t.appendChild(roomLink());
       box.appendChild(t);
       var n = h('span');
@@ -2775,6 +2777,9 @@
     var c = copyCfg(B.cfg);
     c.channel = previewChannel();
     c.demo = B.mode === 'demo' || !!B.cfg.demo;
+    // The demo draws Twitch lines beside a Kick channel's, and so their icons, which OBS never shows with Kick alone
+    // (overlay.js showPlatforms counts the demo as a Twitch channel): the preview shows what OBS will.
+    if (!B.cfg.channel && !B.cfg.demo) c.platform_icons = false;
     return c;
   }
 

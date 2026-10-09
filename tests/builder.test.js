@@ -976,7 +976,7 @@ test('the look options grey out while the setting they need is off, and their he
     reply_style: [{ replies: false }, {}, 'Show what replies are answering'],
     mention_color: [{}, { mentions: 'at', channel: 'home' }, 'Highlight channel mentions (Chat events)'],
     mentions: [{ mentions: 'at' }, { mentions: 'at', channel: 'home' }, 'Needs a Twitch or Kick channel'],
-    platform_icons: [{}, { kick: 'kickname' }, 'a Kick channel'],
+    platform_icons: [{ kick: 'kickname' }, { channel: 'home', kick: 'kickname' }, 'a Twitch and a Kick channel'],
     keyword_color: [{}, { keywords: ['gg'] }, 'Highlight words'],
     points_color: [{ points_highlight: false }, {}, 'Channel-points highlights'],
     broadcaster_color: [{ role_style: 'off' }, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
@@ -1020,9 +1020,9 @@ test('the look options grey out while the setting they need is off, and their he
     assert.strictEqual(off('stv_lookup', over), !looksUp(Object.assign({}, d, over, { stv_lookup: true })),
       JSON.stringify(over));
   })));
-  // The platform icons need a Kick channel (overlay.js showPlatforms, in the demo preview: the Twitch channel is
-  // needed outside it), and a mention a channel to mention (renderer.js buildMatchers): greyed out exactly while
-  // they draw nothing.
+  // The platform icons need both channels (overlay.js showPlatforms, in OBS: the demo preview leaves them out with Kick
+  // alone, builder.js previewCfg), and a mention a channel to mention (renderer.js buildMatchers): greyed out exactly
+  // while they draw nothing.
   const showsBody = /function showPlatforms\(\) \{ return ([^;]+); \}/.exec(src);
   const twitchBody = /function twitchOn\(\) \{ return ([^;]+); \}/.exec(src);
   assert.ok(showsBody && twitchBody, 'overlay.js showPlatforms and twitchOn');
@@ -1031,7 +1031,7 @@ test('the look options grey out while the setting they need is off, and their he
   const matchers = require('../js/renderer.js')._internal.matchersFor;
   ['', 'home'].forEach((channel) => ['', 'kickname'].forEach((kick) => {
     const over = { channel: channel, kick: kick }, at = JSON.stringify(over);
-    const S = { cfg: Object.assign({}, d, over, { platform_icons: true, demo: true }) };
+    const S = { cfg: Object.assign({}, d, over, { platform_icons: true, demo: false }) };
     assert.strictEqual(off('platform_icons', over), !shows(S, () => twitchOn(S)), 'platform_icons ' + at);
     ['at', 'name'].forEach((mentions) => {
       const tints = !!matchers(Object.assign({}, d, over, { mentions: mentions })).mention;
