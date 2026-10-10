@@ -93,7 +93,7 @@ Limits:
 - **Super Chats and memberships** aren't shown: Mix It Up's Chat widget doesn't carry them.
 - **Mix It Up has to be running,** with Overlay connected and the widget enabled. The overlay shows a hint after about 10 seconds if it can't reach Mix It Up. If Mix It Up answers but the link is not an enabled Chat widget (an unknown id, a disabled widget, a widget that isn't a Single Widget URL, or an Overlay endpoint's link), a different hint says so after about 6 seconds, and the overlay keeps trying. The builder's **Check** button tells you whether Mix It Up knows the widget; it can't tell a Chat widget from another kind, so if no lines come, check that it is an enabled Chat widget with YouTube among its platforms.
 - **Clearing chat:** YouTube has no chat clear, and Mix It Up sends a clear for every platform's (a Twitch `/clear` too), so it is ignored: YouTube lines only go when a moderator deletes them.
-- **Local devices:** when a page from the internet (the hosted overlay) talks to `localhost`, your browser may ask permission to reach local devices. Allow it. If OBS's browser source can't (a hosted overlay URL fails to connect while the builder's preview works), run the overlay from a local folder instead (Option B).
+- **Local devices:** when a page from the internet (the hosted overlay) talks to `localhost`, your browser may ask permission to reach local devices. Allow it. If the hosted overlay can't connect in OBS, run it from a local folder instead (Option B).
 
 ## Options
 
