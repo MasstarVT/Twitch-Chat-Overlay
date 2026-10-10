@@ -1,7 +1,8 @@
 # Provider logos
 
-The home page and the builder show eight provider logos. Each one is an unmodified copy from the project's own
-repository or website, except `twitch.svg` and `kick.svg`, which are drawn from Simple Icons path data (below).
+The home page and the builder show nine provider logos. Each one is an unmodified copy from the project's own
+repository or website, except `twitch.svg`, `kick.svg` and `youtube.svg`, which are drawn from Simple Icons path data
+(below).
 None of this grants trademark rights: the names and logos remain the marks of their owners, and they are used
 here only to say which services the overlay works with. This project is not affiliated with any of them.
 
@@ -9,6 +10,7 @@ here only to say which services the overlay works with. This project is not affi
 |---|---|---|---|
 | `twitch.svg` | Twitch | Simple Icons 16.33.0 `icons/twitch.svg` path data, Twitch purple, with a white fill inside the outline (the same shapes as the overlay's platform icon) | CC0 1.0 for the path data |
 | `kick.svg` | Kick | Simple Icons 16.33.0 `icons/kick.svg` path data, in Kick green | CC0 1.0 for the path data |
+| `youtube.svg` | YouTube | Simple Icons 16.33.0 `icons/youtube.svg` path data, in YouTube red, with a white play triangle (the same shapes as the overlay's platform icon) | CC0 1.0 for the path data; the mark belongs to Google (YouTube) |
 | `7tv.svg` | 7TV | https://github.com/SevenTV/Extension/blob/master/public/logo.svg | Apache 2.0 with the Commons Clause (licensor: SEVENTV SARL) |
 | `bttv.png` | BetterTTV | https://github.com/night/betterttv/blob/master/src/assets/logos/bttv_logo.png | NightDev's BetterTTV license: copies are allowed, but distribution needs NightDev's permission (see below) |
 | `ffz.png` | FrankerFaceZ | https://www.frankerfacez.com/static/images/favicon-192.png | none stated |
@@ -25,16 +27,18 @@ it with CSS to show it in white; the file itself is unchanged.
 
 ## Platform icons in the overlay
 
-With both a Twitch and a Kick channel set, the overlay starts each chat line with a small Twitch or Kick icon, so
-viewers can tell where a message came from. These are not image files: `js/icons.js` draws them as inline SVG
-from the path data of the Twitch and Kick icons in [Simple Icons](https://simpleicons.org) 16.33.0
-(`icons/twitch.svg` and `icons/kick.svg`; Simple Icons is released under CC0 1.0). The Twitch icon gets a white
-fill inside its outline, as in Twitch's own logo. The marks remain the property of Twitch and Kick; they are
-used only to identify the platform a message came from, and `platform_icons=0` turns them off. The home page and
-the builder use the same shapes, as `twitch.svg` and `kick.svg`.
+With two or more of Twitch, Kick and YouTube set, the overlay starts each chat line with a small Twitch, Kick or
+YouTube icon, so viewers can tell where a message came from. These are not image files: `js/icons.js` draws them as
+inline SVG from the path data of the Twitch, Kick and YouTube icons in [Simple Icons](https://simpleicons.org)
+16.33.0 (`icons/twitch.svg`, `icons/kick.svg` and `icons/youtube.svg`; Simple Icons is released under CC0 1.0). The
+Twitch icon gets a white fill inside its outline, as in Twitch's own logo, and the YouTube icon a white play
+triangle, as in YouTube's. The marks remain the property of Twitch, Kick and Google (YouTube); they are used only to
+identify the platform a message came from, and `platform_icons=0` turns them off. The home page and the builder use
+the same shapes, as `twitch.svg`, `kick.svg` and `youtube.svg`.
 
-Kick's role badges (broadcaster, moderator, VIP and the others) are simple glyphs on colored tiles, drawn for
-this project in `js/icons.js`; they are not copies of Kick's own badge art.
+Kick's role badges (broadcaster, moderator, VIP and the others) and YouTube's (owner, moderator and member) are
+simple glyphs on colored tiles, drawn for this project in `js/icons.js`; they are not copies of Kick's or YouTube's
+own badge art.
 
 ## 7TV: Apache License 2.0 with the Commons Clause
 

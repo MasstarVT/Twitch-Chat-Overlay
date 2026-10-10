@@ -17,6 +17,7 @@ function flip(cfg, k) {
   else if (s.type === 'font') c[k] = c[k] === 'Roboto' ? 'Inter' : 'Roboto';
   else if (s.type === 'kick') c[k] = c[k] === 'xqc' ? 'forsen' : 'xqc';
   else if (s.type === 'room') c[k] = c[k] === '668' ? '4598' : '668';
+  else if (s.type === 'mixitup') c[k] = c[k] === '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a' ? '0b9f7d52-8e41-4a36-b2c0-7e5d1a9f3c68' : '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a';
   else if (s.type === 'list') c[k] = (c[k] || []).concat('someone');
   else if (s.type === 'words') c[k] = (c[k] || []).concat('some words');
   else if (s.type === 'color') c[k] = c[k] === 'ff8800' ? '336699' : 'ff8800';

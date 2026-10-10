@@ -21,7 +21,16 @@ test('every config key except channel is in exactly one form group, with a label
   config.KEYS.filter((k) => k !== 'channel').forEach((k) => assert.ok(seen[k], 'missing field for ' + k));
   assert.ok(!seen.channel);
   assert.deepStrictEqual(builder.groupLayout().map((g) => g.title),
-    ['Look', 'Kick', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Advanced']);
+    ['Look', 'Kick & YouTube', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Advanced']);
+  // Kick's and YouTube's tab (id platforms, as old links have it): the icons for every chat, then each platform's part.
+  const platforms = builder.GROUPS.filter((g) => g.id === 'platforms')[0];
+  assert.deepStrictEqual(platforms.keys, ['platform_icons', 'kick', 'kick_room', 'mixitup', 'mixitup_port']);
+  assert.deepStrictEqual(platforms.subs, [{ title: 'Kick', first: 'kick' }, { title: 'YouTube', first: 'mixitup' }]);
+  // What Kick chat shows ends Kick's part, before YouTube's heading; the tab has no foot of its own.
+  assert.deepStrictEqual(Object.keys(platforms.after), ['kick_room']);
+  assert.strictEqual(platforms.foot, undefined);
+  // The Mix It Up widget is set on the tab, not in the top bar, which keeps Twitch and Kick.
+  assert.deepStrictEqual(Object.keys(builder.META).filter((k) => builder.META[k].top), ['kick']);
 });
 
 test('sections: one per group plus Add to OBS, each with an id a link can open', () => {
@@ -132,6 +141,9 @@ test('widgets: switches, segmented choices, steppers, sliders, color pickers', (
   assert.strictEqual(kinds.block, 'text');
   assert.strictEqual(kinds.kick, 'text');
   assert.strictEqual(kinds.kick_room, 'text');
+  // The Mix It Up widget is a link to paste, and its port a number typed, as Mix It Up's Services page shows it.
+  assert.strictEqual(kinds.mixitup, 'text');
+  assert.strictEqual(kinds.mixitup_port, 'text');
   assert.deepStrictEqual(builder.segValues('shadow'), [
     { value: '0', label: 'None' }, { value: '1', label: 'Light' }, { value: '2', label: 'Medium' }, { value: '3', label: 'Strong' }]);
   assert.deepStrictEqual(builder.segValues('size').map((o) => o.value), config.SPEC.size.values);
@@ -393,6 +405,74 @@ test('urlNote: a Kick channel alone is enough; without its chatroom id the URL g
   assert.match(warn.text, /Kick chatroom id is missing/);
 });
 
+test('YouTube through Mix It Up: a widget alone is a channel; the URL carries its id, and its port only when not 8111', () => {
+  const W = '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a';
+  const cfg = Object.assign(config.defaults(), { mixitup: W });
+  const none = { state: 'empty', login: '' };
+  assert.strictEqual(builder.overlayUrl(cfg, BASE), 'https://masstarvt.github.io/Twitch-Chat-Overlay/overlay.html?mixitup=' + W);
+  assert.deepStrictEqual(builder.urlNote(cfg, none, builder.overlayUrl(cfg, BASE)),
+    { text: 'Every setting is at its default, so the URL only needs the Mix It Up widget.', cls: '' });
+  // Another port (Mix It Up's Services page) goes in the URL. The widget is no "setting you changed", but the port is one,
+  // so the note never says every setting is at its default while the URL shows it; its tab counts it too.
+  cfg.mixitup_port = 8112;
+  assert.strictEqual(builder.overlayUrl(cfg, BASE), 'https://masstarvt.github.io/Twitch-Chat-Overlay/overlay.html?mixitup=' + W + '&mixitup_port=8112');
+  assert.deepStrictEqual(builder.urlNote(cfg, none, builder.overlayUrl(cfg, BASE)),
+    { text: 'Holds only the 1 setting you changed. The rest use the defaults.', cls: '' });
+  assert.strictEqual(builder.groupCounts(cfg).platforms, 1);
+  cfg.mixitup_port = 8111;
+  assert.strictEqual(builder.groupCounts(cfg).platforms, 0);
+  cfg.mixitup_port = 8112;
+  // With another chat it is "the channels"; with a setting changed, the port and that one are counted.
+  const both = Object.assign({}, cfg, { channel: 'home', mixitup_port: 8111 });
+  assert.strictEqual(builder.urlNote(both, { state: 'found', login: 'home' }, BASE).text,
+    'Every setting is at its default, so the URL only needs the channels.');
+  assert.match(builder.urlNote(Object.assign({}, both, { bg: 50 }), { state: 'found', login: 'home' }, BASE).text, /the 1 setting you changed/);
+  assert.match(builder.urlNote(Object.assign({}, both, { bg: 50, mixitup_port: 8112 }), { state: 'found', login: 'home' }, BASE).text,
+    /the 2 settings you changed/);
+  // The pasted overlay URL (or settings.js) gives the widget back, port and all.
+  const back = builder.parsePasted(builder.overlayUrl(cfg, BASE)).cfg;
+  assert.deepStrictEqual([back.mixitup, back.mixitup_port], [W, 8112]);
+  // A URL that names the widget by its link (as Mix It Up gives it) carries the link's port, and 8111 without one.
+  const linked = (link) => { const c = builder.parsePasted('?mixitup=' + encodeURIComponent(link)).cfg; return [c.mixitup, c.mixitup_port]; };
+  assert.deepStrictEqual(linked('http://localhost:8113/overlay/' + W), [W, 8113]);
+  assert.deepStrictEqual(linked('ws://127.0.0.1:8114/ws/' + W + '/'), [W, 8114]);
+  assert.deepStrictEqual(linked('http://localhost/overlay/' + W), [W, 8111]);
+  // The preview frame names the widget and its port, as every other setting.
+  const p = new URL(builder.previewUrl(cfg, BASE)).searchParams;
+  assert.deepStrictEqual([p.get('mixitup'), p.get('mixitup_port')], [W, '8112']);
+});
+
+test('the platform icons apply with at least two of Twitch, Kick and YouTube, and the line under them says so', () => {
+  const d = config.defaults();
+  const W = '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a';
+  ['', 'home'].forEach((channel) => ['', 'xqc'].forEach((kick) => ['', W].forEach((mixitup) => {
+    const cfg = Object.assign({}, d, { channel: channel, kick: kick, mixitup: mixitup });
+    const n = [channel, kick, mixitup].filter(Boolean).length;
+    assert.strictEqual(builder.fieldOff('platform_icons', cfg), n < 2, JSON.stringify([channel, kick, mixitup]));
+    assert.strictEqual(builder.whyOff('platform_icons', cfg), n < 2 ? 'Only when at least two of Twitch, Kick and YouTube are set.' : '');
+  })));
+  // The line is its help's first sentence, so it is said once (showWhyOff), and the label names all three.
+  assert.match(builder.META.platform_icons.help, /^Only when at least two of Twitch, Kick and YouTube are set\./);
+  assert.strictEqual(builder.META.platform_icons.label, 'Show a Twitch, Kick or YouTube icon on each message');
+  // A mention needs a Twitch or Kick name: YouTube's widget names no one (renderer.js buildMatchers).
+  assert.strictEqual(builder.fieldOff('mentions', Object.assign({}, d, { mentions: 'at', mixitup: W })), true);
+});
+
+test('builder.html may connect to IVR, kick.com and Mix It Up on this PC (localhost over http), and nothing else', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'builder.html'), 'utf8');
+  const csp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/.exec(html)[1];
+  const connect = csp.split(';').map((d) => d.trim().split(/\s+/)).find((d) => d[0] === 'connect-src');
+  // mixitup.js widgetUrl only ever builds http://localhost:<port>/overlay/<guid>.
+  assert.deepStrictEqual(connect, ['connect-src', 'https://api.ivr.fi', 'https://kick.com', 'http://localhost:*']);
+  assert.strictEqual(require('../js/mixitup.js').widgetUrl('6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a', 8112),
+    'http://localhost:8112/overlay/6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a');
+  assert.doesNotMatch(csp, /(^|\s)https?:(;|\s|$)/, 'no bare scheme');
+  assert.doesNotMatch(csp, /127\.0\.0\.1/);
+  // Mix It Up's script is loaded before builder.js, after kick.js.
+  const order = ['js/kick.js', 'js/mixitup.js', 'js/builder.js'].map((s) => html.indexOf('src="' + s + '?v='));
+  assert.ok(order[0] > 0 && order[0] < order[1] && order[1] < order[2], order.join(' '));
+});
+
 // n phrases of len CJK characters, each one different (9 bytes a character once percent-encoded).
 function cjkPhrases(n, len) {
   return Array.from({ length: n }, (_, i) =>
@@ -461,15 +541,22 @@ test('builder.css draws the provider logos the fields name, from img/logos', () 
     const m = builder.META[k];
     if (m.logo) logos.add(m.logo);
   });
-  assert.deepStrictEqual([...logos].sort(), ['7tv', 'bttv', 'chatterino', 'ffz', 'ffzap', 'homies', 'kick', 'twitch']);
+  assert.deepStrictEqual([...logos].sort(), ['7tv', 'bttv', 'chatterino', 'ffz', 'ffzap', 'homies', 'kick', 'twitch', 'youtube']);
   logos.forEach((name) => {
     const m = new RegExp('\\.logo-' + name + '\\s*\\{[^}]*url\\(\\.\\./(img/logos/[\\w.-]+)\\)').exec(css);
     assert.ok(m, 'no .logo-' + name + ' rule');
     assert.ok(fs.existsSync(path.join(__dirname, '..', m[1])), m[1]);
   });
   // Every emote and badge provider has a mark; the page may load images from this site.
-  ['kick', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz'].concat(builder.BADGE_SUBS).forEach((k) =>
+  ['kick', 'mixitup', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz'].concat(builder.BADGE_SUBS).forEach((k) =>
     assert.ok(builder.META[k].logo, k));
+  // YouTube's is the overlay's own platform icon, from the same Simple Icons path data (js/icons.js).
+  const svg = fs.readFileSync(path.join(__dirname, '..', 'img', 'logos', 'youtube.svg'), 'utf8');
+  const icons = fs.readFileSync(path.join(__dirname, '..', 'js', 'icons.js'), 'utf8');
+  const paths = [...svg.matchAll(/<path fill="(#[0-9A-F]{6})" d="([^"]+)"\/>/g)].map((m) => [m[1], m[2]]);
+  assert.deepStrictEqual(paths, [['#FFFFFF', /var YOUTUBE_PLAY_D = '([^']+)'/.exec(icons)[1]],
+    ['#FF0000', /var YOUTUBE_D = '([^']+)'/.exec(icons)[1]]]);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'img', 'logos', 'NOTICE.md'), 'utf8'), /\| `youtube\.svg` \| YouTube \| Simple Icons 16\.33\.0/);
   const html = fs.readFileSync(path.join(__dirname, '..', 'builder.html'), 'utf8');
   // and the channel's picture from Twitch's CDN, nothing else.
   assert.match(html, /img-src 'self' file: https:\/\/\*\.jtvnw\.net data:;/);
@@ -737,7 +824,7 @@ test('reloadSignature: live keys never reload the preview; reload keys do, excep
   // In demo mode the keys the demo ignores don't reload it; everything else still does.
   const demo = Object.assign({}, live, { demo: true });
   const dsig = builder.reloadSignature(demo);
-  assert.deepStrictEqual(builder.DEMO_INERT.slice().sort(), ['history', 'kick_room', 'shared', 'stv_lookup']);
+  assert.deepStrictEqual(builder.DEMO_INERT.slice().sort(), ['history', 'kick_room', 'mixitup_port', 'shared', 'stv_lookup']);
   builder.RELOAD_KEYS.forEach((k) => {
     assert.strictEqual(builder.reloadSignature(flip(demo, k)) === dsig, builder.DEMO_INERT.indexOf(k) >= 0, k);
   });
@@ -984,7 +1071,7 @@ test('the look options grey out while the setting they need is off, and their he
     reply_style: [{ replies: false }, {}, 'Show what replies are answering'],
     mention_color: [{}, { mentions: 'at', channel: 'home' }, 'Needs Highlight channel mentions'],
     mentions: [{ mentions: 'at' }, { mentions: 'at', channel: 'home' }, 'Needs a Twitch or Kick channel'],
-    platform_icons: [{ kick: 'kickname' }, { channel: 'home', kick: 'kickname' }, 'a Twitch and a Kick channel'],
+    platform_icons: [{ kick: 'kickname' }, { channel: 'home', kick: 'kickname' }, 'at least two of Twitch, Kick and YouTube'],
     keyword_color: [{}, { keywords: ['gg'] }, 'Highlight words'],
     points_color: [{ points_highlight: false }, {}, 'Channel-points highlights'],
     broadcaster_color: [{ role_style: 'off' }, { role_style: 'bar' }, 'Mark broadcaster, mods, VIPs'],
@@ -1028,17 +1115,18 @@ test('the look options grey out while the setting they need is off, and their he
     assert.strictEqual(off('stv_lookup', over), !looksUp(Object.assign({}, d, over, { stv_lookup: true })),
       JSON.stringify(over));
   })));
-  // The platform icons need both channels (overlay.js showPlatforms, in OBS: the demo preview leaves them out with Kick
-  // alone, builder.js previewCfg), and a mention a channel to mention (renderer.js buildMatchers): greyed out exactly
-  // while they draw nothing.
-  const showsBody = /function showPlatforms\(\) \{ return ([^;]+); \}/.exec(src);
+  // The platform icons need two or more chats (overlay.js showPlatforms, in OBS: the demo preview leaves them out with
+  // Kick or YouTube alone, builder.js previewCfg), and a mention a channel to mention (renderer.js buildMatchers): greyed
+  // out exactly while they draw nothing. YouTube's widget names no one to mention.
+  const showsBody = /function showPlatforms\(\) \{([^{}]+)\}/.exec(src);
   const twitchBody = /function twitchOn\(\) \{ return ([^;]+); \}/.exec(src);
   assert.ok(showsBody && twitchBody, 'overlay.js showPlatforms and twitchOn');
   const twitchOn = new Function('S', 'return ' + twitchBody[1]);
-  const shows = new Function('S', 'twitchOn', 'return ' + showsBody[1]);
+  const shows = new Function('S', 'twitchOn', showsBody[1]);
   const matchers = require('../js/renderer.js')._internal.matchersFor;
-  ['', 'home'].forEach((channel) => ['', 'kickname'].forEach((kick) => {
-    const over = { channel: channel, kick: kick }, at = JSON.stringify(over);
+  const widget = '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a';
+  ['', 'home'].forEach((channel) => ['', 'kickname'].forEach((kick) => ['', widget].forEach((mixitup) => {
+    const over = { channel: channel, kick: kick, mixitup: mixitup }, at = JSON.stringify(over);
     const S = { cfg: Object.assign({}, d, over, { platform_icons: true, demo: false }) };
     assert.strictEqual(off('platform_icons', over), !shows(S, () => twitchOn(S)), 'platform_icons ' + at);
     ['at', 'name'].forEach((mentions) => {
@@ -1047,7 +1135,7 @@ test('the look options grey out while the setting they need is off, and their he
       assert.strictEqual(off('mention_color', Object.assign({ mentions: mentions }, over)), !tints, 'mention_color ' + at);
     });
     assert.strictEqual(off('mention_color', Object.assign({ mentions: 'off' }, over)), true, 'mentions off ' + at);
-  }));
+  })));
   // Column only: off in a row whatever else is set.
   ['bg_width', 'text_align', 'smooth_scroll'].forEach((k) => {
     assert.strictEqual(builder.META[k].only, 'vertical', k);
@@ -1297,6 +1385,17 @@ test('startCfg: a ?channel= link keeps the remembered settings; a full link star
   assert.deepStrictEqual(kick('?kick='), ['', '', 50]);
   // An id remembered without a channel stays, as one typed in before the channel does (onKickChanged).
   assert.strictEqual(builder.startCfg('?kick=b', { kick_room: '7' }).cfg.kick_room, '7');
+  // The hint links name YouTube's Mix It Up widget too (and its port, when it isn't 8111): still only the channels. The
+  // remembered port belongs to the Mix It Up on this PC, not to one widget, so another widget keeps it; a widget's link
+  // with a port of its own sets it, as config.parse does.
+  const W1 = '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a', W2 = '0b9f7d52-8e41-4a36-b2c0-7e5d1a9f3c68';
+  const mstored = { mixitup: W1, mixitup_port: 8112, size: 'large' };
+  const mix = (q) => { const s = builder.startCfg(q, mstored).cfg; return [s.mixitup, s.mixitup_port, s.size]; };
+  assert.deepStrictEqual(mix('?mixitup=' + W2), [W2, 8112, 'large']);
+  assert.deepStrictEqual(mix('?channel=a&mixitup=' + W2 + '&mixitup_port=9000'), [W2, 9000, 'large']);
+  const linked = builder.startCfg('?mixitup=' + encodeURIComponent('http://localhost:8113/overlay/' + W2.toUpperCase()), { size: 'large' }).cfg;
+  assert.deepStrictEqual([linked.mixitup, linked.mixitup_port, linked.size], [W2, 8113, 'large']);
+  assert.deepStrictEqual(mix('?mixitup=' + W2 + '&bg=40'), [W2, 8111, 'medium'], 'a whole setup');
   assert.deepStrictEqual(kstored, { kick: 'xqc', kick_room: '668', bg: 50 }, 'the remembered config is left as it is');
   assert.strictEqual(builder.startCfg('?utm=1', null).fromStore, false);
   assert.deepStrictEqual(builder.startCfg('?utm=1', ['x']).cfg, config.defaults());
@@ -1489,7 +1588,7 @@ test('builder font lists are the config lists', () => {
 // A config with every setting but the channels off its default, so a quick look's reach shows.
 function busyCfg() {
   let c = Object.assign(config.defaults(), { channel: 'forsen', kick: 'xqc', kick_room: '668' });
-  config.KEYS.filter((k) => ['channel', 'kick', 'kick_room'].indexOf(k) < 0).forEach((k) => { c = flip(c, k); });
+  config.KEYS.filter((k) => ['channel', 'kick', 'kick_room', 'mixitup', 'mixitup_port'].indexOf(k) < 0).forEach((k) => { c = flip(c, k); });
   return c;
 }
 
@@ -1503,8 +1602,8 @@ test('quick looks: five, each value one its setting takes, only the 19 look sett
     assert.ok(builder.isLiveKey(k), k + ' is live: a quick look never reloads the preview');
   });
   // Font, name colors, layout, position and the channels are never part of a look.
-  ['channel', 'kick', 'kick_room', 'font', 'name_font', 'name_color', 'name_fallback', 'layout', 'align', 'text_align', 'pad_x',
-    'line_width', 'demo', 'debug'].forEach((k) => assert.ok(P.indexOf(k) < 0, k));
+  ['channel', 'kick', 'kick_room', 'mixitup', 'mixitup_port', 'font', 'name_font', 'name_color', 'name_fallback', 'layout', 'align',
+    'text_align', 'pad_x', 'line_width', 'demo', 'debug'].forEach((k) => assert.ok(P.indexOf(k) < 0, k));
   assert.deepStrictEqual(builder.PRESETS.map((p) => [p.id, p.label]),
     [['default', 'Default'], ['boxed', 'Boxed'], ['outlined', 'Outlined'], ['cards', 'Cards'], ['big', 'Big & bold']]);
   const d = config.defaults();

@@ -9,7 +9,8 @@
   // Font weights, lightest first: 300, 400, 600, 700, 800 and 900 (renderer.js WEIGHTS).
   var WEIGHTS = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
 
-  // type: channel | kick | room | enum | int | bool | font | list | words | color | chars
+  // type: channel | kick | room | mixitup | enum | int | bool | font | list | words | color | chars
+  // mixitup: the id of a Mix It Up chat widget (a GUID), or the widget's link, which gives the same id (normalizeMixItUp).
   // list: Twitch/Kick logins. words: words or phrases, separated by commas or line breaks (a phrase keeps its spaces;
   // WORD_SEP).
   // chars: command prefixes, a few signs from PREFIX_CHARS written together ('!?').
@@ -21,6 +22,8 @@
     channel: { type: 'channel', def: '' },
     kick: { type: 'kick', def: '' },
     kick_room: { type: 'room', def: '' },
+    mixitup: { type: 'mixitup', def: '' },
+    mixitup_port: { type: 'int', min: 1024, max: 65535, def: 8111 },
     platform_icons: { type: 'bool', def: true },
     size: { type: 'enum', values: ['small', 'medium', 'large'], def: 'medium' },
     text_px: { type: 'int', min: 0, max: 96, lowest: 8, def: 0 },
@@ -278,6 +281,37 @@
     return /^[a-z0-9_-]{1,40}$/.test(s) ? s : '';
   }
 
+  // A Mix It Up chat widget: its GUID, or the link Mix It Up gives it (http://localhost:8111/overlay/<guid>, or the
+  // ws://localhost:8111/ws/<guid>/ address behind it) -> { guid (lowercase), port (a link's own, else 8111), link }, or null.
+  // The host must be exactly localhost or 127.0.0.1 and the port plain digits, so nothing but this PC is ever contacted.
+  // The all-zero GUID is Mix It Up's shared default endpoint: it carries every widget's traffic, so it is not accepted.
+  var MIXITUP_GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  // The same links mixitup.js parseLink takes (a test keeps the two equal): the page link on http(s) with /overlay/, the
+  // socket address on ws(s) with /ws/, and a bare GUID, in braces or not.
+  var MIXITUP_LINK_RE = /^(?:https?:\/\/(?:localhost|127\.0\.0\.1)(?::(\d{1,5}))?\/overlay\/([^/?#\s]*)\/?(?:[?#]\S*)?|wss?:\/\/(?:localhost|127\.0\.0\.1)(?::(\d{1,5}))?\/ws\/([^/?#\s]*)\/?)$/i;
+  function parseMixItUp(v) {
+    if (typeof v !== 'string' || v.length > 2048) return null;
+    var s = v.trim(), port = 0, guid = s;
+    var m = MIXITUP_LINK_RE.exec(s);
+    if (m) {
+      guid = m[2] !== undefined ? m[2] : m[4];
+      var p = m[1] !== undefined ? m[1] : m[3];
+      if (p !== undefined) {
+        port = parseInt(p, 10);
+        if (!(port >= 1024 && port <= 65535)) return null;
+      }
+    } else {
+      guid = guid.replace(/^\{([^{}]*)\}$/, '$1');
+    }
+    guid = guid.toLowerCase();
+    if (!MIXITUP_GUID_RE.test(guid) || /^[0-]+$/.test(guid)) return null;
+    return { guid: guid, port: port || 8111, link: !!m };
+  }
+  function normalizeMixItUp(v) {
+    var p = parseMixItUp(typeof v === 'number' ? '' : v);
+    return p ? p.guid : '';
+  }
+
   // A login in a list of names (block, allow_users, highlight_users) -> lowercased, or ''. Kick spells a username's
   // underscores as hyphens in its slug and in kick.com/<slug> links, and Kick chat is matched by the username
   // (kick.loginOf), so '-' is read as '_' (no Twitch login has '-'). A pasted twitch.tv or kick.com link gives its name.
@@ -288,7 +322,8 @@
     var k = s.replace(/^(?:https?:\/\/)?(?:www\.)?kick\.com\/(?:popout\/)?/i, '');
     if (k !== s) s = k.split(/[/?#]/)[0];
     s = s.replace(/^[@#]+/, '').toLowerCase().replace(/-/g, '_');
-    return /^[a-z0-9_]{1,25}$/.test(s) ? s : '';
+    // A '.' too: YouTube handles have them (no Twitch or Kick login does, so nothing else changes), and up to 30 characters.
+    return /^[a-z0-9_.]{1,30}$/.test(s) ? s : '';
   }
 
   function parseBool(v) {
@@ -323,6 +358,12 @@
         if (tv === 'boolean') return undefined;
         var r = String(v).trim();
         return r === '' || /^\d{1,12}$/.test(r) ? r : undefined;
+      }
+      // Mix It Up widget id: '' is a valid value (no YouTube chat), so an empty ?mixitup= clears settings.js.
+      case 'mixitup': {
+        if (tv !== 'string') return undefined;
+        if (v.trim() === '') return '';
+        return normalizeMixItUp(v) || undefined;
       }
       case 'enum': {
         var e = String(v).trim().toLowerCase();
@@ -492,17 +533,24 @@
     return withHash(f < 0 ? href.slice(q) : href.slice(q, f), f < 0 ? null : href.slice(f + 1));
   }
 
-  // The Twitch channel and Kick channel the URL or settings.js named with a value coerce refuses ('xqc!', 'my channel'):
-  // { channel, kick }, each null or { value (as written, trimmed), from: 'url' | 'settings' }. A URL key is read as parse
+  // A settings.js value by its key, which is not case-sensitive (the last spelling wins, as applyObject's does), or undefined.
+  function settingOf(settings, key) {
+    var v;
+    if (settings && typeof settings === 'object') Object.keys(settings).forEach(function (sk) { if (sk.toLowerCase() === key) v = settings[sk]; });
+    return v;
+  }
+
+  // The Twitch channel, Kick channel and Mix It Up widget the URL or settings.js named with a value coerce refuses ('xqc!', 'my channel'):
+  // { channel, kick, mixitup }, each null or { value (as written, trimmed), from: 'url' | 'settings' }. A URL key is read as parse
   // reads it; a settings.js one only when the URL doesn't give that key, as parse lets the URL's win.
   function refusedChannels(search, settings) {
-    var fromUrl = urlValues(search), out = { channel: null, kick: null };
-    ['channel', 'kick'].forEach(function (key) {
+    var fromUrl = urlValues(search), out = { channel: null, kick: null, mixitup: null };
+    ['channel', 'kick', 'mixitup'].forEach(function (key) {
       var v, from = 'url';
       if (own(fromUrl, key)) v = fromUrl[key];
       else if (settings && typeof settings === 'object') {
         from = 'settings';
-        Object.keys(settings).forEach(function (sk) { if (sk.toLowerCase() === key) v = settings[sk]; });
+        v = settingOf(settings, key);
       }
       if ((typeof v !== 'string' && typeof v !== 'number') || String(v).trim() === '' || coerce(key, v) !== undefined) return;
       out[key] = { value: String(v).trim(), from: from };
@@ -526,6 +574,15 @@
     if (setKick && cfg.kick !== setKick && (!own(fromUrl, 'kick_room') || coerce('kick_room', fromUrl.kick_room) === undefined)) {
       cfg.kick_room = '';
     }
+    // A Mix It Up link written with its own port (http://localhost:8112/overlay/<guid>) sets mixitup_port, unless a
+    // mixitup_port is given at the same level (both in the URL, or both in settings.js). As everywhere, the URL wins: a link
+    // in the URL beats a mixitup_port in settings.js, and a mixitup_port in the URL beats any link.
+    var urlLink = coerce('mixitup', fromUrl.mixitup) ? fromUrl.mixitup : undefined;
+    var linkText = urlLink !== undefined ? urlLink : settingOf(settings, 'mixitup');
+    var link = cfg.mixitup && typeof linkText === 'string' ? parseMixItUp(linkText) : null;
+    var portGiven = coerce('mixitup_port', fromUrl.mixitup_port) !== undefined ||
+      (urlLink === undefined && coerce('mixitup_port', settingOf(settings, 'mixitup_port')) !== undefined);
+    if (link && link.link && link.guid === cfg.mixitup && !portGiven) cfg.mixitup_port = link.port;
     return cfg;
   }
 
@@ -635,6 +692,8 @@
     toObject: toObject,
     normalizeChannel: normalizeChannel,
     normalizeKick: normalizeKick,
+    parseMixItUp: parseMixItUp,
+    normalizeMixItUp: normalizeMixItUp,
     normalizeLogin: normalizeLogin,
     parseBool: parseBool,
     isSystemFont: isSystemFont,

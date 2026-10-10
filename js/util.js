@@ -6,7 +6,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (root) {
   'use strict';
 
-  var VERSION = '1.8.0';
+  var VERSION = '1.9.0';
 
   // ---------- logging ----------
   var debugEnabled = false;
@@ -277,6 +277,8 @@
       ws = new this.WS(url);
     } catch (e) {
       warn(this.name, 'socket constructor failed', e);
+      // A stop() while the socket was being made (from a callback the constructor reached) stays a stop.
+      if (this.state === 'stopped') return;
       this.state = 'closed';
       this.scheduleReconnect('constructor failed');
       return;

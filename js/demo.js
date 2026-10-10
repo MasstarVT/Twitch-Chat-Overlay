@@ -1,4 +1,4 @@
-/* Demo mode: loops synthetic IRC lines (and, with a Kick channel set, Kick chat events) through the real
+/* Demo mode: loops synthetic IRC lines (and, with a Kick channel or a Mix It Up widget set, Kick and YouTube chat) through the real
    parsers and renderer, using the channel's real emotes. */
 (function (root, factory) {
   var api = factory(root);
@@ -19,6 +19,13 @@
   var KICK_USERS = [
     { id: 9000001, username: 'KickFan', color: '#E9113C', badges: [{ type: 'og', text: 'OG' }, { type: 'subscriber', text: 'Subscriber', count: 3 }] },
     { id: 9000002, username: 'KickMod', color: '#53FC19', badges: [{ type: 'moderator', text: 'Moderator' }, { type: 'verified', text: 'Verified' }] }
+  ];
+
+  // YouTube chatters, as Mix It Up describes them (PlatformID is the channel id; Roles are its UserRoleEnum numbers).
+  var YOUTUBE_USERS = [
+    { id: 'UCdemoPixelFox0000000001', name: 'PixelFox', roles: [100, 600, 601] },
+    { id: 'UCdemoYouTubeMod000000002', name: 'YouTubeMod', roles: [100, 800] },
+    { id: 'UCdemoChannelOwner0000003', name: 'ChannelOwner', roles: [100, 900] }
   ];
 
   function escTag(v) {
@@ -67,6 +74,7 @@
     var index = 0;     // ticks
     var line = 0;      // next Twitch SCRIPT line
     var kickLine = 0;  // next KICK_SCRIPT line
+    var ytLine = 0;    // next YOUTUBE_SCRIPT line
     var timer = null;
     var cos = { linear: null, image: null, badge: null };
 
@@ -213,12 +221,38 @@
     ];
     function kickOn() { return typeof opts.feedKick === 'function' && !!S().cfg.kick; }
 
-    // With a Kick channel set, every third line comes from Kick.
+    // YouTube lines, as the frames Mix It Up's overlay socket sends for its Chat widget (a Function packet per message).
+    function youtubeChat(u, words) {
+      return {
+        Type: 'Function',
+        Data: { ID: S().cfg.mixitup, FunctionName: 'add', Parameters: {
+          MessageID: 'demo-youtube-' + (++counter), Platform: 'YouTube', MessageType: 'text',
+          User: { Platform: 3, PlatformID: u.id, Username: u.name, DisplayName: u.name, Roles: u.roles, Color: null, AvatarLink: '' },
+          Message: words.split(' ').map(function (w) { return { Type: 'Text', Content: w }; })
+        } }
+      };
+    }
+    var YOUTUBE_SCRIPT = [
+      function () { return youtubeChat(YOUTUBE_USERS[0], 'hello from YouTube! \uD83D\uDE04'); },
+      function () { return youtubeChat(YOUTUBE_USERS[1], 'Twitch, Kick and YouTube chat in one overlay'); },
+      function () { return youtubeChat(YOUTUBE_USERS[2], 'thanks for watching everyone'); }
+    ];
+    function youtubeOn() { return typeof opts.feedYouTube === 'function' && !!S().cfg.mixitup; }
+
+    // With a Kick channel or a Mix It Up widget set, every third line comes from there (from each in turn, with both).
+    var other = 0;
     function tick() {
       try {
-        if (kickOn() && index % 3 === 2) {
-          var f = KICK_SCRIPT[kickLine++ % KICK_SCRIPT.length]();
-          opts.feedKick(f.event, f.data);
+        var sources = [];
+        if (kickOn()) sources.push('kick');
+        if (youtubeOn()) sources.push('youtube');
+        if (sources.length && index % 3 === 2) {
+          if (sources[other++ % sources.length] === 'kick') {
+            var f = KICK_SCRIPT[kickLine++ % KICK_SCRIPT.length]();
+            opts.feedKick(f.event, f.data);
+          } else {
+            opts.feedYouTube(YOUTUBE_SCRIPT[ytLine++ % YOUTUBE_SCRIPT.length]());
+          }
         } else {
           feed(SCRIPT[line++ % SCRIPT.length]());
         }
@@ -276,5 +310,5 @@
     };
   }
 
-  return { createDemo: createDemo, USERS: USERS, KICK_USERS: KICK_USERS, _tagString: tagString };
+  return { createDemo: createDemo, USERS: USERS, KICK_USERS: KICK_USERS, YOUTUBE_USERS: YOUTUBE_USERS, _tagString: tagString };
 });

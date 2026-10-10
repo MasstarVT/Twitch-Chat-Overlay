@@ -229,3 +229,44 @@ test('links on Shorten or Hide: the 12th line (a plain one, never the first-time
   const m = ircParse.toChatMessage(ircParse.parseLine(runScript(st({ channel: 'forsen', links: 'hide' }))[11]));
   ircParse.parseEmotesTag(m.emotes).forEach((e) => assert.strictEqual(TWITCH[e.id], Array.from(m.text).slice(e.start, e.end + 1).join('')));
 });
+
+test('with a Mix It Up widget set, every third line is a YouTube frame mixitup.js parses; with Kick too, they take turns', () => {
+  const kick = require('../js/kick.js');
+  const mixitup = require('../js/mixitup.js');
+  const GUID = '6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b';
+  function run(cfg) {
+    const state = Object.assign(fakeState(true), { cfg: cfg });
+    const lines = [], other = [];
+    const d = demo.createDemo({
+      getState: () => state, feed: (l) => lines.push(l),
+      feedKick: (e, data) => other.push(kick.parseEvent(e, data)),
+      feedYouTube: (packet) => mixitup.parsePacket(packet, { guid: cfg.mixitup }).forEach((ev) => other.push(ev))
+    });
+    const realSet = globalThis.setInterval, realClear = globalThis.clearInterval;
+    let tick = null;
+    globalThis.setInterval = (fn) => { tick = fn; return 1; };
+    globalThis.clearInterval = () => {};
+    try {
+      d.start();
+      for (let i = 1; i < 12; i++) tick();
+      d.stop();
+    } finally {
+      globalThis.setInterval = realSet;
+      globalThis.clearInterval = realClear;
+    }
+    return { lines, other };
+  }
+  const off = run({ channel: 'forsen' });
+  assert.strictEqual(off.other.length, 0);
+  const yt = run({ channel: 'forsen', mixitup: GUID });
+  assert.strictEqual(yt.other.length, 4);
+  assert.deepStrictEqual(yt.other.map((e) => e.type), ['message', 'message', 'message', 'message']);
+  assert.deepStrictEqual(yt.other.map((e) => e.msg.platform), ['youtube', 'youtube', 'youtube', 'youtube']);
+  assert.strictEqual(yt.other[0].msg.text, 'hello from YouTube! \uD83D\uDE04');
+  assert.deepStrictEqual(yt.other[0].msg.youtubeBadges.map((b) => b.type), ['member']);
+  assert.deepStrictEqual(yt.other[1].msg.youtubeBadges.map((b) => b.type), ['moderator']);
+  assert.deepStrictEqual(yt.other[2].msg.youtubeBadges.map((b) => b.type), ['owner']);
+  assert.strictEqual(new Set(yt.other.map((e) => e.msg.id)).size, 4, 'ids are distinct');
+  const both = run({ channel: 'forsen', kick: 'forsen', mixitup: GUID });
+  assert.deepStrictEqual(both.other.map((e) => e.msg.platform), ['kick', 'youtube', 'kick', 'youtube']);
+});

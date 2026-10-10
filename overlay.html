@@ -6,32 +6,33 @@
   <!-- Chat is always inserted as text, never as HTML. As a second line of defence, this policy only runs this
        overlay's own script files: no inline scripts, no eval, nothing from other sites. Styles may be inline, because
        OBS applies a browser source's Custom CSS (including its transparent background) as an inline style. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: https:; connect-src https: wss:; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: https:; connect-src https: wss: ws://localhost:*; base-uri 'none'; form-action 'none'">
   <title>Twitch Chat Overlay</title>
-  <link rel="stylesheet" href="css/overlay.css?v=1.8.0">
+  <link rel="stylesheet" href="css/overlay.css?v=1.9.0">
   <!-- Every script is deferred: none blocks the parser, so all are fetched in parallel (a meta CSP turns off the
        preload scanner), and they run in this order once the page is parsed. errors.js runs first. -->
-  <script defer src="js/errors.js?v=1.8.0"></script>
+  <script defer src="js/errors.js?v=1.9.0"></script>
   <!-- Optional: copy settings.example.js to settings.js (used by OBS "Local file" sources). A missing file is fine. -->
-  <script defer src="settings.js?v=1.8.0"></script>
-  <script defer src="js/util.js?v=1.8.0"></script>
-  <script defer src="js/config.js?v=1.8.0"></script>
-  <script defer src="js/irc-parse.js?v=1.8.0"></script>
-  <script defer src="js/badge-resolve.js?v=1.8.0"></script>
-  <script defer src="js/paint-css.js?v=1.8.0"></script>
-  <script defer src="js/tokenizer.js?v=1.8.0"></script>
-  <script defer src="js/irc.js?v=1.8.0"></script>
-  <script defer src="js/kick.js?v=1.8.0"></script>
-  <script defer src="js/twitch-badges.js?v=1.8.0"></script>
-  <script defer src="js/seventv.js?v=1.8.0"></script>
-  <script defer src="js/bttv.js?v=1.8.0"></script>
-  <script defer src="js/ffz.js?v=1.8.0"></script>
-  <script defer src="js/extra-badges.js?v=1.8.0"></script>
-  <script defer src="js/rooms.js?v=1.8.0"></script>
-  <script defer src="js/icons.js?v=1.8.0"></script>
-  <script defer src="js/renderer.js?v=1.8.0"></script>
-  <script defer src="js/demo.js?v=1.8.0"></script>
-  <script defer src="js/overlay.js?v=1.8.0"></script>
+  <script defer src="settings.js?v=1.9.0"></script>
+  <script defer src="js/util.js?v=1.9.0"></script>
+  <script defer src="js/mixitup.js?v=1.9.0"></script>
+  <script defer src="js/config.js?v=1.9.0"></script>
+  <script defer src="js/irc-parse.js?v=1.9.0"></script>
+  <script defer src="js/badge-resolve.js?v=1.9.0"></script>
+  <script defer src="js/paint-css.js?v=1.9.0"></script>
+  <script defer src="js/tokenizer.js?v=1.9.0"></script>
+  <script defer src="js/irc.js?v=1.9.0"></script>
+  <script defer src="js/kick.js?v=1.9.0"></script>
+  <script defer src="js/twitch-badges.js?v=1.9.0"></script>
+  <script defer src="js/seventv.js?v=1.9.0"></script>
+  <script defer src="js/bttv.js?v=1.9.0"></script>
+  <script defer src="js/ffz.js?v=1.9.0"></script>
+  <script defer src="js/extra-badges.js?v=1.9.0"></script>
+  <script defer src="js/rooms.js?v=1.9.0"></script>
+  <script defer src="js/icons.js?v=1.9.0"></script>
+  <script defer src="js/renderer.js?v=1.9.0"></script>
+  <script defer src="js/demo.js?v=1.9.0"></script>
+  <script defer src="js/overlay.js?v=1.9.0"></script>
 </head>
 <body>
   <div id="chat"></div>

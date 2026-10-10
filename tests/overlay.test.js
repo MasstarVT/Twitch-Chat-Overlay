@@ -9,7 +9,7 @@ const vm = require('node:vm');
 
 const JS = path.join(__dirname, '..', 'js');
 // overlay.html order
-const ORDER = ['util', 'config', 'irc-parse', 'badge-resolve', 'paint-css', 'tokenizer', 'irc', 'kick', 'twitch-badges',
+const ORDER = ['util', 'mixitup', 'config', 'irc-parse', 'badge-resolve', 'paint-css', 'tokenizer', 'irc', 'kick', 'twitch-badges',
   'seventv', 'bttv', 'ffz', 'extra-badges', 'rooms', 'icons', 'renderer', 'demo', 'overlay'];
 const HOME = '100';
 const PARTNER = '200';
@@ -52,7 +52,7 @@ async function boot(t, opts) {
   const h = {
     calls: [], pushed: [], cleared: [], rerenders: 0, refilters: 0, listeners: {}, links: [],
     els: { chat: fakeEl('div'), hint: fakeEl('div'), debug: fakeEl('div') },
-    irc: null, kick: null, kickClients: [], stv: null, stvClients: 0, bttvLive: null, lookupWants: [], clearPreds: [],
+    irc: null, kick: null, yt: null, kickClients: [], stv: null, stvClients: 0, bttvLive: null, lookupWants: [], clearPreds: [],
     refused: [], dropped: [], noted: [], redrawn: [],
     called(name) { return this.calls.filter((c) => c[0] === name); },
     feed(raw) { this.irc.receive(globalThis.TCO.ircParse.parseLine(raw)); },
@@ -113,6 +113,13 @@ async function boot(t, opts) {
       send(event, data) { o.onEvent(globalThis.TCO.kick.parseEvent('App\\Events\\' + event, JSON.stringify(data))); } };
     h.kickClients.push(h.kick);
     return h.kick;
+  };
+  // Mix It Up's socket: a frame goes through the real mixitup.parsePacket, as the real client does it.
+  T.mixitup.createMixItUp = function (o) {
+    h.yt = { opts: o, started: 0, kicks: 0, stopped: 0, start() { this.started++; }, mixitup() { this.kicks++; }, stop() { this.stopped++; },
+      send(packet) { globalThis.TCO.mixitup.parsePacket(JSON.stringify(packet), { guid: o.guid, now: () => 1700000000000 }).forEach(o.onEvent); },
+      status(type, extra) { o.onStatus(Object.assign({ type: type }, extra || {})); } };
+    return h.yt;
   };
   T.irc.createIrc = function (o) {
     const seen = new Set();
@@ -1810,7 +1817,7 @@ test('highlights live from the builder: through config.coerce, the words and use
   globalThis.parent = {};
   const send = (cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
   // An item is read as a string is: 'bad name!' is the login 'bad' and 'name!', which is no login.
-  send({ mentions: 'NAME', keywords: ['Good  Game', 'gg,wp'], highlight_users: ['@PaintedPal', 'bad name!', 'not.valid'], points_highlight: false,
+  send({ mentions: 'NAME', keywords: ['Good  Game', 'gg,wp'], highlight_users: ['@PaintedPal', 'bad name!', 'not!valid'], points_highlight: false,
     role_style: 'bar', mod_color: '#00AD03', keyword_color: 'nope', mention_color: 'f80', channel: 'other' });
   assert.deepStrictEqual([S.cfg.mentions, S.cfg.keywords, S.cfg.highlight_users, S.cfg.points_highlight, S.cfg.role_style,
     S.cfg.mod_color, S.cfg.keyword_color, S.cfg.mention_color], ['name', ['good game', 'gg', 'wp'], ['paintedpal', 'bad'], false, 'bar',
@@ -3335,4 +3342,188 @@ test('an invalid channel or Kick name says so, also while the other platform\'s 
   // settings.js, said as such (last: boot() leaves TCO_SETTINGS in place until the test ends).
   h = await boot(t, { search: '', settings: { channel: 'xqc.' } });
   assert.match(h.els.hint.children[0].textContent, /^Twitch channel "xqc\." in settings\.js isn't a valid name/);
+});
+
+// ---------- YouTube, through Mix It Up ----------
+const YT_GUID = '6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b';
+let yn = 0;
+function ytAdd(name, parts, o) {
+  yn++;
+  o = o || {};
+  const user = { ID: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', Platform: 3, PlatformID: 'UC' + name.replace(/\W/g, ''), Username: name,
+    DisplayName: name, AvatarLink: '', Roles: o.roles || [100], Color: null };
+  return { Type: 'Function', Data: { ID: YT_GUID, FunctionName: 'add', Parameters: { MessageID: 'LCC.msg' + yn, User: user,
+    Platform: o.platform || 'YouTube', MessageType: 'text',
+    Message: parts.map((p) => typeof p === 'string' ? { Type: 'Text', Content: p } : { Type: 'Emote', Content: p.url, Name: p.name, Provider: 'youtube' }) } } };
+}
+const ytRemove = (extra) => ({ Type: 'Function', Data: { ID: YT_GUID, FunctionName: 'remove', Parameters: extra } });
+const ytClear = () => ({ Type: 'Function', Data: { ID: YT_GUID, FunctionName: 'clear', Parameters: {} } });
+const YT_Q = '?mixitup=' + YT_GUID;
+const hintText = (h) => h.els.hint.children.map((c) => c.textContent).join(' ');
+
+test('YouTube only: connects with the widget id and port, loads no Twitch data, shows lines, badges and emoji, and applies moderation', async (t) => {
+  const h = await boot(t, { search: YT_Q + '&mixitup_port=8123' });
+  assert.strictEqual(h.yt.opts.guid, YT_GUID);
+  assert.strictEqual(h.yt.opts.port, 8123);
+  assert.strictEqual(h.yt.started, 1);
+  assert.strictEqual(h.irc, null);
+  assert.strictEqual(h.kick, null);
+  ['lookupUser', 'history', 'twitch-global', 'bttv-global', 'ffz-global'].forEach((n) => assert.deepStrictEqual(h.called(n), [], n));
+  assert.strictEqual(h.els.hint.hidden, true, 'a YouTube-only overlay is a channel');
+
+  h.yt.send(ytAdd('Pixel Fox', ['hello', { name: ':wave:', url: 'https://yt3.ggpht.com/emoji/wave.png' }, 'there'], { roles: [100, 600, 601, 800] }));
+  assert.deepStrictEqual(texts(h), ['hello :wave: there']);
+  const m = h.pushed[0];
+  assert.strictEqual(m.platform, 'youtube');
+  assert.deepStrictEqual(h.deps.badgesFor(m), [
+    { provider: 'youtube', icon: 'youtube-moderator', title: 'Moderator' },
+    { provider: 'youtube', icon: 'youtube-member', title: 'Member' }
+  ], 'one platform, so no platform icon');
+  const items = h.deps.tokensFor(m);
+  assert.deepStrictEqual(items.map((i) => i.type === 'emote' ? i.emote.provider + ':' + i.emote.name : i.text), ['hello', 'youtube::wave:', 'there']);
+  assert.strictEqual(items[1].emote.urls[1], 'https://yt3.ggpht.com/emoji/wave.png');
+  assert.deepStrictEqual(h.lookupWants, [], 'YouTube chatters are never looked up on 7TV');
+  assert.notStrictEqual(h.deps.nameFor(m).color, '', 'a name with no color of its own gets a stable one');
+  assert.strictEqual(h.deps.nameFor(m).paintId, null);
+
+  // Moderation: a deleted message and a banned user take YouTube lines. Mix It Up's "clear" call is sent for any platform's
+  // chat clear (a Twitch /clear too) and never means YouTube's was cleared, so it takes nothing.
+  h.yt.send(ytRemove({ MessageID: 'LCC.msg' + yn }));
+  h.yt.send(ytRemove({ Username: 'Pixel Fox', User: { Platform: 3, PlatformID: 'UCPixelFox' } }));
+  h.yt.send(ytClear());
+  assert.deepStrictEqual(h.cleared, ['msg:youtube:LCC.msg' + yn, 'user:youtube:UCPixelFox']);
+  assert.deepStrictEqual(h.clearPreds, []);
+});
+
+test('YouTube: only YouTube lines are taken from the widget (Twitch and Kick come from their own chats)', async (t) => {
+  const h = await boot(t, { search: YT_Q });
+  h.yt.send(ytAdd('Viewer', ['from twitch'], { platform: 'Twitch' }));
+  h.yt.send(ytAdd('Viewer', ['from kick'], { platform: 'Kick' }));
+  h.yt.send(ytAdd('Viewer', ['from youtube']));
+  assert.deepStrictEqual(texts(h), ['from youtube']);
+});
+
+test('Twitch + Kick + YouTube: platform icons on every line, a Twitch /clear spares YouTube, Twitch-only data skips YouTube lines', async (t) => {
+  const h = await boot(t, {
+    search: '?channel=home&kick=kickname&kick_room=668&history=0&mixitup=' + YT_GUID,
+    stubs(T) { T.bttv.loadChannel = () => Promise.resolve({ emotes: new Map(), bots: new Set(['samename']) }); }
+  });
+  join(h);
+  await settle();
+  h.feed(priv('viewer', 'from twitch'));
+  h.kick.send('ChatMessageEvent', kickChat('kickviewer', 'from kick'));
+  h.yt.send(ytAdd('Samename', ['from youtube'], { roles: [100, 900] }));
+  assert.deepStrictEqual(texts(h), ['from twitch', 'from kick', 'from youtube'], 'the home channel\'s BTTV bot list names Twitch accounts only');
+  const [tw, kk, yt] = h.pushed;
+  assert.deepStrictEqual(h.deps.badgesFor(tw)[0], { provider: 'platform', icon: 'twitch', title: 'Twitch' });
+  assert.deepStrictEqual(h.deps.badgesFor(kk)[0], { provider: 'platform', icon: 'kick', title: 'Kick' });
+  assert.deepStrictEqual(h.deps.badgesFor(yt), [
+    { provider: 'platform', icon: 'youtube', title: 'YouTube' },
+    { provider: 'youtube', icon: 'youtube-owner', title: 'Channel owner' }
+  ]);
+  assert.deepStrictEqual(h.lookupWants, ['u-viewer'], 'only the Twitch chatter is looked up');
+
+  h.feed('@room-id=' + HOME + ' :tmi.twitch.tv CLEARCHAT #home');
+  h.yt.send(ytClear()); // what Mix It Up sends along with it
+  assert.deepStrictEqual(h.clearPreds.map((p) => [p(tw), p(kk), p(yt)]), [[true, false, false]], 'a Twitch /clear takes Twitch lines only');
+
+  // platform_icons=0 hides the icons, badges=0 the role badges.
+  globalThis.parent = {};
+  const send = (cfg) => h.listeners.message.forEach((fn) => fn({ source: globalThis.parent, data: { type: 'tco-config', cfg: cfg } }));
+  send({ platform_icons: false });
+  assert.deepStrictEqual(h.deps.badgesFor(yt), [{ provider: 'youtube', icon: 'youtube-owner', title: 'Channel owner' }]);
+  send({ badges: false });
+  assert.deepStrictEqual(h.deps.badgesFor(yt), []);
+});
+
+test('YouTube: the block list, bots and commands filter YouTube lines like the others', async (t) => {
+  const h = await boot(t, { search: YT_Q + '&block=troll&hide_commands=1' });
+  ['Troll', 'Nightbot', 'Fine'].forEach((n) => h.yt.send(ytAdd(n, ['hi from ' + n])));
+  h.yt.send(ytAdd('Fine', ['!command']));
+  assert.deepStrictEqual(texts(h), ['hi from Fine']);
+});
+
+test('YouTube events wait for Twitch\'s history, in order with its lines', async (t) => {
+  const hist = deferred();
+  const h = await boot(t, {
+    search: '?channel=home&history=50&mixitup=' + YT_GUID,
+    stubs(T) {
+      T.irc.loadHistory = () => hist.promise;
+      T.twitchBadges.lookupUser = () => new Promise(() => {});
+    }
+  });
+  h.yt.send(ytAdd('Fan', ['live one']));
+  h.yt.send(ytRemove({ MessageID: 'LCC.msg' + yn }));
+  assert.deepStrictEqual(texts(h), [], 'YouTube chat waits for history');
+  assert.deepStrictEqual(h.cleared, [], 'so does its moderation');
+  hist.resolve([]);
+  join(h);
+  await settle();
+  assert.deepStrictEqual(texts(h), ['live one']);
+  assert.deepStrictEqual(h.cleared, ['msg:youtube:LCC.msg' + yn], 'the delete runs after the line it names');
+});
+
+test('YouTube: a hint says Mix It Up can\'t be reached, until the socket opens; again after it drops', async (t) => {
+  const h = await boot(t, { search: YT_Q });
+  assert.strictEqual(h.els.hint.hidden, true);
+  h.yt.status('closed', { code: 0, reason: 'socket refused' });
+  t.mock.timers.tick(9000);
+  assert.strictEqual(h.els.hint.hidden, true, 'not yet');
+  t.mock.timers.tick(2000);
+  assert.strictEqual(h.els.hint.hidden, false);
+  assert.match(hintText(h), /Mix It Up at localhost:8111/);
+  h.yt.status('open');
+  assert.strictEqual(h.els.hint.hidden, true, 'the hint goes when the socket opens');
+  h.yt.status('closed', { code: 1006, reason: '' });
+  t.mock.timers.tick(11000);
+  assert.strictEqual(h.els.hint.hidden, false, 'and comes back when it stays down');
+  h.yt.status('open');
+  assert.strictEqual(h.els.hint.hidden, true);
+});
+
+test('YouTube: a refused widget link is said, the no-channel hint names mixitup, and going back online kicks the socket', async (t) => {
+  const bad = await boot(t, { search: '?mixitup=http%3A%2F%2Fexample.com%2Foverlay%2F' + YT_GUID });
+  assert.strictEqual(bad.yt, null, 'nothing to connect to');
+  assert.match(hintText(bad), /Mix It Up widget .* isn't a widget link/);
+  const none = await boot(t, { search: '?size=small' });
+  assert.match(hintText(none), /mixitup=/, 'the no-channel hint names it');
+
+  const h = await boot(t, { search: YT_Q });
+  (h.listeners.online || []).forEach((fn) => fn());
+  assert.strictEqual(h.yt.kicks, 1);
+});
+
+test("YouTube: a socket that opens but hears no widget says so; ready clears it; Mix It Up going away replaces it", async (t) => {
+  const h = await boot(t, { search: YT_Q });
+  h.yt.status('open');
+  t.mock.timers.tick(20000);
+  assert.strictEqual(h.els.hint.hidden, true, 'an open socket is not "unreachable"');
+  h.yt.status('silent');
+  assert.strictEqual(h.els.hint.hidden, false);
+  assert.match(hintText(h), /isn't an enabled Chat widget/);
+  assert.match(hintText(h), /Single Widget URL/);
+  // mixitup.js drops the silent socket and reconnects: the drop and the next open leave the widget hint up.
+  h.yt.status('closed', { code: 1000, reason: '' });
+  h.yt.status('open');
+  assert.match(hintText(h), /isn't an enabled Chat widget/);
+  h.yt.status('ready');
+  assert.strictEqual(h.els.hint.hidden, true, 'ready ends it');
+  h.yt.status('silent');
+  // Mix It Up is shut down while the hint is up: the socket stays down, and the hint says it can't be reached.
+  h.yt.status('closed', { code: 1006, reason: '' });
+  t.mock.timers.tick(11000);
+  assert.match(hintText(h), /Couldn't reach Mix It Up at localhost:8111/);
+  assert.doesNotMatch(hintText(h), /enabled Chat widget/);
+  h.yt.status('open');
+  assert.strictEqual(h.els.hint.hidden, true, 'back up: the reach hint goes (the widget one returns if it stays silent)');
+  assert.strictEqual(h.S().ytStatus, 'open');
+});
+
+test("YouTube lines do not take up the reply memory (S.said), which Twitch and Kick replies and deletions rely on", async (t) => {
+  const h = await boot(t, { search: YT_Q + '&channel=home&history=0' });
+  join(h);
+  h.feed(priv('viewer', 'twitch line', { id: 'tw-1' }));
+  for (let i = 0; i < 1200; i++) h.yt.send(ytAdd('Fan' + (i % 7), ['line ' + i]));
+  assert.ok(h.S().said.peek('tw-1'), 'the Twitch line is still remembered');
+  assert.strictEqual(h.S().said.peek('youtube:LCC.msg' + yn), undefined);
 });

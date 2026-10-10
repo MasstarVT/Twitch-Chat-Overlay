@@ -7,7 +7,7 @@ describe('spec', () => {
   test('defaults match the plan', () => {
     const d = config.defaults();
     assert.deepEqual(d, {
-      channel: '', kick: '', kick_room: '', platform_icons: true, size: 'medium', text_px: 0, font: 'Inter',
+      channel: '', kick: '', kick_room: '', mixitup: '', mixitup_port: 8111, platform_icons: true, size: 'medium', text_px: 0, font: 'Inter',
       text_weight: 'semibold', text_color: '', line_height: 135, text_case: 'none', shadow: 2,
       shadow_color: '', shadow_style: 'filter', outline: 0, outline_color: '',
       names: true, name_weight: 'heavy', name_line: false, name_font: '', name_color: '', name_fallback: '', name_sep: 'colon',
@@ -37,7 +37,7 @@ describe('spec', () => {
 
   test('LIVE_KEYS plus the reload keys partition every key', () => {
     // homies_lists: the Homies lists fill one index, which can't drop a list once it has loaded.
-    const reload = ['channel', 'kick', 'kick_room', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'demo', 'debug',
+    const reload = ['channel', 'kick', 'kick_room', 'mixitup', 'mixitup_port', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'demo', 'debug',
       'homies_lists'];
     config.LIVE_KEYS.forEach((k) => assert.ok(config.SPEC[k], k + ' is not in SPEC'));
     reload.forEach((k) => assert.ok(!config.LIVE_KEYS.includes(k), k + ' must force a reload'));
@@ -762,15 +762,15 @@ describe('parse', () => {
   // ?channel=xqc! was refused as if no channel were set: the overlay said to add one.
   test('refusedChannels: a Twitch or Kick name the URL or settings.js gave that coerce refuses', () => {
     assert.deepEqual(config.refusedChannels('?channel=xqc!&kick=bad!name'),
-      { channel: { value: 'xqc!', from: 'url' }, kick: { value: 'bad!name', from: 'url' } });
-    assert.deepEqual(config.refusedChannels('?Channel=my%20channel'), { channel: { value: 'my channel', from: 'url' }, kick: null });
-    assert.deepEqual(config.refusedChannels('?channel=xqc&kick=kickname&channel=xqc.'), { channel: { value: 'xqc.', from: 'url' }, kick: null },
+      { channel: { value: 'xqc!', from: 'url' }, kick: { value: 'bad!name', from: 'url' }, mixitup: null });
+    assert.deepEqual(config.refusedChannels('?Channel=my%20channel'), { channel: { value: 'my channel', from: 'url' }, kick: null, mixitup: null });
+    assert.deepEqual(config.refusedChannels('?channel=xqc&kick=kickname&channel=xqc.'), { channel: { value: 'xqc.', from: 'url' }, kick: null, mixitup: null },
       'the last value, as parse reads it');
-    assert.deepEqual(config.refusedChannels('?channel=xqc&kick=', { channel: 'bad!', kick: 'also bad!' }), { channel: null, kick: null },
+    assert.deepEqual(config.refusedChannels('?channel=xqc&kick=', { channel: 'bad!', kick: 'also bad!' }), { channel: null, kick: null, mixitup: null },
       'settings.js values the URL overrides');
-    assert.deepEqual(config.refusedChannels('', { Channel: 'xqc.', kick: 'fine' }), { channel: { value: 'xqc.', from: 'settings' }, kick: null });
-    assert.deepEqual(config.refusedChannels('?channel=&kick=%20'), { channel: null, kick: null }, 'empty is no name');
-    assert.deepEqual(config.refusedChannels('', { channel: true, kick: ['x'] }), { channel: null, kick: null });
+    assert.deepEqual(config.refusedChannels('', { Channel: 'xqc.', kick: 'fine' }), { channel: { value: 'xqc.', from: 'settings' }, kick: null, mixitup: null });
+    assert.deepEqual(config.refusedChannels('?channel=&kick=%20'), { channel: null, kick: null, mixitup: null }, 'empty is no name');
+    assert.deepEqual(config.refusedChannels('', { channel: true, kick: ['x'] }), { channel: null, kick: null, mixitup: null });
   });
 });
 
@@ -1057,5 +1057,106 @@ describe('fonts', () => {
     assert.equal(config.fontWeights({ name_weight: 'light' }), '300;400;600;700;800');
     assert.equal(config.fontWeights({ name_weight: 'black' }), '400;600;700;800;900');
     assert.equal(config.fontWeights({ text_weight: 'black', name_weight: 'light' }), '300;400;600;700;800;900');
+  });
+});
+
+describe('mixitup', () => {
+  const G = '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a';
+
+  test('parseMixItUp: a GUID, or the widget link or socket address Mix It Up gives it', () => {
+    assert.deepEqual(config.parseMixItUp(G), { guid: G, port: 8111, link: false });
+    assert.deepEqual(config.parseMixItUp(' {' + G.toUpperCase() + '} '), { guid: G, port: 8111, link: false });
+    assert.deepEqual(config.parseMixItUp('http://localhost:8111/overlay/' + G), { guid: G, port: 8111, link: true });
+    assert.deepEqual(config.parseMixItUp('http://LocalHost/overlay/' + G + '/'), { guid: G, port: 8111, link: true });
+    assert.deepEqual(config.parseMixItUp('https://127.0.0.1:9000/overlay/' + G + '?x=1#y'), { guid: G, port: 9000, link: true });
+    assert.deepEqual(config.parseMixItUp('ws://localhost:8112/ws/' + G + '/'), { guid: G, port: 8112, link: true });
+  });
+
+  test('parseMixItUp: nothing but this PC, and never the shared default endpoint', () => {
+    [
+      '', '   ', 'localhost', G.slice(1), G + '0', 'zzzzzzzz-1f2d-4c5b-9a7e-3d8f2b1c4e5a',
+      '00000000-0000-0000-0000-000000000000', 'http://localhost:8111/overlay/00000000-0000-0000-0000-000000000000',
+      'http://localhost:8111/overlay', 'http://localhost:8111/overlay/', 'http://localhost:8111/other/' + G,
+      'http://example.com/overlay/' + G, 'http://localhost.evil.com/overlay/' + G, 'http://xlocalhost/overlay/' + G,
+      'http://localhost@evil.com/overlay/' + G, 'http://user@localhost/overlay/' + G, 'http://evil.com/localhost/overlay/' + G,
+      'http://localhost:80/overlay/' + G, 'http://localhost:1023/overlay/' + G, 'http://localhost:65536/overlay/' + G,
+      'http://localhost:abc/overlay/' + G, 'http://[::1]:8111/overlay/' + G, 'ftp://localhost/overlay/' + G,
+      'http://localhost:8111/overlay/' + G + '/extra', 'javascript:alert(1)'
+    ].forEach((bad) => assert.equal(config.parseMixItUp(bad), null, bad));
+    [null, undefined, 5, true, {}, [], [G]].forEach((bad) => assert.equal(config.parseMixItUp(bad), null));
+  });
+
+  test('coerce: the GUID, lowercased; a link gives its GUID; empty clears; anything else is refused', () => {
+    assert.equal(config.coerce('mixitup', G.toUpperCase()), G);
+    assert.equal(config.coerce('mixitup', 'http://localhost:8111/overlay/' + G), G);
+    assert.equal(config.coerce('mixitup', ''), '');
+    assert.equal(config.coerce('mixitup', '  '), '');
+    assert.equal(config.coerce('mixitup', 'nonsense'), undefined);
+    assert.equal(config.coerce('mixitup', 12), undefined);
+    assert.equal(config.coerce('mixitup', true), undefined);
+    assert.equal(config.coerce('mixitup_port', '8112'), 8112);
+    assert.equal(config.coerce('mixitup_port', '80'), 1024, 'clamped like every number');
+    assert.equal(config.normalizeMixItUp('http://localhost:8111/overlay/' + G), G);
+    assert.equal(config.normalizeMixItUp('nope'), '');
+    assert.equal(config.normalizeMixItUp(42), '');
+  });
+
+  test('parse: the URL and settings.js, and a link\'s own port', () => {
+    assert.equal(config.parse('?mixitup=' + G).mixitup, G);
+    assert.equal(config.parse('?mixitup=' + G).mixitup_port, 8111);
+    assert.equal(config.parse('', { mixitup: G }).mixitup, G);
+    assert.equal(config.parse('?mixitup=' + G, { mixitup: '0b9f7d52-8e41-4a36-b2c0-7e5d1a9f3c68' }).mixitup, G, 'the URL wins');
+    assert.equal(config.parse('?mixitup=', { mixitup: G }).mixitup, '', 'an empty value clears settings.js');
+    assert.equal(config.parse('?mixitup=bad', { mixitup: G }).mixitup, G, 'an invalid one keeps what was there');
+    const link = 'http://localhost:8112/overlay/' + G;
+    assert.equal(config.parse('?mixitup=' + encodeURIComponent(link)).mixitup_port, 8112);
+    assert.equal(config.parse('', { mixitup: link }).mixitup_port, 8112);
+    assert.equal(config.parse('?mixitup=' + encodeURIComponent(link) + '&mixitup_port=9001').mixitup_port, 9001, 'a port of its own wins');
+    assert.equal(config.parse('?mixitup=' + encodeURIComponent(link), { mixitup_port: 9002 }).mixitup_port, 8112, 'the URL\'s link beats settings.js\'s port');
+    assert.equal(config.parse('?mixitup_port=9001', { mixitup: link }).mixitup_port, 9001, 'the URL\'s port beats settings.js\'s link');
+    assert.equal(config.parse('', { mixitup: link, mixitup_port: 9002 }).mixitup_port, 9002, 'a port beside the link in settings.js wins');
+    assert.equal(config.parse('?mixitup=' + G, { mixitup_port: 9002 }).mixitup_port, 9002, 'a bare id has no port of its own');
+    assert.equal(config.parse('?mixitup=' + G, { mixitup: link }).mixitup_port, 8111, 'the link that gave the value is the URL\'s');
+    assert.equal(config.parse('?mixitup_port=9001').mixitup, '');
+  });
+
+  test('toParams and toObject keep the GUID and a non-default port only', () => {
+    const cfg = Object.assign(config.defaults(), { mixitup: G });
+    assert.equal(config.toParams(cfg).get('mixitup'), G);
+    assert.equal(config.toParams(cfg).has('mixitup_port'), false);
+    cfg.mixitup_port = 8112;
+    assert.equal(config.toParams(cfg).get('mixitup_port'), '8112');
+    assert.deepEqual(config.toObject(cfg), { mixitup: G, mixitup_port: 8112 });
+    const back = config.parse(config.toParams(cfg));
+    assert.equal(back.mixitup, G);
+    assert.equal(back.mixitup_port, 8112);
+  });
+
+  test('refusedChannels: a widget link coerce refuses', () => {
+    assert.deepEqual(config.refusedChannels('?mixitup=http%3A%2F%2Fexample.com%2Foverlay%2F' + G),
+      { channel: null, kick: null, mixitup: { value: 'http://example.com/overlay/' + G, from: 'url' } });
+    assert.deepEqual(config.refusedChannels('', { MixItUp: 'nope' }),
+      { channel: null, kick: null, mixitup: { value: 'nope', from: 'settings' } });
+    assert.deepEqual(config.refusedChannels('?mixitup=' + G), { channel: null, kick: null, mixitup: null });
+  });
+});
+
+describe('mixitup: config and mixitup.js read a widget link alike', () => {
+  const mixitup = require('../js/mixitup.js');
+  const G = '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a';
+  const samples = [
+    G, G.toUpperCase(), '{' + G + '}', ' ' + G + ' ', '', 'nope', '00000000-0000-0000-0000-000000000000',
+    'http://localhost:8111/overlay/' + G, 'https://127.0.0.1:9000/overlay/' + G + '/?a=b#c', 'http://LOCALHOST/overlay/' + G,
+    'ws://localhost:8112/ws/' + G + '/', 'wss://localhost/ws/' + G, 'ws://localhost:8112/ws/' + G + '?x=1',
+    'http://localhost:8111/ws/' + G, 'ws://localhost:8111/overlay/' + G, 'http://localhost:8111/overlay/{' + G + '}',
+    'http://localhost:80/overlay/' + G, 'http://localhost:1023/overlay/' + G, 'http://localhost:65536/overlay/' + G,
+    'http://localhost:08111/overlay/' + G, 'http://localhost.evil.com/overlay/' + G, 'http://user@localhost/overlay/' + G,
+    'http://[::1]/overlay/' + G, 'http://localhost/overlay/' + G + '/x', 'http://localhost/overlay/00000000-0000-0000-0000-000000000000'
+  ];
+  test('the same GUID and port for every sample, and the same refusals', () => {
+    samples.forEach((s) => {
+      const a = config.parseMixItUp(s), b = mixitup.parseLink(s);
+      assert.deepEqual(a && { guid: a.guid, port: a.port }, b, JSON.stringify(s));
+    });
   });
 });

@@ -1292,6 +1292,30 @@ test('line classes: a whitelisted platform class for Kick lines; Twitch lines an
   assert.strictEqual(R.lineClasses({ platform: 'constructor' }, {}, 'chat', false), 'line');
 });
 
+test('line classes: YouTube lines get platform-youtube', () => {
+  assert.strictEqual(R.lineClasses({ platform: 'youtube' }, {}, 'chat', false), 'line platform-youtube');
+  assert.strictEqual(R.lineClasses({ platform: 'YouTube' }, {}, 'chat', false), 'line', 'the platform name is as mixitup.js writes it');
+});
+
+test('roleOf: a YouTube line goes by its YouTube badge types, and by nothing else', () => {
+  assert.strictEqual(R.roleOf({ platform: 'youtube', youtubeBadges: [{ type: 'owner' }] }), 'broadcaster');
+  assert.strictEqual(R.roleOf({ platform: 'youtube', youtubeBadges: [{ type: 'member' }, { type: 'moderator' }] }), 'mod');
+  assert.strictEqual(R.roleOf({ platform: 'youtube', youtubeBadges: [{ type: 'member' }] }), 'sub');
+  assert.strictEqual(R.roleOf({ platform: 'youtube', youtubeBadges: [{ type: 'subscriber' }, { type: 'vip' }, { type: 'constructor' }] }), null);
+  assert.strictEqual(R.roleOf({ platform: 'youtube', badges: [{ set: 'moderator', version: '1' }] }), null, 'Twitch badges mean nothing there');
+  assert.strictEqual(R.roleOf({ platform: 'youtube' }), null);
+  assert.strictEqual(R.roleOf({ youtubeBadges: [{ type: 'owner' }] }), null, 'a Twitch line ignores them');
+});
+
+test('mentions: a YouTube chatter is never the channel itself, and no reply or "@Parent" rule applies to YouTube lines', () => {
+  const cfg = { mentions: 'name', channel: 'home', kick: 'kick-name' };
+  assert.strictEqual(hlCls(cfg, { platform: 'youtube', login: 'home', text: 'hi' }), 'line platform-youtube');
+  assert.strictEqual(hlCls(cfg, { platform: 'youtube', login: 'viewer', text: 'hello home' }), 'line mention platform-youtube');
+  assert.strictEqual(hlCls(cfg, { platform: 'youtube', login: 'viewer', text: 'yes', reply: { login: 'home' } }), 'line platform-youtube');
+  assert.strictEqual(hlCls({ keywords: ['simp'] }, { platform: 'youtube', text: '@Simp hi', reply: { name: 'Simp', login: 'simp' } }), 'line keyword platform-youtube');
+  assert.strictEqual(hlCls({ role_style: 'bar' }, { platform: 'youtube', youtubeBadges: [{ type: 'moderator' }] }), 'line role-mod role-bar platform-youtube');
+});
+
 test('icon badges: known icons become icon models, unknown keys are dropped, platform icons survive badges=0', () => {
   const list = [
     { provider: 'platform', icon: 'kick', title: 'Kick' },

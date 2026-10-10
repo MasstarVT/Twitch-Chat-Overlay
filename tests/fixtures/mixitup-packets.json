@@ -1,0 +1,158 @@
+{
+  "_provisional": "built from MixItUp source, not captured from a running instance",
+  "_about": "A batched frame from Mix It Up's overlay socket (OverlayEndpointV3Service.EndBatching sends a JSON array of packets), as the Chat widget 6f1c2e9a-... and its endpoint would see it: a YouTube moderator's line, a Twitch line (the widget's platform filter is empty, so every platform's chat comes), another widget's call on the same endpoint, a deleted message, a banned YouTube chatter and a banned Twitch one, a chat clear (sent for any platform's clear, so no YouTube clear), the widget's HTML (Add), another function and text-to-speech. removed: what the widget's sockets get when it is disabled while they are open (OverlayWidgetV3Model.Uninitialize -> Remove; a reset or an edit sends it, then answer's Add). answer: what an enabled Single Widget URL widget sends when a socket says ConnectionStart (OverlayWidgetEndpointV3Service.PacketReceived -> SendInitial -> Add; HTML shortened here). test: Mix It Up's connection test, a frame of its own (a bare JObject, so no $type).",
+  "guid": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+  "removed": {"$type":"MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base","Type":"Remove","Data":{"ID":"6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b","URL":"/overlay/data/6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b","HTML":null,"Layer":0}},
+  "answer": {"$type":"MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base","Type":"Add","Data":{"ID":"6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b","URL":"/overlay/data/6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b","HTML":"<!DOCTYPE html><html><head><style>/* animate.css, the widget CSS ... */</style></head><body><div id=\"list\"></div><script>/* the widget JavaScript ... */</script></body></html>","Layer":0}},
+  "test": "{\"Type\":\"Test\"}",
+  "debug": "{\"Type\":\"Debug\"}",
+  "frame": [
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Function",
+      "Data": {
+        "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+        "FunctionName": "add",
+        "Parameters": {
+          "MessageID": "LCC.CjkKGkNPdUFxZnlXX1lnREZYX0V3Z1FkUDJjQkZB",
+          "User": {
+            "Model": { "ID": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", "CurrencyAmounts": {}, "InventoryAmounts": {} },
+            "ID": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+            "Platform": 3,
+            "PlatformID": "UC9zY8xW7vU6tS5rQ4pO3nMl",
+            "Username": "Mod Squad Lead",
+            "DisplayName": "Mod Squad Lead",
+            "AvatarLink": "https://yt3.ggpht.com/ytc/AIdro_mod64=s64-c-k-c0x00ffffff-no-rj",
+            "Roles": [100, 800],
+            "Color": null,
+            "ColorInApp": "MaterialDesign.Brush.Foreground",
+            "PrimaryRole": 800,
+            "PlatformBadgeFullLink": "https://files.mixitup.bot/static/logos/youtube.png"
+          },
+          "Platform": "YouTube",
+          "MessageType": "text",
+          "IsHighlightedMessage": false,
+          "IsFirstMessage": false,
+          "BitsAmount": 0,
+          "Message": [
+            { "Type": "Text", "Content": "please" },
+            { "Type": "Text", "Content": "keep" },
+            { "Type": "Text", "Content": "it" },
+            { "Type": "Text", "Content": "friendly" }
+          ]
+        }
+      }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Function",
+      "Data": {
+        "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+        "FunctionName": "add",
+        "Parameters": {
+          "MessageID": "885196de-cb67-427a-baa8-82f9b0fcd05f",
+          "User": {
+            "ID": "f0e1d2c3-b4a5-4968-8776-655443322110",
+            "Platform": 2,
+            "PlatformID": "12826",
+            "Username": "twitchviewer",
+            "DisplayName": "TwitchViewer",
+            "Roles": [100, 600],
+            "Color": "#1E90FF",
+            "ColorInApp": "#1E90FF"
+          },
+          "Platform": "Twitch",
+          "MessageType": "text",
+          "IsHighlightedMessage": false,
+          "IsFirstMessage": true,
+          "BitsAmount": 0,
+          "Message": [
+            { "Type": "Text", "Content": "hi" },
+            { "Type": "Emote", "Content": "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0", "Name": "Kappa", "Provider": "Twitch" }
+          ]
+        }
+      }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Function",
+      "Data": {
+        "ID": "0d9c8b7a-6f5e-4d3c-2b1a-098765432100",
+        "FunctionName": "add",
+        "Parameters": {
+          "MessageID": "LCC.Q2xpcF9mcm9tX2Fub3RoZXJfd2lkZ2V0",
+          "User": { "ID": "11111111-2222-4333-8444-555555555555", "Platform": 3, "PlatformID": "UCanotherwidgetsviewer01", "Username": "Elsewhere", "DisplayName": "Elsewhere", "Roles": [100] },
+          "Platform": "YouTube",
+          "MessageType": "text",
+          "IsHighlightedMessage": false,
+          "IsFirstMessage": false,
+          "BitsAmount": 0,
+          "Message": [{ "Type": "Text", "Content": "another" }, { "Type": "Text", "Content": "widget" }]
+        }
+      }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Function",
+      "Data": {
+        "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+        "FunctionName": "remove",
+        "Parameters": { "MessageID": "LCC.Cg0KC2RRdzR3OVdnWGNRKicKGFVDeE0yYThrSll5SEhMcVpwUTdzUTFuQRILZFF3NHc5V2dYY1ESOQoaQ1B2OF83YVdfWWdERlVtUndnRWRKNVFPRmcSG0NNYV96ZnlXX1lnREZRbkV3Z1FkWnI4RnF3MA==" }
+      }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Function",
+      "Data": {
+        "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+        "FunctionName": "remove",
+        "Parameters": {
+          "Username": "Spam Bot 3000",
+          "User": {
+            "Model": { "ID": "99999999-8888-4777-8666-555555555555", "CurrencyAmounts": { "8c2f4b1e-7d3a-4f5c-9e6b-1a2d3c4e5f60": 0 } },
+            "ID": "99999999-8888-4777-8666-555555555555",
+            "Platform": 3,
+            "PlatformID": "UCspAmB0t3000xxxxxxxxxxx",
+            "Username": "Spam Bot 3000",
+            "DisplayName": "Spam Bot 3000",
+            "Roles": [100],
+            "Color": null,
+            "ColorInApp": "MaterialDesign.Brush.Foreground"
+          }
+        }
+      }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Function",
+      "Data": {
+        "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+        "FunctionName": "remove",
+        "Parameters": {
+          "Username": "twitchtroll",
+          "User": { "ID": "abababab-cdcd-4efe-8a8a-121212121212", "Platform": 2, "PlatformID": "4242", "Username": "twitchtroll", "DisplayName": "TwitchTroll", "Roles": [100] }
+        }
+      }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Function",
+      "Data": { "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b", "FunctionName": "clear", "Parameters": {} }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Add",
+      "Data": { "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b", "URL": "/overlay/data/6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b", "HTML": "<div id=\"chat\"></div>", "Layer": 0 }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "Function",
+      "Data": { "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b", "FunctionName": "update", "Parameters": { "Text": "x" } }
+    },
+    {
+      "$type": "MixItUp.Base.Services.OverlayV3Packet, MixItUp.Base",
+      "Type": "ResponsiveVoice",
+      "Data": { "ID": "6f1c2e9a-3b4d-4e5f-8a9b-0c1d2e3f4a5b", "Text": "hello", "Voice": "UK English Male", "Volume": 1.0, "Pitch": 1.0, "Rate": 1.0 }
+    }
+  ]
+}

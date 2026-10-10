@@ -5,20 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Only this site's own script files run (no inline scripts or styles, no eval). The preview frame is overlay.html.
        Images: this site's own (the provider logos) and the channel's picture from Twitch's CDN. Requests: IVR checks
-       the Twitch channel, kick.com looks up the Kick chatroom. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: https://*.jtvnw.net data:; connect-src https://api.ivr.fi https://kick.com; frame-src 'self' file:; base-uri 'none'; form-action 'none'">
+       the Twitch channel, kick.com looks up the Kick chatroom, and the Mix It Up widget's Check asks the Mix It Up app on
+       this PC (localhost only, over http as Mix It Up serves it) whether it has the YouTube chat widget. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: https://*.jtvnw.net data:; connect-src https://api.ivr.fi https://kick.com http://localhost:*; frame-src 'self' file:; base-uri 'none'; form-action 'none'">
   <title>Twitch Chat Overlay Builder</title>
-  <meta name="description" content="Build an OBS chat overlay for Twitch and Kick with 7TV, BetterTTV and FrankerFaceZ emotes, every badge source and 7TV name paints.">
+  <meta name="description" content="Build an OBS chat overlay for Twitch, Kick and YouTube with 7TV, BetterTTV and FrankerFaceZ emotes, every badge source and 7TV name paints.">
   <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- media="print" keeps the fonts from blocking the page; builder.js switches them on once they load. -->
   <link id="font-css" rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&amp;family=Figtree:ital,wght@0,400..800;1,600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
-  <link rel="stylesheet" href="css/builder.css?v=1.8.0">
-  <script defer src="js/util.js?v=1.8.0"></script>
-  <script defer src="js/config.js?v=1.8.0"></script>
-  <script defer src="js/kick.js?v=1.8.0"></script>
-  <script defer src="js/builder.js?v=1.8.0"></script>
+  <link rel="stylesheet" href="css/builder.css?v=1.9.0">
+  <script defer src="js/util.js?v=1.9.0"></script>
+  <script defer src="js/config.js?v=1.9.0"></script>
+  <script defer src="js/kick.js?v=1.9.0"></script>
+  <script defer src="js/mixitup.js?v=1.9.0"></script>
+  <script defer src="js/builder.js?v=1.9.0"></script>
 </head>
 <body>
   <a class="skip" href="#settings">Skip to settings</a>
@@ -35,7 +37,8 @@
       </nav>
 
       <!-- The two channels, side by side: either one is enough, both put the two chats in one overlay. Kick's field is
-           built by builder.js (META.kick) and added after Twitch's; its Check fills in the chatroom id on the Kick tab. -->
+           built by builder.js (META.kick) and added after Twitch's; its Check fills in the chatroom id on the Kick & YouTube
+           tab, where YouTube chat (a Mix It Up widget) is set up too. -->
       <section id="channel-card" class="channel" aria-label="Channels">
         <div class="ch ch-twitch">
           <label for="channel" class="ch-label"><span class="logo logo-twitch" aria-hidden="true"></span><span class="ch-name">Twitch</span><span class="sr-only"> channel</span></label>

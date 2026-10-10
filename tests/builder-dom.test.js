@@ -95,6 +95,9 @@ function open(t, href, opts) {
 }
 
 const HREF = 'https://masstarvt.github.io/Twitch-Chat-Overlay/builder.html';
+// A Mix It Up Chat widget's id (YouTube chat), and the link Mix It Up gives it.
+const WIDGET = '6c1b0a3e-1f2d-4c5b-9a7e-3d8f2b1c4e5a';
+const WIDGET_LINK = 'http://localhost:8111/overlay/' + WIDGET;
 
 // A localStorage kept in a Map, for open()'s opts.storage.
 function memoryStorage() {
@@ -219,7 +222,16 @@ test('either channel will do: with a Kick one alone, the Twitch field is optiona
   kick.dispatch('change');
   assert.strictEqual(p.$('channel').classList.contains('need'), true);
   assert.match(p.text('channel-status'), /^Enter your channel/);
-  assert.strictEqual(kickBox.textContent, 'Or a Kick channel, or both.');
+  // It says YouTube will do too: a link to the Mix It Up widget's field, on the Kick & YouTube tab (the bar has none).
+  assert.deepStrictEqual(p.$('channel-card').children.map((e) => e.className), ['ch ch-twitch', 'ch ch-kick']);
+  assert.strictEqual(kickBox.textContent, 'Or a Kick channel, or YouTube chat.');
+  const yt = kickBox.children.filter((e) => e.tagName === 'A')[0];
+  assert.deepStrictEqual([yt.textContent, yt.href], ['YouTube chat', '#platforms']);
+  let focused = null;
+  p.$('f-mixitup').focus = () => { focused = 'f-mixitup'; };
+  let stopped = false;
+  yt.dispatch('click', { button: 0, preventDefault() { stopped = true; } });
+  assert.deepStrictEqual([stopped, p.$('tab-platforms').getAttribute('aria-selected'), focused], [true, 'true', 'f-mixitup']);
   // With Twitch alone, Kick is the optional one.
   p.$('channel').value = 'home';
   p.$('channel').dispatch('change');
@@ -236,13 +248,24 @@ test('a greyed-out field says what it waits for; a greyed-out switch shows off, 
   assert.deepStrictEqual([needs('shadow_color').hidden, needs('shadow_color').textContent], [false, 'Needs Text shadow.']);
   // A help whose first line says it already gets no second line (Outline color).
   assert.strictEqual(needs('outline_color').hidden, true);
-  // The platform icons: off without both channels, and the help says when they show.
+  // The platform icons: off without two chats, and the help says when they show.
   assert.deepStrictEqual([p.$('f-platform_icons').disabled, p.$('f-platform_icons').checked], [true, false]);
-  assert.match(p.text('h-platform_icons'), /^Only when both a Twitch and a Kick channel are set/);
+  assert.match(p.text('h-platform_icons'), /^Only when at least two of Twitch, Kick and YouTube are set/);
   p.$('paste').value = '?channel=home&kick=xqc&kick_room=668';
   p.$('paste-load').dispatch('click');
   assert.deepStrictEqual([p.$('f-platform_icons').disabled, p.$('f-platform_icons').checked], [false, true]);
   assert.strictEqual(needs('shadow_color').hidden, true);
+  // Kick and YouTube, without Twitch, are two as well; YouTube alone is one.
+  p.$('paste').value = '?kick=xqc&kick_room=668&mixitup=' + WIDGET;
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([p.$('f-platform_icons').disabled, p.$('f-platform_icons').checked], [false, true]);
+  p.$('paste').value = '?mixitup=' + WIDGET;
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([p.$('f-platform_icons').disabled, p.$('f-platform_icons').checked], [true, false]);
+  // Its help says when, so no line under it says it again; Twitch, Kick and YouTube in it go to their fields.
+  assert.strictEqual(needs('platform_icons').hidden, true);
+  const lead = p.$('h-platform_icons').children[0];
+  assert.deepStrictEqual(lead.children.filter((e) => /needs-link/.test(e.className)).map((b) => b.textContent), ['Twitch', 'Kick', 'YouTube']);
 });
 
 test('a Needs line links to the setting it names: its tab opens, and the help that says it carries the link', (t) => {
@@ -959,6 +982,338 @@ test('Copy URL: the copied note points to Add to OBS, harder until it has been o
 // A field's row, from its label (label < .field-name < .field-head < .field).
 const rowOf = (p, key) => p.$('l-' + key).parentNode.parentNode.parentNode;
 
+// ---------- YouTube through Mix It Up ----------
+// The status line under the Mix It Up widget's field, on the Kick & YouTube tab.
+const mixStatus = (p) => p.$('f-mixitup').parentNode.parentNode.parentNode.children.filter((e) => e.getAttribute('role') === 'status')[0];
+const MIX_AWAY = 'Couldn’t reach Mix It Up at localhost:8111. Is it running, and is Overlay connected on its Services page? ' +
+  'If your browser asked to allow access to local devices, allow it, then press Check again.';
+const MIX_HAS = 'Mix It Up has this widget. If no YouTube lines show up, check that it is an enabled Chat widget and that ' +
+  'YouTube is among its platforms.';
+const MIX_UNKNOWN = 'Mix It Up doesn’t know this widget. Copy the Chat widget’s link again.';
+const MIX_ASK = 'Press Check to test the connection to Mix It Up.';
+
+// Mix It Up on this PC, as fetch sees it: reply() says how it answers ({ status } or { throws }); with `held` an answer
+// waits until the test lets it go (release). An aborted request fails, as a real one does. calls: { url, init }.
+// cancelled: how many answers' bodies were cancelled (the page is never read).
+function mixApi(t) {
+  const api = { calls: [], held: false, waiting: [], cancelled: 0, reply: () => ({ status: 200 }) };
+  api.release = () => { api.waiting.splice(0).forEach((go) => go()); };
+  t.mock.method(globalThis, 'fetch', (url, init) => {
+    // Anything else (the Twitch channel's lookup) fails, as with no network.
+    if (String(url).indexOf('http://localhost:') !== 0) return Promise.reject(new TypeError('Failed to fetch'));
+    api.calls.push({ url: String(url), init: init });
+    return new Promise((resolve, reject) => {
+      const signal = init && init.signal;
+      if (signal) signal.addEventListener('abort', () => reject(new Error('AbortError')));
+      const go = () => {
+        if (signal && signal.aborted) return;
+        const r = api.reply();
+        const body = { cancel: () => { api.cancelled++; return Promise.resolve(); } };
+        if (r.throws) reject(new TypeError('Failed to fetch'));
+        else resolve({ status: r.status, ok: r.status === 200, headers: { get: () => null }, body: body });
+      };
+      if (api.held) api.waiting.push(go); else go();
+    });
+  });
+  return api;
+}
+
+test('YouTube: the Mix It Up widget link is a setting on the Kick & YouTube tab, under the steps to get it; the top bar is Twitch and Kick', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = mixApi(t);
+  const p = open(t, HREF);
+  const input = p.$('f-mixitup'), status = mixStatus(p), row = rowOf(p, 'mixitup');
+  // The top bar is as it was: Twitch and Kick only.
+  assert.deepStrictEqual(p.$('channel-card').children.map((e) => e.className), ['ch ch-twitch', 'ch ch-kick']);
+  // A row of its own on the tab: the logo, the label and its option name, the box and its Check, help and a status line.
+  let sec = row;
+  while (sec && sec.id !== 'group-platforms') sec = sec.parentNode;
+  assert.ok(sec, 'on the Kick & YouTube tab');
+  assert.strictEqual(row.className, 'field field-text');
+  assert.deepStrictEqual([p.text('l-mixitup'), input.placeholder, input.nextElementSibling.textContent],
+    ['Mix It Up widget link', 'http://localhost:8111/overlay/…', 'Check']);
+  assert.strictEqual(row.byClass('logo')[0].className, 'logo logo-youtube');
+  // Above it, the steps: the link goes in the field below, and not in OBS.
+  const steps = row.parentNode.children[row.parentNode.children.indexOf(row) - 1];
+  assert.strictEqual(steps.className, 'help mixitup-steps span-all');
+  const li = steps.children[1].children.map((e) => e.textContent);
+  assert.strictEqual(li.length, 4);
+  assert.match(li[2], /paste it into the field below\.$/);
+  assert.match(li[3], /^Don’t add that link to OBS/);
+  assert.match(steps.children[2].textContent, /every 5 to 10 seconds/);
+  assert.strictEqual(steps.byClass('help-more').length, 0, 'no button to go to a field right under it');
+  // With no chat set its line is empty; another chat makes YouTube the optional one, as the top bar's lines say.
+  assert.deepStrictEqual([status.className, status.textContent], ['status', '']);
+  p.$('paste').value = '?kick=xqc&kick_room=668';
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(status.textContent, 'Optional: add YouTube to show both chats.');
+  p.$('paste').value = '?channel=home&kick=xqc&kick_room=668';
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(status.textContent, 'Optional: add YouTube to show all three chats.');
+  p.$('paste').value = '?bots=1';
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(status.textContent, '');
+  // Pasted, and a pause: the widget's id goes in the URL, and the link's own port, as the overlay reads such a link.
+  input.value = 'http://localhost:8112/overlay/' + WIDGET.toUpperCase();
+  input.dispatch('input');
+  t.mock.timers.tick(600);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?mixitup=' + WIDGET + '&mixitup_port=8112&bots=1');
+  assert.strictEqual(p.$('f-mixitup_port').value, '8112');
+  assert.strictEqual(status.textContent, MIX_ASK);
+  input.dispatch('change');
+  assert.strictEqual(input.value, WIDGET, 'the box shows the id, as the Kick one shows the name');
+  // A link without a port of its own is Mix It Up's 8111 (as config.parse reads it); a bare id leaves the port as it is.
+  input.value = WIDGET_LINK + '/';
+  input.dispatch('change');
+  assert.deepStrictEqual([p.text('bar-url'), p.$('f-mixitup_port').value], [OVERLAY + '?mixitup=' + WIDGET + '&bots=1', '8111']);
+  p.$('f-mixitup_port').value = '9000';
+  p.$('f-mixitup_port').dispatch('change');
+  input.value = '0b9f7d52-8e41-4a36-b2c0-7e5d1a9f3c68';
+  input.dispatch('keydown', { key: 'Enter', preventDefault() {} });
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?mixitup=0b9f7d52-8e41-4a36-b2c0-7e5d1a9f3c68&mixitup_port=9000&bots=1');
+  // Not a widget (a YouTube channel's page): an error, and the URL keeps the last valid one.
+  input.value = 'https://www.youtube.com/@someone';
+  input.dispatch('change');
+  assert.deepStrictEqual([p.$('e-mixitup').hidden, input.getAttribute('aria-invalid')], [false, 'true']);
+  assert.match(p.text('bar-url'), /mixitup=0b9f7d52-8e41-4a36-b2c0-7e5d1a9f3c68&mixitup_port=9000/);
+  // Emptied: no YouTube.
+  input.value = '';
+  input.dispatch('change');
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?mixitup_port=9000&bots=1');
+  // Typing and pasting never ask Mix It Up anything: only Check does.
+  await settle();
+  assert.deepStrictEqual(api.calls, []);
+});
+
+test('YouTube: the Mix It Up port takes plain digits from 1024 to 65535; emptied, it is 8111 again', (t) => {
+  const p = open(t, HREF + '?mixitup=' + WIDGET + '&mixitup_port=9000');
+  const port = p.$('f-mixitup_port'), err = p.$('e-mixitup_port');
+  assert.deepStrictEqual([port.value, port.placeholder], ['9000', '8111']);
+  // Anything else is refused, not moved into the range (config.coerce would read '-1' as 1024): the URL keeps 9000.
+  ['-1', '80', '1023', '65536', '70000', '1e4', '+8111', '8111 x', '81.5', 'auto'].forEach((v) => {
+    port.value = v;
+    port.dispatch('change');
+    assert.deepStrictEqual([err.hidden, err.textContent, port.getAttribute('aria-invalid'), port.value],
+      [false, 'Use a number from 1024 to 65535.', 'true', v], v);
+    assert.strictEqual(p.text('bar-url'), OVERLAY + '?mixitup=' + WIDGET + '&mixitup_port=9000', v);
+  });
+  // Typed while paused on it, a bad one isn't taken either.
+  port.value = '-5';
+  port.dispatch('input');
+  t.mock.timers.tick(600);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?mixitup=' + WIDGET + '&mixitup_port=9000');
+  port.value = ' 8112 ';
+  port.dispatch('change');
+  assert.deepStrictEqual([err.hidden, port.value, p.text('bar-url')], [true, '8112', OVERLAY + '?mixitup=' + WIDGET + '&mixitup_port=8112']);
+  port.value = '65535';
+  port.dispatch('change');
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?mixitup=' + WIDGET + '&mixitup_port=65535');
+  // Emptied: while it is still being typed in, no error and no change; left, it is the default, and the URL drops it.
+  port.value = '';
+  port.dispatch('input');
+  t.mock.timers.tick(600);
+  assert.deepStrictEqual([err.hidden, p.text('bar-url')], [true, OVERLAY + '?mixitup=' + WIDGET + '&mixitup_port=65535']);
+  port.dispatch('change');
+  assert.deepStrictEqual([err.hidden, port.value, p.text('bar-url')], [true, '8111', OVERLAY + '?mixitup=' + WIDGET]);
+});
+
+test('YouTube: Check asks Mix It Up on this PC whether it has the widget', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = mixApi(t);
+  const storage = memoryStorage();
+  storage.setItem('tco-builder-cfg', JSON.stringify({ mixitup: WIDGET }));
+  const p = open(t, HREF, { storage });
+  await settle();
+  assert.deepStrictEqual(api.calls, [], 'not as the page opens: the browser may ask to allow access to local devices');
+  const input = p.$('f-mixitup'), check = input.nextElementSibling, status = mixStatus(p);
+  assert.deepStrictEqual([input.value, status.className, status.textContent], [WIDGET, 'status', '']);
+  const press = async (reply) => {
+    api.reply = reply;
+    check.dispatch('click');
+    await settle();
+    return [status.className, status.textContent];
+  };
+  // Known: Mix It Up answers the widget's address. Its page is never read: the body is cancelled.
+  check.dispatch('click');
+  assert.deepStrictEqual([status.className, status.textContent], ['status busy', 'Checking Mix It Up at localhost:8111…']);
+  await settle();
+  assert.deepStrictEqual([status.className, status.textContent], ['status ok', MIX_HAS]);
+  assert.strictEqual(api.calls[0].url, WIDGET_LINK);
+  assert.deepStrictEqual([api.calls[0].init.cache, api.calls[0].init.credentials, !!api.calls[0].init.signal], ['no-store', 'omit', true]);
+  assert.strictEqual(api.cancelled, 1);
+  assert.deepStrictEqual(await press(() => ({ status: 400 })), ['status err', MIX_UNKNOWN]);
+  assert.deepStrictEqual(await press(() => ({ throws: true })), ['status warn', MIX_AWAY]);
+  assert.deepStrictEqual(await press(() => ({ status: 404 })),
+    ['status warn', 'Something at localhost:8111 answered, but not as Mix It Up does (HTTP 404). Check the Mix It Up port.']);
+  // No answer: after 4 s (a check has ended before) the request is given up (aborted), and the line says so once.
+  api.held = true;
+  check.dispatch('click');
+  await settle();
+  t.mock.timers.tick(3999);
+  await settle();
+  assert.strictEqual(status.className, 'status busy');
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepStrictEqual([status.className, status.textContent], ['status warn', MIX_AWAY]);
+  assert.strictEqual(api.calls[api.calls.length - 1].init.signal.aborted, true);
+  const line = status.childNodes[0];
+  api.release();
+  await settle();
+  assert.strictEqual(status.childNodes[0], line, 'not written again (a live region would say it again)');
+  // Another port (Mix It Up's Services page): the line about the old one goes, and Check asks there.
+  api.held = false;
+  const port = p.$('f-mixitup_port');
+  port.value = '8112';
+  port.dispatch('change');
+  assert.deepStrictEqual([status.className, status.textContent], ['status', MIX_ASK]);
+  assert.deepStrictEqual(await press(() => ({ status: 200 })), ['status ok', MIX_HAS]);
+  assert.strictEqual(api.calls[api.calls.length - 1].url, 'http://localhost:8112/overlay/' + WIDGET);
+  // Check with an empty box asks nothing, and says what goes in it.
+  const n = api.calls.length;
+  input.value = '';
+  input.dispatch('change');
+  assert.deepStrictEqual(await press(() => ({ status: 200 })), ['status warn', 'Paste the link of your Mix It Up Chat widget first.']);
+  assert.strictEqual(api.calls.length, n);
+  // A link pasted then: the line says Check tests it.
+  input.value = WIDGET;
+  input.dispatch('change');
+  assert.deepStrictEqual([status.className, status.textContent], ['status', MIX_ASK]);
+});
+
+test('YouTube: the first Check of a page waits 10 s for Mix It Up (the browser may be asking about local devices), later ones 4 s', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = mixApi(t);
+  api.held = true;
+  const p = open(t, HREF + '?mixitup=' + WIDGET);
+  const check = p.$('f-mixitup').nextElementSibling, status = mixStatus(p);
+  check.dispatch('click');
+  await settle();
+  t.mock.timers.tick(9999);
+  await settle();
+  assert.strictEqual(status.className, 'status busy', 'still waiting after 4 s and more');
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepStrictEqual([status.className, status.textContent], ['status warn', MIX_AWAY]);
+  check.dispatch('click');
+  await settle();
+  t.mock.timers.tick(4000);
+  await settle();
+  assert.deepStrictEqual([status.className, status.textContent], ['status warn', MIX_AWAY]);
+  assert.strictEqual(api.calls.length, 2);
+});
+
+test('YouTube: a check dropped before it ended (the port changed) leaves the next one the first one’s 10 s', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = mixApi(t);
+  api.held = true;
+  const q = open(t, HREF + '?mixitup=' + WIDGET);
+  const qcheck = q.$('f-mixitup').nextElementSibling, qstatus = mixStatus(q);
+  qcheck.dispatch('click');
+  q.$('f-mixitup_port').value = '8112';
+  q.$('f-mixitup_port').dispatch('change');
+  qcheck.dispatch('click');
+  await settle();
+  t.mock.timers.tick(4000);
+  await settle();
+  assert.strictEqual(qstatus.className, 'status busy');
+  t.mock.timers.tick(6000);
+  await settle();
+  assert.strictEqual(qstatus.textContent, MIX_AWAY.replace('8111', '8112'));
+});
+
+test('YouTube: Check pressed again asks once, and an answer about a widget since changed is dropped', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  const api = mixApi(t);
+  api.held = true;
+  const p = open(t, HREF + '?mixitup=' + WIDGET);
+  const input = p.$('f-mixitup'), check = input.nextElementSibling, status = mixStatus(p);
+  check.dispatch('click');
+  check.dispatch('click');
+  await settle();
+  assert.strictEqual(api.calls.length, 1, 'the check still out answers for both presses');
+  // A new widget pasted while Mix It Up is asked about the old one: that request goes, and so does its answer.
+  const W2 = '0b9f7d52-8e41-4a36-b2c0-7e5d1a9f3c68';
+  input.value = W2;
+  input.dispatch('input');
+  t.mock.timers.tick(600);
+  assert.strictEqual(api.calls[0].init.signal.aborted, true);
+  assert.deepStrictEqual([status.className, status.textContent], ['status', MIX_ASK]);
+  api.release();
+  await settle();
+  assert.strictEqual(status.textContent, MIX_ASK);
+  // Its own check: a mouse press leaves the box first (its change commits the widget), then Check asks about it once.
+  input.dispatch('change');
+  check.dispatch('click', { detail: 1 });
+  await settle();
+  assert.deepStrictEqual(api.calls.map((c) => c.url), [WIDGET_LINK, 'http://localhost:8111/overlay/' + W2]);
+  api.release();
+  await settle();
+  assert.deepStrictEqual([status.className, status.textContent], ['status ok', MIX_HAS]);
+  // A link refused as the box is left: the line goes, as it spoke of the widget the URL still has; Check asks nothing.
+  input.value = 'not a widget';
+  input.dispatch('change');
+  assert.deepStrictEqual([status.className, status.textContent], ['status', '']);
+  check.dispatch('click');
+  await settle();
+  assert.strictEqual(api.calls.length, 2);
+  // A paste that keeps the widget leaves the line; another widget or port clears it, and says Check tests the new one.
+  input.value = W2;
+  input.dispatch('change');
+  api.held = false;
+  check.dispatch('click');
+  await settle();
+  p.$('paste').value = '?mixitup=' + W2 + '&bg=40';
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(status.textContent, MIX_HAS);
+  p.$('paste').value = '?mixitup=' + W2 + '&mixitup_port=8112';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([status.className, status.textContent], ['status', MIX_ASK]);
+});
+
+test('YouTube alone is a channel: nothing asks for one, the demo points to Live chat, and Reset keeps the widget', async (t) => {
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch'); }); // the channel lookup
+  const p = open(t, HREF + '?mixitup=' + WIDGET + '&mixitup_port=8112&bg=40');
+  t.mock.timers.tick(1000); // the demo preview loads
+  const frame = () => p.$('frame-box').children.filter((e) => e.tagName === 'IFRAME')[0];
+  assert.deepStrictEqual([p.text('channel-status'), kickStatus(p).textContent],
+    ['Optional: add Twitch to show both chats.', 'Optional: add Kick to show both chats.']);
+  assert.strictEqual(p.$('channel').classList.contains('need'), false);
+  // The port off its default is a setting changed, as the URL shows it: counted beside the URL and on its tab.
+  assert.deepStrictEqual(p.kids('bar-note', 'note-plain'), ['Holds only the 2 settings you changed. The rest use the defaults. ']);
+  assert.strictEqual(p.$('bar-copy').classList.contains('alt'), false);
+  assert.strictEqual(p.text('count-platforms'), '1', 'the port, not the widget');
+  assert.strictEqual(p.text('stage-hint'), 'Demo chat with global emotes only. Switch to Live chat to watch your YouTube chat.');
+  // One chat in OBS: the demo's Twitch lines get no icons in the preview either (overlay.js counts the demo as Twitch).
+  assert.strictEqual(new URL(frame().src).searchParams.get('platform_icons'), '0');
+  // Live chat: the frame reads YouTube chat from Mix It Up, with no Twitch or Kick channel.
+  const live = p.doc.querySelectorAll('input[name="pmode"]').filter((r) => r.value === 'live')[0];
+  live.checked = true;
+  live.dispatch('change');
+  t.mock.timers.tick(1000);
+  const q = new URL(frame().src).searchParams;
+  assert.deepStrictEqual([q.get('channel'), q.get('mixitup'), q.get('mixitup_port'), q.get('demo')], ['', WIDGET, '8112', '0']);
+  assert.strictEqual(p.text('stage-hint'), '');
+  // Kick and YouTube: two chats, so the icons show in OBS and in the preview.
+  p.$('paste').value = '?kick=xqc&kick_room=668&mixitup=' + WIDGET;
+  p.$('paste-load').dispatch('click');
+  t.mock.timers.tick(1000);
+  assert.strictEqual(new URL(frame().src).searchParams.get('platform_icons'), '1');
+  assert.strictEqual(p.text('channel-status'), 'Optional: add Twitch to show all three chats.');
+  // Reset keeps the channels, the widget and its port among them.
+  p.$('paste').value = '?channel=home&mixitup=' + WIDGET + '&mixitup_port=8112&bg=40';
+  p.$('paste-load').dispatch('click');
+  await settle();
+  p.$('reset').dispatch('click');
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?channel=home&mixitup=' + WIDGET + '&mixitup_port=8112');
+  assert.deepStrictEqual([p.$('f-mixitup').value, p.$('f-mixitup_port').value], [WIDGET, '8112']);
+  // Copied with Twitch: the note says the one URL carries both chats.
+  fakeCopy(p);
+  p.$('bar-copy').dispatch('click');
+  assert.match(p.text('bar-note'), /^Copied: Twitch and YouTube chat in one source\. In OBS/);
+  await settle();
+});
+
 test('Badges & paints: the sources are one labelled grid under Show badges, with their help last', (t) => {
   const p = open(t, HREF);
   const body = p.$('group-badges').children.filter((e) => e.className === 'fields')[0];
@@ -1074,6 +1429,14 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
   // mentions and timestamps (no anchor: only Advanced's headings have one).
   assert.deepStrictEqual(outline('group-events'), ['events', null, 'notice_color', 'notice_size', 'replies', 'reply_style', 'first_msg',
     'first_msg_color', 'shared', 'Highlights & timestamps', 'mentions', 'mention_color', 'timestamps']);
+  // Kick & YouTube: the icons for every chat first, then each platform under its heading. Kick's starts with where its
+  // channel went (the top bar) and ends with what Kick chat shows; YouTube's starts with the steps to the Mix It Up
+  // widget's link, then the field it goes in and the port.
+  assert.deepStrictEqual(fields('group-platforms').map((e) => (e.tagName === 'H3' ? e.textContent : e.getAttribute('data-key') || e.className)),
+    ['platform_icons', 'Kick', 'help kick-pointer span-all', 'kick_room', 'help part-foot span-all', 'YouTube',
+      'help mixitup-steps span-all', 'mixitup', 'mixitup_port']);
+  assert.match(p.$('group-platforms').byClass('part-foot')[0].textContent, /^Kick chat shows Kick and 7TV emotes/);
+  assert.strictEqual(p.$('group-platforms').children.filter((e) => /section-foot/.test(e.className)).length, 0);
   // Filters: no heading, Command prefixes under Hide !commands, and its foot links Advanced's Filters.
   assert.deepStrictEqual(outline('group-filters'), ['bots', 'hide_commands', 'command_prefixes', 'block', 'block_words', 'links',
     'role_filter']);

@@ -1,4 +1,4 @@
-/* Built-in badge icons (platform logos, Kick role badges), drawn as inline SVG by the renderer: no image
+/* Built-in badge icons (platform logos, Kick and YouTube role badges), drawn as inline SVG by the renderer: no image
    requests, so they also work from a local file (the overlay's CSP only allows https images). Chat data can
    only pick an icon by key; every shape and color here is a constant. */
 (function (root, factory) {
@@ -14,6 +14,9 @@
   // The inside of the Twitch speech bubble, filled white under the outline (as in Twitch's own logo).
   var TWITCH_INSIDE_D = 'M20.571 11.143L17.143 14.571H13.714L10.714 17.571V14.571H6.857V1.714H20.571Z';
   var KICK_D = 'M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z';
+  // YouTube's play button (Simple Icons, CC0): the triangle is a hole in the red body, so a white one is drawn under it.
+  var YOUTUBE_D = 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z';
+  var YOUTUBE_PLAY_D = 'M9.545 8.432L15.818 12l-6.273 3.568z';
   var KICK_GREEN = '#53FC19';
   var INK = '#0B0E0F';
   var WHITE = '#FFFFFF';
@@ -40,7 +43,11 @@
     'kick-verified': { vb: '0 0 16 16', tile: KICK_GREEN, shapes: [{ d: CHECK_D, fill: INK }], text: null },
     'kick-staff': { vb: '0 0 16 16', tile: INK, shapes: [], text: { s: 'K', fill: KICK_GREEN, size: 11 } },
     'kick-subscriber': { vb: '0 0 16 16', tile: KICK_GREEN, shapes: [{ d: STAR_D, fill: INK }], text: null },
-    'kick-sub_gifter': { vb: '0 0 16 16', tile: '#7B61FF', shapes: [{ d: GIFT_D, fill: WHITE }, { d: RIBBON_D, fill: '#7B61FF' }], text: null }
+    'kick-sub_gifter': { vb: '0 0 16 16', tile: '#7B61FF', shapes: [{ d: GIFT_D, fill: WHITE }, { d: RIBBON_D, fill: '#7B61FF' }], text: null },
+    youtube: { vb: '0 0 24 24', tile: null, shapes: [{ d: YOUTUBE_PLAY_D, fill: WHITE }, { d: YOUTUBE_D, fill: '#FF0000' }], text: null },
+    'youtube-owner': { vb: '0 0 16 16', tile: '#F2A900', shapes: [{ d: CAMERA_D, fill: INK }], text: null },
+    'youtube-moderator': { vb: '0 0 16 16', tile: '#5E84F1', shapes: [{ d: SHIELD_D, fill: WHITE }], text: null },
+    'youtube-member': { vb: '0 0 16 16', tile: '#2BA640', shapes: [{ d: STAR_D, fill: WHITE }], text: null }
   };
 
   var hasOwn = Object.prototype.hasOwnProperty;

@@ -3,14 +3,15 @@
   var util = typeof require === 'function' ? require('./util.js') : root.TCO.util;
   var config = typeof require === 'function' ? require('./config.js') : root.TCO.config;
   var kick = typeof require === 'function' ? require('./kick.js') : root.TCO.kick;
-  var api = factory(root, util, config, kick);
+  var mixitup = typeof require === 'function' ? require('./mixitup.js') : root.TCO.mixitup;
+  var api = factory(root, util, config, kick, mixitup);
   if (typeof module === 'object' && module.exports) module.exports = api;
   (root.TCO = root.TCO || {}).builder = api;
   if (typeof document !== 'undefined' && document.getElementById && !root.TCO_NO_AUTOBOOT) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { api.start(); });
     else api.start();
   }
-})(typeof window !== 'undefined' ? window : globalThis, function (root, util, config, kick) {
+})(typeof window !== 'undefined' ? window : globalThis, function (root, util, config, kick, mixitup) {
   'use strict';
 
   var IVR_USER = 'https://api.ivr.fi/v2/twitch/user?login=';
@@ -63,9 +64,14 @@
   function gifSizeOn(cfg) { return gifsOn(cfg) && bigDrawn(cfg); }
   // Text size applies until Exact text size (text_px) takes over.
   function sizeOn(cfg) { return !(cfg.text_px > 0); }
-  // The platform icons need both channels (overlay.js showPlatforms), and a mention a channel to name (renderer.js
-  // buildMatchers, demo.js mentioned). Either name here is a valid one: a refused name is never committed.
-  function bothOn(cfg) { return !!(cfg.channel && cfg.kick); }
+  // The chats the overlay shows: a Twitch channel, a Kick channel and YouTube (a Mix It Up widget), each one counted
+  // once it is set. Any of them is enough (chatOn: what the "no channel" checks ask). Every value here is a valid one:
+  // a refused name or widget is never committed.
+  function chatCount(cfg) { return (cfg.channel ? 1 : 0) + (cfg.kick ? 1 : 0) + (cfg.mixitup ? 1 : 0); }
+  function chatOn(cfg) { return chatCount(cfg) > 0; }
+  // The platform icons need two or more of them (overlay.js showPlatforms), and a mention a channel to name (renderer.js
+  // buildMatchers, demo.js mentioned): a Twitch or Kick name, as YouTube's widget names no one.
+  function twoOn(cfg) { return chatCount(cfg) >= 2; }
   function channelOn(cfg) { return !!(cfg.channel || cfg.kick); }
   // The highlight colors: each only while what it colors is on.
   function mentionsOn(cfg) { return !!cfg.mentions && cfg.mentions !== 'off'; }
@@ -127,15 +133,24 @@
   // from0(cfg): a stepper's first step up from 0 goes to this value instead of the next number (skipGap).
   // scale: a stepper shows (and reads) the value divided by this (readable_level 45 is 4.5:1), config.SPEC's scale.
   var META = {
-    // top: drawn in the top bar beside the Twitch channel (toTopBar), though it stays one of the Kick tab's settings.
+    // top: drawn in the top bar beside the Twitch channel (toTopBar), though it stays one of the Kick & YouTube tab's
+    // settings. check: a Check button beside the box (checkKick, checkMixItUp).
     kick: { label: 'Kick channel', logo: 'kick', check: true, top: true, placeholder: 'yourname or a link',
       bad: 'That isn’t a valid Kick name. Use letters, numbers, _ and - only.',
       help: 'Adds this Kick channel’s chat to the overlay, with the Twitch channel above or on its own.' },
     kick_room: { label: 'Kick chatroom id', placeholder: 'Check fills this in', parse: 'kickRoom',
       bad: 'Use the number only, or paste the whole channel page.',
       help: 'Kick’s chat needs this number. Check, beside the Kick channel in the top bar, fills it in when Kick allows the lookup. If it doesn’t, open the link shown here, and paste that whole page (or the number after "chatroom":{"id":) in this box.' },
-    platform_icons: { label: 'Show a Twitch or Kick icon on each message', when: bothOn,
-      help: 'Only when both a Twitch and a Kick channel are set. Shows even with badges off.' },
+    // YouTube chat, through the Mix It Up app (on the Kick & YouTube tab, under the steps to its link: mixitupSteps). A
+    // widget link with a port of its own sets mixitup_port too (commitText), as config.parse does.
+    mixitup: { label: 'Mix It Up widget link', logo: 'youtube', check: true, placeholder: 'http://localhost:8111/overlay/…',
+      bad: 'That isn’t a Mix It Up widget link. In Mix It Up, copy your Chat widget’s link (Overlay Widgets) and paste it whole.',
+      help: 'Adds YouTube chat to the overlay, with Twitch and Kick or on its own. Check asks Mix It Up on this PC whether it has the widget.' },
+    // Emptied, it is 8111 again (commitText); a port outside 1024 to 65535 is refused, not moved into the range.
+    mixitup_port: { label: 'Mix It Up port', widget: 'text', placeholder: '8111', bad: 'Use a number from 1024 to 65535.',
+      help: 'Only change this if you changed the Overlay port on Mix It Up’s Services page. A pasted widget link sets it.' },
+    platform_icons: { label: 'Show a Twitch, Kick or YouTube icon on each message', when: twoOn,
+      help: 'Only when at least two of Twitch, Kick and YouTube are set. Shows even with badges off.' },
     size: { label: 'Text size', options: { small: 'Small', medium: 'Medium', large: 'Large' }, when: sizeOn,
       help: '18, 24 or 32 px. While Exact text size (Advanced) is set, it decides instead.' },
     text_px: { label: 'Exact text size', widget: 'stepper', step: 2, unit: 'px', zero: 'Auto', from0: textPxFrom0,
@@ -316,7 +331,7 @@
     readable_level: { label: 'Name contrast', widget: 'stepper', step: 5, scale: 10, unit: ':1', when: readableOwn,
       help: 'How light Brighten dark name colors makes a dark name: its contrast with black, from 3:1 to 7:1 (4.5:1 by default); on a light Box color, how dark it makes a light name: its contrast with the box. It lightens in steps, so a small change may leave a name as it was. Needs Brighten dark name colors; not used while a Name color (Look) is set.' },
     badge_size: { label: 'Badge size', widget: 'range', unit: '%',
-      help: 'Next to the text (100% by default), with the Twitch and Kick icons and Shared Chat avatars, which show even with badges off. Above about 135% lines with badges get taller.' },
+      help: 'Next to the text (100% by default), with the Twitch, Kick and YouTube icons and Shared Chat avatars, which show even with badges off. Above about 135% lines with badges get taller.' },
     demo: { label: 'Demo messages in OBS too',
       help: 'Plays fake chat in the real overlay, handy for positioning. The preview has its own Demo / Live chat switch.' },
     debug: { label: 'Debug status line', help: 'Shows which providers loaded or failed, and logs details to the browser console.' }
@@ -357,9 +372,13 @@
       subs: [{ title: 'Layout', first: 'layout', open: true }, { title: 'Text', first: 'size', open: true },
         { title: 'Names', first: 'names' }, { title: 'Box', first: 'bg' }, { title: 'Animation', first: 'animate' }],
       more: 'adv-text' },
-    { id: 'platforms', title: 'Kick', note: 'Kick chat alongside Twitch, in one overlay.',
-      foot: 'Kick chat shows Kick and 7TV emotes, and Kick badges. Its recent messages load only when kick.com lets the overlay look the channel up.',
-      keys: ['kick', 'kick_room', 'platform_icons'] },
+    // The icons first, as they are for every chat; then each platform under its own heading: Kick's starts with where
+    // its channel went (the top bar: kickPointer), YouTube's with the steps to the Mix It Up widget's link (mixitupSteps).
+    // after: a help line drawn after that field, which ends its part (what Kick chat shows, before YouTube's heading).
+    { id: 'platforms', title: 'Kick & YouTube', note: 'Kick and YouTube chat in one overlay with Twitch’s, or on their own.',
+      keys: ['platform_icons', 'kick', 'kick_room', 'mixitup', 'mixitup_port'],
+      subs: [{ title: 'Kick', first: 'kick' }, { title: 'YouTube', first: 'mixitup' }],
+      after: { kick_room: 'Kick chat shows Kick and 7TV emotes, and Kick badges. Its recent messages load only when kick.com lets the overlay look the channel up.' } },
     { id: 'messages', title: 'Messages', note: 'How many messages show, and for how long.',
       keys: ['fade', 'fade_out_ms', 'exit_style', 'max', 'history'] },
     { id: 'events', title: 'Chat events', note: 'Subs, raids, replies, highlights and timestamps.',
@@ -416,8 +435,9 @@
   var RELOAD_KEYS = config.KEYS.filter(function (k) { return !isLiveKey(k); });
 
   // Keys a demo overlay ignores: it loads no history (overlay.js loadHistory), looks up no chatters
-  // on 7TV and has no Shared Chat, so changing one (when it is a reload key) needs no demo reload.
-  var DEMO_INERT = ['history', 'shared', 'stv_lookup', 'kick_room'];
+  // on 7TV, has no Shared Chat and joins no chat (Kick's chatroom, Mix It Up's port), so changing one (when it is a
+  // reload key) needs no demo reload.
+  var DEMO_INERT = ['history', 'shared', 'stv_lookup', 'kick_room', 'mixitup_port'];
 
   // Live keys reach the frame by postMessage, so only reload keys decide whether to reload.
   function reloadSignature(pc) {
@@ -432,7 +452,7 @@
     var out = GROUPS.map(function (g) {
       g.keys.forEach(function (k) { seen[k] = true; });
       return { id: g.id, title: g.title, keys: g.keys.filter(function (k) { return !!config.SPEC[k]; }),
-        note: g.note, foot: g.foot, subs: g.subs || [], more: g.more || '', fold: !!g.fold };
+        note: g.note, foot: g.foot, subs: g.subs || [], more: g.more || '', fold: !!g.fold, after: g.after || {} };
     });
     var extra = config.KEYS.filter(function (k) { return k !== 'channel' && !seen[k]; });
     if (extra.length) out[out.length - 1].keys = out[out.length - 1].keys.concat(extra);
@@ -625,16 +645,16 @@
     return count ? { cfg: config.parse(params), count: count } : null;
   }
 
-  // The builder's first config, from its query string and the remembered config. A link with only
-  // ?channel= (the overlay's hints link here) keeps the remembered look and filters; a link with more
-  // settings is a whole setup, over the defaults.
+  // The builder's first config, from its query string and the remembered config. A link with only the channels
+  // (CHANNEL_KEYS: ?channel=, ?kick=, ?mixitup=…, as the overlay's hints link here) keeps the remembered look and
+  // filters; a link with more settings is a whole setup, over the defaults.
   function startCfg(search, stored) {
     var params = new URLSearchParams(search || '');
     var known = [];
     params.forEach(function (v, k) { if (isKnown(k)) known.push(String(k).toLowerCase()); });
     var base = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
     if (known.length) {
-      var onlyChannel = known.every(function (k) { return k === 'channel' || k === 'kick' || k === 'kick_room'; });
+      var onlyChannel = known.every(function (k) { return CHANNEL_KEYS.indexOf(k) >= 0; });
       var cfg = config.parse(params, onlyChannel ? base : null);
       // The remembered chatroom id is the remembered Kick channel's: a link naming another channel without one (the
       // overlay's hint link) leaves it out, so the new channel is looked up (replaceCfg). As in onKickChanged, an id
@@ -741,18 +761,22 @@
     return (changed || changedKeys(cfg))[key] === true ? key + '=' + config.serialize(key, cfg[key]) : key;
   }
 
-  // The channels, with the Kick chatroom id that goes with a Kick one: what the overlay is for, not a setting changed
-  // from its default, so the counts and the URL note leave them out (they are set in the top bar, not on a tab).
-  var CHANNEL_KEYS = ['channel', 'kick', 'kick_room'];
+  // The channels, with the Kick chatroom id that goes with a Kick one, and the Mix It Up widget: what the overlay is for,
+  // not a setting changed from its default, so the counts and the URL note leave them out.
+  var CHATS = ['channel', 'kick', 'kick_room', 'mixitup'];
+  // They and the port Mix It Up is reached on (which a widget's link can set, and the overlay's hint link names): a link
+  // that names only these keeps the remembered look (startCfg), and Reset keeps them. The port off its default is a
+  // setting changed all the same, as its tag and the URL show.
+  var CHANNEL_KEYS = CHATS.concat('mixitup_port');
   function settingsChanged(cfg) {
-    return Object.keys(changedKeys(cfg)).filter(function (k) { return CHANNEL_KEYS.indexOf(k) < 0; });
+    return Object.keys(changedKeys(cfg)).filter(function (k) { return CHATS.indexOf(k) < 0; });
   }
 
   // Changed settings per section, for the counts in the rail.
   function groupCounts(cfg) {
     var changed = changedKeys(cfg), out = {};
     groupLayout().forEach(function (g) {
-      out[g.id] = g.keys.filter(function (k) { return changed[k] === true && CHANNEL_KEYS.indexOf(k) < 0; }).length;
+      out[g.id] = g.keys.filter(function (k) { return changed[k] === true && CHATS.indexOf(k) < 0; }).length;
     });
     return out;
   }
@@ -777,9 +801,9 @@
 
   // The line beside the overlay URL: what is wrong with it, or what it holds.
   function urlNote(cfg, ch, url) {
-    if (!cfg.channel && !cfg.kick) return { text: 'Add a channel first. Without one the overlay only shows a hint.', cls: 'warn' };
+    if (!chatOn(cfg)) return { text: 'Add a channel first. Without one the overlay only shows a hint.', cls: 'warn' };
     if (cfg.kick && !cfg.kick_room) {
-      return { text: 'The Kick chatroom id is missing, and Kick may refuse the overlay’s own lookup. Press Check next to the Kick channel, or add the id by hand on the Kick tab.', cls: 'warn' };
+      return { text: 'The Kick chatroom id is missing, and Kick may refuse the overlay’s own lookup. Press Check next to the Kick channel, or add the id by hand on the Kick & YouTube tab.', cls: 'warn' };
     }
     if (ch && ch.state === 'notfound' && ch.login === cfg.channel) {
       return { text: 'Twitch has no channel called “' + cfg.channel + '”. Check the spelling.', cls: 'warn' };
@@ -793,7 +817,17 @@
     var n = settingsChanged(cfg).length;
     return { text: n
       ? 'Holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed. The rest use the defaults.'
-      : 'Every setting is at its default, so the URL only needs the channel' + (cfg.channel && cfg.kick ? 's' : '') + '.', cls: '' };
+      : 'Every setting is at its default, so the URL only needs the ' + (chatCount(cfg) > 1 ? 'channels'
+        : cfg.mixitup ? 'Mix It Up widget' : 'channel') + '.', cls: '' };
+  }
+
+  // The chats cfg sets, by name, joined as a sentence says them: 'Twitch', 'Kick and YouTube', 'Twitch, Kick and YouTube'.
+  function chatNames(cfg) {
+    var names = [];
+    if (cfg.channel) names.push('Twitch');
+    if (cfg.kick) names.push('Kick');
+    if (cfg.mixitup) names.push('YouTube');
+    return names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names.join('');
   }
 
   // A number setting as the form shows it: a name (shadow), a word for zero (fade: Never), or with its unit.
@@ -961,7 +995,10 @@
     var row = ['In a horizontal row, needs ', n('row_grow'), '.'];
     var channels = [{ key: 'channel', text: 'Twitch' }, ' or ', { key: 'kick', text: 'Kick channel' }];
     // As its help starts, so the line under it isn't said twice (showWhyOff).
-    if (w === bothOn) return ['Only when both a ', { key: 'channel', text: 'Twitch' }, ' and a ', { key: 'kick', text: 'Kick channel' }, ' are set.'];
+    if (w === twoOn) {
+      return ['Only when at least two of ', { key: 'channel', text: 'Twitch' }, ', ', { key: 'kick', text: 'Kick' }, ' and ',
+        { key: 'mixitup', text: 'YouTube' }, ' are set.'];
+    }
     if (w === channelOn) return ['Needs a '].concat(channels, '.');
     if (w === sizeOn) return ['Not used while ', n('text_px'), ' is set.'];
     if (w === ownNameColors) return ['Not used while a ', n('name_color'), ' is set.'];
@@ -1154,7 +1191,7 @@
     if (s.type === 'int') return 'stepper';
     if (s.type === 'font') return 'font';
     if (s.type === 'color') return 'color';
-    return 'text'; // list, words, kick, room, chars
+    return 'text'; // list, words, kick, room, mixitup, chars
   }
 
   // The provider mark beside a field: the images are css/builder.css backgrounds, so no URL is set here.
@@ -1660,7 +1697,8 @@
         };
         break;
       }
-      default: { // text: a list of names (block, highlight_users) or words (keywords), or one value (kick, kick_room, command_prefixes)
+      default: { // text: a list of names (block, highlight_users) or words (keywords), or one value (kick, kick_room, mixitup,
+        // mixitup_port, command_prefixes)
         addLabel(true);
         var isList = spec.type === 'list' || spec.type === 'words';
         var li = h('input', 'text');
@@ -1752,20 +1790,28 @@
           var raw = li.value.trim();
           // kick_room takes the pasted channel page too: the chatroom id is read out of it.
           if (raw && m.parse === 'kickRoom') raw = kick.roomFromText(raw) || raw;
-          // An emptied Command prefixes box is the default again once it is left or Enter is pressed ('' is no value for
-          // it); while it is still being typed in, it shows no error.
-          if (!raw && spec.type === 'chars') {
+          // An emptied Command prefixes or Mix It Up port box is the default again once it is left or Enter is pressed (''
+          // is no value for it); while it is still being typed in, it shows no error.
+          if (!raw && (spec.type === 'chars' || key === 'mixitup_port')) {
             if (!final) { showBad(true); return true; }
             raw = String(spec.def);
           }
           var before = B.cfg[key];
-          var ok = update(key, raw);
+          // A port is plain digits from 1024 to 65535, or refused: config.coerce would read '-1', '1e4' or '80' as a number
+          // and move it into the range, and any other port than the one typed would never reach Mix It Up.
+          var refused = key === 'mixitup_port' && !(/^\d{1,5}$/.test(raw) && +raw >= spec.min && +raw <= spec.max);
+          var ok = !refused && update(key, raw);
           showBad(ok);
           if (ok && key === 'kick' && B.cfg.kick !== before) dropKickLookup();
-          // A Kick name refused as it is left: the URL keeps the last valid channel, but the status line goes.
+          // A Mix It Up widget link names the port Mix It Up answers on (http://localhost:8112/overlay/…): it sets the
+          // port as config.parse does, 8111 for a link without one. A bare id leaves the port as it is.
+          var link = ok && key === 'mixitup' ? config.parseMixItUp(raw) : null;
+          if (link && link.link && update('mixitup_port', link.port)) B.fields.mixitup_port.set(B.cfg.mixitup_port);
+          // A Kick name or a widget refused as it is left: the URL keeps the last valid one, but the status line goes.
           if (!ok && final && key === 'kick') hushKick();
+          if (!ok && final && key === 'mixitup') dropMixCheck(false);
           if (!ok || !final) return ok;
-          li.value = B.cfg[key];
+          li.value = String(B.cfg[key]);
           // Against the channel the chatroom id is for, not `before`: a pause in typing has usually committed the new
           // name already (commitText(false)), and the old id would stay with it.
           if (key === 'kick' && (B.cfg.kick !== B.kickFor || B.kickDropped)) onKickChanged(B.kickFor);
@@ -1778,7 +1824,7 @@
         li.addEventListener('change', function () { commitText(true); });
         li.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); commitText(true); } });
         field.inputs.push(li);
-        field.set = function (v) { li.value = v || ''; showBad(true); };
+        field.set = function (v) { li.value = String(v || ''); showBad(true); };
         if (m.check) {
           var cbtn = h('button', 'btn', 'Check');
           cbtn.type = 'button';
@@ -1788,17 +1834,23 @@
           kst.setAttribute('aria-live', 'polite');
           row.appendChild(kst);
           field.statusEl = kst;
-          // A refused name looks nothing up: B.cfg still holds the previous channel. A new name's lookup has already
-          // started as it was committed (onKickChanged), so it isn't asked for twice. A mouse press leaves the box first
-          // (its change commits the name), and kick.com may answer before the button comes up: a lookup started since
-          // the press is this Check's too. The keyboard (detail 0) has no press, so it looks up as before.
-          var pressAsked = -1;
-          cbtn.addEventListener('mousedown', function () { pressAsked = B.kickAsked; });
-          cbtn.addEventListener('click', function (e) {
-            var pressed = !!(e && e.detail > 0) && pressAsked >= 0 && B.kickAsked !== pressAsked;
-            pressAsked = -1;
-            if (commitText(true) && kst.className !== 'status busy' && !pressed) checkKick(true);
-          });
+          if (key === 'kick') {
+            // A refused name looks nothing up: B.cfg still holds the previous channel. A new name's lookup has already
+            // started as it was committed (onKickChanged), so it isn't asked for twice. A mouse press leaves the box
+            // first (its change commits the name), and kick.com may answer before the button comes up: a lookup started
+            // since the press is this Check's too. The keyboard (detail 0) has no press, so it looks up as before.
+            var pressAsked = -1;
+            cbtn.addEventListener('mousedown', function () { pressAsked = B.kickAsked; });
+            cbtn.addEventListener('click', function (e) {
+              var pressed = !!(e && e.detail > 0) && pressAsked >= 0 && B.kickAsked !== pressAsked;
+              pressAsked = -1;
+              if (commitText(true) && kst.className !== 'status busy' && !pressed) checkKick(true);
+            });
+          } else {
+            // Mix It Up is asked only from here, never as a link is pasted or the page opens: the browser may ask to
+            // allow access to local devices, which should come with a press of Check. A refused link checks nothing.
+            cbtn.addEventListener('click', function () { if (commitText(true)) checkMixItUp(); });
+          }
           field.inputs.push(cbtn);
         }
       }
@@ -1883,7 +1935,7 @@
 
   // The Kick channel's field (META.top) sits in the top bar beside Twitch's, so a multistreamer sets both in one place.
   // It is the same field (one value, one status line, one Check), drawn the way the Twitch one is: the logo and a short
-  // name as its label, the help for assistive tech only (the bar has no room for it; the Kick tab says it).
+  // name as its label, the help for assistive tech only (the bar has no room for it; the Kick & YouTube tab says it).
   function toTopBar(f) {
     var row = f.row, logo = row.querySelector('.logo');
     row.className = 'ch ch-' + f.key;
@@ -1898,7 +1950,7 @@
     $('channel-card').appendChild(row);
   }
 
-  // Where the Kick channel went, at the top of the Kick tab: a button there.
+  // Where the Kick channel went, at the top of Kick's part of its tab: a button there.
   function kickPointer() {
     var p = h('p', 'help kick-pointer span-all');
     p.appendChild(document.createTextNode('Your Kick channel goes in the top bar, beside Twitch’s. Its Check fills in the chatroom id below. '));
@@ -1911,6 +1963,25 @@
     });
     p.appendChild(b);
     return p;
+  }
+
+  // Above the Mix It Up widget's field: how to get its link, which is all the setup there is.
+  var MIXITUP_STEPS = [
+    'In Mix It Up, connect your YouTube channel, and connect Overlay (both on the Services page).',
+    'Under Overlay Widgets, add a Chat widget. Set Display Option to Single Widget URL, leave Platforms on YouTube (or all), and enable it.',
+    'Copy the widget’s link and paste it into the field below.',
+    'Don’t add that link to OBS: it is only where the overlay reads chat from. OBS gets the overlay URL, as usual.'
+  ];
+  var MIXITUP_NOTE = 'Mix It Up checks YouTube every 5 to 10 seconds, so YouTube lines arrive a few seconds late. The overlay ' +
+    'needs to run on the same PC as Mix It Up, as it does in OBS on that PC.';
+  function mixitupSteps() {
+    var box = h('div', 'help mixitup-steps span-all');
+    box.appendChild(h('p', null, 'YouTube chat comes through the Mix It Up app, from a Chat widget’s link:'));
+    var ol = h('ol');
+    MIXITUP_STEPS.forEach(function (s) { ol.appendChild(h('li', null, s)); });
+    box.appendChild(ol);
+    box.appendChild(h('p', null, MIXITUP_NOTE));
+    return box;
   }
 
   // The foot of a section whose finer settings are under an Advanced sub-heading. A plain click goes there the
@@ -2026,6 +2097,7 @@
         var f = buildField(key);
         B.fields[key] = f;
         var sg = subgridOf(key);
+        if (key === 'mixitup') into.appendChild(mixitupSteps());
         if (META[key] && META[key].top) {
           toTopBar(f);
           into.appendChild(kickPointer());
@@ -2046,6 +2118,7 @@
         } else {
           into.appendChild(f.row);
         }
+        if (g.after[key]) into.appendChild(h('p', 'help part-foot span-all', g.after[key]));
       });
       Object.keys(grids).forEach(function (sg) {
         if (SUBGRIDS[sg].help) grids[sg].appendChild(helpBlock('h-' + sg + '-grid', SUBGRIDS[sg].help, SUBGRIDS[sg].label));
@@ -2380,9 +2453,11 @@
     // syncForm, which checks again too).
     if (key === 'text_weight' || key === 'name_weight') B.fontProbes.forEach(function (fn) { fn(); });
     if (key === 'kick_room' && !auto) kickRoomByHand();
-    // The empty channel field's line says whether the other channel is set (either one will do).
-    if (key === 'kick') renderChannelStatus();
-    if (key === 'channel' || key === 'kick') kickIdle();
+    // The empty channel field's line says whether another chat is set (any one will do).
+    if (key === 'kick' || key === 'mixitup') renderChannelStatus();
+    // A new widget or port: what the Mix It Up line said (or a check still out) was about the old one.
+    if (key === 'mixitup' || key === 'mixitup_port') dropMixCheck(true);
+    if (key === 'channel' || key === 'kick' || key === 'mixitup') { kickIdle(); mixIdle(); }
     if (isLiveKey(key)) postLive();
     else scheduleReload(RELOAD_DELAY);
   }
@@ -2405,9 +2480,13 @@
     // (it spoke of the old one), and a channel without an id is looked up, the same channel as before too.
     B.kickFor = next.kick;
     if (next.kick !== prev.kick || !sameValue(next.kick_room, prev.kick_room) || B.kickDropped) checkKick(false);
+    // Mix It Up isn't asked here (only Check asks it): a new widget or port only clears what the line said of the old,
+    // and once the page is up (a paste, Reset's undo, a settings.js), says Check tests the new one.
+    if (next.mixitup !== prev.mixitup || next.mixitup_port !== prev.mixitup_port) dropMixCheck(B.started);
     if (next.channel !== B.ch.login || B.ch.state === 'bad') checkChannel(next.channel);
     else renderChannelStatus(); // the field was rewritten: nothing typed is pending any more
     kickIdle();
+    mixIdle();
     renderOutputs();
     showTab(); // the counts just put on the tabs change their widths
     saveCfg();
@@ -2588,12 +2667,14 @@
     var st = draft === 'typed' ? 'typed' : draft === 'cleared' ? 'empty' : B.ch.state, login = B.ch.login;
     var input = $('channel');
     input.setAttribute('aria-invalid', st === 'bad' || st === 'notfound' ? 'true' : 'false');
-    // Either channel will do: with a Kick one set, an empty Twitch field is optional, not missing.
-    var optional = st === 'empty' && !!B.cfg.kick;
+    // Any chat will do: with a Kick channel or YouTube set, an empty Twitch field is optional, not missing. (Counted
+    // without the Twitch channel, which a cleared field may still hold until it is committed.)
+    var others = (B.cfg.kick ? 1 : 0) + (B.cfg.mixitup ? 1 : 0);
+    var optional = st === 'empty' && others > 0;
     if ((st === 'empty' && !optional) || st === 'typed') input.classList.add('need'); else input.classList.remove('need');
     // A live region: the same line written again (Reset, a paste, Enter on a cleared field) is read out again.
     var found = st === 'found' ? B.ch.user : null;
-    var key = st + '|' + (st === 'empty' || st === 'typed' ? '' : login) + (optional ? '|optional' : '') +
+    var key = st + '|' + (st === 'empty' || st === 'typed' ? '' : login) + (optional ? '|optional' + others : '') +
       (found ? '|' + found.displayName + '|' + !!found.banned + '|' + found.logo : '');
     if (key === B.chStatusKey) return;
     B.chStatusKey = key;
@@ -2603,7 +2684,7 @@
     if (st === 'typed') {
       box.textContent = 'Press Enter or Check to look up the name.';
     } else if (st === 'empty') {
-      box.textContent = optional ? 'Optional: add Twitch to show both chats.' : 'Enter your channel to see its emotes and badges.';
+      box.textContent = optional ? optionalText('Twitch', others) : 'Enter your channel to see its emotes and badges.';
     } else if (st === 'bad') {
       box.textContent = 'That isn’t a valid Twitch name. Use letters, numbers and _ only.';
     } else if (st === 'checking') {
@@ -2648,7 +2729,7 @@
     box.className = 'status';
   }
 
-  // The Kick tab's line under the chatroom id: how to copy it by hand, after Kick refused the lookup (checkKick).
+  // The line under the chatroom id (Kick & YouTube tab): how to copy it by hand, after Kick refused the lookup (checkKick).
   // null clears it. The top bar's status line has no room for the steps, so it links here.
   function kickRoomNote(node) {
     var f = B.fields.kick_room;
@@ -2676,12 +2757,38 @@
     kickIdle();
   }
 
-  // The Kick status line with nothing to report: with no Kick channel, that one is optional (either channel will do).
+  // An empty channel field's line once another chat is set: name, the platform; others, how many chats are set.
+  function optionalText(name, others) {
+    return 'Optional: add ' + name + ' to show ' + (others > 1 ? 'all three' : 'both') + ' chats.';
+  }
+
+  // The Kick status line with nothing to report: with no Kick channel, that one is optional (any chat will do). With no
+  // chat at all it says YouTube will do too, and links to its field on the Kick & YouTube tab (the top bar has none).
   function kickIdle() {
     var box = B.fields.kick && B.fields.kick.statusEl;
     if (!box || B.cfg.kick || box.className !== 'status') return;
-    var text = B.cfg.channel ? 'Optional: add Kick to show both chats.' : 'Or a Kick channel, or both.';
-    if (box.textContent !== text) box.textContent = text;
+    var others = (B.cfg.channel ? 1 : 0) + (B.cfg.mixitup ? 1 : 0);
+    var text = others ? optionalText('Kick', others) : 'Or a Kick channel, or YouTube chat.';
+    if (box.textContent === text) return;
+    if (others) { box.textContent = text; return; }
+    clear(box);
+    box.appendChild(document.createTextNode('Or a Kick channel, or '));
+    box.appendChild(youtubeLink());
+    box.appendChild(document.createTextNode('.'));
+  }
+
+  // "YouTube chat" in the Kick line: opens the Kick & YouTube tab at the Mix It Up widget's field, as a Needs link does. A
+  // link to #platforms, so that Ctrl- or middle-click open it anew.
+  function youtubeLink() {
+    var a = h('a', null, 'YouTube chat');
+    var href = '#platforms';
+    a.href = href;
+    a.addEventListener('click', function (e) {
+      if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      goToSetting('mixitup');
+    });
+    return a;
   }
 
   // Look up the Kick channel's chatroom id (kick.com's channel API) and fill in kick_room. Kick may refuse the
@@ -2723,7 +2830,7 @@
       update('kick_room', c.chatroomId, true);
       B.fields.kick_room.set(B.cfg.kick_room);
       box.className = 'status ok';
-      // The chatroom id is filled in on the Kick tab, out of sight: the line says what was found, as Twitch's does.
+      // The chatroom id is filled in on its tab, out of sight: the line says what was found, as Twitch's does.
       var t = h('span');
       t.appendChild(h('strong', null, c.username || slug));
       t.appendChild(document.createTextNode(' found.'));
@@ -2733,7 +2840,7 @@
       clear(box);
       box.className = 'status warn';
       B.kickRefused = true;
-      // The steps go under the chatroom id on the Kick tab (with the page to copy it from); this line links there.
+      // The steps go under the chatroom id on its tab (with the page to copy it from); this line links there.
       var t = h('span');
       // Short, so that it fits on one line under the box in the app layout's top bar.
       t.appendChild(document.createTextNode('Lookup refused. '));
@@ -2751,7 +2858,7 @@
     });
   }
 
-  // The top bar's link to the chatroom id on the Kick tab: opens the tab and puts the focus in the box.
+  // The top bar's link to the chatroom id on the Kick & YouTube tab: opens the tab and puts the focus in the box.
   function roomLink() {
     var a = h('a', null, 'Add the chatroom id by hand');
     var href = '#platforms';
@@ -2777,6 +2884,107 @@
     clear(box);
     box.className = 'status ok';
     box.textContent = 'Chatroom id added.';
+  }
+
+  // ---------- YouTube (Mix It Up) ----------
+  // Mix It Up runs on this PC: it answers at once, or isn't there (ms). The first check of a page waits longer: the
+  // browser may hold it while it asks whether this page may reach devices on the local network.
+  var MIXITUP_TIMEOUT = 4000;
+  var MIXITUP_FIRST_TIMEOUT = 10000;
+
+  function mixBox() { return B.fields.mixitup && B.fields.mixitup.statusEl; }
+
+  // The Mix It Up status line with nothing to report: with no widget and another chat set, YouTube is optional. With no
+  // chat at all it is empty: the steps above say what goes in the field.
+  function mixIdle() {
+    var box = mixBox();
+    if (!box || B.cfg.mixitup || box.className !== 'status') return;
+    var others = (B.cfg.channel ? 1 : 0) + (B.cfg.kick ? 1 : 0);
+    var text = others ? optionalText('YouTube', others) : '';
+    if (box.textContent !== text) box.textContent = text;
+  }
+
+  // A new widget or port, or a link refused as the field is left: a check still out is dropped (its answer was about
+  // the old one), and so is the line that spoke of the old one. ask: the widget is new, and the line says Check tests it.
+  function dropMixCheck(ask) {
+    var box = mixBox();
+    if (!box) return;
+    B.mixSeq++;
+    clearTimeout(B.mixTimer);
+    if (B.mixCtrl) B.mixCtrl.abort();
+    B.mixCtrl = null;
+    B.mixFor = '';
+    clear(box);
+    box.className = 'status';
+    if (ask && B.cfg.mixitup) box.textContent = 'Press Check to test the connection to Mix It Up.';
+    mixIdle();
+  }
+
+  // Check, beside the Mix It Up widget's field: asks Mix It Up for the widget's page (only its status is read). Mix It Up
+  // answers 200 for an id it has (any widget, enabled or not), 400 for one it doesn't know, and nothing at all when it
+  // isn't running, its Overlay service is off, or the browser keeps the page from this PC. Pressed again while the same
+  // widget and port are being checked, that check answers for both presses; an answer about a widget or port since
+  // changed is dropped (mixSeq).
+  function checkMixItUp() {
+    var box = mixBox(), guid = B.cfg.mixitup, port = B.cfg.mixitup_port;
+    if (!box) return;
+    if (!guid) {
+      dropMixCheck(false);
+      box.className = 'status warn';
+      box.textContent = 'Paste the link of your Mix It Up Chat widget first.';
+      return;
+    }
+    // The widget's page on this PC, as the overlay reads its chat (http://localhost:<port>/overlay/<guid>), or '' for a
+    // value mixitup.js doesn't take: nothing else is ever asked.
+    var url = mixitup.widgetUrl(guid, port);
+    if (!url) return;
+    var target = guid + ':' + port;
+    if (box.className === 'status busy' && B.mixFor === target) return;
+    dropMixCheck(false);
+    var seq = B.mixSeq, done = false;
+    var ctrl = B.mixCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    B.mixFor = target;
+    box.className = 'status busy';
+    box.textContent = 'Checking Mix It Up at localhost:' + port + '…';
+    var away = 'Couldn’t reach Mix It Up at localhost:' + port + '. Is it running, and is Overlay connected on its Services ' +
+      'page? If your browser asked to allow access to local devices, allow it, then press Check again.';
+    // Once: a fetch aborted at the timeout fails after the line has said so.
+    var answer = function (cls, text) {
+      if (done || seq !== B.mixSeq) return;
+      done = true;
+      B.mixEnded = true;
+      clearTimeout(B.mixTimer);
+      if (B.mixCtrl === ctrl) B.mixCtrl = null;
+      clear(box);
+      box.className = 'status ' + cls;
+      box.textContent = text;
+    };
+    B.mixTimer = setTimeout(function () {
+      if (seq !== B.mixSeq) return;
+      if (ctrl) ctrl.abort();
+      answer('warn', away);
+    }, B.mixEnded ? MIXITUP_TIMEOUT : MIXITUP_FIRST_TIMEOUT);
+    var init = { cache: 'no-store', credentials: 'omit' };
+    if (ctrl) init.signal = ctrl.signal;
+    var p;
+    try { p = Promise.resolve(fetch(url, init)); } catch (e) { p = Promise.reject(e); }
+    p.then(function (res) {
+      // The page itself is never read.
+      try {
+        if (res.body && typeof res.body.cancel === 'function') res.body.cancel().catch(function () { /* ignore */ });
+      } catch (e) { /* ignore */ }
+      // 200 says only that Mix It Up has a widget with this id: not that it is a Chat widget, enabled, with YouTube.
+      if (res.status === 200) {
+        answer('ok', 'Mix It Up has this widget. If no YouTube lines show up, check that it is an enabled Chat widget and ' +
+          'that YouTube is among its platforms.');
+      } else if (res.status === 400) {
+        answer('err', 'Mix It Up doesn’t know this widget. Copy the Chat widget’s link again.');
+      } else {
+        // Something else on that port (another app), or a Mix It Up that answers in a way it didn't use to.
+        answer('warn', 'Something at localhost:' + port + ' answered, but not as Mix It Up does (HTTP ' + res.status +
+          '). Check the Mix It Up port.');
+      }
+    }, function () { answer('warn', away); });
   }
 
   // ---------- paste existing URL ----------
@@ -2825,7 +3033,7 @@
     n.className = 'status' + (note.cls ? ' ' + note.cls : '');
     // Without a channel the URL only shows a hint in OBS: Copy URL stays (its note says what is missing) but outlined,
     // so the channel field that still wants a name is the one purple thing to act on.
-    $('bar-copy').classList.toggle('alt', !channelOn(B.cfg));
+    $('bar-copy').classList.toggle('alt', !chatOn(B.cfg));
     $('tab-obs').classList.toggle('nudge', B.copied && !!note.parts && !B.ui.obsSeen && B.ui.section !== OBS_SECTION);
   }
 
@@ -2968,10 +3176,10 @@
   // things in OBS that most often go wrong: the source's size (the preview's, ui.w x ui.h), and the two boxes that
   // reconnect and wipe the chat on every scene switch, by the first words OBS gives them. parts: the text shown, a
   // [string] in bold; text: all of it as a screen reader says it (the boxes' whole names, "by" for the times sign).
-  // With both channels the note says the one URL carries both chats, so it doesn't read as Twitch's alone.
+  // With two or more chats the note says the one URL carries them all, so it doesn't read as Twitch's alone.
   function copiedNote(note, cfg, ui) {
     if (note.cls === 'warn') return { text: 'Copied. ' + note.text, cls: 'warn' };
-    var lead = cfg.channel && cfg.kick ? 'Copied: Twitch and Kick chat in one source. ' : 'Copied. ';
+    var lead = chatCount(cfg) > 1 ? 'Copied: ' + chatNames(cfg) + ' chat in one source. ' : 'Copied. ';
     return {
       parts: [lead + 'In OBS, add a Browser source at ', [ui.w + ' × ' + ui.h], ' and untick ', ['Shutdown source'], ' and ',
         ['Refresh browser'], '. '],
@@ -3025,8 +3233,9 @@
     c.channel = previewChannel();
     c.demo = B.mode === 'demo' || !!B.cfg.demo;
     // The demo draws Twitch lines beside a Kick channel's, and so their icons, which OBS never shows with Kick alone
-    // (overlay.js showPlatforms counts the demo as a Twitch channel): the preview shows what OBS will.
-    if (!B.cfg.channel && !B.cfg.demo) c.platform_icons = false;
+    // (overlay.js showPlatforms counts the demo as a Twitch channel): the preview shows what OBS will, which counts
+    // Twitch only with a channel or Demo messages on.
+    if ((B.cfg.channel || B.cfg.demo ? 1 : 0) + (B.cfg.kick ? 1 : 0) + (B.cfg.mixitup ? 1 : 0) < 2) c.platform_icons = false;
     return c;
   }
 
@@ -3055,21 +3264,21 @@
     if (!pc.channel) {
       if (st === 'notfound') hint = 'Channel “' + B.ch.login + '” was not found.';
       else if (st === 'bad') hint = 'The channel name isn’t valid.';
-      // With a Kick channel alone, the demo still draws global emotes only (the overlay looks Kick up only for live
-      // chat): no channel is missing, so the hint points to Live chat instead.
-      if (pc.demo && pc.kick && !B.cfg.channel) {
+      // With a Kick channel or YouTube alone, the demo still draws global emotes only (the overlay looks Kick up only
+      // for live chat): no channel is missing, so the hint points to Live chat instead.
+      if (pc.demo && (pc.kick || pc.mixitup) && !B.cfg.channel) {
         hint = (hint ? hint + ' ' : '') + (B.mode === 'live'
           ? 'Demo messages are switched on under Advanced, so the overlay shows fake chat.'
-          : 'Demo chat with global emotes only. Switch to Live chat to watch your Kick chat.');
+          : 'Demo chat with global emotes only. Switch to Live chat to watch your ' + chatNames(B.cfg) + ' chat.');
       } else if (pc.demo) hint = (hint ? hint + ' ' : '') + 'Demo chat with global emotes only. Enter a channel to preview its own emotes and badges.';
-      else if (!pc.kick) hint = (hint ? hint + ' ' : '') + 'Enter a channel (then press Enter) to watch its live chat here.';
+      else if (!pc.kick && !pc.mixitup) hint = (hint ? hint + ' ' : '') + 'Enter a channel (then press Enter) to watch its live chat here.';
     } else if (B.mode === 'live' && B.cfg.demo) {
       hint = 'Demo messages are switched on under Advanced, so the overlay shows fake chat.';
     }
     var modeEl = $('tag-mode'), mode = pc.demo ? 'demo' : 'live chat';
     if (modeEl.textContent !== mode) { modeEl.textContent = mode; fitSoon(); } // fit() picks how much of the tag line fits
     setHint(hint);
-    if (!pc.channel && !pc.kick && !pc.demo) setFrame(null, null);
+    if (!pc.channel && !pc.kick && !pc.mixitup && !pc.demo) setFrame(null, null);
     // Badge and paint data a source turned on later is loaded by the overlay when the setting arrives.
     else setFrame(previewSrc(pc, root.location.href), reloadSignature(pc));
   }
@@ -3485,9 +3694,7 @@
     setRoute(B.route);
     $('reset').addEventListener('click', function () {
       var d = config.defaults(), before = copyCfg(B.cfg);
-      d.channel = B.cfg.channel;
-      d.kick = B.cfg.kick;
-      d.kick_room = B.cfg.kick_room;
+      CHANNEL_KEYS.forEach(function (k) { d[k] = B.cfg[k]; });
       var changes = config.KEYS.some(function (k) { return !sameValue(before[k], d[k]); });
       replaceCfg(d);
       flash($('reset'), 'Reset');
@@ -3606,7 +3813,12 @@
       kickReq: null, // the kick.com lookup still out: { slug, p } (checkKick)
       kickFor: '', // the Kick channel kick_room and the Kick status line are for (checkKick, replaceCfg)
       kickDropped: false, // a lookup for kickFor was dropped while a new name was typed (dropKickLookup)
-      kickRefused: false, // kick.com refused kickFor's lookup, and the Kick tab says how to add the id by hand (checkKick)
+      kickRefused: false, // kick.com refused kickFor's lookup, and its tab says how to add the id by hand (checkKick)
+      mixSeq: 0, // Mix It Up checks started or dropped: one still out answers only while it is the last (checkMixItUp)
+      mixFor: '', // 'guid:port' the Mix It Up status line speaks of, or '' (checkMixItUp, dropMixCheck)
+      mixCtrl: null, // the AbortController of the Mix It Up check still out
+      mixTimer: null, // that check's timeout
+      mixEnded: false, // a Mix It Up check has ended (answered or timed out): later ones wait MIXITUP_TIMEOUT, not the first's
       fontsOk: Object.create(null), // name + ':' + weights Google Fonts has loaded for the font fields' check (probeFont)
       fontProbes: [], // each font field's check of its current name, run again when the weights it asks for change
       chDraft: '',

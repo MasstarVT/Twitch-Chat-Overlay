@@ -58,7 +58,7 @@
   var HEX_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
   var ANN_COLORS = ['PRIMARY', 'BLUE', 'GREEN', 'ORANGE', 'PURPLE'];
   // Platforms other than Twitch that mark their lines with a class (.line.platform-kick). Twitch lines get none.
-  var LINE_PLATFORMS = { kick: 1 };
+  var LINE_PLATFORMS = { kick: 1, youtube: 1 };
   var SVG_NS = 'http://www.w3.org/2000/svg';
   // Kept equal to config.GENERIC_FONT_NAMES (tests/renderer-dom.test.js checks).
   var GENERIC_FONTS = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif',
@@ -738,10 +738,12 @@
   // to the channel. The channel's own lines don't count (on Twitch its login, on Kick its slug).
   function mentionsChannel(msg, m, cfg) {
     var kick = msg.platform === 'kick';
+    // A YouTube chatter is neither the Twitch channel nor the Kick one, whatever their name: it is never "the channel's own".
+    var yt = msg.platform === 'youtube';
     var login = typeof msg.login === 'string' ? msg.login.toLowerCase() : '';
-    if (kick ? m.kickKey && slugKey(login) === m.kickKey : m.channel && login === m.channel) return false;
+    if (!yt && (kick ? m.kickKey && slugKey(login) === m.kickKey : m.channel && login === m.channel)) return false;
     var to = msg.reply && typeof msg.reply === 'object' && typeof msg.reply.login === 'string' ? msg.reply.login.toLowerCase() : '';
-    if (to && (kick ? m.kickKey && slugKey(to) === m.kickKey : m.channel && to === m.channel)) return true;
+    if (!yt && to && (kick ? m.kickKey && slugKey(to) === m.kickKey : m.channel && to === m.channel)) return true;
     return typeof msg.text === 'string' && m.mention.test(visibleText(drawnText(msg.text, cfg)));
   }
 
@@ -755,7 +757,7 @@
   // the same text (shownText).
   function shownText(msg, cfg) {
     var t = msg.text, r = msg.reply;
-    if (cfg.replies === false || msg.platform === 'kick' || !r || typeof r !== 'object' || t.charAt(0) !== '@') return drawnText(t, cfg);
+    if (cfg.replies === false || msg.platform === 'kick' || msg.platform === 'youtube' || !r || typeof r !== 'object' || t.charAt(0) !== '@') return drawnText(t, cfg);
     var low = t.toLowerCase(), names = [r.name, r.login];
     for (var i = 0; i < names.length; i++) {
       if (!names[i]) continue;
@@ -777,19 +779,22 @@
   // The chatter's role, from the badges the message carries (the tags, not what is drawn, so it works with badges
   // off): 'broadcaster', 'mod' (lead_moderator too), 'vip', 'sub' (subscriber, founder) or null, the highest when
   // there are several. A Shared Chat line from another channel goes by its badges there (source-badges), a Kick line
-  // by its Kick badge types.
+  // by its Kick badge types, and a YouTube line by its YouTube ones (owner, moderator, member).
   var ROLE_OF_BADGE = { broadcaster: 'broadcaster', lead_moderator: 'mod', moderator: 'mod', vip: 'vip', subscriber: 'sub',
     founder: 'sub' };
+  // A YouTube line's badge types (mixitup.js): the channel's owner, its moderators, and its members.
+  var ROLE_OF_YOUTUBE = { owner: 'broadcaster', moderator: 'mod', member: 'sub' };
   var ROLE_RANK = { broadcaster: 4, mod: 3, vip: 2, sub: 1 };
   function roleOf(msg) {
     if (!msg || typeof msg !== 'object') return null;
-    var kick = msg.platform === 'kick';
-    var list = kick ? msg.kickBadges : msg.mirrored ? msg.sourceBadges : msg.badges;
+    var kick = msg.platform === 'kick', yt = msg.platform === 'youtube';
+    var list = kick ? msg.kickBadges : yt ? msg.youtubeBadges : msg.mirrored ? msg.sourceBadges : msg.badges;
     if (!Array.isArray(list)) return null;
+    var roles = yt ? ROLE_OF_YOUTUBE : ROLE_OF_BADGE;
     var best = null;
     for (var i = 0; i < list.length; i++) {
-      var name = list[i] && (kick ? list[i].type : list[i].set);
-      var r = typeof name === 'string' && Object.prototype.hasOwnProperty.call(ROLE_OF_BADGE, name) ? ROLE_OF_BADGE[name] : null;
+      var name = list[i] && (kick || yt ? list[i].type : list[i].set);
+      var r = typeof name === 'string' && Object.prototype.hasOwnProperty.call(roles, name) ? roles[name] : null;
       if (r && (!best || ROLE_RANK[r] > ROLE_RANK[best])) best = r;
     }
     return best;

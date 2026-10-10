@@ -886,6 +886,29 @@ describe('SocketClient', () => {
     assert.equal(s.sockets.length, 1);
     assert.equal(s.client.state, 'connecting');
   });
+
+  // A stop() from a callback the failing constructor reached (mixitup.js reports the refused socket to onStatus, which
+  // may stop the client) was overwritten by 'closed', and the client went on reconnecting.
+  test('a stop() during a failed socket construction stays a stop', (t) => {
+    let made = 0;
+    let s = null;
+    function StoppingWS() {
+      made++;
+      s.client.stop('stopped from a status callback');
+      throw new Error('refused');
+    }
+    s = setup(t, { WebSocket: StoppingWS });
+    s.client.start();
+    assert.equal(made, 1);
+    assert.equal(s.client.state, 'stopped');
+    assert.equal(s.client.reconnectTimer, null);
+    s.tick(600000);
+    assert.equal(made, 1, 'no reconnect');
+    assert.equal(s.client.state, 'stopped');
+    // It can still be started again.
+    s.client.start();
+    assert.equal(made, 2);
+  });
 });
 
 test('VERSION matches package.json and every ?v= cache buster', () => {

@@ -1,4 +1,4 @@
-/* Overlay bootstrap: config, staged loading, Twitch IRC and Kick chat handling, badge/emote/paint composition,
+/* Overlay bootstrap: config, staged loading, Twitch IRC, Kick and YouTube (Mix It Up) chat handling, badge/emote/paint composition,
    live updates. */
 (function (root, factory) {
   var api = factory(root);
@@ -32,6 +32,8 @@
   var MAX_HISTORY_ROOMS = 8;
   // A Kick chatroom that can't be looked up (and has no kick_room) shows a hint after this long.
   var KICK_HINT_MS = 10000;
+  // Mix It Up not answering on localhost for this long (never, or no more since it dropped) shows a hint.
+  var YOUTUBE_HINT_MS = 10000;
   var KICK_BADGE_TITLES = { broadcaster: 'Broadcaster', moderator: 'Moderator', vip: 'VIP', og: 'OG', founder: 'Founder',
     verified: 'Verified', staff: 'Kick Staff', subscriber: 'Subscriber', sub_gifter: 'Sub Gifter' };
   // A Shared Chat room part that failed is retried on the room's next message after this delay (doubling).
@@ -52,7 +54,7 @@
   // "suspended" NOTICE), twitchLookup (the channel lookup found no channel, or a suspended one: third-party data, cleared
   // when IRC joins the room, and not shown beside Twitch's own NOTICE, which says the same), kick (the Kick lookup or
   // chat, cleared when Kick chat joins). The others stay up.
-  var HINT_ORDER = ['settings', 'names', 'nochan', 'twitchIrc', 'twitchLookup', 'kick'];
+  var HINT_ORDER = ['settings', 'names', 'nochan', 'twitchIrc', 'twitchLookup', 'kick', 'youtube'];
   function setHint(key, text, withLink) {
     if (!S) return;
     S.hints[key] = { text: text, link: !!withLink };
@@ -94,6 +96,10 @@
     var q = [];
     if (S.cfg.channel) q.push('channel=' + encodeURIComponent(S.cfg.channel));
     if (S.cfg.kick) q.push('kick=' + encodeURIComponent(S.cfg.kick));
+    if (S.cfg.mixitup) {
+      q.push('mixitup=' + encodeURIComponent(S.cfg.mixitup));
+      if (S.cfg.mixitup_port !== 8111) q.push('mixitup_port=' + encodeURIComponent(S.cfg.mixitup_port));
+    }
     return q.length ? '?' + q.join('&') : '';
   }
 
@@ -240,14 +246,21 @@
 
   // ---------- platforms ----------
   function isKick(m) { return !!m && m.platform === 'kick'; }
-  function notKick(m) { return !isKick(m); }
+  function isYouTube(m) { return !!m && m.platform === 'youtube'; }
+  // Twitch lines carry no platform field (the parity fixtures record them whole), so Twitch is whatever has none. Everything
+  // keyed by a Twitch id or fetched from a Twitch-only service (7TV by user id, BTTV and FFZ, cheermotes, paints, the
+  // home channel's bot list, a reply's thread) asks this, not '!isKick', so a third platform's lines never reach it.
+  function isTwitch(m) { return !m || !m.platform; }
   // Twitch data (IRC, Twitch-keyed badges and BTTV/FFZ) is only needed with a Twitch channel (or the demo).
   function twitchOn() { return !!(S.cfg.channel || S.cfg.demo); }
-  // Each line says where it came from once two platforms share the overlay.
-  function showPlatforms() { return !!(S.cfg.platform_icons && S.cfg.kick && twitchOn()); }
+  // Each line says where it came from once two or more platforms share the overlay.
+  function showPlatforms() {
+    var c = S.cfg;
+    return !!(c.platform_icons && (twitchOn() ? 1 : 0) + (c.kick ? 1 : 0) + (c.mixitup ? 1 : 0) > 1);
+  }
   function platformIcon(m) {
-    return isKick(m)
-      ? { provider: 'platform', icon: 'kick', title: 'Kick' }
+    return isKick(m) ? { provider: 'platform', icon: 'kick', title: 'Kick' }
+      : isYouTube(m) ? { provider: 'platform', icon: 'youtube', title: 'YouTube' }
       : { provider: 'platform', icon: 'twitch', title: 'Twitch' };
   }
 
@@ -272,6 +285,16 @@
       maps.push(S.stvGlobal);
     }
     return lookupIn(maps);
+  }
+
+  // A YouTube line's emoji: the images Mix It Up sent with the message (mixitup.js youtubeEmotes, https only), by the word
+  // each one stands for. A word that is no key of that object is plain text.
+  function youtubeLookup(m) {
+    var own = m.youtubeEmotes && typeof m.youtubeEmotes === 'object' ? m.youtubeEmotes : null;
+    return function (word) {
+      var url = own && Object.prototype.hasOwnProperty.call(own, word) ? own[word] : '';
+      return typeof url === 'string' && url ? { provider: 'youtube', id: word, name: word, w: 28, h: 28, urls: { 1: url, 2: url, 4: url } } : null;
+    };
   }
 
   function makeLookup(room, userId) {
@@ -302,6 +325,9 @@
   function tokensFor(m) {
     if (isKick(m)) {
       return shortened(T.tokenizer.tokenize(m, { lookup: kickLookup(), bttvPrefixes: null, gifs: false }).items);
+    }
+    if (isYouTube(m)) {
+      return shortened(T.tokenizer.tokenize(m, { lookup: youtubeLookup(m), bttvPrefixes: null, gifs: false }).items);
     }
     var room = roomFor(m);
     var r = T.tokenizer.tokenize(m, {
@@ -360,6 +386,19 @@
     return loc && loc.protocol === 'https:' && loc.href ? new URL(path, loc.href).href : path;
   }
 
+  var YOUTUBE_BADGE_TITLES = { owner: 'Channel owner', moderator: 'Moderator', member: 'Member' };
+  // A YouTube chatter's role badges (mixitup.js youtubeBadges): drawn as built-in icons, shown with the master badges switch.
+  function youtubeBadgesFor(m, out) {
+    if (!S.cfg.badges) return out;
+    var list = m.youtubeBadges || [];
+    for (var i = 0; i < list.length; i++) {
+      var type = list[i] && list[i].type;
+      if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(YOUTUBE_BADGE_TITLES, type)) continue;
+      out.push({ provider: 'youtube', icon: 'youtube-' + type, title: YOUTUBE_BADGE_TITLES[type] });
+    }
+    return out;
+  }
+
   function badgesFor(m) {
     var cfg = S.cfg;
     var out = [];
@@ -367,6 +406,7 @@
     if (showPlatforms()) out.push(platformIcon(m));
     if (m.kind === 'notice') return out;
     if (isKick(m)) return kickBadgesFor(m, out);
+    if (isYouTube(m)) return youtubeBadgesFor(m, out);
     var uid = m.userId;
     var room = roomFor(m);
     // The developer's and the beta testers' badges are no setting's to turn off: they show with badges off too
@@ -469,7 +509,7 @@
       if (cfg.readable) color = T.util.readableColor(color, cfg.readable_level / 10, nameBackdrop(cfg));
     }
     var paintId = null;
-    if (S.cfg.paints && m.userId && !isKick(m)) {
+    if (S.cfg.paints && m.userId && isTwitch(m)) {
       var eff = effective(m.userId);
       if (eff.paint && S.stv.paints.has(eff.paint)) paintId = eff.paint;
     }
@@ -525,7 +565,7 @@
   // rule (renderer.shownText).
   function shownText(m, cfg) {
     var t = m.text || '';
-    return T.renderer.drawnText(cfg.replies && !isKick(m) ? replyStripped(m, t) : t, cfg);
+    return T.renderer.drawnText(cfg.replies && isTwitch(m) ? replyStripped(m, t) : t, cfg);
   }
 
   // "!cmd", also when sent as a reply ("@Parent !cmd", shown without the "@Parent" prefix). command_prefixes: the
@@ -553,7 +593,7 @@
   var graphemes;
   function textLength(m) {
     var raw = T.tokenizer.cleanText(m.text || '', m.action).text;
-    var t = T.renderer.drawnText(S.cfg.replies && !isKick(m) ? replyStripped(m, raw) : raw, S.cfg).replace(EDGE_BLANK_RE, '');
+    var t = T.renderer.drawnText(S.cfg.replies && isTwitch(m) ? replyStripped(m, raw) : raw, S.cfg).replace(EDGE_BLANK_RE, '');
     if (graphemes === undefined) {
       graphemes = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter() : null;
     }
@@ -599,7 +639,7 @@
     if (S.cfg.bots || !login) return false;
     if (DEFAULT_BOTS.indexOf(login) >= 0) return true;
     var home = S.rooms.home();
-    if (home && home.bttv.bots.has(login) && !isKick(m)) return true;
+    if (home && home.bttv.bots.has(login) && isTwitch(m)) return true;
     if (m && m.mirrored) {
       var src = S.rooms.get(m.sourceRoomId);
       if (src && src.bttv.bots.has(login)) return true;
@@ -625,7 +665,9 @@
   // overlay has it (quotesHidden). And the senders seen with a platform's Bot badge, by user id: a reply's parent carries
   // no badges. Kick ids are 'kick:' ids, so they never meet Twitch's.
   function remember(m) {
-    if (!m || m.kind !== 'chat') return;
+    // A YouTube line has no replies or Shared Chat ids to be found by, and its deletions go straight to the renderer: it
+    // would only push Twitch and Kick lines out of the 1000 this keeps.
+    if (!m || m.kind !== 'chat' || isYouTube(m)) return;
     var id = T.util.idStr(m.id), sid = T.util.idStr(m.sourceId);
     if (id) S.said.set(id, m);
     if (sid && sid !== id) S.said.set(sid, m);
@@ -663,7 +705,7 @@
     var uid = T.util.idStr(r.userId);
     if (r.bot === true || (uid && S.botIds.has(uid))) return true;
     if (isHiddenBot(login, m)) return true;
-    if (!login || isKick(m)) return false;
+    if (!login || !isTwitch(m)) return false;
     var hit = false;
     S.rooms.forEach(function (ctx) { if (!hit && ctx.bttv.bots.has(login)) hit = true; });
     return hit;
@@ -698,7 +740,7 @@
   // line), and on Kick (whose reply data doesn't say), it is tested both ways for a command, and as sent for the words.
   function parentHidden(r, m, cfg, f) {
     var body = r.body, rest = body.replace(/^@\S+\s+/, '');
-    var thread = !isKick(m) && typeof r.threadId === 'string' && r.threadId !== '';
+    var thread = isTwitch(m) && typeof r.threadId === 'string' && r.threadId !== '';
     var wasReply = thread && r.threadId !== r.id;
     if (cfg.hide_commands && (thread ? f.command.test(wasReply ? rest : body) : f.command.test(rest) || f.command.test(body))) return true;
     // The words as its own line was matched (shownText): without its "@Name" only where that wasn't drawn.
@@ -1035,7 +1077,7 @@
   function stvStyleOn(c) { return !!(c.stv_lookup && (c.paints || (c.badges && c.badges_7tv))); }
 
   function noteUser(m) {
-    if (!m.userId || S.cfg.demo || isKick(m)) return;
+    if (!m.userId || S.cfg.demo || !isTwitch(m)) return;
     S.recentUsers.set(m.userId, T.util.now());
     if (S.stvLookup && stvStyleOn(S.cfg)) S.stvLookup.want(m.userId);
   }
@@ -1044,7 +1086,7 @@
   // still queued too), are looked up now, as a reload would. Each one once: the lookup skips ids it knows or has queued.
   function lookUpShown() {
     S.renderer.rerender(function (m) {
-      if (m.userId && !isKick(m)) S.stvLookup.want(m.userId);
+      if (m.userId && isTwitch(m)) S.stvLookup.want(m.userId);
       return false;
     });
     S.recentUsers.map.forEach(function (at, uid) { S.stvLookup.want(uid); });
@@ -1074,7 +1116,7 @@
   function noteLiveShown(m) {
     var ts = Number(m.ts) || 0;
     if (isKick(m)) { if (ts > S.kickLiveTs) S.kickLiveTs = ts; }
-    else if (ts > S.twitchLiveTs) S.twitchLiveTs = ts;
+    else if (isTwitch(m) && ts > S.twitchLiveTs) S.twitchLiveTs = ts;
   }
 
   // A line said but not shown (history older than the lines shown): the renderer notes it (a /clear or a timeout from
@@ -1095,7 +1137,7 @@
     return e && e.map && e.map.size ? e.map : null;
   }
   function wantCheers(m) {
-    if (S.cfg.demo || isKick(m) || !(m.bits > 0)) return;
+    if (S.cfg.demo || !isTwitch(m) || !(m.bits > 0)) return;
     var id = T.util.idStr(roomIdOf(m));
     if (!/^\d+$/.test(id)) return;
     var e = S.cheerMaps.get(id);
@@ -1106,7 +1148,7 @@
     T.twitchBadges.loadCheermotes(id).then(function (map) {
       entry.busy = false;
       entry.map = map;
-      if (map && map.size) scheduleRerender(function (x) { return !isKick(x) && x.bits > 0 && T.util.idStr(roomIdOf(x)) === id; });
+      if (map && map.size) scheduleRerender(function (x) { return isTwitch(x) && x.bits > 0 && T.util.idStr(roomIdOf(x)) === id; });
     }, function (err) {
       entry.busy = false;
       entry.retryAt = T.util.now() + entry.delay;
@@ -1170,8 +1212,8 @@
     var target = p.tags['target-user-id'];
     if (target) S.renderer.clearUser(target);
     else if (!p.params[1]) {
-      // A Twitch /clear leaves the Kick lines of a combined chat alone.
-      if (S.cfg.kick) S.renderer.clearAll(notKick);
+      // A Twitch /clear leaves the Kick and YouTube lines of a combined chat alone.
+      if (S.cfg.kick || S.cfg.mixitup) S.renderer.clearAll(isTwitch);
       else S.renderer.clearAll();
     }
   }
@@ -1202,6 +1244,83 @@
   // Kick's hint stays until Kick chat joins (onKickStatus); a later one takes its line.
   function kickHint(text) {
     setHint('kick', text, true);
+  }
+
+  // ---------- YouTube, through Mix It Up ----------
+  // Mix It Up's overlay socket (mixitup.js) gives the chat lines of the user's Chat widget: only its YouTube ones are taken
+  // (the widget may carry Twitch and Kick too, which the overlay has from their own chats). Its "clear" is no YouTube clear
+  // (any platform's chat clear sends it), so it is ignored (mixitup.js). Mix It Up sends no history, so
+  // there is none to replay: events only wait for Twitch's history to land, in order with its own lines.
+  function onYouTubeEvent(ev) {
+    if (!ev) return;
+    if (S.historyPending) {
+      S.liveBuffer.push({ __yt: ev });
+      return;
+    }
+    switch (ev.type) {
+      case 'message': return deliver(ev.msg);
+      case 'delete': return S.renderer.clearMessage(ev.id);
+      case 'ban': return S.renderer.clearUser(ev.userId);
+    }
+  }
+
+  function youtubeHint(text) {
+    setHint('youtube', text, true);
+  }
+
+  // Two things can be wrong, and each has its own hint (S.ytHintKind). A socket that doesn't open (Mix It Up not running,
+  // its Overlay not connected, another port) gives 'reach' when it hasn't opened YOUTUBE_HINT_MS after the start, or after
+  // the last time it dropped. A socket that opens but never hears from the widget (an id Mix It Up doesn't know, a widget
+  // that is disabled or isn't a Single Widget URL: mixitup.js sends the handshake and reports 'silent' when no answer comes)
+  // gives 'widget'. Each goes when its trouble does ('open' ends 'reach', 'ready' ends both).
+  function armYouTubeHint() {
+    if (S.ytHintTimer) return;
+    S.ytOpened = false;
+    S.ytHintTimer = setTimeout(function () {
+      S.ytHintTimer = null;
+      if (S.ytOpened) return;
+      S.ytHintKind = 'reach';
+      youtubeHint('Couldn\'t reach Mix It Up at localhost:' + S.cfg.mixitup_port + '. Start it, connect Overlay on its Services page, and check the port (mixitup_port).');
+    }, YOUTUBE_HINT_MS);
+  }
+  function clearYouTubeHint(kind) {
+    if (kind && S.ytHintKind !== kind) return;
+    S.ytHintKind = '';
+    clearHint('youtube');
+  }
+
+  function onYouTubeStatus(status) {
+    var type = status && status.type;
+    if (type === 'open') {
+      S.ytStatus = 'open';
+      S.ytOpened = true;
+      if (S.ytHintTimer) { clearTimeout(S.ytHintTimer); S.ytHintTimer = null; }
+      clearYouTubeHint('reach');
+    } else if (type === 'ready') {
+      S.ytStatus = 'ready';
+      S.ytOpened = true;
+      if (S.ytHintTimer) { clearTimeout(S.ytHintTimer); S.ytHintTimer = null; }
+      clearYouTubeHint();
+    } else if (type === 'silent') {
+      S.ytStatus = 'silent';
+      S.ytHintKind = 'widget';
+      youtubeHint('Mix It Up is running, but this link isn\'t an enabled Chat widget. Use the link of a Chat widget whose Display Option is Single Widget URL, and enable it (mixitup).');
+    } else if (type === 'closed') {
+      S.ytStatus = 'closed';
+      armYouTubeHint();
+    } else if (type === 'fatal') {
+      S.ytStatus = 'fatal';
+      S.ytHintKind = 'fatal';
+      youtubeHint('The Mix It Up widget link isn\'t usable (mixitup): copy it again from its Chat widget.');
+    }
+  }
+
+  function startYouTube() {
+    var cfg = S.cfg;
+    S.ytStatus = 'connecting';
+    S.youtube = T.mixitup.createMixItUp({ guid: cfg.mixitup, port: cfg.mixitup_port, onEvent: onYouTubeEvent, onStatus: onYouTubeStatus });
+    S.youtube.start();
+    armYouTubeHint();
   }
 
   function onKickStatus(status, detail) {
@@ -1471,6 +1590,7 @@
     buf.forEach(function (m) {
       if (m.__clear) handleClearchat(m.__clear);
       else if (m.__kick) onKickEvent(m.__kick);
+      else if (m.__yt) onYouTubeEvent(m.__yt);
       else deliver(m);
     });
   }
@@ -1713,7 +1833,7 @@
     var at = sentAt(p), target = T.util.idStr(p.tags['target-user-id']);
     if (!at || (!target && p.params[1])) { onLine(p); return; }
     var before = [], newer = false;
-    function covers(m) { return !!m && !isKick(m) && (!target || T.util.idStr(m.userId) === target); }
+    function covers(m) { return !!m && isTwitch(m) && (!target || T.util.idStr(m.userId) === target); }
     S.said.map.forEach(function (m, id) {
       if (id !== T.util.idStr(m.id) || !covers(m)) return;
       if (Number(m.ts) > at) newer = true;
@@ -1941,6 +2061,7 @@
     d.hidden = false;
     var parts = ['irc:' + (S.cfg.demo ? 'demo' : S.cfg.channel ? S.ircStatus : 'off')];
     if (S.cfg.kick) parts.push('kick:' + (S.cfg.demo ? 'demo' : S.kickStatus));
+    if (S.cfg.mixitup) parts.push('youtube:' + (S.cfg.demo ? 'demo' : S.ytStatus));
     S.loads.forEach(function (ctl, name) { parts.push(name + ':' + ctl.status); });
     var home = S.rooms.home();
     parts.push('emotes 7tv ' + S.stvGlobal.size + '/' + (home ? home.stv.emotes.size : 0) +
@@ -2027,6 +2148,12 @@
     };
     say(bad.channel, 'Twitch channel', 'letters, numbers and _');
     say(bad.kick, 'Kick channel', 'letters, numbers, _ and -');
+    if (bad.mixitup) {
+      var link = Array.from(bad.mixitup.value);
+      out.push('Mix It Up widget "' + (link.length > 40 ? link.slice(0, 40).join('') + '…' : bad.mixitup.value) + '" in ' +
+        (bad.mixitup.from === 'url' ? 'the overlay URL' : 'settings.js') +
+        ' isn\'t a widget link: copy the link of your Mix It Up Chat widget (http://localhost:8111/overlay/…).');
+    }
     return out.join(' ');
   }
 
@@ -2092,6 +2219,11 @@
       kickChannel: null,
       kickRoom: '',
       kickStatus: 'idle',
+      youtube: null,
+      ytStatus: 'idle',
+      ytHintTimer: null,
+      ytHintKind: '',
+      ytOpened: false,
       hints: {},
       kickStv: new Map(),
       kickSubBadges: [],
@@ -2127,9 +2259,9 @@
     var badName = sErr || cfg.demo ? '' : refusedHint(T.config.refusedChannels(query, root.TCO_SETTINGS));
     if (badName) setHint('names', badName, true);
     // Without a channel there is nothing to show: load nothing (also when settings.js is broken).
-    if (!cfg.channel && !cfg.kick && !cfg.demo) {
+    if (!cfg.channel && !cfg.kick && !cfg.mixitup && !cfg.demo) {
       if (!sErr && !badName) {
-        setHint('nochan', 'No channel set. Add ?channel=yourname (Twitch) or ?kick=yourname (Kick) to the overlay URL, or use the builder.', true);
+        setHint('nochan', 'No channel set. Add ?channel=yourname (Twitch), ?kick=yourname (Kick) or ?mixitup=<Mix It Up widget link> (YouTube) to the overlay URL, or use the builder.', true);
       }
       return;
     }
@@ -2141,7 +2273,8 @@
       S.demo = T.demo.createDemo({
         getState: function () { return S; },
         feed: function (line) { onLine(T.ircParse.parseLine(line)); },
-        feedKick: function (event, data) { onKickEvent(T.kick.parseEvent(event, data)); }
+        feedKick: function (event, data) { onKickEvent(T.kick.parseEvent(event, data)); },
+        feedYouTube: function (packet) { T.mixitup.parsePacket(packet, { guid: cfg.mixitup }).forEach(onYouTubeEvent); }
       });
     } else {
       S.stvLookup = T.seventv.createLookup({
@@ -2155,6 +2288,7 @@
     // Kick first: the Kick history waits for its channel lookup. (Neither socket delivers anything before history is
     // set up: both open asynchronously.)
     if (cfg.kick && !cfg.demo) startKick();
+    if (cfg.mixitup && !cfg.demo) startYouTube();
     startHistory();
     if (cfg.channel && !cfg.demo) {
       S.irc = T.irc.createIrc({ channel: cfg.channel, onLine: onLine, onStatus: onIrcStatus });
@@ -2180,6 +2314,7 @@
     if (root.addEventListener) root.addEventListener('online', function () {
       if (S.irc) S.irc.kick();
       if (S.kick) S.kick.kick();
+      if (S.youtube) S.youtube.mixitup();
       if (S.stvEvents) S.stvEvents.kick();
       if (S.bttvLive) S.bttvLive.kick();
       S.loads.forEach(function (ctl) { if (ctl.status === 'failed') ctl.retryNow(); });

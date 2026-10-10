@@ -2,10 +2,10 @@
 
 /* Stable class names for OBS "Custom CSS": #chat .lines .line .reply .time .badges .badge .name .colon .message
    .emote-stack .emote .zw .cheer .gif, line modifiers .action .first-msg .highlight .announcement (its bar color
-   .ann-primary .ann-blue .ann-green .ann-orange .ann-purple) .notice .mirrored .platform-kick .accent .emote-only
+   .ann-primary .ann-blue .ann-green .ann-orange .ann-purple) .notice .mirrored .platform-kick .platform-youtube .accent .emote-only
    .mention .keyword .user-hl .role-broadcaster .role-mod .role-vip .role-bar .role-tint .keep-sep .rtl (a row's
    message that starts right to left; on .reply, a quote that does) .inline-reply (a reply in a row along the top
-   edge), badge modifiers .icon .platform (the Twitch / Kick logo) .avatar (a Shared Chat channel) .colored (an FFZ /
+   edge), badge modifiers .icon .platform (the Twitch / Kick / YouTube logo) .avatar (a Shared Chat channel) .colored (an FFZ /
    FFZ:AP badge on its own background color), #chat
    modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .size-small .size-medium .size-large .has-bg
    .bg-full .no-names .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static

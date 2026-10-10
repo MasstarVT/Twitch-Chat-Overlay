@@ -311,6 +311,49 @@ test('hostile Kick chat: names, text, replies, colors, badges, ids and emote cod
   assert.deepStrictEqual(R.badgeModels([{ icon: '"><img src=x onerror=alert(1)>', title: 'x' }, { icon: 'toString', title: 'x' }], 1), []);
 });
 
+test('hostile YouTube chat (through Mix It Up): names, text, colors, roles, ids and emote parts stay text; images only https', () => {
+  const mixitup = require('../js/mixitup.js');
+  const icons = require('../js/icons.js');
+  const ytmodel = (params) => {
+    const msg = mixitup.toMessage(params, () => 1700000000000);
+    if (!msg) return null;
+    const own = msg.youtubeEmotes;
+    // overlay.js youtubeLookup: a word is an emote only as an own key of what the message carried.
+    const lookup = (w) => Object.prototype.hasOwnProperty.call(own, w)
+      ? { provider: 'youtube', id: w, name: w, w: 28, h: 28, urls: { 1: own[w], 2: own[w], 4: own[w] } } : null;
+    const tk = tokenizer.tokenize(msg, { lookup: lookup, gifs: false });
+    return { msg, m: R.modelFor(msg, R.normalizeCfg({}), { kind: 'chat', items: tk.items, action: tk.action, badges: [],
+      name: { text: msg.displayName, color: msg.color } }) };
+  };
+  const params = (p, extra) => Object.assign({ MessageID: 'LCC.abc-1_x', Platform: 'YouTube', MessageType: 'text',
+    User: { Platform: 3, PlatformID: 'UC1', Username: p, DisplayName: p, Color: p, AvatarLink: p, Roles: [p, 800, '<x>'] },
+    Message: [{ Type: 'Text', Content: p }, { Type: 'Emote', Content: p, Name: p + 'a', Provider: 'youtube' },
+      { Type: 'Emote', Content: 'http://yt3.ggpht.com/e.png', Name: p + 'b', Provider: 'youtube' },
+      { Type: 'Emote', Content: 'https://yt3.ggpht.com/e.png', Name: p + 'c', Provider: 'youtube' }] }, extra || {});
+  PAYLOADS.forEach((p) => {
+    const { msg, m } = ytmodel(params(p));
+    assert.ok(m.name.text.indexOf('<') < 0 || m.name.text.indexOf(p) >= 0, 'the name is literal text');
+    assert.match(m.name.color, /^#[0-9a-f]{6}$/i, 'a hostile color is replaced');
+    assert.strictEqual(m.cls, 'line platform-youtube');
+    // A rejected emote keeps its word as text (with the words beside it): every text part is a plain string drawn as text.
+    m.parts.filter((x) => x.t === 'text').forEach((x) => assert.strictEqual(typeof x.s, 'string'));
+    urlsOf(m).forEach((u) => assert.strictEqual(u, 'https://yt3.ggpht.com/e.png'));
+    // Only roles Mix It Up numbers (or names) give a badge, and each becomes a fixed icon key.
+    assert.deepStrictEqual(msg.youtubeBadges.map((b) => b.type), ['moderator']);
+    assert.ok(icons.has('youtube-' + msg.youtubeBadges[0].type));
+    assert.ok(!msg.youtubeAvatar, 'a hostile avatar is dropped');
+  });
+  // Ids with markup, whitespace or path-breaking characters are refused (no message).
+  ['<x>', 'a b', 'a"b', "a'b", 'a\\b', '', 'a'.repeat(513)].forEach((id) =>
+    assert.strictEqual(mixitup.toMessage(params('x', { MessageID: id }), () => 0), null, JSON.stringify(id)));
+  // Emote words that are object keys or markup are only ever own keys of a null-prototype map.
+  const { m } = ytmodel(Object.assign(params('x'), { Message: [{ Type: 'Text', Content: '__proto__ constructor toString' },
+    { Type: 'Emote', Content: 'https://yt3.ggpht.com/e.png', Name: '__proto__', Provider: 'youtube' }] }));
+  assert.deepStrictEqual(urlsOf(m), ['https://yt3.ggpht.com/e.png', 'https://yt3.ggpht.com/e.png'], 'the word __proto__ (typed, and sent as the emote) is the one emote; constructor and toString are no emotes');
+  // An icon badge draws only registry shapes: an unknown key is dropped, never used as markup or a class.
+  assert.deepStrictEqual(R.badgeModels([{ icon: 'youtube-<img src=x onerror=alert(1)>', title: 'x' }], 1), []);
+});
+
 test('7TV paints: hostile values never escape their rule, and stay near the name', () => {
   const hostile = [
     paintCss.fromV3({ id: 'a1', function: 'URL', image_url: 'https://cdn.7tv.app/x.png");}*{display:none}.a{b:url("' }),
