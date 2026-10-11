@@ -24,7 +24,7 @@ function fakeEl(tag) {
       if (i < 0) this.children.push(c); else this.children.splice(i, 0, c);
       return c;
     },
-    removeChild(c) { this.children.splice(this.children.indexOf(c), 1); c.parentNode = null; return c; }
+    removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); c.parentNode = null; return c; }
   };
 }
 
@@ -49,7 +49,8 @@ async function boot(t, opts) {
   t.after(() => {
     console.warn = warn;
     console.log = log;
-    ['TCO', 'TCO_NO_AUTOBOOT', 'TCO_SETTINGS', '__tcoErrors', 'document', 'location', 'parent', 'addEventListener']
+    ['TCO', 'TCO_NO_AUTOBOOT', 'TCO_SETTINGS', '__tcoErrors', 'document', 'location', 'parent', 'addEventListener',
+      'removeEventListener']
       .forEach((k) => { delete globalThis[k]; });
   });
   Object.keys(require.cache).forEach((k) => { if (k.startsWith(JS)) delete require.cache[k]; });
@@ -59,7 +60,7 @@ async function boot(t, opts) {
     calls: [], pushed: [], cleared: [], rerenders: 0, refilters: 0, listeners: {}, links: [],
     els: { chat: fakeEl('div'), hint: fakeEl('div'), debug: fakeEl('div') },
     irc: null, kick: null, yt: null, kickClients: [], stv: null, stvClients: 0, bttvLive: null, lookupWants: [], clearPreds: [],
-    refused: [], dropped: [], noted: [], redrawn: [], scripts: [],
+    refused: [], dropped: [], noted: [], redrawn: [], scripts: [], holds: [], adopted: [], destroyed: 0,
     // The site the update check asks (path -> text); version.json names the version this page runs unless a test says
     // otherwise. lastModified: the deploy's Last-Modified (none by default).
     site: { files: {}, fetched: [], lastModified: '', down: false },
@@ -81,6 +82,7 @@ async function boot(t, opts) {
   globalThis.location = Object.assign({ search: 'search' in opts ? opts.search : '?channel=home' }, opts.location);
   globalThis.parent = opts.framed ? {} : globalThis;
   globalThis.addEventListener = (type, fn) => { (h.listeners[type] = h.listeners[type] || []).push(fn); };
+  globalThis.removeEventListener = (type, fn) => { h.listeners[type] = (h.listeners[type] || []).filter((f) => f !== fn); };
   if (opts.settings) globalThis.TCO_SETTINGS = opts.settings;
   if (opts.errors) globalThis.__tcoErrors = opts.errors;
 
@@ -136,7 +138,7 @@ async function boot(t, opts) {
     const seen = new Set();
     h.irc = {
       onLine: o.onLine, onStatus: o.onStatus, kicks: 0,
-      start() {}, kick() { this.kicks++; },
+      start() {}, kick() { this.kicks++; }, stop() { this.stopped = (this.stopped || 0) + 1; },
       markSeen(id) { const had = seen.has(id); seen.add(id); return had; },
       hasSeen(id) { return seen.has(id); },
       // like irc.js: a live PRIVMSG id is remembered (and a repeat dropped) before onLine
@@ -170,6 +172,7 @@ async function boot(t, opts) {
   } else {
     T.renderer.createRenderer = function (o) {
       h.deps = o.deps;
+      h.rendererRoot = o.root;
       return {
         push(m) { if (!o.deps.shouldShow(m)) { h.refused.push(m); return false; } h.pushed.push(m); return true; },
         note(m) { h.noted.push(m); },
@@ -187,7 +190,11 @@ async function boot(t, opts) {
           return 0;
         },
         refilter() { h.refilters++; h.pushed = h.pushed.filter((m) => o.deps.shouldShow(m)); },
-        setConfig() {}, hold() {}, hasUser() { return false; }, stats() { return null; }
+        setConfig() {}, hold(on) { h.holds.push(on); }, hasUser() { return false; }, stats() { return null; },
+        // An update's restart in place: the lines handed over, and the ones taken.
+        snapshot() { return h.pushed.map((m) => ({ msg: m, born: 5 })); },
+        adopt(list) { h.adopted.push(list); return list.length; },
+        destroy() { h.destroyed++; }
       };
     };
   }
@@ -207,7 +214,7 @@ async function boot(t, opts) {
     return createUpdateCheck(Object.assign({}, o, { fetchText: h.site.fetchText }));
   };
   if (opts.stubs) opts.stubs(T, h);
-  T.overlay.boot();
+  h.booted = T.overlay.boot(opts.bootOpts);
   await settle();
   return h;
 }
@@ -3646,28 +3653,210 @@ test('update check: a new stylesheet goes in beside the old one, which goes once
   assert.strictEqual(added[0].parentNode, head);
 });
 
-test('update check: a new script reloads the page once the deploy is old enough; a deploy of other files does nothing', async (t) => {
-  let reloads = 0;
-  const h = await boot(t, {
-    location: Object.assign({ reload(...args) { assert.strictEqual(args.length, 0); reloads++; } }, HOSTED),
-    stubs: (T, h) => hostedSite(h)
-  });
+// New scripts on the site: the overlay restarts in place. These boot the real overlay as the running copy, and stand in
+// for the new copy's overlay.js (whose own side is tested below), so the handover itself is what is checked.
+async function readyToRestart(t, h) {
   const T = globalThis.TCO;
   t.mock.timers.tick(T.updateCheck.START_MS);
   await settle();
-  deploy(h, { '/builder.html': 'new builder' });
-  t.mock.timers.tick(T.updateCheck.CHECK_MS);
-  await settle(30);
-  assert.strictEqual(reloads, 0, 'nothing of the overlay\'s changed');
   deploy(h, { '/js/overlay.js': 'overlay v2' });
+  t.mock.timers.tick(T.updateCheck.SETTLE_MS);
+  await settle(40);
+  return h.links.filter((l) => l.tagName === 'script');
+}
+function newCopy(over) {
+  const api = Object.assign({
+    HANDOFF: 1, booted: null, took: null, stops: 0,
+    boot(o) { api.booted = o; return true; },
+    takeOver(h2, oldChat) { api.took = { h: h2, oldChat: oldChat }; return true; },
+    state() { return api.booted ? {} : null; },
+    stop() { api.stops++; }
+  }, over);
+  return api;
+}
+
+test('update check: new scripts restart the overlay in place: the new copy boots unseen, then takes the lines over', async (t) => {
+  let reloads = 0;
+  const box = fakeEl('head');
+  const h = await boot(t, { location: Object.assign({ reload() { reloads++; } }, HOSTED), stubs: (T, h) => {
+    hostedSite(h);
+    h.scripts.forEach((s) => box.appendChild(s));
+  } });
+  const oldT = globalThis.TCO;
+  const page = fakeEl('body');
+  page.appendChild(h.els.chat);
+  h.feed(priv('alice', 'one'));
+  h.feed(priv('bob', 'two'));
+  await settle();
+  globalThis.TCO_NO_AUTOBOOT = 'as it was';
+  const scripts = await readyToRestart(t, h);
+  // The new scripts run into a namespace of their own, in page order, and boot only when told to.
+  assert.notStrictEqual(globalThis.TCO, oldT);
+  assert.deepStrictEqual(Object.keys(globalThis.TCO), []);
+  assert.strictEqual(globalThis.TCO_NO_AUTOBOOT, true);
+  assert.deepStrictEqual(scripts.map((s) => new URL(s.src).pathname), ['/js/util.js', '/js/overlay.js']);
+  scripts.forEach((s) => { assert.strictEqual(s.async, false); assert.match(s.src, /\?v=[0-9.]+&u=[0-9a-z]+$/); });
+  const api = newCopy();
+  globalThis.TCO.overlay = api;
+  scripts.forEach((s) => s.onload());
+  await settle();
+  assert.strictEqual(globalThis.TCO_NO_AUTOBOOT, 'as it was', 'put back once they have run');
+  assert.ok(api.booted, 'the new copy was booted');
+  const ho = api.booted.handoff;
+  assert.strictEqual(ho.v, 1);
+  assert.deepStrictEqual(ho.lines.map((en) => en.msg.text), ['one', 'two'], 'the lines on screen, to look their chatters up ahead');
+  assert.strictEqual(ho.update.version, oldT.util.VERSION);
+  assert.ok(ho.update.base.files instanceof Map);
+  // Until the new copy is ready, this one goes on as before.
+  assert.ok(!h.irc.stopped);
+  assert.strictEqual(h.destroyed, 0);
+  h.irc.receive(oldT.ircParse.parseLine(priv('carol', 'three'))); // (h.feed reads the page's namespace, the new one now)
+  await settle();
+  assert.strictEqual(h.pushed.length, 3);
+  ho.ready();
+  await settle();
+  assert.strictEqual(h.irc.stopped, 1, 'then it stops');
+  assert.strictEqual(h.destroyed, 1);
+  assert.strictEqual(oldT.overlay.state().stopped, true);
+  assert.ok(api.took, 'and the new copy takes over');
+  assert.deepStrictEqual(api.took.h.lines.map((en) => en.msg.text), ['one', 'two', 'three'], 'what was on screen as it stopped');
+  assert.strictEqual(api.took.oldChat, h.els.chat);
+  assert.strictEqual(globalThis.TCO.overlay, api, 'the page\'s namespace is the new copy\'s');
+  assert.deepStrictEqual(box.children, [], 'the old copies\' script tags are gone');
+  assert.strictEqual(reloads, 0);
+  // Nothing of the old copy runs on.
+  const asks = h.site.fetched.length;
+  const calls = h.calls.length;
+  t.mock.timers.tick(30 * 60000);
+  await settle();
+  assert.strictEqual(h.site.fetched.length, asks, 'its update check stopped');
+  assert.strictEqual(h.calls.length, calls, 'and its loads');
+});
+
+test('update check: a restart that fails before the old copy stops leaves it running; a second failure reloads', async (t) => {
+  let reloads = 0;
+  const h = await boot(t, { location: Object.assign({ reload() { reloads++; } }, HOSTED), stubs: (T, h) => hostedSite(h) });
+  const oldT = globalThis.TCO;
+  const T = oldT;
+  let scripts = await readyToRestart(t, h);
+  scripts[0].onerror();
+  await settle();
+  assert.strictEqual(globalThis.TCO, oldT, 'the namespace is put back');
+  assert.ok(scripts.every((s) => !s.parentNode || s.parentNode.children.indexOf(s) < 0), 'the new script tags are taken out');
+  assert.ok(!h.irc.stopped, 'the running copy runs on');
+  assert.strictEqual(h.S().stopped, false);
+  assert.strictEqual(reloads, 0);
+  // The next check tries again; this time the new copy can't take this handoff.
+  h.links.length = 0;
   t.mock.timers.tick(T.updateCheck.CHECK_MS);
-  await settle(30);
-  assert.strictEqual(reloads, 0, 'a young deploy waits for the caches to catch up');
-  for (let i = 0; i < 3 && !reloads; i++) {
-    t.mock.timers.tick(T.updateCheck.CHECK_MS);
-    await settle(30);
-  }
-  assert.strictEqual(reloads, 1);
+  await settle(40);
+  scripts = h.links.filter((l) => l.tagName === 'script');
+  assert.strictEqual(scripts.length, 2, 'asked again');
+  globalThis.TCO.overlay = newCopy({ HANDOFF: 99 });
+  scripts.forEach((s) => s.onload());
+  await settle();
+  assert.strictEqual(reloads, 1, 'twice failed: a reload');
+});
+
+test('update check: a new copy that refuses the handoff, or never gets ready, is stopped and the old one runs on', async (t) => {
+  let reloads = 0;
+  const h = await boot(t, { location: Object.assign({ reload() { reloads++; } }, HOSTED), stubs: (T, h) => hostedSite(h) });
+  const oldT = globalThis.TCO;
+  const scripts = await readyToRestart(t, h);
+  const api = newCopy();
+  globalThis.TCO.overlay = api;
+  scripts.forEach((s) => s.onload());
+  await settle();
+  assert.ok(api.booted);
+  t.mock.timers.tick(60000); // never ready
+  await settle();
+  assert.strictEqual(api.stops, 1, 'the half-started copy is stopped');
+  assert.strictEqual(globalThis.TCO, oldT);
+  assert.ok(!h.irc.stopped);
+  assert.strictEqual(reloads, 0);
+});
+
+test('restart in place, the new copy\'s side: it boots unseen, then takes the old copy\'s place and lines', async (t) => {
+  let ready = 0;
+  const lines = [{ msg: { kind: 'chat', id: 'old-1', userId: 'u-old', login: 'old', text: 'from before', roomId: HOME }, born: 1e12 - 5000 }];
+  const h = await boot(t, {
+    location: { protocol: 'https:', href: HOSTED.href + '&mixitup=' + YT_GUID, reload() { assert.fail('no reload'); } },
+    stubs: (T, h) => hostedSite(h),
+    bootOpts: { handoff: { v: 1, lines: lines, twitchTs: 1234, kickTs: 0, ready() { ready++; },
+      assets: { 'img/logos/Badge.svg': 'https://chat.masstar.org/img/logos/Badge.svg?u=abc', 'evil': 'https://x.example/' },
+      update: null } }
+  });
+  const T = globalThis.TCO;
+  assert.strictEqual(h.booted, true);
+  assert.notStrictEqual(h.rendererRoot, h.els.chat, 'it draws into a #chat of its own, not in the page yet');
+  assert.strictEqual(h.rendererRoot.parentNode, null);
+  assert.deepStrictEqual(h.called('history'), [], 'no history: the lines come over');
+  assert.strictEqual(h.yt, null, 'Mix It Up waits for the takeover');
+  assert.strictEqual(h.S().twitchTs, 1234);
+  assert.ok(h.S().said.has('old-1'), 'the old lines are noted, for replies quoting them');
+  assert.strictEqual(h.deps.badgesFor({ kind: 'chat', login: 'masstarvt', userId: '1', roomId: HOME })
+    .find((b) => b.provider === 'developer').urls[1], 'https://chat.masstar.org/img/logos/Badge.svg?u=abc', 'swapped badges come over');
+  h.feed(priv('live', 'said meanwhile'));
+  await settle();
+  assert.strictEqual(h.pushed.length, 1, 'live chat goes to the (held) renderer');
+  t.mock.timers.tick(3000);
+  await settle();
+  assert.ok(!h.holds.includes(false), 'held while unseen, past the startup hold');
+  t.mock.timers.tick(T.updateCheck.START_MS);
+  await settle();
+  assert.deepStrictEqual(h.site.fetched, [], 'its update check waits for the takeover');
+  assert.strictEqual(h.els.hint.hidden, true);
+  assert.strictEqual(ready, 0);
+  t.mock.timers.tick(20000);
+  await settle();
+  assert.strictEqual(ready, 1, 'ready by READY_MS at the latest');
+  t.mock.timers.tick(20000);
+  await settle();
+  assert.strictEqual(ready, 1, 'once');
+
+  const page = fakeEl('body');
+  page.replaceChild = function (n, o) { const i = this.children.indexOf(o); this.children[i] = n; n.parentNode = this; o.parentNode = null; return o; };
+  page.appendChild(h.els.chat);
+  const final = { v: 1, lines: lines.concat([{ msg: { kind: 'chat', id: 'old-2', userId: 'u-old', text: 'just before', roomId: HOME }, born: 1e12 }]),
+    twitchTs: 5678, twitchLiveTs: 5678, kickTs: 0, kickLiveTs: 0 };
+  assert.strictEqual(T.overlay.takeOver(final, h.els.chat), true);
+  assert.deepStrictEqual(h.adopted.map((l) => l.map((en) => en.msg.id)), [['old-1', 'old-2']]);
+  assert.deepStrictEqual(page.children, [h.rendererRoot], 'in the old #chat\'s place');
+  assert.strictEqual(h.rendererRoot.id, 'chat');
+  assert.strictEqual(h.holds[h.holds.length - 1], false, 'and draws');
+  assert.strictEqual(h.S().twitchTs, 5678);
+  assert.ok(h.yt && h.yt.started, 'Mix It Up connects now');
+  assert.strictEqual(T.overlay.takeOver(final, h.els.chat), false, 'only once');
+  t.mock.timers.tick(T.updateCheck.START_MS);
+  await settle();
+  assert.ok(h.site.fetched.length > 0, 'its update check runs now');
+});
+
+test('restart in place: a copy refuses a handoff it doesn\'t know, and stop() ends everything of a copy', async (t) => {
+  const refused = await boot(t, { location: HOSTED, bootOpts: { handoff: { v: 2, ready() {} } } });
+  assert.strictEqual(refused.booted, false);
+  assert.strictEqual(refused.S(), null);
+
+  const h = await boot(t, { location: { protocol: 'https:', href: HOSTED.href + '&kick=kickname&kick_room=668&mixitup=' + YT_GUID,
+    reload() { assert.fail('no reload'); } }, stubs: (T, h) => hostedSite(h) });
+  const T = globalThis.TCO;
+  assert.ok((h.listeners.online || []).length >= 1);
+  const hints = h.els.hint.children.length;
+  T.overlay.stop();
+  assert.strictEqual(h.irc.stopped, 1);
+  assert.strictEqual(h.kick.stopped, 1);
+  assert.strictEqual(h.yt.stopped, 1);
+  assert.strictEqual(h.destroyed, 1);
+  assert.deepStrictEqual(h.listeners.online, [], 'its listeners are gone');
+  assert.deepStrictEqual(h.listeners.message, []);
+  const calls = h.calls.length;
+  const asks = h.site.fetched.length;
+  t.mock.timers.tick(60 * 60000);
+  await settle();
+  assert.strictEqual(h.calls.length, calls, 'no load starts or retries');
+  assert.strictEqual(h.site.fetched.length, asks, 'no update check');
+  assert.strictEqual(h.els.hint.children.length, hints, 'and it leaves #hint alone');
+  T.overlay.stop(); // twice is fine
 });
 
 test('update check: the address is version.json beside the page, query and hash left behind (also on a project page)', async (t) => {

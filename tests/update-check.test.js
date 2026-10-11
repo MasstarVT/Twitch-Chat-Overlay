@@ -186,7 +186,7 @@ test('a new stylesheet is swapped in; when the swap fails it is tried again at t
   assert.strictEqual(r.applied.length, 2, 'took: nothing more to do');
 });
 
-test('a new script reloads the page, but only once the deploy is old enough and never in the page\'s first minutes', async () => {
+test('new scripts restart the overlay in place (never a reload), once the deploy is old enough', async () => {
   const r = rig();
   await r.check.check();
   r.site.deploy({ '/js/overlay.js': 'overlay v2' });
@@ -195,25 +195,92 @@ test('a new script reloads the page, but only once the deploy is old enough and 
   assert.deepStrictEqual(r.applied, []);
   r.site.clock = r.site.deployedAt + uc.SETTLE_MS;
   assert.strictEqual(await r.check.check(), true);
-  assert.deepStrictEqual(r.applied, [{ reload: true }]);
+  assert.strictEqual(r.applied.length, 1);
+  const c = r.applied[0];
+  assert.strictEqual(c.reload, undefined);
+  assert.strictEqual(c.restart, true);
+  assert.deepStrictEqual([c.styles, c.assets], [[], []]);
+  assert.deepStrictEqual(c.scripts.map((u) => new URL(u).pathname), ['/js/util.js', '/js/overlay.js'], 'every script, in page order');
+  c.scripts.forEach((u) => assert.match(u, /^https:\/\/chat\.masstar\.org\/js\/[a-z]+\.js\?v=1\.0\.0&u=[0-9a-z]+$/));
+  assert.ok(r.site.fetched.some(([u, m]) => u === c.scripts[1] && m === 'reload'), 'the very files compared, kept in the cache to run');
+  assert.strictEqual(c.baseline.version, '1.0.0');
+  assert.strictEqual(c.baseline.settled, new Date(r.site.deployedAt).toUTCString());
+  assert.strictEqual(c.baseline.base.files.get('/js/overlay.js'), uc.hashText('overlay v2'));
+  assert.deepStrictEqual(c.baseline.base.scripts, ['/js/util.js', '/js/overlay.js']);
+  r.site.clock += uc.CHECK_MS;
+  r.site.fetched.length = 0;
+  await r.check.check();
+  assert.deepStrictEqual(r.paths(), ['/version.json no-store'], 'took: nothing more to compare');
 
-  // A page that only just loaded, from before a deploy that is young: compared at once, but no reload in its first minutes.
-  const fresh = rig();
-  fresh.site.files['/js/util.js'] = 'util v2';
-  fresh.site.deployedAt = fresh.site.clock - 1;
-  assert.strictEqual(await fresh.check.check(), false);
-  assert.deepStrictEqual(fresh.applied, [], 'not in the first minutes');
-  fresh.site.clock = fresh.site.deployedAt + uc.SETTLE_MS;
-  assert.strictEqual(await fresh.check.check(), true);
-  assert.deepStrictEqual(fresh.applied, [{ reload: true }]);
+  // The restarted overlay's check goes on from that state: no first look, and this deploy is seen already.
+  const applied = [];
+  r.site.fetched.length = 0;
+  const next = uc.createUpdateCheck({ version: '1.0.0', url: ORIGIN + '/version.json', page: PAGE,
+    running: () => { throw new Error('not asked'); }, assets: [], apply(x) { applied.push(x); return true; },
+    fetchText: r.site.fetchText, now: r.site.now, baseline: c.baseline });
+  assert.strictEqual(await next.check(), false);
+  assert.deepStrictEqual(r.paths(), ['/version.json no-store']);
+  r.site.deploy({ '/js/util.js': 'util v2' });
+  r.site.clock += uc.SETTLE_MS;
+  assert.strictEqual(await next.check(), true, 'and compares the next deploy with the files it took');
+  assert.deepStrictEqual(applied.map((x) => x.restart), [true]);
 });
 
-test('a script added to or dropped from the page, or a page that changed beyond its scripts, is a reload too', async () => {
+test('a restart that didn\'t take is asked for again at the next check', async () => {
+  const r = rig();
+  await r.check.check();
+  r.site.deploy({ '/js/overlay.js': 'overlay v2' });
+  r.site.clock += uc.SETTLE_MS;
+  r.answer = false;
+  assert.strictEqual(await r.check.check(), false);
+  r.answer = true;
+  r.site.clock += uc.CHECK_MS;
+  assert.strictEqual(await r.check.check(), true);
+  assert.deepStrictEqual(r.applied.map((x) => x.restart), [true, true]);
+});
+
+test('a restart runs what the page names now: a script added or dropped; errors.js and a missing settings.js are left out', async () => {
+  const r = rig();
+  await r.check.check();
+  r.site.deploy({ '/overlay.html': html({ scripts: ['js/errors.js', 'settings.js', 'js/util.js', 'js/new.js', 'js/overlay.js'] }),
+    '/js/new.js': 'new', '/js/errors.js': 'errors' });
+  r.site.clock += uc.SETTLE_MS;
+  assert.strictEqual(await r.check.check(), true);
+  assert.deepStrictEqual(r.applied[0].scripts.map((u) => new URL(u).pathname), ['/js/util.js', '/js/new.js', '/js/overlay.js']);
+  assert.deepStrictEqual(r.applied[0].baseline.base.scripts, ['/js/errors.js', '/settings.js', '/js/util.js', '/js/new.js', '/js/overlay.js']);
+
+  const dropped = rig();
+  await dropped.check.check();
+  dropped.site.deploy({ '/overlay.html': html({ scripts: ['js/overlay.js'] }) });
+  dropped.site.clock += uc.SETTLE_MS;
+  assert.strictEqual(await dropped.check.check(), true);
+  assert.deepStrictEqual(dropped.applied[0].scripts.map((u) => new URL(u).pathname), ['/js/overlay.js']);
+});
+
+test('errors.js changing alone changes nothing (it only runs while the page loads)', async () => {
+  const site = makeSite(Object.assign(FILES(), { '/overlay.html': html({ scripts: ['js/errors.js', 'js/util.js', 'js/overlay.js'] }),
+    '/js/errors.js': 'errors v1' }));
+  const applied = [];
+  const c = uc.createUpdateCheck({ version: '1.0.0', url: ORIGIN + '/version.json', page: PAGE,
+    running: () => ({ scripts: ['errors', 'util', 'overlay'].map((n) => ORIGIN + '/js/' + n + '.js?v=1.0.0'), styles: [ORIGIN + '/css/overlay.css?v=1.0.0'] }),
+    assets: [], apply(x) { applied.push(x); return true; }, fetchText: site.fetchText, now: site.now });
+  await c.check();
+  site.deploy({ '/js/errors.js': 'errors v2' });
+  site.clock += uc.SETTLE_MS;
+  assert.strictEqual(await c.check(), false);
+  assert.deepStrictEqual(applied, []);
+  site.fetched.length = 0;
+  site.clock += uc.CHECK_MS;
+  await c.check();
+  assert.deepStrictEqual(site.fetched.map(([u]) => new URL(u).pathname), ['/version.json'], 'seen');
+});
+
+test('a page that changed beyond its scripts, or a stylesheet or image gone, is a reload (never in the page\'s first minutes)', async () => {
   for (const change of [
-    { '/overlay.html': html({ scripts: ['js/util.js', 'js/new.js', 'js/overlay.js'] }), '/js/new.js': 'new' },
-    { '/overlay.html': html({ scripts: ['js/overlay.js'] }) },
     { '/overlay.html': html({ csp: "default-src 'none'; connect-src https:" }) },
-    { '/css/overlay.css': null }
+    { '/overlay.html': html({ csp: "default-src 'none'; connect-src https:" }), '/js/util.js': 'util v2' },
+    { '/css/overlay.css': null },
+    { '/img/logos/Beta.svg': null }
   ]) {
     const r = rig();
     await r.check.check();
@@ -222,21 +289,32 @@ test('a script added to or dropped from the page, or a page that changed beyond 
     assert.strictEqual(await r.check.check(), true, JSON.stringify(Object.keys(change)));
     assert.deepStrictEqual(r.applied, [{ reload: true }], JSON.stringify(Object.keys(change)));
   }
+  // A page that loaded an older version (from the cache) than the site, long out, serves: not in its first minutes.
+  const fresh = rig();
+  fresh.site.files['/overlay.html'] = html({ csp: 'x' });
+  fresh.site.files['/version.json'] = '{"version":"1.0.1"}';
+  assert.strictEqual(await fresh.check.check(), false);
+  assert.deepStrictEqual(fresh.applied, []);
+  fresh.site.clock += uc.RELOAD_FLOOR_MS;
+  assert.strictEqual(await fresh.check.check(), true);
+  assert.deepStrictEqual(fresh.applied, [{ reload: true }]);
 });
 
-test('a version bump with only a new ?v= and new scripts reloads; the version alone (no Last-Modified) still triggers a look', async () => {
+test('a version bump with only a new ?v= changes nothing; new scripts restart; the version alone (no Last-Modified) triggers a look', async () => {
   const r = rig({ lastModified: false });
   await r.check.check();
-  r.site.clock += uc.RELOAD_FLOOR_MS;
   r.site.deploy({ '/version.json': '{"version":"1.0.1"}', '/overlay.html': html({ v: '1.0.1' }) });
   assert.strictEqual(await r.check.check(), false, 'a new version with the same files: nothing to swap');
   assert.deepStrictEqual(r.applied, []);
   r.site.fetched.length = 0;
   await r.check.check();
   assert.deepStrictEqual(r.paths(), ['/version.json no-store'], 'compared once, not at every check');
-  r.site.deploy({ '/version.json': '{"version":"1.0.2"}', '/js/util.js': 'util v2' });
+  r.site.deploy({ '/version.json': '{"version":"1.0.2"}', '/overlay.html': html({ v: '1.0.2' }), '/js/util.js': 'util v2' });
   assert.strictEqual(await r.check.check(), true);
-  assert.deepStrictEqual(r.applied, [{ reload: true }]);
+  assert.strictEqual(r.applied.length, 1);
+  assert.strictEqual(r.applied[0].restart, true);
+  assert.ok(r.applied[0].scripts.every((u) => /\?v=1\.0\.2&u=/.test(u)), 'the new ?v=');
+  assert.strictEqual(r.applied[0].baseline.version, '1.0.2');
 });
 
 test('an answer that is not a version.json, or none at all, or a site that drops out mid-compare, changes nothing', async () => {

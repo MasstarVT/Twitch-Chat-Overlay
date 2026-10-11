@@ -2011,10 +2011,11 @@
           // main thread. So while the fade-out is further off than the entrance, only tco-in goes on now and
           // onAnimEnd adds the fade when it ends (same timing: the fade is anchored to the arrival). The same for
           // every entrance (enter_style) and exit (exit_style). Off their defaults the fade always waits, so it
-          // never cuts an entrance short (animDefaults).
-          rec.fadeLater = !!(cfg.animate && t && !t.expired && (t.delay >= cfg.enter_ms || !animDefaults(cfg)));
-          var anim = animString(true, cfg.animate, rec.fadeLater ? null : t, cfg.layout, cfg.enter_style, cfg.enter_ms,
-            exitFor(cfg));
+          // never cuts an entrance short (animDefaults). A line that was on screen already (adopt) has no entrance:
+          // only its fade, as onShown times it.
+          rec.fadeLater = !rec.shown && !!(cfg.animate && t && !t.expired && (t.delay >= cfg.enter_ms || !animDefaults(cfg)));
+          var anim = rec.shown ? animString(false, false, t, cfg.layout, null, null, exitFor(cfg))
+            : animString(true, cfg.animate, rec.fadeLater ? null : t, cfg.layout, cfg.enter_style, cfg.enter_ms, exitFor(cfg));
           if (anim) line.style.animation = anim;
           frag.appendChild(line);
         }
@@ -2023,8 +2024,10 @@
       else linesEl.appendChild(frag);
       if (cfg.animate && cfg.enter_style === 'decode') {
         var fresh = [];
-        for (var di = 0; di < groups.length; di++) for (var dj = 0; dj < groups[di].length; dj++) fresh.push(groups[di][dj]);
-        startDecodes(fresh, now);
+        for (var di = 0; di < groups.length; di++) {
+          for (var dj = 0; dj < groups[di].length; dj++) if (!recs.get(groups[di][dj]).shown) fresh.push(groups[di][dj]);
+        }
+        if (fresh.length) startDecodes(fresh, now);
       }
     }
 
@@ -2434,6 +2437,7 @@
             util.warn('renderer: failed to render a message', e);
             continue;
           }
+          if (en.shown) for (var si = 0; si < g.length; si++) recs.get(g[si]).shown = true;
           if (g.length) {
             groups.push(g);
             count++;
@@ -2855,6 +2859,53 @@
       return queue.some(function (en) { return util.idStr(en.msg.userId) === uid; });
     }
 
+    // An update restarts the overlay in place (overlay.js): the new copy's renderer takes the old one's lines.
+    // snapshot: the messages on screen and queued, oldest first, each once, as they were pushed (a notice, not the line
+    // drawn from its text), with when each came.
+    function snapshot() {
+      var out = [], seen = new Set();
+      var list = children();
+      if (cfg && newestFirst(cfg)) list.reverse();
+      list.forEach(function (line) {
+        var rec = recs.get(line);
+        if (!rec || seen.has(rec.gid)) return;
+        seen.add(rec.gid);
+        out.push({ msg: rec.src || rec.msg, born: rec.born });
+      });
+      queue.forEach(function (en) { out.push({ msg: en.msg, born: en.born }); });
+      return out;
+    }
+    // adopt: lines another renderer had (snapshot), drawn as they were there: no entrance, each ageing (and fading) from
+    // when it first came. They go before anything queued here already, which drops the ones they repeat. A message
+    // deleted here meanwhile stays out. Returns how many were taken.
+    function adopt(list) {
+      if (destroyed || !Array.isArray(list)) return 0;
+      var now = Date.now();
+      var queued = queue.drain();
+      var ids = new Set();
+      var n = 0;
+      list.forEach(function (en) {
+        var msg = en && en.msg;
+        if (!msg || typeof msg !== 'object') return;
+        var id = util.idStr(msg.id), sid = util.idStr(msg.sourceId);
+        if (id && (deleted.has(id, now) || byId.has(id) || ids.has(id))) return;
+        if (sid && deleted.has(sid, now)) return;
+        heardNow(id, sid, now);
+        noteAlias(id, sid, now);
+        if (!showable(msg)) return;
+        var born = Number(en.born);
+        if (id) ids.add(id);
+        queue.push({ msg: msg, born: isFinite(born) && born > 0 ? Math.min(born, now) : now, shown: true });
+        n++;
+      });
+      queued.forEach(function (en) {
+        var id = util.idStr(en.msg.id);
+        if (!id || !ids.has(id)) queue.push(en);
+      });
+      schedule();
+      return n;
+    }
+
     // overlay.js reads lines/queued (debug line); the rest is for tests.
     function stats() {
       return {
@@ -2915,6 +2966,8 @@
         dropLoneSep();
       },
       hasUser: hasUser,
+      snapshot: snapshot,
+      adopt: adopt,
       stats: stats,
       destroy: destroy
     };

@@ -1,7 +1,7 @@
 /* Update check: an overlay left open for days (an OBS browser source) watches the site it came from for a new deploy,
-   works out which of its own files the deploy changed, and has the overlay swap in just those: a new stylesheet or badge
-   image in place, with the chat left alone. A deploy that changes none of them (the builder, the home page, the README)
-   changes nothing here. */
+   works out which of its own files the deploy changed, and has the overlay swap in just those, with the chat left alone:
+   a new stylesheet or badge image in place, new scripts by restarting the overlay in place. A deploy that changes none
+   of them (the builder, the home page, the README) changes nothing here. */
 (function (root, factory) {
   var api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -13,7 +13,7 @@
   var CHECK_MS = 300000;
   // GitHub Pages lets its CDN and browsers keep a file for 10 minutes, and its CDN ignores a ?query, so a file fetched
   // just after a deploy can still be the old one. A deploy is compared again once it is this old, and only then counted
-  // as seen; a reload waits for it too, so it can't be handed the old files.
+  // as seen; new scripts wait for it too, so they can't come half old, half new.
   var SETTLE_MS = 660000;
   // A page never reloads itself sooner than this after it loaded: an overlay.html that comes back stale can't loop.
   var RELOAD_FLOOR_MS = 600000;
@@ -21,6 +21,7 @@
   var START_MS = 5000;
   var TIMEOUT_MS = 15000;
   var ABSENT = 'absent';
+  var ERRORS_RE = /\/js\/errors\.js$/;
 
   // The version a version.json names ({"version": "1.10.0"}), or '' for anything else: a missing file, an error page.
   function versionOf(res) {
@@ -109,9 +110,12 @@
   //   version: the version this page runs, url: the site's version.json, page: this page's address,
   //   running(): { scripts, styles }, the same-site files this page has loaded (absolute URLs),
   //   assets: the page's own images it can redraw, as paths beside the page ('img/logos/Badge.svg'),
-  //   apply(change): swaps in a change, resolving true once it took. change is { reload: true } (a script or the page
-  //     itself changed), or { styles: [{ path, url }], assets: [{ path, url }] }, url being where the new copy is,
-  //   fetchText(url, cache) -> Promise, every: ms between checks, now(): the time (both for tests)
+  //   apply(change): swaps in a change, resolving true once it took. change is { reload: true } (the page itself
+  //     changed), or { styles: [{ path, url }], assets: [{ path, url }] }, url being where the new copy is, with, when
+  //     scripts changed, restart: true, scripts: [the addresses of the page's scripts to run, in order] and baseline:
+  //     this check's state for the restarted overlay's check to go on from,
+  //   baseline: such a state (this page is a restart in place), fetchText(url, cache) -> Promise,
+  //   every: ms between checks, now(): the time (both for tests)
   // }
   function createUpdateCheck(opts) {
     opts = opts || {};
@@ -130,6 +134,14 @@
     var settled = null;
     var siteVersion = opts.version;
     var looked = false;
+    var given = opts.baseline;
+    if (given && given.base && given.base.files instanceof Map && Array.isArray(given.base.scripts) &&
+      typeof given.base.shape === 'string') {
+      base = given.base;
+      settled = typeof given.settled === 'string' ? given.settled : null;
+      if (typeof given.version === 'string' && given.version) siteVersion = given.version;
+      looked = true;
+    }
 
     function log() {
       var u = root.TCO && root.TCO.util;
@@ -161,8 +173,9 @@
       });
     }
 
-    // Compares the site's files with the ones this page runs. Resolves { reload, styles, assets, scripts, hashes }, or
-    // null when the site couldn't be read in full (nothing is decided on half an answer).
+    // Compares the site's files with the ones this page runs. Resolves { reload, scripts, styles, assets, load, base }, or
+    // null when the site couldn't be read in full (nothing is decided on half an answer). load: the scripts to run for a
+    // restart; base: what this page runs once all of it is in.
     function compare() {
       var token = now().toString(36);
       var pageUrl = new URL(opts.page);
@@ -170,18 +183,23 @@
       pageUrl.hash = '';
       return Promise.resolve(get(withParam(pageUrl.href, 'u', token), 'no-store')).then(function (page) {
         if (!page || !page.ok) return null;
-        var out = { reload: shapeOf(page.text) !== base.shape, scripts: false, styles: [], assets: [], hashes: new Map() };
         var named = filesIn(page.text, opts.page);
-        if (named.scripts.map(pathOf).join('\n') !== base.scripts.join('\n')) out.scripts = true;
+        var out = { reload: shapeOf(page.text) !== base.shape, scripts: false, styles: [], assets: [], load: [],
+          base: { shape: shapeOf(page.text), scripts: named.scripts.map(pathOf), files: new Map() } };
+        if (out.base.scripts.join('\n') !== base.scripts.join('\n')) out.scripts = true;
         // Each file is fetched past the browser's cache ('reload'), and kept in it for the page to load from. name: what
         // the overlay knows the file by (a stylesheet's path, an image's path beside the page).
         function look(url, list, name) {
           var fresh = withParam(url, 'u', token);
           var path = pathOf(url);
           return fingerprint(fresh, 'reload').then(function (h) {
-            out.hashes.set(path, h);
+            out.base.files.set(path, h);
+            // errors.js only matters while the page loads: it is never run again.
+            var script = !list && !ERRORS_RE.test(path);
+            if (script && h !== ABSENT) out.load.push({ path: path, url: fresh });
             if (h === base.files.get(path)) return;
-            if (!list) out.scripts = true;
+            if (script) out.scripts = true;
+            else if (!list) return;
             else if (h === ABSENT) out.reload = true; // a stylesheet or image the page uses is gone
             else list.push({ path: name, url: fresh });
           });
@@ -189,7 +207,13 @@
         var jobs = named.scripts.map(function (u) { return look(u, null, ''); })
           .concat(named.styles.map(function (u) { return look(u, out.styles, pathOf(u)); }))
           .concat(assets.map(function (a) { return look(new URL(a, opts.page).href, out.assets, a); }));
-        return Promise.all(jobs).then(function () { return out; });
+        return Promise.all(jobs).then(function () {
+          // In page order (the lookups answer in any order).
+          var order = out.base.scripts;
+          out.load = out.load.sort(function (a, b) { return order.indexOf(a.path) - order.indexOf(b.path); })
+            .map(function (f) { return f.url; });
+          return out;
+        });
       });
     }
 
@@ -217,13 +241,7 @@
           if (site === siteVersion && (!stamp || stamp === settled)) return false;
           // The deploy this page most likely loaded from: long out, and naming this page's version.
           if (first && site === siteVersion && old) { settled = stamp; return false; }
-          return compare().then(function (diff) {
-            if (!diff) return false;
-            return applyDiff(diff, site, old).then(function (took) {
-              if (old && !diff.reload && !diff.scripts) settled = stamp;
-              return took;
-            });
-          });
+          return compare().then(function (diff) { return diff ? applyDiff(diff, site, old, stamp) : false; });
         })
         .catch(function (err) {
           log('update check failed:', err && err.message);
@@ -231,30 +249,44 @@
         });
     }
 
-    function applyDiff(diff, site, old) {
-      var took = false;
-      var swap = diff.styles.length || diff.assets.length
-        ? Promise.resolve(opts.apply({ styles: diff.styles, assets: diff.assets })).then(function (ok) {
-          if (!ok) return;
-          took = true;
-          diff.styles.concat(diff.assets).forEach(function (f) {
-            var path = pathOf(f.url);
-            base.files.set(path, diff.hashes.get(path));
-          });
-          log('update: swapped in', diff.styles.concat(diff.assets).map(function (f) { return f.path; }).join(', '));
-        })
-        : Promise.resolve();
-      return swap.then(function () {
-        if (diff.reload || diff.scripts) {
-          // A new script or a new page only comes in with a reload: once the deploy is old enough that the reload gets
-          // all of it, and never in the page's first minutes.
-          if (!old || now() - startedAt < RELOAD_FLOOR_MS) return took;
-          log('update: the site has new scripts or a new page: reloading');
-          opts.apply({ reload: true });
-          return true;
+    // Swaps in what changed. A young deploy (not old) has its stylesheets and images swapped at once, and is looked at
+    // again once it is old, when its scripts go in too: by a restart in place, or for a new page, a reload (never in the
+    // page's first minutes).
+    function applyDiff(diff, site, old, stamp) {
+      var restart = diff.scripts && !diff.reload && old;
+      if (diff.reload && old && now() - startedAt >= RELOAD_FLOOR_MS) {
+        log('update: the site has a new page: reloading');
+        opts.apply({ reload: true });
+        return Promise.resolve(true);
+      }
+      var change = { styles: diff.styles, assets: diff.assets };
+      if (restart) {
+        change.restart = true;
+        change.scripts = diff.load;
+        change.baseline = { base: diff.base, settled: stamp, version: site };
+      }
+      var whole = !diff.scripts && !diff.reload; // nothing left over for later
+      if (!change.styles.length && !change.assets.length && !restart) {
+        if (whole) {
+          siteVersion = site;
+          if (old) settled = stamp;
         }
-        siteVersion = site;
-        return took;
+        return Promise.resolve(false);
+      }
+      return Promise.resolve(opts.apply(change)).then(function (ok) {
+        if (!ok) return false;
+        diff.styles.concat(diff.assets).forEach(function (f) {
+          var path = pathOf(f.url);
+          base.files.set(path, diff.base.files.get(path));
+        });
+        log('update: swapped in', diff.styles.concat(diff.assets).map(function (f) { return f.path; })
+          .concat(restart ? ['new scripts'] : []).join(', '));
+        if (restart) base = diff.base;
+        if (restart || whole) {
+          siteVersion = site;
+          if (old) settled = stamp;
+        }
+        return true;
       });
     }
 

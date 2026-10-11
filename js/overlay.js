@@ -42,6 +42,15 @@
   // The Kick channel's own 7TV set is kept like a room's (S.kickCtx), under this key, which is no Twitch room id: its
   // live updates and set switches reach Kick lines as the home channel's reach Twitch lines.
   var KICK_STV = 'kick';
+  // An update restarts the overlay in place (restartWith): the running copy hands its lines to a new one (takeOver).
+  // HANDOFF: the version of what it hands over, which both copies must know. The new copy loads and connects unseen for
+  // up to READY_MS (checked every READY_POLL_MS) before it takes over; the old one keeps the chat going meanwhile.
+  var HANDOFF = 1;
+  var READY_MS = 20000;
+  var READY_POLL_MS = 250;
+  // Restarts in place that failed before the old copy stopped (it kept running): after this many, a reload instead.
+  var RESTART_TRIES = 2;
+  var restartFails = 0;
 
   var T; // root.TCO, resolved at boot
   var S = null;
@@ -66,6 +75,8 @@
     drawHints();
   }
   function drawHints() {
+    // #hint is the page's: a copy that is stopped, or not yet taken over (restartWith), leaves it to the other one.
+    if (S.stopped || S.shadow) return;
     var h = el('hint');
     if (!h) return;
     while (h.children && h.children.length) h.removeChild(h.children[0]);
@@ -154,6 +165,7 @@
     if (loadedFonts[key] === 'failed' && !retry) { retryFontLater(name, key); return; }
     // Generic families (system-ui, serif, ...) are never Google Fonts: a request for one is a wasted 400.
     if (T.renderer.isGenericFont && T.renderer.isGenericFont(name)) return;
+    if (S && S.stopped) return;
     var r = fontRetry[key];
     if (r && r.timer) { clearTimeout(r.timer); r.timer = null; }
     loadedFonts[key] = true;
@@ -161,6 +173,9 @@
     link.rel = 'stylesheet';
     link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name).replace(/%20/g, '+') +
       ':wght@' + weights + '&display=swap';
+    // The copy before a restart in place (restartWith) already loaded it.
+    var had = document.querySelectorAll ? document.querySelectorAll('link[rel="stylesheet"]') : [];
+    for (var i = 0; i < had.length; i++) if (had[i].href === link.href) return;
     link.onload = function () { delete fontRetry[key]; };
     // A failed request (offline start, or a family Google doesn't host) is marked and asked for again later.
     link.onerror = function () {
@@ -181,7 +196,7 @@
   // Starts a retrying load; returns a promise that settles on the first success or failure.
   // Idempotent per name: a loader that already exists is not started again.
   function track(name, fn, onDone, tier1) {
-    if (S.loads.has(name)) return Promise.resolve();
+    if (S.loads.has(name) || S.stopped) return Promise.resolve();
     var settle;
     var p = new Promise(function (r) { settle = r; });
     var ctl = T.util.loadWithRetry(name, function () {
@@ -1786,7 +1801,7 @@
   // deletions and bans are applied then, and a quiet channel gets its recent chat. Not while IRC is down (its rejoin asks
   // at once), and a start-up one no more once a Twitch line has come (refetchGap's own check).
   function retryGapLater() {
-    if (S.gapRetry || S.ircStatus !== 'joined') return;
+    if (S.gapRetry || S.ircStatus !== 'joined' || S.stopped) return;
     S.gapRetry = setTimeout(function () {
       S.gapRetry = null;
       if (S.ircStatus === 'joined' && (S.gapAfter || (!S.historyLanded && !S.twitchTs))) refetchGap();
@@ -1898,7 +1913,7 @@
   // chat is joined, with the same backoff as Twitch's (retryGapLater): not while Kick is down (its rejoin asks at once),
   // and a start-up one no more once a Kick line has come.
   function retryKickLater() {
-    if (S.kickRetry || S.kickStatus !== 'joined') return;
+    if (S.kickRetry || S.kickStatus !== 'joined' || S.stopped) return;
     S.kickRetry = setTimeout(function () {
       S.kickRetry = null;
       if (S.kickStatus === 'joined' && (S.kickGapAfter !== null || (!S.kickHistoryLanded && !S.kickTs))) refetchKick();
@@ -1970,7 +1985,8 @@
   function releaseHold() {
     if (!S.holding) return;
     S.holding = false;
-    S.renderer.hold(false);
+    // A copy not yet taken over (restartWith) draws nothing: takeOver lets its lines out.
+    if (!S.shadow) S.renderer.hold(false);
   }
 
   // ---------- tiers ----------
@@ -2042,6 +2058,7 @@
 
   function startTier3() {
     var cfg = S.cfg;
+    S.tier3Started = true;
     if (cfg.badges && cfg.badges_homies && twitchOn()) {
       // One loader per list, all filling one index: a list that fails retries on its own. homies_lists=light
       // leaves out the big chatterinohomies.com list (the last one).
@@ -2060,6 +2077,7 @@
 
   // ---------- debug ----------
   function renderDebug() {
+    if (S.stopped || S.shadow) return; // #debug is the page's, as #hint is
     var d = el('debug');
     if (!d) return;
     d.hidden = false;
@@ -2184,8 +2202,9 @@
 
   // Swaps in what the update check found new: a stylesheet (the new one is added beside the old, which goes once the
   // new one has loaded, so nothing is unstyled between), the app's badge images (the lines that show one are redrawn),
-  // or, for a new script or page, a reload. Resolves true once it all took.
+  // new scripts (restartWith), or, for a new page, a reload. Resolves true once it all took.
   function applyUpdate(change) {
+    if (S.stopped) return false;
     if (change.reload) { root.location.reload(); return true; }
     var styles = (change.styles || []).map(swapStyle);
     var assets = change.assets || [];
@@ -2193,7 +2212,10 @@
       assets.forEach(function (a) { newAssets[a.path] = a.url; });
       if (S.renderer) S.renderer.rerender();
     }
-    return Promise.all(styles).then(function (ok) { return ok.indexOf(false) < 0; });
+    return Promise.all(styles).then(function (ok) {
+      if (ok.indexOf(false) >= 0) return false;
+      return change.restart ? restartWith(change) : true;
+    });
   }
 
   function swapStyle(style) {
@@ -2221,14 +2243,21 @@
     });
   }
 
-  function boot() {
-    if (S) return;
+  // opts.handoff: this copy is a restart in place (restartWith), started unseen beside the running one: { v (HANDOFF),
+  // lines (that one's renderer.snapshot, to look up their chatters ahead), twitchTs, kickTs, assets (the badge images it
+  // had new copies of), update (the update check's state), ready() (called once this copy has loaded and connected, or
+  // after READY_MS) }. Returns false when it can't.
+  function boot(opts) {
+    if (S) return false;
+    var handed = opts && opts.handoff;
+    if (handed && (handed.v !== HANDOFF || typeof handed.ready !== 'function')) return false;
     T = root.TCO;
     // The page's query, a '#' typed in a value and what follows it included (config.pageQuery).
     var query = T.config.pageQuery(root.location);
     var cfg = T.config.parse(query, root.TCO_SETTINGS);
     T.util.setDebug(cfg.debug);
-    var chatEl = el('chat');
+    // A copy started unseen draws into a #chat of its own, put in place of the page's at takeOver.
+    var chatEl = handed ? document.createElement('div') : el('chat');
 
     S = {
       cfg: cfg,
@@ -2293,7 +2322,13 @@
       kickSubBadges: [],
       stvChannel: null,
       demo: null,
-      update: null
+      update: null,
+      chatEl: chatEl,
+      // A restart in place: the handoff until takeOver (null once this copy draws), and since when.
+      shadow: handed ? { ready: handed.ready, since: T.util.now(), timer: null } : null,
+      tier3Started: false,
+      stopped: false,
+      timers: []
     };
     // The Kick channel's 7TV set as a room's: emotes (S.kickStv), set, owner, its connection index in the owner's 7TV
     // account, the switch in flight; userId: the Kick user id it loads by.
@@ -2332,9 +2367,10 @@
     }
 
     if (root.addEventListener) root.addEventListener('message', onMessage);
-    if (cfg.debug) setInterval(renderDebug, 2000);
+    if (cfg.debug) S.timers.push(setInterval(renderDebug, 2000));
 
-    // A browser source stays open for days: when the site changes one of the overlay's files, swap it in.
+    // A browser source stays open for days: when the site changes one of the overlay's files, swap it in. A copy
+    // started unseen goes on from the state of the one it takes over from, and only checks once it has.
     var siteVersion = versionUrl();
     if (siteVersion) {
       S.update = T.updateCheck.createUpdateCheck({
@@ -2343,9 +2379,10 @@
         page: root.location.href,
         running: runningFiles,
         assets: LOCAL_BADGES,
-        apply: applyUpdate
+        apply: applyUpdate,
+        baseline: handed ? handed.update : null
       });
-      S.update.start();
+      if (!S.shadow) S.update.start();
     }
 
     if (cfg.demo) {
@@ -2367,30 +2404,45 @@
     // Kick first: the Kick history waits for its channel lookup. (Neither socket delivers anything before history is
     // set up: both open asynchronously.)
     if (cfg.kick && !cfg.demo) startKick();
-    if (cfg.mixitup && !cfg.demo) startYouTube();
-    startHistory();
+    if (handed) {
+      Object.keys(handed.assets || {}).forEach(function (k) {
+        var u = handed.assets[k];
+        if (LOCAL_BADGES.indexOf(k) >= 0 && typeof u === 'string' && /^https:\/\//.test(u)) newAssets[k] = u;
+      });
+      // The running copy's lines come over at takeOver instead of a history, and its chatters are looked up now, so
+      // their paints and badges are there when this copy draws them. Mix It Up waits for takeOver (a second socket to
+      // it at once is untested).
+      S.historyLanded = true;
+      S.kickHistoryLanded = true;
+      S.twitchTs = Number(handed.twitchTs) || 0;
+      S.kickTs = Number(handed.kickTs) || 0;
+      (Array.isArray(handed.lines) ? handed.lines : []).forEach(function (en) { warm(en && en.msg); });
+    } else {
+      if (cfg.mixitup && !cfg.demo) startYouTube();
+      startHistory();
+    }
     if (cfg.channel && !cfg.demo) {
       S.irc = T.irc.createIrc({ channel: cfg.channel, onLine: onLine, onStatus: onIrcStatus });
       S.irc.start();
     }
     // Release the startup hold once tier-1 loads settle, or after 2.5 s at most.
-    setTimeout(releaseHold, 2500);
+    S.timers.push(setTimeout(releaseHold, 2500));
     checkHold();
 
     var tier1All = Promise.all(S.tier1.slice());
     var t2started = false;
     function tier2() {
-      if (t2started) return;
+      if (t2started || S.stopped) return;
       t2started = true;
       startTier2();
-      setTimeout(startTier3, 5000);
+      S.timers.push(setTimeout(startTier3, 5000));
     }
     tier1All.then(tier2);
-    setTimeout(tier2, 3000);
+    S.timers.push(setTimeout(tier2, 3000));
 
-    if (S.demo) S.demo.start();
+    if (S.demo && !S.shadow) S.demo.start();
 
-    if (root.addEventListener) root.addEventListener('online', function () {
+    S.onOnline = function () {
       if (S.irc) S.irc.kick();
       if (S.kick) S.kick.kick();
       if (S.youtube) S.youtube.mixitup();
@@ -2398,20 +2450,230 @@
       if (S.bttvLive) S.bttvLive.kick();
       S.loads.forEach(function (ctl) { if (ctl.status === 'failed') ctl.retryNow(); });
       applyFonts(S.cfg, true); // a font stylesheet that failed offline
-    });
+    };
+    if (root.addEventListener) root.addEventListener('online', S.onOnline);
     // (The renderer itself flushes on visibilitychange / obsSourceVisibleChanged.)
-    setInterval(function () {
+    S.timers.push(setInterval(function () {
       // Rooms with lines still on screen stay loaded, so a later rerender keeps their emotes and avatar.
       // (One walk over the lines every 5 minutes; the predicate never asks for a rebuild.)
       S.renderer.rerender(function (m) { if (m.mirrored) S.rooms.touch(m.sourceRoomId); return false; });
       var evicted = S.rooms.sweep() || [];
       evicted.forEach(function (id) { if (S.stv.forgetRoom) S.stv.forgetRoom(id); });
-    }, 300000);
+    }, 300000));
+    if (S.shadow) pollReady();
+    return true;
+  }
+
+  // ---------- restart in place ----------
+  // A deploy with new scripts used to need a reload, which clears the chat. Instead the running copy loads the new
+  // scripts into a namespace of their own (root.TCO, which every module registers in when it runs, and which this copy
+  // keeps as T), boots that copy unseen beside itself, and once it has loaded and connected, stops and hands it what is
+  // on screen in the same task: the page never draws in between. Anything that goes wrong before this copy stops leaves
+  // it running (the update check tries again; after RESTART_TRIES, a reload). change: { scripts: the new script files'
+  // addresses in page order, baseline: the update check's state for the new copy }.
+  function restartWith(change) {
+    var doc = root.document;
+    var oldNS = root.TCO;
+    var hadFlag = Object.prototype.hasOwnProperty.call(root, 'TCO_NO_AUTOBOOT');
+    var flag = root.TCO_NO_AUTOBOOT;
+    var added = [];
+    var api = null;
+    var stopped = false;
+    function putFlagBack() { if (hadFlag) root.TCO_NO_AUTOBOOT = flag; else delete root.TCO_NO_AUTOBOOT; }
+    root.TCO = {};
+    root.TCO_NO_AUTOBOOT = true; // the new overlay.js boots when this copy says so, not as it runs
+    return loadScripts(change.scripts || [], added).then(function () {
+      putFlagBack();
+      api = root.TCO.overlay;
+      if (!api || api.HANDOFF !== HANDOFF || typeof api.boot !== 'function' || typeof api.takeOver !== 'function') {
+        throw new Error('the new overlay can\'t take over from this one');
+      }
+      return new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () { end(new Error('the new overlay did not get ready')); }, READY_MS * 2);
+        function end(err) {
+          if (!timer) return;
+          clearTimeout(timer);
+          timer = null;
+          if (err) reject(err); else resolve();
+        }
+        var now0 = handoff();
+        if (api.boot({ handoff: { v: HANDOFF, lines: now0.lines, twitchTs: now0.twitchTs, kickTs: now0.kickTs, assets: now0.assets,
+          update: change.baseline || null, ready: function () { end(); } } }) === false) end(new Error('the new overlay refused'));
+      });
+    }).then(function () {
+      if (S.stopped) throw new Error('this copy was stopped meanwhile');
+      var h = handoff();
+      var oldChat = el('chat');
+      stop();
+      stopped = true;
+      if (!api.takeOver(h, oldChat)) throw new Error('the new overlay did not take over');
+      restartFails = 0;
+      // The page names what runs: the old copies of the files loaded again go (their code stays until nothing uses it).
+      var paths = added.map(function (s) { return pathOf(s.src); });
+      Array.prototype.forEach.call(doc.querySelectorAll('script[src]'), function (s) {
+        if (added.indexOf(s) < 0 && paths.indexOf(pathOf(s.src)) >= 0 && s.parentNode) s.parentNode.removeChild(s);
+      });
+      T.util.log('update: restarted in place on the site\'s new scripts');
+      return true;
+    }).catch(function (err) {
+      putFlagBack();
+      try { if (api && api.state && api.state()) api.stop(); } catch (e) { /* a copy that half started */ }
+      added.forEach(function (s) { if (s.parentNode) s.parentNode.removeChild(s); });
+      root.TCO = oldNS;
+      restartFails++;
+      if (stopped || restartFails >= RESTART_TRIES) {
+        T.util.warn('update: restart in place failed (' + (err && err.message) + '): reloading');
+        root.location.reload();
+        return true;
+      }
+      T.util.warn('update: restart in place failed (' + (err && err.message) + '): still on this version');
+      return false;
+    });
+  }
+
+  function pathOf(href) {
+    try { return new URL(href).pathname; } catch (e) { return ''; }
+  }
+
+  // Runs script files in the order given (async=false), as the page's deferred scripts ran. Each element is pushed to
+  // added as it goes in, so a failure can take them all out again.
+  function loadScripts(urls, added) {
+    var doc = root.document;
+    return new Promise(function (resolve, reject) {
+      if (!urls.length) { reject(new Error('no scripts to load')); return; }
+      var left = urls.length;
+      var timer = setTimeout(function () { end(new Error('the new scripts took too long')); }, 30000);
+      function end(err) {
+        if (!timer) return;
+        clearTimeout(timer);
+        timer = null;
+        if (err) reject(err); else resolve();
+      }
+      urls.forEach(function (url) {
+        var s = doc.createElement('script');
+        s.async = false;
+        s.onload = function () { if (--left === 0) end(); };
+        s.onerror = function () { end(new Error('could not load ' + url)); };
+        s.src = url;
+        doc.head.appendChild(s);
+        added.push(s);
+      });
+    });
+  }
+
+  // A message the running copy has on screen, for this copy started unseen: noted as shown lines are, so replies keep
+  // their quotes, and its chatter's paint and badges, cheer images and Shared Chat room are looked up ahead of drawing.
+  function warm(m) {
+    if (!m || typeof m !== 'object') return;
+    try {
+      remember(m);
+      noteUser(m);
+      wantCheers(m);
+      if (m.mirrored) noteSourceRoom(m);
+    } catch (e) {
+      T.util.warn('restart: a line could not be looked up', e);
+    }
+  }
+
+  // Ready to take over: the startup hold is over, every load has answered (or failed), the chatters' lookups are done
+  // and Twitch chat is joined, or READY_MS has passed.
+  function pollReady() {
+    var sh = S.shadow;
+    if (!sh || S.stopped) return;
+    sh.timer = null;
+    if (T.util.now() - sh.since >= READY_MS || shadowSettled()) { sh.ready(); return; }
+    sh.timer = setTimeout(pollReady, READY_POLL_MS);
+  }
+  function shadowSettled() {
+    if (S.holding || !S.tier3Started) return false;
+    var busy = false;
+    S.loads.forEach(function (ctl) { if (ctl.status === 'pending') busy = true; });
+    if (busy) return false;
+    var st = S.stvLookup && S.stvLookup.stats ? S.stvLookup.stats() : null;
+    if (st && (st.queued || st.inFlight)) return false;
+    return !(S.cfg.channel && !S.cfg.demo && S.ircStatus !== 'joined');
+  }
+
+  // What this copy hands the next one (data only, read by code of another version: HANDOFF says which shape).
+  function handoff() {
+    return {
+      v: HANDOFF,
+      lines: S.renderer.snapshot ? S.renderer.snapshot() : [],
+      twitchTs: S.twitchTs, twitchLiveTs: S.twitchLiveTs, kickTs: S.kickTs, kickLiveTs: S.kickLiveTs,
+      assets: Object.assign({}, newAssets)
+    };
+  }
+
+  // Called by the copy this one replaces, right after it stopped and in the same task: this copy's #chat takes the old
+  // one's place in the page (its id, and so every #chat rule and OBS's Custom CSS, with it) and draws the old lines as
+  // they were. h: that copy's handoff(); oldChat: its #chat.
+  function takeOver(h, oldChat) {
+    if (!S || !S.shadow || S.stopped || !h || h.v !== HANDOFF) return false;
+    if (S.shadow.timer) clearTimeout(S.shadow.timer);
+    S.shadow = null;
+    // Where the old copy left off: a later outage asks from here.
+    S.twitchTs = Math.max(S.twitchTs, Number(h.twitchTs) || 0);
+    S.twitchLiveTs = Math.max(S.twitchLiveTs, Number(h.twitchLiveTs) || 0);
+    S.kickTs = Math.max(S.kickTs, Number(h.kickTs) || 0);
+    S.kickLiveTs = Math.max(S.kickLiveTs, Number(h.kickLiveTs) || 0);
+    var lines = Array.isArray(h.lines) ? h.lines : [];
+    lines.forEach(function (en) {
+      var m = en && en.msg;
+      warm(m);
+      if (m && isTwitch(m) && m.id && S.irc) S.irc.markSeen(String(m.id));
+    });
+    S.renderer.adopt(lines);
+    var chat = S.chatEl;
+    chat.id = 'chat';
+    if (oldChat && oldChat.parentNode) oldChat.parentNode.replaceChild(chat, oldChat);
+    else document.body.insertBefore(chat, document.body.firstChild);
+    S.holding = false;
+    S.renderer.hold(false);
+    drawHints();
+    if (S.cfg.debug) renderDebug();
+    // Not joined yet: what is said until it joins is asked for then, as after an outage.
+    if (S.cfg.channel && !S.cfg.demo && S.ircStatus !== 'joined') {
+      if (!S.closedAt) S.closedAt = T.util.now();
+      if (!S.gapAfter) S.gapAfter = S.twitchTs;
+    }
+    if (S.cfg.kick && !S.cfg.demo && S.kickStatus !== 'joined') S.kickJoined = true;
+    if (S.cfg.mixitup && !S.cfg.demo) startYouTube();
+    if (S.update) S.update.start();
+    if (S.demo) S.demo.start();
+    return true;
+  }
+
+  // Stops this copy for good: its connections, loads, timers and listeners, and its renderer (whose lines go with it).
+  // Nothing of it touches the page afterwards.
+  function stop() {
+    if (!S || S.stopped) return;
+    S.stopped = true;
+    if (S.shadow && S.shadow.timer) clearTimeout(S.shadow.timer);
+    ['irc', 'kick', 'youtube', 'stvEvents', 'bttvLive', 'stvLookup', 'update', 'demo'].forEach(function (k) {
+      try { if (S[k] && S[k].stop) S[k].stop(); } catch (e) { T.util.warn('stop:', k, e); }
+    });
+    if (S.gapAbort) S.gapAbort();
+    if (S.kickGapAbort) S.kickGapAbort();
+    stopGapRetry();
+    stopKickRetry();
+    if (S.ytHintTimer) clearTimeout(S.ytHintTimer);
+    S.timers.forEach(function (t) { clearTimeout(t); clearInterval(t); });
+    S.loads.forEach(function (ctl) { ctl.cancel(); });
+    Object.keys(fontRetry).forEach(function (k) { if (fontRetry[k].timer) clearTimeout(fontRetry[k].timer); });
+    if (rerenderTimer) { clearTimeout(rerenderTimer); rerenderTimer = null; }
+    if (root.removeEventListener) {
+      root.removeEventListener('message', onMessage);
+      if (S.onOnline) root.removeEventListener('online', S.onOnline);
+    }
+    if (S.renderer && S.renderer.destroy) S.renderer.destroy();
   }
 
   return {
     boot: boot,
+    takeOver: takeOver,
+    stop: stop,
     state: function () { return S; },
+    HANDOFF: HANDOFF,
     DEFAULT_BOTS: DEFAULT_BOTS
   };
 });

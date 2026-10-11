@@ -519,6 +519,74 @@ test('a resub\'s own text follows the chat filters, not the notice\'s', (t) => {
   assert.ok(s.root.textContent.indexOf('!again') < 0);
 });
 
+// ---------- restart in place (snapshot, adopt) ----------
+
+test('snapshot: what is on screen and queued, oldest first, each message once (a notice as it was pushed)', (t) => {
+  const s = setup(t, { animate: false });
+  const a = chat('amy', 'a'), n = resub('bob', 'b text'), c = chat('cat', 'c');
+  s.r.push(a);
+  s.tick(1000);
+  s.r.push(n);
+  s.r.flush();
+  assert.strictEqual(s.lines().length, 3, 'the notice is two lines');
+  s.tick(1000);
+  s.r.hold(true);
+  s.r.push(c);
+  const snap = s.r.snapshot();
+  assert.deepStrictEqual(snap.map((en) => en.msg), [a, n, c]);
+  assert.deepStrictEqual(snap.map((en) => en.born), [1000000, 1001000, 1002000]);
+});
+
+test('snapshot: newest on top (align=top) still hands them over oldest first', (t) => {
+  const s = setup(t, { animate: false, align: 'top' });
+  const a = chat('amy', 'a'), b = chat('bob', 'b');
+  s.r.push(a);
+  s.r.flush();
+  s.r.push(b);
+  s.r.flush();
+  assert.deepStrictEqual(s.texts(), ['b', 'a']);
+  assert.deepStrictEqual(s.r.snapshot().map((en) => en.msg), [a, b]);
+});
+
+test('adopt: lines from another renderer go in with no entrance, still fading from when they first came', (t) => {
+  const s = setup(t, { fade: 30, animate: true });
+  s.r.hold(true);
+  assert.strictEqual(s.r.adopt([{ msg: chat('amy', 'old'), born: 1000000 - 10000 }]), 1);
+  s.r.hold(false);
+  assert.strictEqual(s.lines()[0].style.animation, 'tco-fade 1000ms linear 19000ms forwards', 'no tco-in, gone 30 s after it came');
+  s.r.push(chat('bob', 'new'));
+  s.r.flush();
+  assert.strictEqual(s.lines()[1].style.animation, 'tco-in 180ms ease-out', 'a new line still comes in');
+  s.r.hold(true);
+  s.r.adopt([{ msg: chat('cat', 'long gone'), born: 1000000 - 40000 }, { msg: chat('dan', 'no time'), born: 'x' }]);
+  s.r.hold(false);
+  assert.deepStrictEqual(s.texts(), ['old', 'new', 'no time'], 'one already faded stays out; one with no time is new now');
+});
+
+test('adopt: goes before lines already queued, which drop the ones it repeats; a deleted message stays out', (t) => {
+  const s = setup(t, { animate: true });
+  s.r.hold(true);
+  const x = chat('xia', 'live 1'), y = chat('yan', 'live 2'), old = chat('olu', 'old'), gone = chat('gil', 'gone');
+  s.r.push(x);
+  s.r.push(y);
+  s.r.clearMessage(gone.id);
+  assert.strictEqual(s.r.adopt([{ msg: old, born: 999000 }, { msg: gone, born: 999500 }, { msg: x, born: 999800 }, { msg: null }, 5]), 2);
+  s.r.hold(false);
+  assert.deepStrictEqual(s.texts(), ['old', 'live 1', 'live 2']);
+  assert.deepStrictEqual(s.lines().map((l) => l.style.animation || ''), ['', '', 'tco-in 180ms ease-out'],
+    'the line both had keeps the old one\'s look: no entrance');
+  assert.strictEqual(s.r.adopt([{ msg: old, born: 999000 }]), 0, 'one on screen already');
+});
+
+test('adopt: a notice comes back as its notice and its text line', (t) => {
+  const s = setup(t, { animate: false });
+  const n = resub('bob', 'still subbed');
+  s.r.adopt([{ msg: n, born: 1000000 }]);
+  s.r.flush();
+  assert.strictEqual(s.lines().length, 2);
+  assert.deepStrictEqual(s.r.snapshot().map((en) => en.msg), [n]);
+});
+
 // ---------- fade ----------
 
 test('fade: the sweep removes lines at `fade` seconds, then stops waking the page', (t) => {

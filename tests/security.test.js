@@ -97,7 +97,10 @@ test('every URL property assignment in js/ is a reviewed one', () => {
       // a v3 paint's still frame, never shown: paintCss.v3StillUrl's exact cdn.7tv.app/paint/<id>/... pattern
       /^probe\.src = url$/,
       // a new copy of one of this page's own stylesheets: update-check only names files on the page's own site (filesIn)
-      /^link\.href = style\.url$/
+      /^link\.href = style\.url$/,
+      // a restart in place runs the page's own new scripts: update-check names only same-site files (filesIn), and the
+      // page's CSP runs scripts from 'self' only
+      /^s\.src = url$/
     ],
     'renderer.js': [
       /^img\.src = url$/, // url comes from pickUrl (https, except the two fixed local badge assets)
