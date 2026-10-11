@@ -95,7 +95,9 @@ test('every URL property assignment in js/ is a reviewed one', () => {
       /^a\.href = 'builder\.html' \+ /, // back to the builder, channel URI-encoded
       /^link\.href = 'https:\/\/fonts\.googleapis\.com\/css2\?family=' \+ encodeURIComponent\(/,
       // a v3 paint's still frame, never shown: paintCss.v3StillUrl's exact cdn.7tv.app/paint/<id>/... pattern
-      /^probe\.src = url$/
+      /^probe\.src = url$/,
+      // a new copy of one of this page's own stylesheets: update-check only names files on the page's own site (filesIn)
+      /^link\.href = style\.url$/
     ],
     'renderer.js': [
       /^img\.src = url$/, // url comes from pickUrl (https, except the two fixed local badge assets)

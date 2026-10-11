@@ -18,6 +18,12 @@ function fakeEl(tag) {
   return {
     tagName: tag, hidden: true, textContent: '', children: [], parentNode: null,
     appendChild(c) { c.parentNode = this; this.children.push(c); return c; },
+    insertBefore(c, ref) {
+      const i = ref ? this.children.indexOf(ref) : -1;
+      c.parentNode = this;
+      if (i < 0) this.children.push(c); else this.children.splice(i, 0, c);
+      return c;
+    },
     removeChild(c) { this.children.splice(this.children.indexOf(c), 1); c.parentNode = null; return c; }
   };
 }
@@ -53,7 +59,10 @@ async function boot(t, opts) {
     calls: [], pushed: [], cleared: [], rerenders: 0, refilters: 0, listeners: {}, links: [],
     els: { chat: fakeEl('div'), hint: fakeEl('div'), debug: fakeEl('div') },
     irc: null, kick: null, yt: null, kickClients: [], stv: null, stvClients: 0, bttvLive: null, lookupWants: [], clearPreds: [],
-    refused: [], dropped: [], noted: [], redrawn: [],
+    refused: [], dropped: [], noted: [], redrawn: [], scripts: [],
+    // The site the update check asks (path -> text); version.json names the version this page runs unless a test says
+    // otherwise. lastModified: the deploy's Last-Modified (none by default).
+    site: { files: {}, fetched: [], lastModified: '', down: false },
     called(name) { return this.calls.filter((c) => c[0] === name); },
     feed(raw) { this.irc.receive(globalThis.TCO.ircParse.parseLine(raw)); },
     S() { return globalThis.TCO.overlay.state(); }
@@ -64,7 +73,9 @@ async function boot(t, opts) {
     readyState: 'complete',
     head: head,
     getElementById: (id) => h.els[id] || null,
-    createElement: (tag) => fakeEl(tag)
+    createElement: (tag) => fakeEl(tag),
+    // The page's own script and stylesheet elements (the update check compares them with the site's).
+    querySelectorAll: (sel) => (/^script/.test(sel) ? h.scripts : /^link/.test(sel) ? head.children.filter((l) => l.rel === 'stylesheet') : [])
   };
   globalThis.TCO_NO_AUTOBOOT = true;
   globalThis.location = Object.assign({ search: 'search' in opts ? opts.search : '?channel=home' }, opts.location);
@@ -182,7 +193,19 @@ async function boot(t, opts) {
   }
   // The real update check (its timers are mocked), recording what the overlay gave it.
   const createUpdateCheck = T.updateCheck.createUpdateCheck;
-  T.updateCheck.createUpdateCheck = function (o) { h.update = { opts: o }; return createUpdateCheck(o); };
+  h.site.fetchText = function (url, cache) {
+    h.site.fetched.push([url, cache]);
+    if (h.site.down) return Promise.reject(new TypeError('Failed to fetch'));
+    const p = new URL(url).pathname;
+    const files = Object.assign({ '/version.json': JSON.stringify({ version: globalThis.TCO.util.VERSION }) }, h.site.files);
+    const ok = typeof files[p] === 'string';
+    const headers = { date: new Date(Date.now()).toUTCString(), 'last-modified': h.site.lastModified };
+    return Promise.resolve({ ok, status: ok ? 200 : 404, text: ok ? files[p] : '', header: (n) => headers[n.toLowerCase()] || '' });
+  };
+  T.updateCheck.createUpdateCheck = function (o) {
+    h.update = { opts: o };
+    return createUpdateCheck(Object.assign({}, o, { fetchText: h.site.fetchText }));
+  };
   if (opts.stubs) opts.stubs(T, h);
   T.overlay.boot();
   await settle();
@@ -3533,33 +3556,118 @@ test("YouTube lines do not take up the reply memory (S.said), which Twitch and K
 
 // ---------- update check ----------
 const HOSTED = { protocol: 'https:', href: 'https://chat.masstar.org/overlay.html?channel=home' };
+const SITE = 'https://chat.masstar.org';
 const asked = (list) => list.filter((a) => /version\.json$/.test(a[0]));
 
-test('update check: on the hosted page the overlay asks its own site for version.json and reloads for a new version', async (t) => {
-  const fetched = [];
-  let site = null; // what the site says; null: the version this page runs
+// A hosted page and the site it came from: overlay.html naming util.js and overlay.js, one stylesheet, the two badges.
+// The page loaded all of it from a deploy an hour old.
+function hostedSite(h) {
+  const v = globalThis.TCO.util.VERSION;
+  h.scripts = [{ src: SITE + '/js/util.js?v=' + v }, { src: SITE + '/js/overlay.js?v=' + v }];
+  const link = { tagName: 'link', rel: 'stylesheet', href: SITE + '/css/overlay.css?v=' + v };
+  globalThis.document.head.children.push(link);
+  link.parentNode = globalThis.document.head;
+  h.site.files = {
+    '/overlay.html': '<link rel="stylesheet" href="css/overlay.css?v=' + v + '"><script defer src="js/util.js?v=' + v + '"></script>' +
+      '<script defer src="js/overlay.js?v=' + v + '"></script><div id="chat"></div>',
+    '/js/util.js': 'util', '/js/overlay.js': 'overlay', '/css/overlay.css': 'css',
+    '/img/logos/Badge.svg': '<svg>green</svg>', '/img/logos/Beta.svg': '<svg>beta</svg>'
+  };
+  h.site.lastModified = new Date(Date.now() - 3600000).toUTCString();
+  return link;
+}
+function deploy(h, files) {
+  Object.assign(h.site.files, files);
+  h.site.lastModified = new Date(Date.now()).toUTCString();
+}
+
+test('update check: on the hosted page a new badge image is swapped in, with no reload, and the lines showing it redrawn', async (t) => {
+  let reloads = 0;
+  const h = await boot(t, { location: Object.assign({ reload() { reloads++; } }, HOSTED), stubs: (T, h) => hostedSite(h) });
+  const T = globalThis.TCO;
+  assert.ok(h.update, 'a check was made');
+  assert.strictEqual(h.update.opts.url, SITE + '/version.json');
+  assert.strictEqual(h.update.opts.page, HOSTED.href);
+  assert.strictEqual(h.update.opts.version, T.util.VERSION);
+  assert.deepStrictEqual(h.update.opts.assets, ['img/logos/Badge.svg', 'img/logos/Beta.svg']);
+  assert.strictEqual(h.S().update !== null, true);
+  h.feed(priv('masstarvt', 'hi'));
+  await settle();
+  const badge = (provider) => h.deps.badgesFor(h.pushed[h.pushed.length - 1]).find((b) => b.provider === provider).urls[1];
+  assert.strictEqual(badge('developer'), SITE + '/img/logos/Badge.svg');
+  assert.strictEqual(asked(h.site.fetched).length, 0, 'not at once');
+  t.mock.timers.tick(T.updateCheck.START_MS);
+  await settle();
+  assert.strictEqual(asked(h.site.fetched).length, 1);
+  assert.ok(h.site.fetched.some(([u, c]) => u === HOSTED.href && c === 'force-cache'), 'what the page runs, from the cache');
+  const redraws = [];
+  const rerender = h.S().renderer.rerender;
+  h.S().renderer.rerender = function (pred) { redraws.push(pred); return rerender.apply(this, arguments); };
+  deploy(h, { '/img/logos/Badge.svg': '<svg>orange</svg>', '/README.md': 'docs' });
+  t.mock.timers.tick(T.updateCheck.CHECK_MS);
+  await settle(30);
+  assert.strictEqual(reloads, 0);
+  assert.match(badge('developer'), /^https:\/\/chat\.masstar\.org\/img\/logos\/Badge\.svg\?u=[0-9a-z]+$/, 'the new copy');
+  assert.deepStrictEqual(redraws.filter((p) => p === undefined).length, 1,
+    'every line on screen is looked at (the renderer keeps those that come out the same)');
+  assert.strictEqual(badge('beta-tester'), SITE + '/img/logos/Beta.svg', 'the other badge is unchanged');
+});
+
+test('update check: a new stylesheet goes in beside the old one, which goes once the new one has loaded', async (t) => {
+  let reloads = 0;
+  let link;
+  const h = await boot(t, { location: Object.assign({ reload() { reloads++; } }, HOSTED), stubs: (T, h) => { link = hostedSite(h); } });
+  const T = globalThis.TCO;
+  const head = globalThis.document.head;
+  t.mock.timers.tick(T.updateCheck.START_MS);
+  await settle();
+  deploy(h, { '/css/overlay.css': 'css v2' });
+  t.mock.timers.tick(T.updateCheck.CHECK_MS);
+  await settle(30);
+  const added = head.children.filter((l) => l !== link && l.rel === 'stylesheet');
+  assert.strictEqual(added.length, 1);
+  assert.match(added[0].href, /^https:\/\/chat\.masstar\.org\/css\/overlay\.css\?v=[0-9.]+&u=[0-9a-z]+$/);
+  assert.strictEqual(head.children.indexOf(added[0]), head.children.indexOf(link) + 1, 'right after the old one');
+  assert.strictEqual(link.parentNode, head, 'the old one stays until the new one has loaded');
+  added[0].onload();
+  await settle();
+  assert.strictEqual(link.parentNode, null, 'then it goes');
+  assert.ok(head.children.indexOf(added[0]) >= 0);
+  assert.strictEqual(reloads, 0);
+  // A new copy that fails to load is taken out again, and the one before it kept.
+  deploy(h, { '/css/overlay.css': 'css v3' });
+  t.mock.timers.tick(T.updateCheck.CHECK_MS);
+  await settle(30);
+  const third = head.children.filter((l) => l !== added[0] && l.rel === 'stylesheet');
+  assert.strictEqual(third.length, 1);
+  third[0].onerror();
+  await settle();
+  assert.strictEqual(third[0].parentNode, null);
+  assert.strictEqual(added[0].parentNode, head);
+});
+
+test('update check: a new script reloads the page once the deploy is old enough; a deploy of other files does nothing', async (t) => {
   let reloads = 0;
   const h = await boot(t, {
     location: Object.assign({ reload(...args) { assert.strictEqual(args.length, 0); reloads++; } }, HOSTED),
-    stubs: (T) => {
-      T.util.fetchJson = (url, o) => { fetched.push([url, o && o.cache]); return Promise.resolve({ version: site || T.util.VERSION }); };
-    }
+    stubs: (T, h) => hostedSite(h)
   });
   const T = globalThis.TCO;
-  assert.ok(h.update, 'a check was made');
-  assert.strictEqual(h.update.opts.url, 'https://chat.masstar.org/version.json');
-  assert.strictEqual(h.update.opts.version, T.util.VERSION);
-  assert.strictEqual(h.S().update !== null, true);
-  assert.strictEqual(asked(fetched).length, 0, 'not at once');
-  t.mock.timers.tick(T.updateCheck.CHECK_MS);
+  t.mock.timers.tick(T.updateCheck.START_MS);
   await settle();
-  assert.deepStrictEqual(asked(fetched), [['https://chat.masstar.org/version.json', 'no-store']]);
-  assert.strictEqual(reloads, 0, 'the same version: nothing to do');
-  site = '99.0.0';
+  deploy(h, { '/builder.html': 'new builder' });
   t.mock.timers.tick(T.updateCheck.CHECK_MS);
-  await settle();
-  assert.strictEqual(asked(fetched).length, 2);
-  assert.strictEqual(reloads, 1, 'a new version reloads the page');
+  await settle(30);
+  assert.strictEqual(reloads, 0, 'nothing of the overlay\'s changed');
+  deploy(h, { '/js/overlay.js': 'overlay v2' });
+  t.mock.timers.tick(T.updateCheck.CHECK_MS);
+  await settle(30);
+  assert.strictEqual(reloads, 0, 'a young deploy waits for the caches to catch up');
+  for (let i = 0; i < 3 && !reloads; i++) {
+    t.mock.timers.tick(T.updateCheck.CHECK_MS);
+    await settle(30);
+  }
+  assert.strictEqual(reloads, 1);
 });
 
 test('update check: the address is version.json beside the page, query and hash left behind (also on a project page)', async (t) => {
@@ -3591,20 +3699,19 @@ test('update check: not from disk or a local server, not in a frame (the builder
 
 test('update check: a failing or odd answer from the site leaves the overlay running', async (t) => {
   let reloads = 0;
-  let asks = 0;
-  let answer;
-  await boot(t, {
-    location: Object.assign({ reload() { reloads++; } }, HOSTED),
-    stubs: (T) => { T.util.fetchJson = (url) => { if (/version\.json$/.test(url)) asks++; return answer(); }; }
-  });
-  const ms = globalThis.TCO.updateCheck.CHECK_MS;
-  const answers = [() => Promise.reject(new TypeError('Failed to fetch')), () => Promise.resolve({ __notFound: true }),
-    () => Promise.resolve({ version: 'soon' }), () => Promise.resolve(null)];
+  const h = await boot(t, { location: Object.assign({ reload() { reloads++; } }, HOSTED), stubs: (T, h) => hostedSite(h) });
+  const T = globalThis.TCO;
+  t.mock.timers.tick(T.updateCheck.START_MS);
+  await settle();
+  deploy(h, { '/js/overlay.js': 'overlay v2' });
+  const answers = [() => { h.site.down = true; }, () => { h.site.down = false; h.site.files['/version.json'] = undefined; },
+    () => { h.site.files['/version.json'] = '{"version":"soon"}'; }, () => { h.site.files['/version.json'] = '<html>'; }];
   for (const a of answers) {
-    answer = a;
-    t.mock.timers.tick(ms);
-    await settle();
+    a();
+    const n = asked(h.site.fetched).length;
+    t.mock.timers.tick(T.updateCheck.CHECK_MS * 3);
+    await settle(30);
+    assert.strictEqual(asked(h.site.fetched).length, n + 1, 'each answer was really asked for, and the next check still came');
   }
-  assert.strictEqual(asks, answers.length, 'each answer was really asked for, and the next check still came');
   assert.strictEqual(reloads, 0);
 });

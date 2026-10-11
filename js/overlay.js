@@ -382,9 +382,13 @@
   // and the relative path anywhere else (a local folder on file:, OBS's "Local file" source on http://absolute/, a local
   // http server), which renderer.pickUrl allows for exactly these two files.
   function localBadge(path) {
+    if (Object.prototype.hasOwnProperty.call(newAssets, path)) return newAssets[path];
     var loc = root.location;
     return loc && loc.protocol === 'https:' && loc.href ? new URL(path, loc.href).href : path;
   }
+  var LOCAL_BADGES = ['img/logos/Badge.svg', 'img/logos/Beta.svg'];
+  // A badge image the site has a new copy of (update check): path -> the new copy's address.
+  var newAssets = {};
 
   var YOUTUBE_BADGE_TITLES = { owner: 'Channel owner', moderator: 'Moderator', member: 'Member' };
   // A YouTube chatter's role badges (mixitup.js youtubeBadges): drawn as built-in icons, shown with the master badges switch.
@@ -2168,6 +2172,55 @@
     return new URL('version.json', loc.href).href;
   }
 
+  // The script and stylesheet files this page has loaded from its own site, for the update check to compare.
+  function runningFiles() {
+    var doc = root.document;
+    var out = { scripts: [], styles: [] };
+    if (!doc || !doc.querySelectorAll) return out;
+    Array.prototype.forEach.call(doc.querySelectorAll('script[src]'), function (s) { out.scripts.push(s.src); });
+    Array.prototype.forEach.call(doc.querySelectorAll('link[rel~="stylesheet"]'), function (l) { out.styles.push(l.href); });
+    return out;
+  }
+
+  // Swaps in what the update check found new: a stylesheet (the new one is added beside the old, which goes once the
+  // new one has loaded, so nothing is unstyled between), the app's badge images (the lines that show one are redrawn),
+  // or, for a new script or page, a reload. Resolves true once it all took.
+  function applyUpdate(change) {
+    if (change.reload) { root.location.reload(); return true; }
+    var styles = (change.styles || []).map(swapStyle);
+    var assets = change.assets || [];
+    if (assets.length) {
+      assets.forEach(function (a) { newAssets[a.path] = a.url; });
+      if (S.renderer) S.renderer.rerender();
+    }
+    return Promise.all(styles).then(function (ok) { return ok.indexOf(false) < 0; });
+  }
+
+  function swapStyle(style) {
+    var doc = root.document;
+    var old = Array.prototype.filter.call(doc.querySelectorAll('link[rel~="stylesheet"]'), function (l) {
+      try { return new URL(l.href).pathname === style.path; } catch (e) { return false; }
+    })[0];
+    return new Promise(function (resolve) {
+      var link = doc.createElement('link');
+      var timer = setTimeout(function () { done(false); }, 15000);
+      function done(ok) {
+        if (!timer) return;
+        clearTimeout(timer);
+        timer = null;
+        var gone = ok ? old : link;
+        if (gone && gone.parentNode) gone.parentNode.removeChild(gone);
+        resolve(ok);
+      }
+      link.rel = 'stylesheet';
+      link.onload = function () { done(true); };
+      link.onerror = function () { done(false); };
+      link.href = style.url;
+      if (old && old.parentNode) old.parentNode.insertBefore(link, old.nextSibling);
+      else doc.head.appendChild(link);
+    });
+  }
+
   function boot() {
     if (S) return;
     T = root.TCO;
@@ -2281,14 +2334,16 @@
     if (root.addEventListener) root.addEventListener('message', onMessage);
     if (cfg.debug) setInterval(renderDebug, 2000);
 
-    // A browser source stays open for days: once the site serves a newer version, reload to run it.
+    // A browser source stays open for days: when the site changes one of the overlay's files, swap it in.
     var siteVersion = versionUrl();
     if (siteVersion) {
       S.update = T.updateCheck.createUpdateCheck({
         version: T.util.VERSION,
         url: siteVersion,
-        fetchJson: T.util.fetchJson,
-        reload: function () { root.location.reload(); }
+        page: root.location.href,
+        running: runningFiles,
+        assets: LOCAL_BADGES,
+        apply: applyUpdate
       });
       S.update.start();
     }
