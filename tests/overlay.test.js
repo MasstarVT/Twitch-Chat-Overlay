@@ -3591,17 +3591,20 @@ test('update check: not from disk or a local server, not in a frame (the builder
 
 test('update check: a failing or odd answer from the site leaves the overlay running', async (t) => {
   let reloads = 0;
+  let asks = 0;
   let answer;
   await boot(t, {
     location: Object.assign({ reload() { reloads++; } }, HOSTED),
-    stubs: (T) => { T.util.fetchJson = () => answer(); }
+    stubs: (T) => { T.util.fetchJson = (url) => { if (/version\.json$/.test(url)) asks++; return answer(); }; }
   });
   const ms = globalThis.TCO.updateCheck.CHECK_MS;
-  for (const a of [() => Promise.reject(new TypeError('Failed to fetch')), () => Promise.resolve({ __notFound: true }),
-    () => Promise.resolve({ version: 'soon' }), () => Promise.resolve(null)]) {
+  const answers = [() => Promise.reject(new TypeError('Failed to fetch')), () => Promise.resolve({ __notFound: true }),
+    () => Promise.resolve({ version: 'soon' }), () => Promise.resolve(null)];
+  for (const a of answers) {
     answer = a;
     t.mock.timers.tick(ms);
     await settle();
   }
+  assert.strictEqual(asks, answers.length, 'each answer was really asked for, and the next check still came');
   assert.strictEqual(reloads, 0);
 });
