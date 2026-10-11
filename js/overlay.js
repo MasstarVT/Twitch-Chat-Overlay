@@ -2157,6 +2157,17 @@
     return out.join(' ');
   }
 
+  // The address of this site's version.json, or '' where the overlay doesn't check for a new version: a page opened from
+  // disk or a local server (it only changes when its files do, and the page's CSP lets it reach https only), and a
+  // frame (the builder's preview and the home page's demos are reloaded by the page around them, the preview with a
+  // reload that would lose the settings it was sent).
+  function versionUrl() {
+    var loc = root.location;
+    if (!loc || loc.protocol !== 'https:' || !loc.href) return '';
+    if (root.parent && root.parent !== root) return '';
+    return new URL('version.json', loc.href).href;
+  }
+
   function boot() {
     if (S) return;
     T = root.TCO;
@@ -2228,7 +2239,8 @@
       kickStv: new Map(),
       kickSubBadges: [],
       stvChannel: null,
-      demo: null
+      demo: null,
+      update: null
     };
     // The Kick channel's 7TV set as a room's: emotes (S.kickStv), set, owner, its connection index in the owner's 7TV
     // account, the switch in flight; userId: the Kick user id it loads by.
@@ -2268,6 +2280,18 @@
 
     if (root.addEventListener) root.addEventListener('message', onMessage);
     if (cfg.debug) setInterval(renderDebug, 2000);
+
+    // A browser source stays open for days: once the site serves a newer version, reload to run it.
+    var siteVersion = versionUrl();
+    if (siteVersion) {
+      S.update = T.updateCheck.createUpdateCheck({
+        version: T.util.VERSION,
+        url: siteVersion,
+        fetchJson: T.util.fetchJson,
+        reload: function () { root.location.reload(); }
+      });
+      S.update.start();
+    }
 
     if (cfg.demo) {
       S.demo = T.demo.createDemo({

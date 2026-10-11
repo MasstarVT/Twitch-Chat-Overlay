@@ -911,11 +911,16 @@ describe('SocketClient', () => {
   });
 });
 
-test('VERSION matches package.json and every ?v= cache buster', () => {
+test('VERSION matches package.json, version.json and every ?v= cache buster', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const pkg = require('../package.json');
   assert.strictEqual(require('../js/util.js').VERSION, pkg.version);
+  // version.json is what open overlays compare their own version with: a release that forgets it never reloads them,
+  // and one that bumps it before the pages would reload them into the old version.
+  const site = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'version.json'), 'utf8'));
+  assert.deepStrictEqual(site, { version: pkg.version }, 'version.json names the version being released');
+  assert.strictEqual(require('../js/update-check.js').versionOf(site), pkg.version, 'in a form the overlay accepts');
   for (const page of ['overlay.html', 'builder.html', 'index.html']) {
     const html = fs.readFileSync(path.join(__dirname, '..', page), 'utf8');
     const vs = [...html.matchAll(/\?v=([0-9.]+)/g)].map((m) => m[1]);
