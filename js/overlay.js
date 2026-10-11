@@ -2599,6 +2599,8 @@
     return {
       v: HANDOFF,
       lines: S.renderer.snapshot ? S.renderer.snapshot() : [],
+      // Deletions, timeouts, bans and clears: a reload would get them back from the history, which a restart skips.
+      mod: S.renderer.moderation ? S.renderer.moderation() : null,
       twitchTs: S.twitchTs, twitchLiveTs: S.twitchLiveTs, kickTs: S.kickTs, kickLiveTs: S.kickLiveTs,
       assets: Object.assign({}, newAssets)
     };
@@ -2622,7 +2624,7 @@
       warm(m);
       if (m && isTwitch(m) && m.id && S.irc) S.irc.markSeen(String(m.id));
     });
-    S.renderer.adopt(lines);
+    S.renderer.adopt(lines, h.mod);
     var chat = S.chatEl;
     chat.id = 'chat';
     if (oldChat && oldChat.parentNode) oldChat.parentNode.replaceChild(chat, oldChat);

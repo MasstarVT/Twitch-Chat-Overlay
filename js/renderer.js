@@ -2875,32 +2875,95 @@
       queue.forEach(function (en) { out.push({ msg: en.msg, born: en.born }); });
       return out;
     }
+    // moderation: what this renderer remembers of deletions, timeouts, bans and clears, for the next renderer to go on
+    // from (a reload gets the same back from the history): [id, expiry, value] entries, the clears (each with the test
+    // it was made with), and the sequence they are counted in.
+    function moderation() {
+      var dump = function (ids) {
+        var out = [];
+        ids.map.forEach(function (e, k) { out.push([k, e[0], e[1]]); });
+        return out;
+      };
+      var h = [];
+      heard.forEach(function (v, k) { h.push([k, v]); });
+      return {
+        seq: mseq, deleted: dump(deleted), cleared: dump(cleared), spoke: dump(spoke), alias: dump(alias), heard: h,
+        clears: clears.map(function (c) { return { seq: c.seq, at: c.at, pred: c.pred }; })
+      };
+    }
+    // Takes another renderer's moderation in under this one's: what happened here meanwhile is newer, so its sequence
+    // numbers move up past the other's, and an id known here keeps what this renderer knows.
+    function takeModeration(mod, now) {
+      var by = Number(mod.seq);
+      if (isFinite(by) && by > 0) {
+        [cleared, spoke].forEach(function (ids) { ids.map.forEach(function (e) { if (typeof e[1] === 'number') e[1] += by; }); });
+        clears.forEach(function (c) { c.seq += by; });
+        heard.forEach(function (v, k) { heard.set(k, v + by); });
+        mseq += by;
+      }
+      var merge = function (ids, list) {
+        if (!Array.isArray(list)) return;
+        var all = [];
+        list.forEach(function (e) {
+          if (Array.isArray(e) && util.idStr(e[0]) && Number(e[1]) > now && !ids.map.has(util.idStr(e[0]))) {
+            all.push([util.idStr(e[0]), [Number(e[1]), e[2]]]);
+          }
+        });
+        ids.map.forEach(function (v, k) { all.push([k, v]); });
+        all.sort(function (a, b) { return a[1][0] - b[1][0]; }); // oldest first, as prune expects
+        ids.map = new Map(all.slice(-ids.cap));
+      };
+      merge(deleted, mod.deleted);
+      merge(cleared, mod.cleared);
+      merge(spoke, mod.spoke);
+      merge(alias, mod.alias);
+      (Array.isArray(mod.heard) ? mod.heard : []).forEach(function (e) {
+        if (Array.isArray(e) && util.idStr(e[0]) && typeof e[1] === 'number' && !heard.has(util.idStr(e[0]))) heard.set(util.idStr(e[0]), e[1]);
+      });
+      (Array.isArray(mod.clears) ? mod.clears : []).forEach(function (c) {
+        if (c && typeof c.seq === 'number' && typeof c.at === 'number' && (c.pred === null || typeof c.pred === 'function')) {
+          clears.push({ seq: c.seq, at: c.at, pred: c.pred });
+        }
+      });
+      clears.sort(function (a, b) { return a.seq - b.seq; });
+      while (clears.length > MAX_CLEARS) clears.shift();
+    }
     // adopt: lines another renderer had (snapshot), drawn as they were there: no entrance, each ageing (and fading) from
-    // when it first came. They go before anything queued here already, which drops the ones they repeat. A message
-    // deleted here meanwhile stays out. Returns how many were taken.
-    function adopt(list) {
+    // when it first came. They go before anything queued here already, which drops the ones they repeat. mod: that
+    // renderer's moderation(), taken in first. A message deleted, or a chat line whose author was timed out or banned
+    // after it came, stays out. Returns how many were taken.
+    function adopt(list, mod) {
       if (destroyed || !Array.isArray(list)) return 0;
       var now = Date.now();
+      if (mod && typeof mod === 'object') takeModeration(mod, now);
       var queued = queue.drain();
       var ids = new Set();
       var n = 0;
+      // The other renderer saw everything this one queued until its newest line: what came here before that is in the
+      // list, or was already shown there and gone (scrolled off, faded, filtered, deleted). Only what is newer stays.
+      var last = 0;
       list.forEach(function (en) {
         var msg = en && en.msg;
         if (!msg || typeof msg !== 'object') return;
         var id = util.idStr(msg.id), sid = util.idStr(msg.sourceId);
+        var born = Number(en.born);
+        born = isFinite(born) && born > 0 ? Math.min(born, now) : now;
+        if (born > last) last = born;
         if (id && (deleted.has(id, now) || byId.has(id) || ids.has(id))) return;
         if (sid && deleted.has(sid, now)) return;
+        var uid = util.idStr(msg.userId);
+        var ban = uid && cleared.has(uid, now) ? cleared.map.get(uid)[0] - cleared.ttl : 0;
+        if (ban && ban >= born) return;
         heardNow(id, sid, now);
         noteAlias(id, sid, now);
         if (!showable(msg)) return;
-        var born = Number(en.born);
         if (id) ids.add(id);
-        queue.push({ msg: msg, born: isFinite(born) && born > 0 ? Math.min(born, now) : now, shown: true });
+        queue.push({ msg: msg, born: born, shown: true });
         n++;
       });
       queued.forEach(function (en) {
         var id = util.idStr(en.msg.id);
-        if (!id || !ids.has(id)) queue.push(en);
+        if (en.born > last && (!id || !ids.has(id))) queue.push(en);
       });
       schedule();
       return n;
@@ -2967,6 +3030,7 @@
       },
       hasUser: hasUser,
       snapshot: snapshot,
+      moderation: moderation,
       adopt: adopt,
       stats: stats,
       destroy: destroy

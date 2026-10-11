@@ -578,6 +578,23 @@ test('adopt: goes before lines already queued, which drop the ones it repeats; a
   assert.strictEqual(s.r.adopt([{ msg: old, born: 999000 }]), 0, 'one on screen already');
 });
 
+test('adopt: lines queued here that the other renderer had already shown and let go don\'t come back as new', (t) => {
+  const s = setup(t, { animate: false });
+  s.r.hold(true); // started unseen: live chat queues up
+  const a = chat('amy', 'a'), b = chat('bob', 'b'), c = chat('cat', 'c'), d = chat('dan', 'd');
+  s.r.push(a);
+  s.tick(1000);
+  s.r.push(b);
+  s.tick(1000);
+  s.r.push(c);
+  s.tick(1000);
+  s.r.push(d); // came after the other copy's newest line
+  // The other copy has only c on screen now (a and b scrolled off); its c came in when this one's did.
+  s.r.adopt([{ msg: c, born: 1002000 }]);
+  s.r.hold(false);
+  assert.deepStrictEqual(s.texts(), ['c', 'd']);
+});
+
 test('adopt: a notice comes back as its notice and its text line', (t) => {
   const s = setup(t, { animate: false });
   const n = resub('bob', 'still subbed');
@@ -585,6 +602,69 @@ test('adopt: a notice comes back as its notice and its text line', (t) => {
   s.r.flush();
   assert.strictEqual(s.lines().length, 2);
   assert.deepStrictEqual(s.r.snapshot().map((en) => en.msg), [n]);
+});
+
+// The copy a restart starts: another renderer on the same page.
+function second(t, s, cfg) {
+  const root = s.doc.createElement('div');
+  s.doc.body.appendChild(root);
+  const r = renderer.createRenderer({ root: root, cfg: cfg || { animate: false }, deps: {} });
+  t.after(() => r.destroy());
+  return { r: r, lines: () => root.firstElementChild.children };
+}
+
+test('adopt: deletions and bans come over with the lines, so a reply after a restart still drops a moderated quote', (t) => {
+  const s = setup(t, { animate: false });
+  const p = chat('pat', 'deleted text'), u = chat('uma', 'before her ban'), k = chat('kim', 'kept');
+  [p, u, k].forEach((m) => s.r.push(m));
+  s.r.flush();
+  s.r.clearMessage(p.id);
+  s.tick(1000);
+  s.r.clearUser(u.userId);
+  assert.deepStrictEqual(s.texts(), ['kept']);
+  const b = second(t, s);
+  b.r.hold(true);
+  assert.strictEqual(b.r.adopt(s.r.snapshot(), s.r.moderation()), 1);
+  b.r.hold(false);
+  [replyTo(p, 'rex', 'about p'), replyTo(u, 'rex', 'about u'), replyTo(k, 'rex', 'about k')].forEach((m) => b.r.push(m));
+  b.r.flush();
+  assert.deepStrictEqual(b.lines().map(replyText).map((x) => x !== null), [false, false, false, true],
+    'the quotes of the deleted message and the banned user\'s go; the kept one stays');
+  assert.strictEqual(b.r.push(p), false, 'the deleted message itself stays deleted');
+});
+
+test('adopt: a line whose author was banned in this copy after it came stays out; what they said after the ban stays', (t) => {
+  const s = setup(t, { animate: false });
+  const before = chat('uma', 'said before');
+  s.r.push(before);
+  s.r.flush();
+  s.tick(1000);
+  const b = second(t, s);
+  b.r.hold(true);
+  b.r.clearUser(before.userId); // the ban reached the new copy's connection first
+  s.tick(1000);
+  const after = chat('uma', 'said after');
+  s.r.push(after);
+  s.r.flush();
+  b.r.adopt(s.r.snapshot(), s.r.moderation());
+  b.r.hold(false);
+  assert.deepStrictEqual(b.lines().map((l) => l.byClass('message').map((m) => m.textContent).join('')), ['said after']);
+});
+
+test('adopt: what this copy saw meanwhile counts as newer than the other copy\'s moderation', (t) => {
+  const s = setup(t, { animate: false });
+  for (let i = 0; i < 5; i++) s.r.clearUser('u-x' + i); // the old copy's counter runs ahead
+  const b = second(t, s);
+  b.r.hold(true);
+  b.r.clearUser('u-vic'); // in the new copy: a timeout, then vic speaks again
+  s.tick(1000);
+  const again = chat('vic', 'back again');
+  b.r.push(again);
+  b.r.adopt(s.r.snapshot(), s.r.moderation());
+  b.r.hold(false);
+  b.r.push(replyTo(again, 'rex', 'welcome back'));
+  b.r.flush();
+  assert.notStrictEqual(replyText(b.lines()[1]), null, 'a reply to what vic said after the timeout keeps its quote');
 });
 
 // ---------- fade ----------
