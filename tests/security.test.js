@@ -128,17 +128,21 @@ test('every URL property assignment in js/ is a reviewed one', () => {
   assert.equal(hits('m.action = a.action;'), null);
 });
 
-// Navigation is a URL sink too: every location.replace(), location.assign() and .open() call in js/ is a reviewed
-// one, keyed the same way. (String replace and Object.assign have other receivers, so they are not matched.)
+// Navigation is a URL sink too: every location.replace(), location.assign(), location.reload() and .open() call in js/ is a
+// reviewed one, keyed the same way. (String replace and Object.assign have other receivers, so they are not matched.)
 test('every navigation call in js/ is a reviewed one', () => {
   const REVIEWED = {
     'home.js': [
       // an old builder link: builder.html on this site, query and hash passed on (home.js passedOn: this page's href from
       // its '?', or its search + hash)
       /^loc\.replace\(BUILDER \+ passedOn\(loc\)\)$/
+    ],
+    'overlay.js': [
+      // the page again, the same address: a new version of this site is up (update-check.js, only on https and never in a frame)
+      /^root\.location\.reload\(\)$/
     ]
   };
-  const NAV = /([\w$.]*\b(?:location|loc)\.(?:replace|assign)|[\w$.]*\.open)\s*\(([^;]*)\)/g;
+  const NAV = /([\w$.]*\b(?:location|loc)\.(?:replace|assign|reload)|[\w$.]*\.open)\s*\(([^;]*)\)/g;
   const exprOf = (m) => (m[1] + '(' + m[2].trim() + ')').replace(/\s+/g, ' ');
   let seen = 0;
   fs.readdirSync(path.join(ROOT, 'js')).filter((f) => f.endsWith('.js')).forEach((f) => {
@@ -156,6 +160,7 @@ test('every navigation call in js/ is a reviewed one', () => {
   // The scan itself catches the other spellings, and leaves string and object helpers alone.
   const hits = (line) => { NAV.lastIndex = 0; const m = NAV.exec(line); return m ? exprOf(m) : null; };
   assert.equal(hits('root.location.assign(u);'), 'root.location.assign(u)');
+  assert.equal(hits('root.location.reload();'), 'root.location.reload()');
   assert.equal(hits("window.open(u, '_blank');"), "window.open(u, '_blank')");
   assert.equal(hits("s = s.replace(/a/g, 'b');"), null);
   assert.equal(hits('Object.assign(a, b);'), null);

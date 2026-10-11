@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const JS = path.join(__dirname, '..', 'js');
 // overlay.html order
 const ORDER = ['util', 'mixitup', 'config', 'irc-parse', 'badge-resolve', 'paint-css', 'tokenizer', 'irc', 'kick', 'twitch-badges',
-  'seventv', 'bttv', 'ffz', 'extra-badges', 'rooms', 'icons', 'renderer', 'demo', 'overlay'];
+  'seventv', 'bttv', 'ffz', 'extra-badges', 'rooms', 'icons', 'renderer', 'demo', 'update-check', 'overlay'];
 const HOME = '100';
 const PARTNER = '200';
 
@@ -29,7 +29,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-// opts: { search, settings, errors, stubs(T, h) }  ->  harness h
+// opts: { search, settings, errors, location (more of window.location, e.g. protocol and href), framed, stubs(T, h) }  ->  harness h
 async function boot(t, opts) {
   opts = opts || {};
   if (!t.timersOn) { // a test may boot twice; an older boot's timers only touch its own state
@@ -67,8 +67,8 @@ async function boot(t, opts) {
     createElement: (tag) => fakeEl(tag)
   };
   globalThis.TCO_NO_AUTOBOOT = true;
-  globalThis.location = { search: 'search' in opts ? opts.search : '?channel=home' };
-  globalThis.parent = globalThis;
+  globalThis.location = Object.assign({ search: 'search' in opts ? opts.search : '?channel=home' }, opts.location);
+  globalThis.parent = opts.framed ? {} : globalThis;
   globalThis.addEventListener = (type, fn) => { (h.listeners[type] = h.listeners[type] || []).push(fn); };
   if (opts.settings) globalThis.TCO_SETTINGS = opts.settings;
   if (opts.errors) globalThis.__tcoErrors = opts.errors;
@@ -180,6 +180,9 @@ async function boot(t, opts) {
       };
     };
   }
+  // The real update check (its timers are mocked), recording what the overlay gave it.
+  const createUpdateCheck = T.updateCheck.createUpdateCheck;
+  T.updateCheck.createUpdateCheck = function (o) { h.update = { opts: o }; return createUpdateCheck(o); };
   if (opts.stubs) opts.stubs(T, h);
   T.overlay.boot();
   await settle();
@@ -3526,4 +3529,79 @@ test("YouTube lines do not take up the reply memory (S.said), which Twitch and K
   for (let i = 0; i < 1200; i++) h.yt.send(ytAdd('Fan' + (i % 7), ['line ' + i]));
   assert.ok(h.S().said.peek('tw-1'), 'the Twitch line is still remembered');
   assert.strictEqual(h.S().said.peek('youtube:LCC.msg' + yn), undefined);
+});
+
+// ---------- update check ----------
+const HOSTED = { protocol: 'https:', href: 'https://chat.masstar.org/overlay.html?channel=home' };
+const asked = (list) => list.filter((a) => /version\.json$/.test(a[0]));
+
+test('update check: on the hosted page the overlay asks its own site for version.json and reloads for a new version', async (t) => {
+  const fetched = [];
+  let site = null; // what the site says; null: the version this page runs
+  let reloads = 0;
+  const h = await boot(t, {
+    location: Object.assign({ reload(...args) { assert.strictEqual(args.length, 0); reloads++; } }, HOSTED),
+    stubs: (T) => {
+      T.util.fetchJson = (url, o) => { fetched.push([url, o && o.cache]); return Promise.resolve({ version: site || T.util.VERSION }); };
+    }
+  });
+  const T = globalThis.TCO;
+  assert.ok(h.update, 'a check was made');
+  assert.strictEqual(h.update.opts.url, 'https://chat.masstar.org/version.json');
+  assert.strictEqual(h.update.opts.version, T.util.VERSION);
+  assert.strictEqual(h.S().update !== null, true);
+  assert.strictEqual(asked(fetched).length, 0, 'not at once');
+  t.mock.timers.tick(T.updateCheck.CHECK_MS);
+  await settle();
+  assert.deepStrictEqual(asked(fetched), [['https://chat.masstar.org/version.json', 'no-store']]);
+  assert.strictEqual(reloads, 0, 'the same version: nothing to do');
+  site = '99.0.0';
+  t.mock.timers.tick(T.updateCheck.CHECK_MS);
+  await settle();
+  assert.strictEqual(asked(fetched).length, 2);
+  assert.strictEqual(reloads, 1, 'a new version reloads the page');
+});
+
+test('update check: the address is version.json beside the page, query and hash left behind (also on a project page)', async (t) => {
+  for (const [href, want] of [
+    ['https://chat.masstar.org/overlay.html?channel=home&font=Figtree#x', 'https://chat.masstar.org/version.json'],
+    ['https://owner.github.io/project/overlay.html?channel=home', 'https://owner.github.io/project/version.json']
+  ]) {
+    const h = await boot(t, { location: { protocol: 'https:', href: href, reload() {} } });
+    assert.strictEqual(h.update.opts.url, want, href);
+  }
+});
+
+test('update check: not from disk or a local server, not in a frame (the builder\'s preview), not without a channel', async (t) => {
+  const cases = [
+    ['a local folder', { location: { protocol: 'file:', href: 'file:///C:/overlay/overlay.html?channel=home' } }],
+    ['OBS Local file', { location: { protocol: 'http:', href: 'http://absolute/C:/overlay/overlay.html' } }],
+    ['a local server', { location: { protocol: 'http:', href: 'http://localhost:8080/overlay.html?channel=home' } }],
+    ['the builder\'s preview frame', { location: HOSTED, framed: true }],
+    // (The page's query is read from its href.)
+    ['no channel set', { location: { protocol: 'https:', href: 'https://chat.masstar.org/overlay.html' }, search: '' }],
+    ['no location details at all', {}]
+  ];
+  for (const [name, opts] of cases) {
+    const h = await boot(t, opts);
+    assert.strictEqual(h.update, undefined, name);
+    assert.strictEqual(h.S().update, null, name);
+  }
+});
+
+test('update check: a failing or odd answer from the site leaves the overlay running', async (t) => {
+  let reloads = 0;
+  let answer;
+  await boot(t, {
+    location: Object.assign({ reload() { reloads++; } }, HOSTED),
+    stubs: (T) => { T.util.fetchJson = () => answer(); }
+  });
+  const ms = globalThis.TCO.updateCheck.CHECK_MS;
+  for (const a of [() => Promise.reject(new TypeError('Failed to fetch')), () => Promise.resolve({ __notFound: true }),
+    () => Promise.resolve({ version: 'soon' }), () => Promise.resolve(null)]) {
+    answer = a;
+    t.mock.timers.tick(ms);
+    await settle();
+  }
+  assert.strictEqual(reloads, 0);
 });
