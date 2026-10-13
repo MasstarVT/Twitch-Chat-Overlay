@@ -3904,3 +3904,70 @@ test('update check: a failing or odd answer from the site leaves the overlay run
   }
   assert.strictEqual(reloads, 0);
 });
+
+// BTTV Pro username effects ("BTTV paints") come over the BTTV socket (lookup_user), usually just after the chatter's
+// line: it is redrawn with the effect. They follow the paints switch, a 7TV paint wins, and only Twitch lines get one.
+test('BTTV username effects: a lookup redraws the chatter\'s name with it; paints=0, a 7TV paint and Kick lines take none', async (t) => {
+  const h = await boot(t, { search: '?channel=home&kick=kickname&kick_room=1' });
+  join(h);
+  await settle();
+  const S = h.S();
+  const parse = (raw) => globalThis.TCO.ircParse.toChatMessage(globalThis.TCO.ircParse.parseLine(raw));
+  const m = parse(priv('proviewer', 'hello'));
+  const kick = { platform: 'kick', userId: 'u-proviewer', login: 'proviewer', displayName: 'ProViewer', color: '' };
+  assert.strictEqual(h.deps.nameFor(m).fx, undefined, 'no effect before the lookup');
+  h.feed(priv('proviewer', 'hello'));
+  t.mock.timers.tick(200);
+  const before = h.rerenders;
+  h.bttvLive.opts.onUser('u-proviewer', { badge: null, emotes: new Map(), effect: 'midas' });
+  t.mock.timers.tick(200);
+  assert.strictEqual(h.rerenders, before + 1);
+  assert.ok(h.redrawn[h.redrawn.length - 1].some((x) => x.userId === 'u-proviewer'), 'the chatter\'s lines are redrawn');
+  assert.strictEqual(h.deps.nameFor(m).fx, 'midas');
+  assert.strictEqual(h.deps.nameFor(kick).fx, undefined, 'a Kick line');
+  const keep = S.cfg;
+  S.cfg = Object.assign({}, keep, { paints: false });
+  assert.strictEqual(h.deps.nameFor(m).fx, undefined, 'paints=0');
+  S.cfg = keep;
+  // A 7TV paint wins.
+  S.stv.paints.set('P1', { id: 'P1', bgImage: 'linear-gradient(red, blue)' });
+  const eff = S.stv.effective;
+  S.stv.effective = (uid) => (uid === 'u-proviewer' ? { paint: 'P1', badge: null, sets: [] } : eff.call(S.stv, uid));
+  assert.deepStrictEqual([h.deps.nameFor(m).paintId, h.deps.nameFor(m).fx], ['P1', undefined]);
+  S.stv.effective = eff;
+  // The effect turned off again (null) is gone.
+  h.bttvLive.opts.onUser('u-proviewer', { badge: null, emotes: new Map(), effect: null });
+  assert.strictEqual(h.deps.nameFor(m).fx, undefined);
+});
+
+test('BTTV username effects: the BTTV socket opens for paints alone, and not with paints, BTTV emotes and badges off', async (t) => {
+  let h = await boot(t, { search: '?channel=home&emotes_bttv=0&badges_bttv=0' });
+  join(h);
+  await settle();
+  assert.ok(h.bttvLive, 'paints on: the socket carries the effects');
+  h = await boot(t, { search: '?channel=home&emotes_bttv=0&badges_bttv=0&paints=0' });
+  join(h);
+  await settle();
+  assert.strictEqual(h.bttvLive, null);
+});
+
+test('BTTV username effects: drawn as .bttv-fx.fx-<effect>, with the textured ones\' outline filters added once', async (t) => {
+  const h = await boot(t, { search: '?channel=home&history=0', realRenderer: true });
+  join(h);
+  await settle();
+  h.bttvLive.opts.onUser('u-glower', { badge: null, emotes: new Map(), effect: 'glow' });
+  h.bttvLive.opts.onUser('u-golden', { badge: null, emotes: new Map(), effect: 'midas' });
+  h.feed(priv('glower', 'hi'));
+  h.feed(priv('golden', 'hey'));
+  h.feed(priv('golden', 'again'));
+  h.feed(priv('plain', 'yo'));
+  t.mock.timers.tick(300);
+  const names = Array.from(h.lines()).map((l) => l.byClass('name')[0].className);
+  assert.deepStrictEqual(names, ['name bttv-fx fx-glow', 'name bttv-fx fx-midas', 'name bttv-fx fx-midas', 'name']);
+  const doc = h.els.chat.ownerDocument;
+  const defs = doc.body.children.filter((c) => c.className === 'fx-defs');
+  assert.strictEqual(defs.length, 1);
+  const filters = defs[0].children[0].children;
+  assert.deepStrictEqual(filters.map((f) => f.getAttribute('id')),
+    Object.keys(globalThis.TCO.renderer._internal.FX_STROKE).map((k) => 'tco-fx-' + k));
+});

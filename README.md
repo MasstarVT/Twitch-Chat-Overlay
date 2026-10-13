@@ -28,7 +28,7 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
   - Twitch global and channel badges: sub tiers and months, bits, mod, VIP, founder, predictions and event badges.
   - FFZ custom mod and VIP badges.
   - Third-party badges from 7TV, FFZ, FFZ:AP, BTTV (staff and Pro), Chatterino and Chatterino Homies.
-- **7TV name paints:** gradient and animated image usernames.
+- **Name paints:** 7TV's gradient and animated image usernames, and BetterTTV Pro's name effects (glow, flare and the textured ones).
 - **Chat events:**
   - Sub, resub, gift, raid and announcement notices, each kind with a switch of its own. Gift bombs collapse into one line.
   - Replies, `/me` messages, first-time chatter and channel-point highlights.
@@ -135,7 +135,7 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `name_weight` | `heavy` | as `text_weight` | Weight of the names before messages and in reply headers. A name inside a sub or raid notice follows `text_weight`. `light` and `black` add a weight to the font request, as with `text_weight`. |
 | `name_line` | `0` | bool | Start each message on a line of its own under the name. In the horizontal layout each message becomes a small card of two lines (its time, badges and name on the first, the message on the second; a notice's text is on the second line too), so the row needs about twice the height: about 130 px instead of 100. Needs `names=1`. |
 | `name_font` | none | font name | A font for the names before messages and in reply headers, given like `font` (a Google Font is one more request, made only while this is set). Empty uses `font`. A name inside a sub or raid notice is part of the notice's text and keeps `font`. |
-| `name_color` | none | hex color | One color for every name, in place of each chatter's own (Twitch and Kick). 7TV paints still show while `paints=1` (through the clear parts of an image paint this color shows), and `/me` messages take it too. `readable` leaves it as picked. |
+| `name_color` | none | hex color | One color for every name, in place of each chatter's own (Twitch and Kick). 7TV paints and BetterTTV name effects still show while `paints=1` (through the clear parts of an image paint this color shows), and `/me` messages take it too. `readable` leaves it as picked. |
 | `name_fallback` | none | hex color | The color for chatters who never picked one (Twitch or Kick), in place of Twitch's 15 default colors. `readable` leaves it as picked. Not used while `name_color` is set. |
 | `name_sep` | `colon` | `colon`, `space`, `dash`, `arrow` | What goes between the name and the message: `Name: hi`, `Name hi`, `Name – hi` or `Name › hi`. A `/me` message keeps its space, and a reply header its colon. Needs `names=1`; not drawn with `name_line=1`. |
 | `bg` | `0` | `0`–`100` | Opacity of a box behind each message (black, or `bg_color`). |
@@ -206,8 +206,8 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `badges_twitch`, `badges_kick`, `badges_7tv`, `badges_bttv`, `badges_ffz`, `badges_ffzap`, `badges_chatterino`, `badges_homies` | `1` | bool | Turn each badge provider on or off. `badges_ffz` also covers the channel's FFZ custom mod and VIP badges, which show even with `badges_twitch=0`. |
 | `badge_size` | `100` | `50`–`200` | Size of badges in percent of the text, loaded at a matching resolution. The Twitch, Kick and YouTube icons and the Shared Chat avatars follow it too, even with `badges=0`. Above about 135 lines with badges get taller. |
 | `homies_lists` | `all` | `all`, `light` | `light` loads only the two small Homies lists and skips the chatterinohomies.com list (about 0.5 MB to download, 4 MB to read and 1–2 MB of memory for the whole stream). About 9,400 users who are only in that list lose their Homies badge. Needs `badges` and `badges_homies`. |
-| `paints` | `1` | bool | Show 7TV name paints. |
-| `paint_images` | `animated` | `animated`, `static` | `static` draws animated image paints with their still first frame, so painted names stop redrawing many times a second while chat is quiet. Gradient paints are unchanged. Needs `paints`. |
+| `paints` | `1` | bool | Show name paints: 7TV paints and BetterTTV Pro name effects (a 7TV paint wins when a chatter has both). |
+| `paint_images` | `animated` | `animated`, `static` | `static` draws animated 7TV image paints with their still first frame and holds BetterTTV name effects still, so painted names stop redrawing many times a second while chat is quiet. Gradient paints are unchanged. Needs `paints`. |
 | `stv_lookup` | `1` | bool | Look up 7TV paints and badges for chatters who don't run a 7TV client (see notes). |
 | `readable` | `1` | bool | Lighten dark name colors so they stay readable on stream. On a light box (a light `bg_color` at a `bg` that shows it: white from about `50`) it darkens light names instead, and leaves dark ones as they are. |
 | `readable_level` | `45` | `30`–`70` | How light `readable` makes a dark name: the contrast with black it aims for (on a light box, how dark it makes a light name: the contrast with the box), times 10 (`45` is 4.5:1, `70` is 7:1; a number under `30`, such as `4.5`, is read as the ratio itself). It lightens in steps, so nearby values often give the same color. `name_color` and `name_fallback` are left as picked. Needs `readable=1`; not used while `name_color` is set. |
@@ -232,7 +232,7 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `#chat.case-upper`, `#chat.case-lower`, `#chat.case-smallcaps` | the letter case of names, messages and reply headers (`text_case`) |
 | `#chat.has-outline` | text with an outline (`outline` above 0) |
 | `#chat.shadow-text` | the shadow drawn on the letters only (`shadow_style=text`) |
-| `#chat.paint-static` | 7TV image paints drawn still (`paint_images=static`) |
+| `#chat.paint-static` | 7TV image paints and BetterTTV name effects drawn still (`paint_images=static`) |
 | `#chat.text-center`, `#chat.text-right` | messages centered or on the right (`text_align`; the stylesheet applies them to the vertical layout only) |
 | `#chat.has-maxw` | a cap on the width of a message (`line_width` above 0) |
 | `#chat.edge-fade` | old messages fading out toward the edge they leave by (`edge_fade` above 0) |
@@ -332,7 +332,7 @@ Everything is fetched directly by your browser or OBS. There is no server of our
 | IVR API (`api.ivr.fi`) | Twitch badge lists, channel id lookup and the Shared Chat avatar |
 | Twitch GQL (`gql.twitch.tv`) | fallback for Twitch badges when IVR is down; a channel's own cheermotes, the first time a cheer uses one |
 | 7TV (`7tv.io`, `events.7tv.io`, `cdn.7tv.app`) | 7TV emotes, paints and badges, and live updates; the Kick channel's 7TV emotes |
-| BTTV (`api.betterttv.net`, `sockets.betterttv.net`, `cdn.betterttv.net`) | BTTV emotes and badges, and live updates |
+| BTTV (`api.betterttv.net`, `sockets.betterttv.net`, `cdn.betterttv.net`) | BTTV emotes, badges and name effects, and live updates |
 | FrankerFaceZ (`api.frankerfacez.com`, `cdn.frankerfacez.com`) | FFZ emotes and badges |
 | FFZ:AP (`api.ffzap.com`) | FFZ:AP supporter badges and their images |
 | Chatterino (`api.chatterino.com`; images on `fourtf.com`) | Chatterino badges |
@@ -369,6 +369,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Cheermotes:** Twitch's global cheermotes (Cheer, DoodleCheer, Kappa and others) show as images with a colored amount. A channel's own cheermotes (such as `sodaCheer100`) are looked up from Twitch's public GQL endpoint the first time a cheer in that channel uses one (the home channel's, and a Shared Chat partner's for its own lines), so that first cheer can show as text until they arrive, a moment later.
 - **Badges off:** during Shared Chat, every message still shows its channel's avatar so you can tell the channels apart.
 - **Homies badges:** when a user is in more than one Homies list, their badges show in list order (itzalex badges, badges2, chatterinohomies), whichever list loads first. With `homies_lists=light` the chatterinohomies list isn't loaded.
+- **BetterTTV name effects:** BetterTTV tells others about a Pro user's badge, personal emotes and name effect only when that user's BetterTTV client announces them, which it does as they join the channel and when they chat. So a chatter's effect shows from their next message after the overlay starts (their line is redrawn with it a moment after it appears), and lines from `history` show plain names until they talk again.
 - **Still paints:** `paint_images=static` takes an animated paint's still frame from 7TV's own list of its images. A paint that arrives in 7TV's older format (one image URL: when 7TV's paint list can't be loaded, or for a paint newer than the list) doesn't say whether it is animated: the overlay asks 7TV's image server for the still frame beside it once, and uses it when it loads (a still paint has none, and stays as it is).
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.

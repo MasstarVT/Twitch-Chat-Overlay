@@ -144,6 +144,8 @@ test('demo users get the cosmetics the catalog offers', () => {
   assert.deepStrictEqual(d.effective('demo-4'), { paint: 'p2', badge: null, sets: [] });
   assert.deepStrictEqual(d.effective('demo-6'), { paint: null, badge: null, sets: [] });
   assert.strictEqual(d.effective('12345'), null, 'real chatters are left to 7TV');
+  // One demo chatter without a 7TV paint shows a BetterTTV username effect; real chatters get theirs from BetterTTV.
+  assert.deepStrictEqual(['demo-5', 'demo-2', '12345'].map((u) => d.bttvEffect(u)), ['midas', null, null]);
   assert.deepStrictEqual(d.extraBadges('demo-1'), []);
   st.chatterino.set('x', [{ provider: 'chatterino', title: 'C' }]);
   assert.deepStrictEqual(d.extraBadges('demo-1'), [{ provider: 'chatterino', title: 'C' }]);

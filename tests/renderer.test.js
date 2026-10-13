@@ -1711,3 +1711,18 @@ test('partsFor: 7TV sizes by its own 1x height; a row draws big emotes at emote 
   assert.strictEqual(R.partsFor(big, { px: 24, dpr: 1 })[0].url, 'https://cdn.example/K/4', 'vertical: 3x emote height (126px)');
   assert.strictEqual(R.partsFor(big, { px: 24, dpr: 1, flatBig: true })[0].url, 'https://cdn.example/K/2', 'row: emote height (42px)');
 });
+
+test('modelFor: a BetterTTV username effect only by a name BetterTTV has, never over a 7TV paint, and no key without one', () => {
+  const msg = { id: 'fx1', userId: 'u1', login: 'pro', displayName: 'Pro', text: 'hi' };
+  const name = (nm) => R.modelFor(msg, R.normalizeCfg({}), { kind: 'chat', items: [], dpr: 1, name: Object.assign({ text: 'Pro', color: '#ffffff' }, nm) }).name;
+  assert.deepStrictEqual(name({ fx: 'sakura' }), { text: 'Pro', color: '#ffffff', paint: null, fx: 'sakura' });
+  assert.deepStrictEqual(name({ paint: 'P1', fx: 'sakura' }), { text: 'Pro', color: '#ffffff', paint: 'P1' });
+  ['Sakura', 'sakura x', 'fx-glow', '', 3, null, undefined, ['glow']].forEach((v) =>
+    assert.deepStrictEqual(name({ fx: v }), { text: 'Pro', color: '#ffffff', paint: null }, String(v)));
+  // Kept equal to bttv.js's list, and every textured one has its outline color.
+  assert.deepStrictEqual(R.BTTV_FX.slice().sort(), Array.from(require('../js/bttv.js').EFFECTS).sort());
+  assert.deepStrictEqual(Object.keys(R.FX_STROKE).sort(), R.BTTV_FX.filter((n) => n !== 'glow' && n !== 'flare').sort());
+  // And overlay.css draws each one.
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8');
+  R.BTTV_FX.forEach((n) => assert.match(css, new RegExp('\\.fx-' + n + '\\b'), n));
+});

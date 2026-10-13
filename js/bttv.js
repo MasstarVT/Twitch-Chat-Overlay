@@ -1,4 +1,5 @@
-/* BetterTTV: global/channel emotes, staff badges, and the live socket (emote changes, Pro badges, Pro personal emotes). */
+/* BetterTTV: global/channel emotes, staff badges, and the live socket (emote changes, Pro badges, Pro personal emotes,
+   Pro username effects). */
 (function (root, factory) {
   var util = typeof require === 'function' ? require('./util.js') : root.TCO.util;
   var api = factory(root, util);
@@ -16,6 +17,10 @@
   var ROOM_RE = /^\d+$/;
   // Zero-width is a client-side list (not an API flag), applied to the global set only.
   var ZW_CODES = new Set(['SoSnowy', 'IceCold', 'SantaHat', 'TopHat', 'ReinDeer', 'CandyCane', 'cvMask', 'cvHazmat']);
+  // BTTV Pro username effects ("BTTV paints"), as the socket names them (the extension's UsernameEffects). The name
+  // becomes a class (renderer.js BTTV_FX, kept equal), so nothing else gets through.
+  var EFFECTS = new Set(['glow', 'flare', 'iridescence', 'supernova', 'midas', 'glacier', 'intergalactic', 'peach', 'abyss',
+    'phoenix', 'arcane', 'evergreen', 'sakura', 'onyx', 'crimson']);
 
   function badPayload(what) { return new Error('unexpected ' + what + ' payload'); }
   // A size under 1 px (0.001, 1e-20) is a broken payload, not a real emote: use the default.
@@ -97,7 +102,8 @@
     return map;
   }
 
-  // Socket lookup_user data -> {userId, badge:Badge|null, emotes:Map}. badge can be null even for Pro users.
+  // Socket lookup_user data -> {userId, badge:Badge|null, emotes:Map, effect:string|null}. badge can be null even for
+  // Pro users. effect is the chosen username effect (usernameEffect); the old `glow` flag and the hover effect are not used.
   function parseLookupUser(d) {
     if (!d || typeof d !== 'object') return null;
     if (d.provider && d.provider !== 'twitch') return null;
@@ -107,7 +113,8 @@
     return {
       userId: userId,
       badge: url ? { provider: 'bttv', title: 'BTTV Pro', urls: { 1: url, 2: url, 4: url } } : null,
-      emotes: addEmotes(new Map(), d.emotes)
+      emotes: addEmotes(new Map(), d.emotes),
+      effect: typeof d.usernameEffect === 'string' && EFFECTS.has(d.usernameEffect) ? d.usernameEffect : null
     };
   }
 
@@ -152,7 +159,7 @@
   }
 
   // Live socket for one channel. Callbacks: onEmoteAdd(emote), onEmoteUpdate(emote), onEmoteRemove(emoteId),
-  // onUser(userId, {badge, emotes}), onReopen(). The socket does not replay events, so onReopen fires when it
+  // onUser(userId, {badge, emotes, effect}), onReopen(). The socket does not replay events, so onReopen fires when it
   // opens again after a drop (not after the planned 45-minute refresh): the caller refetches the channel then.
   // opts.WebSocket may be injected (tests).
   function createLive(opts) {
@@ -193,7 +200,7 @@
         }
         case 'lookup_user': {
           var u = parseLookupUser(d);
-          if (u) call(opts.onUser, u.userId, { badge: u.badge, emotes: u.emotes });
+          if (u) call(opts.onUser, u.userId, { badge: u.badge, emotes: u.emotes, effect: u.effect });
           return;
         }
         default:
@@ -237,6 +244,7 @@
 
   return {
     ZW_CODES: ZW_CODES,
+    EFFECTS: EFFECTS,
     REFRESH_MS: REFRESH_MS,
     normalizeEmote: normalizeEmote,
     parseGlobal: parseGlobal,

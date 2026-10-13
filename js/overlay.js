@@ -527,12 +527,19 @@
       color = m.color || T.util.defaultColor(m.userId, m.login);
       if (cfg.readable) color = T.util.readableColor(color, cfg.readable_level / 10, nameBackdrop(cfg));
     }
-    var paintId = null;
+    var paintId = null, fx = null;
     if (S.cfg.paints && m.userId && isTwitch(m)) {
       var eff = effective(m.userId);
       if (eff.paint && S.stv.paints.has(eff.paint)) paintId = eff.paint;
+      // A BetterTTV Pro username effect, for a chatter without a 7TV paint (that one wins).
+      if (!paintId) {
+        var bu = S.bttvUsers.peek(m.userId);
+        fx = bu && bu.effect || (S.demo ? S.demo.bttvEffect(m.userId) : null);
+      }
     }
-    return { text: m.displayName || m.login || '', color: color, paintId: paintId };
+    var out = { text: m.displayName || m.login || '', color: color, paintId: paintId };
+    if (fx) out.fx = fx;
+    return out;
   }
 
   // scale: the paint files for the name's drawn size (renderer.js paintScale), as paintCss.ruleFor takes it.
@@ -1015,7 +1022,8 @@
       var home = S.rooms.home();
       if (home) subscribeSet(home.stv);
     }
-    if (!S.bttvLive && (cfg.emotes_bttv || (cfg.badges && cfg.badges_bttv))) {
+    // BTTV Pro badges, personal emotes and username effects all come over this socket (lookup_user).
+    if (!S.bttvLive && (cfg.emotes_bttv || (cfg.badges && cfg.badges_bttv) || cfg.paints)) {
       S.bttvLive = T.bttv.createLive({
         roomId: roomId,
         onEmoteAdd: function (e) {
@@ -1039,7 +1047,8 @@
         onUser: function (userId, data) {
           userId = T.util.idStr(userId);
           if (!userId || !data) return;
-          S.bttvUsers.set(userId, { badge: data.badge || null, emotes: S.cfg.emotes_bttv && data.emotes || null });
+          S.bttvUsers.set(userId, { badge: data.badge || null, emotes: S.cfg.emotes_bttv && data.emotes || null,
+            effect: data.effect || null });
           changed({ userId: userId });
         },
         // The socket only carries changes made while it is open: after a reconnect, refetch the channel.

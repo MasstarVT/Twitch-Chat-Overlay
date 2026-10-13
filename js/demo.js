@@ -276,6 +276,9 @@
       return null;
     }
 
+    // A BetterTTV Pro username effect (the paints switch shows it, as a lookup_user would bring it).
+    function bttvEffect(uid) { return uid === 'demo-5' ? 'midas' : null; }
+
     function firstBadge(map) {
       var list = firstValue(map);
       return list && list[0] ? list[0] : null;
@@ -305,6 +308,7 @@
       stop: function () { if (timer) clearInterval(timer); timer = null; },
       onCatalog: onCatalog,
       effective: effective,
+      bttvEffect: bttvEffect,
       extraBadges: extraBadges,
       _twitchEmotesTag: twitchEmotesTag
     };

@@ -266,6 +266,12 @@ const LOOKUP_PRO = {
   emotes: [{ id: '60b0c36388e2a4b54e61d8a2', code: 'cvMask', imageType: 'gif', animated: true, user: { id: 'u', name: 'someprouser' }, channel: 'twitch:22484632', urlTemplate: 'https://cdn.betterttv.net/emote/{id}/{{image}}', url: 'https://cdn.betterttv.net/emote/60b0c36388e2a4b54e61d8a2/1x' }]
 };
 const LOOKUP_NULL_BADGE = { name: 'yetiapocalypse', providerId: '72566780', channel: 'twitch:22484632', pro: true, subscribed: false, emotes: [], badge: null };
+// A Pro user with a username effect, as the socket sent it (2026-10-13; name and ids changed).
+const LOOKUP_EFFECT = {
+  name: 'someeffectuser', providerId: '72566782', channel: 'twitch:22484632', pro: true, subscribed: false, emotes: [], glow: false,
+  usernameEffect: 'supernova', usernameHoverEffect: null,
+  badge: { url: 'https://cdn.betterttv.net/badges/pro/fdb72e33-1111-2222-3333-444455556666.webp', startedAt: '2024-02-04T03:20:36.000Z' }
+};
 
 test('bttv.normalizeEmote: webp urls 1x/2x/3x -> keys 1/2/4, default 28x28, zw only for global codes', () => {
   const e = bttv.normalizeEmote(BTTV_GLOBAL[4], true);
@@ -336,6 +342,19 @@ test('bttv.parseLookupUser: Pro badge from badge.url, null badge allowed, person
   assert.equal(n.badge, null);
   assert.equal(n.emotes.size, 0);
   assert.equal(bttv.parseLookupUser({ providerId: '' }), null);
+});
+
+test('bttv.parseLookupUser: the username effect, only by a name BetterTTV has', () => {
+  assert.equal(bttv.parseLookupUser(LOOKUP_EFFECT).effect, 'supernova');
+  assert.equal(bttv.parseLookupUser(LOOKUP_PRO).effect, null, 'usernameEffect: null');
+  assert.equal(bttv.parseLookupUser(LOOKUP_NULL_BADGE).effect, null, 'no usernameEffect');
+  // The old glow flag is not an effect; neither is a hover effect, an unknown name or anything that isn't one.
+  const eff = (o) => bttv.parseLookupUser(Object.assign({}, LOOKUP_NULL_BADGE, o)).effect;
+  assert.equal(eff({ glow: true }), null);
+  assert.equal(eff({ usernameHoverEffect: 'wave' }), null);
+  ['Glow', 'rainbow', 'glow x', 'midas"', '', 7, { name: 'glow' }, ['glow']].forEach((v) => assert.equal(eff({ usernameEffect: v }), null, String(v)));
+  bttv.EFFECTS.forEach((n) => assert.equal(eff({ usernameEffect: n }), n));
+  assert.equal(bttv.EFFECTS.size, 15);
 });
 
 test('bttv.upsertEmote / removeEmoteById handle renames by id', () => {
@@ -425,7 +444,7 @@ test('bttv.createLive: joins the channel, filters by channel, forwards emote and
     onEmoteAdd: (e) => ev.push(['add', e.name, e.zw]),
     onEmoteUpdate: (e) => ev.push(['update', e.name]),
     onEmoteRemove: (id) => ev.push(['remove', id]),
-    onUser: (uid, info) => ev.push(['user', uid, info.badge && info.badge.title, info.emotes.size])
+    onUser: (uid, info) => ev.push(['user', uid, info.badge && info.badge.title, info.emotes.size, info.effect])
   });
   live.start();
   assert.equal(sockets.length, 1);
@@ -441,6 +460,7 @@ test('bttv.createLive: joins the channel, filters by channel, forwards emote and
   send({ name: 'emote_delete', data: { channel: 'twitch:1', emoteId: 'dddddddddddddddddddddddd' } });
   send({ name: 'lookup_user', data: LOOKUP_PRO });
   send({ name: 'lookup_user', data: LOOKUP_NULL_BADGE });
+  send({ name: 'lookup_user', data: LOOKUP_EFFECT });
   sockets[0].onmessage({ data: 'not json' });
   send({ name: 'settings_update', data: {} });
 
@@ -448,8 +468,9 @@ test('bttv.createLive: joins the channel, filters by channel, forwards emote and
     ['add', 'cvMask', false],
     ['update', 'Renamed'],
     ['remove', 'cccccccccccccccccccccccc'],
-    ['user', '72566781', 'BTTV Pro', 1],
-    ['user', '72566780', null, 0]
+    ['user', '72566781', 'BTTV Pro', 1, null],
+    ['user', '72566780', null, 0, null],
+    ['user', '72566782', 'BTTV Pro', 0, 'supernova']
   ]);
   for (const s of sockets[0].sent) assert.notEqual(JSON.parse(s).name, 'broadcast_me');
   live.stop();

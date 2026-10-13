@@ -55,6 +55,14 @@
   var MAX_CLEARS = 8;           // chat clears kept for reply headers (one per platform is the usual most)
   var MAX_IMAGES = 200;       // emote images per message (base + overlays); the rest render as their names
   var PAINT_ID_RE = /^[0-9A-Za-z]{1,40}$/;
+  // BetterTTV Pro username effects (bttv.js EFFECTS, kept equal), drawn by css/overlay.css as .bttv-fx.fx-<name>. The
+  // textured ones also take an outline from an SVG filter (FX_STROKE: its color, a near-black tint of the texture, as
+  // BetterTTV draws it); glow and flare draw over the name's own color.
+  var BTTV_FX = ['glow', 'flare', 'iridescence', 'supernova', 'midas', 'glacier', 'intergalactic', 'peach', 'abyss',
+    'phoenix', 'arcane', 'evergreen', 'sakura', 'onyx', 'crimson'];
+  var FX_STROKE = { iridescence: '#2f395f', supernova: '#702838', glacier: '#166258', intergalactic: '#4e316c',
+    midas: '#674911', peach: '#5c2a14', abyss: '#14247a', phoenix: '#52000e', arcane: '#2c1e84', evergreen: '#0e4a1e',
+    sakura: '#8c2a63', onyx: '#050506', crimson: '#3a0610' };
   var HEX_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
   var ANN_COLORS = ['PRIMARY', 'BLUE', 'GREEN', 'ORANGE', 'PURPLE'];
   // Platforms other than Twitch that mark their lines with a class (.line.platform-kick). Twitch lines get none.
@@ -1302,7 +1310,7 @@
   }
 
   // Everything a line shows, as plain data.
-  // d: {kind, items, action, badges, name:{text, color, paint}, dpr, noReply: the replied-to message was moderated (or
+  // d: {kind, items, action, badges, name:{text, color, paint, fx}, dpr, noReply: the replied-to message was moderated (or
   //   a filter hides what it said: deps.quoteHidden), alone: a notice's own text line whose notice line is no longer
   //   drawn (events turned off)}
   function modelFor(msg, cfg, d) {
@@ -1326,6 +1334,8 @@
     var text = util.capMarks(typeof nm.text === 'string' && nm.text ? nm.text : String(msg.displayName || msg.login || ''));
     var color = typeof nm.color === 'string' && nm.color ? nm.color : util.defaultColor(msg.userId, msg.login);
     var paint = typeof nm.paint === 'string' && PAINT_ID_RE.test(nm.paint) ? nm.paint : null;
+    // A BetterTTV username effect, for a name without a 7TV paint. Only in the model when there is one.
+    var fx = !paint && typeof nm.fx === 'string' && BTTV_FX.indexOf(nm.fx) >= 0 ? nm.fx : null;
     var dpr = d.dpr > 0 ? d.dpr : 1;
     // A row draws GIFs, gigantified emotes and emote-only messages at emote height (flat), unless row_grow lets them
     // grow the row: then they are drawn, and fetched, at their column sizes.
@@ -1354,6 +1364,7 @@
       msgColor: action ? color : null,
       parts: parts
     };
+    if (fx) model.name.fx = fx;
     if (time) model.time = time;
     return model;
   }
@@ -1479,6 +1490,39 @@
         util.warn('renderer: deps.shouldShow threw', e);
         return true;
       }
+    }
+
+    // ----- BetterTTV username effects: the outline filters the textured ones use, once per document -----
+    var fxDefs = null;
+    function ensureFxFilters() {
+      if (fxDefs || !doc.createElementNS) return;
+      var svg = doc.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('class', 'fx-defs');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('width', '0');
+      svg.setAttribute('height', '0');
+      var defs = svg.appendChild(doc.createElementNS(SVG_NS, 'defs'));
+      var add = function (parent, tag, attrs) {
+        var e = doc.createElementNS(SVG_NS, tag);
+        for (var a in attrs) e.setAttribute(a, attrs[a]);
+        return parent.appendChild(e);
+      };
+      // An outline around the letters, thicker below (it reads as a drop shadow), behind the textured text: BetterTTV's
+      // filter, 1 px and 2 px whatever the text size (BetterTTV shows the effects at 26 px with the same).
+      Object.keys(FX_STROKE).forEach(function (name) {
+        var f = add(defs, 'filter', { id: 'tco-fx-' + name, x: '-20%', y: '-20%', width: '140%', height: '150%' });
+        add(f, 'feMorphology', { in: 'SourceAlpha', operator: 'dilate', radius: '1', result: 'dilated' });
+        add(f, 'feOffset', { in: 'dilated', dy: '2', result: 'dilatedBottom' });
+        add(f, 'feFlood', { 'flood-color': FX_STROKE[name], result: 'outlineColor' });
+        add(f, 'feComposite', { in: 'outlineColor', in2: 'dilatedBottom', operator: 'in', result: 'bottomOutline' });
+        add(f, 'feComposite', { in: 'outlineColor', in2: 'dilated', operator: 'in', result: 'outline' });
+        var m = add(f, 'feMerge', {});
+        add(m, 'feMergeNode', { in: 'bottomOutline' });
+        add(m, 'feMergeNode', { in: 'outline' });
+        add(m, 'feMergeNode', { in: 'SourceGraphic' });
+      });
+      fxDefs = svg;
+      (doc.body || doc.documentElement).appendChild(svg);
     }
 
     // ----- paints: one rule per paint id in our own <style> (two with still paints) -----
@@ -1705,8 +1749,10 @@
       var bs = el('span', 'badges');
       for (var i = 0; i < model.badges.length; i++) bs.appendChild(badgeNode(model.badges[i]));
       line.appendChild(bs);
-      var nm = span(model.name.paint ? 'name painted p-' + model.name.paint : 'name', model.name.text);
+      var fx = model.name.fx;
+      var nm = span(model.name.paint ? 'name painted p-' + model.name.paint : fx ? 'name bttv-fx fx-' + fx : 'name', model.name.text);
       if (model.name.color) nm.style.color = model.name.color;
+      if (fx && FX_STROKE[fx]) ensureFxFilters();
       line.appendChild(nm);
       line.appendChild(span('colon', model.colon));
       var ms = el('span', 'message');
@@ -1729,7 +1775,7 @@
         items: tk.items,
         action: !!(msg.action || tk.action),
         badges: Array.isArray(badges) ? badges : [],
-        name: { text: nm.text, color: nm.color, paint: paint },
+        name: { text: nm.text, color: nm.color, paint: paint, fx: cfg.paints !== false ? nm.fx : null },
         dpr: dpr,
         // A moderated quote, or one the overlay's filters hide (bots, hide_commands, block_words, links=hide; asked again on
         // each redraw, with the reply's message: whose bot list applies depends on where it was said).
@@ -2038,7 +2084,8 @@
     // the line breaks inside (overflow-wrap) can't be held in one box: it stays as it is. Once settled, the line's own
     // text nodes go back in place of the boxes. A line with right-to-left text isn't decoded: boxes would reorder it.
     var RTL_RE = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/;
-    // The text nodes of a line's name (not a painted one: its paint is clipped to its own text) and message, in order.
+    // The text nodes of a line's name (not a painted one, or one with a BetterTTV effect: its paint is clipped to its own
+    // text) and message, in order.
     function decodeNodes(line) {
       var out = [];
       var walk = function (node) {
@@ -2051,7 +2098,8 @@
       };
       for (var c = line.firstElementChild; c; c = c.nextElementSibling) {
         if (!c.classList) continue;
-        if (c.classList.contains('message') || (c.classList.contains('name') && !c.classList.contains('painted'))) walk(c);
+        if (c.classList.contains('message') || (c.classList.contains('name') && !c.classList.contains('painted') &&
+          !c.classList.contains('bttv-fx'))) walk(c);
       }
       return out;
     }
@@ -3005,6 +3053,8 @@
       detach(linesEl);
       detach(styleEl);
       styleEl = null;
+      detach(fxDefs);
+      fxDefs = null;
     }
 
     setConfig(opts.cfg || {});
@@ -3094,6 +3144,8 @@
       wantEmote: wantEmote,
       wantBadge: wantBadge,
       paintScale: paintScale,
+      BTTV_FX: BTTV_FX,
+      FX_STROKE: FX_STROKE,
       baseHeight: baseHeight,
       shadowCss: shadowCss,
       tshadow: tshadow,

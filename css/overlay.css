@@ -386,6 +386,72 @@ body {
   background-repeat: no-repeat;
 }
 
+/* ---------- BetterTTV username effects (.bttv-fx.fx-<effect>, renderer.js BTTV_FX; a 7TV paint wins over one) ----------
+   BetterTTV Pro's name styles, drawn as its extension draws them at the overlay's name size: glow is a soft halo in the
+   name's color, flare a white glint that sweeps across it every 8 s, and the textured ones a tile that drifts across the
+   letters (one tile in 16 s) with an outline from the renderer's SVG filter (#tco-fx-<effect>). paint_images=static
+   stops the motion. The ones that paint the letters keep no outline or text shadow, as a 7TV paint keeps none. */
+.fx-glow { text-shadow: 0 0 1.5em currentColor; }
+:where(.has-outline, .shadow-text) .fx-glow { text-shadow: var(--tshadow), 0 0 1.5em currentColor; }
+.bttv-fx:not(.fx-glow) {
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+}
+.fx-flare {
+  background-image: linear-gradient(75deg, transparent 40%, rgba(255, 255, 255, .8) 50%, transparent 60%),
+    linear-gradient(currentColor, currentColor);
+  background-size: 200% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  background-position: 200% center, center;
+  animation: tco-fx-flare 8s linear infinite;
+}
+/* The sweep takes the first half, and the glint waits off the name for the second. */
+@keyframes tco-fx-flare {
+  0% { background-position: 200% center, center; }
+  50%, 100% { background-position: -200% center, center; }
+}
+.fx-iridescence,
+.fx-supernova,
+.fx-midas,
+.fx-glacier,
+.fx-intergalactic,
+.fx-peach,
+.fx-abyss,
+.fx-phoenix,
+.fx-arcane,
+.fx-evergreen,
+.fx-sakura,
+.fx-onyx,
+.fx-crimson {
+  background-size: 6em 6em;
+  background-repeat: repeat;
+  background-position: 0 0;
+  animation: tco-fx-drift 16s linear infinite;
+}
+@keyframes tco-fx-drift {
+  from { background-position: 0 0; }
+  to { background-position: -6em -6em; }
+}
+.fx-iridescence { background-image: url(https://cdn.betterttv.net/assets/username_effects/iridescence.png); filter: url(#tco-fx-iridescence); }
+.fx-supernova { background-image: url(https://cdn.betterttv.net/assets/username_effects/supernova.png); filter: url(#tco-fx-supernova); }
+.fx-midas { background-image: url(https://cdn.betterttv.net/assets/username_effects/midas.png); filter: url(#tco-fx-midas); }
+.fx-glacier { background-image: url(https://cdn.betterttv.net/assets/username_effects/glacier.png); filter: url(#tco-fx-glacier); }
+.fx-intergalactic { background-image: url(https://cdn.betterttv.net/assets/username_effects/intergalactic.png); filter: url(#tco-fx-intergalactic); }
+.fx-peach { background-image: url(https://cdn.betterttv.net/assets/username_effects/peach.png); filter: url(#tco-fx-peach); }
+.fx-abyss { background-image: url(https://cdn.betterttv.net/assets/username_effects/abyss.png); filter: url(#tco-fx-abyss); }
+.fx-phoenix { background-image: url(https://cdn.betterttv.net/assets/username_effects/phoenix.png); filter: url(#tco-fx-phoenix); }
+.fx-arcane { background-image: url(https://cdn.betterttv.net/assets/username_effects/arcane.png); filter: url(#tco-fx-arcane); }
+.fx-evergreen { background-image: url(https://cdn.betterttv.net/assets/username_effects/evergreen.png); filter: url(#tco-fx-evergreen); }
+.fx-sakura { background-image: url(https://cdn.betterttv.net/assets/username_effects/sakura.png); filter: url(#tco-fx-sakura); }
+.fx-onyx { background-image: url(https://cdn.betterttv.net/assets/username_effects/onyx.png); filter: url(#tco-fx-onyx); }
+.fx-crimson { background-image: url(https://cdn.betterttv.net/assets/username_effects/crimson.png); filter: url(#tco-fx-crimson); }
+.paint-static .bttv-fx { animation: none; }
+/* The filters' own <svg> takes no room. */
+.fx-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
 /* ---------- emotes (zero-width overlays stack in one grid cell) ---------- */
 .emote-stack {
   --eh: var(--emote-h, 1.75em);

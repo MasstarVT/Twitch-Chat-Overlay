@@ -987,7 +987,14 @@ test('overlay.css: a keyframes rule for every name the renderer writes, animatin
   const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8')
     .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
   const frames = {};
-  for (const m of css.matchAll(/@keyframes ([\w-]+) \{([\s\S]*?)\n\}/g)) frames[m[1]] = m[2];
+  // The BetterTTV username effects' own two (tco-fx-*) move a name's background and nothing else: they are the effects
+  // themselves, not a line's entrance or exit, and paint_images=static stops them.
+  const fx = {};
+  for (const m of css.matchAll(/@keyframes ([\w-]+) \{([\s\S]*?)\n\}/g)) (/^tco-fx-/.test(m[1]) ? fx : frames)[m[1]] = m[2];
+  assert.deepStrictEqual(Object.keys(fx).sort(), ['tco-fx-drift', 'tco-fx-flare']);
+  Object.keys(fx).forEach((n) => assert.deepStrictEqual(Array.from(new Set(Array.from(fx[n].matchAll(/([\w-]+):/g), (m) => m[1]))),
+    ['background-position'], n));
+  assert.match(css, /\.paint-static \.bttv-fx \{ animation: none; \}/);
   assert.deepStrictEqual(Object.keys(frames).sort(), R.ENTER_NAMES.concat(R.EXIT_NAMES).sort());
   Object.keys(frames).forEach((n) => {
     // Opacity and transform run off the main thread; transform-origin (or anything else) would not. scan alone
@@ -2004,12 +2011,16 @@ test('overlay.css: the stage-3 rules (outline, text-only shadow, name-color bar)
   const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'css', 'overlay.css'), 'utf8')
     .replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
   // text-shadow only under .has-outline / .shadow-text, never on the built-in SVG badges' letters, and painted
-  // names keep none.
+  // names keep none. A BetterTTV glow is a text-shadow of its own, after the outline and shadow when they are on; the
+  // other BetterTTV effects paint the letters and keep none, as 7TV paints do.
   const ts = Array.from(css.matchAll(/([^{}]+)\{[^}]*text-shadow:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]);
   assert.deepStrictEqual(ts, [
     [':where(.has-outline, .shadow-text) .line,\n:where(.has-outline, .shadow-text) .reply', 'var(--tshadow, none)'],
     [':where(.has-outline, .shadow-text) .badge.icon text', 'none'],
-    ['.painted', 'none']
+    ['.painted', 'none'],
+    ['.fx-glow', '0 0 1.5em currentColor'],
+    [':where(.has-outline, .shadow-text) .fx-glow', 'var(--tshadow), 0 0 1.5em currentColor'],
+    ['.bttv-fx:not(.fx-glow)', 'none']
   ]);
   // Room for the outline and the text-only shadow where a line (a row without a box) clips its sides, and the
   // reply header lets them draw that far past its box: after .reply's own overflow: hidden, at its specificity.
