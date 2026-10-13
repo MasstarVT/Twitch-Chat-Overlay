@@ -25,7 +25,7 @@
   <!-- Shine: a tilted band of light sweeps across the tile every few seconds -->
   <g class="shine" clip-path="url(#tile)">
     <rect x="-20" y="-8" width="14" height="52" fill="url(#glint)" transform="rotate(25 18 18)">
-      <animate id="sweep" attributeName="x" values="-20;42" dur="0.8s" begin="1.8s;sweep.end+3.5s"
+      <animate id="sweep" attributeName="x" values="-20;42" dur="0.8s" begin="1s;sweep.end+3.5s"
         calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1"/>
     </rect>
   </g>
