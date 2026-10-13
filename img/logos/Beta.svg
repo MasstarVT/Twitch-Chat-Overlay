@@ -1,4 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <style>@media (prefers-reduced-motion: reduce) { .shine { display: none } }</style>
+  <defs>
+    <clipPath id="tile"><rect x="1" y="1" width="34" height="34" rx="7"/></clipPath>
+    <linearGradient id="glint" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
   <!-- Dark Background with Electric Blue Border -->
   <rect x="2" y="2" width="32" height="32" rx="6" fill="#0d0d0d" stroke="#00e5ff" stroke-width="2"/>
   
@@ -12,4 +21,12 @@
   <path d="M 12,21 Q 18,19 24,21" fill="none" stroke="#00e5ff" stroke-width="2"/>
   <circle cx="16" cy="24" r="1" fill="#00e5ff"/>
   <circle cx="20" cy="23" r="1" fill="#00e5ff"/>
+
+  <!-- Shine: a tilted band of light sweeps across the tile every few seconds -->
+  <g class="shine" clip-path="url(#tile)">
+    <rect x="-20" y="-8" width="14" height="52" fill="url(#glint)" transform="rotate(25 18 18)">
+      <animate id="sweep" attributeName="x" values="-20;42" dur="0.8s" begin="1.8s;sweep.end+3.5s"
+        calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1"/>
+    </rect>
+  </g>
 </svg>
