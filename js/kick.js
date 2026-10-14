@@ -10,7 +10,11 @@
 
   // Kick's public Pusher app, the one kick.com's own web client joins. Kick has rotated the key before: a
   // rotation shows up as a pusher:error 4001 (app does not exist), and only these two lines change.
-  var PUSHER_KEY = '32cbd69e4b950bf97679';
+  // kick.com now gets the key from POST https://web.kick.com/api/v1/realtime/connection with
+  // {"client":{"id":"<uuid>","type":"web"},"capabilities":{"accepted_providers":[{"provider":"pusher"}]}}.
+  // That endpoint only allows kick.com's origin, so the overlay can't ask it; run it with curl after a rotation.
+  // (Kick's other provider, Centrifugo, refuses sockets from any other origin.)
+  var PUSHER_KEY = '34bf7a0ff419a2a775b9';
   var PUSHER_CLUSTER = 'us2';
   var WS_URL = 'wss://ws-' + PUSHER_CLUSTER + '.pusher.com/app/' + PUSHER_KEY + '?protocol=7&client=js&version=8.4.0&flash=false';
   var CHANNEL_API = 'https://kick.com/api/v2/channels/';
