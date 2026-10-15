@@ -216,6 +216,13 @@ describe('text cleanup', () => {
     assert.equal(tk.cleanText(SOH + 'ACTION dances ' + TAG0 + SOH).text, 'dances');
     assert.equal(tk.cleanText(SOH + 'ACTION dances ' + TAG0 + SOH).action, true);
     assert.equal(tk.cleanText('a ' + TAG0 + ' b').text, 'a ' + TAG0 + ' b', 'only at the end');
+    assert.equal(tk.cleanText('a  ' + TAG0).text, 'a ', 'one space with each');
+    assert.equal(tk.cleanText(TAG0 + TAG0).text, '');
+    // A long run of them that doesn't end the line: the regex this replaced took time growing with its square.
+    const long = (' ' + TAG0).repeat(8000) + 'x';
+    const t0 = Date.now();
+    for (let i = 0; i < 5; i++) assert.equal(tk.cleanText(long).text, long);
+    assert.ok(Date.now() - t0 < 100, 'took ' + (Date.now() - t0) + ' ms');
     const heart = '❤️';
     const england = String.fromCodePoint(0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F);
     assert.equal(tk.cleanText('love ' + heart).text, 'love ' + heart, 'an emoji\'s variation sign stays');

@@ -426,6 +426,7 @@ body {
 .fx-sakura,
 .fx-onyx,
 .fx-crimson {
+  background-color: currentColor; /* the name's color until the tile loads (the tiles are opaque), or if it never does */
   background-size: 6em 6em;
   background-repeat: repeat;
   background-position: 0 0;

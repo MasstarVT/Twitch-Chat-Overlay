@@ -586,12 +586,15 @@ test('404.html: its one inline script is the one its CSP hash allows, and it sen
   const go = (href) => {
     const u = new URL(href);
     let to = null;
-    const location = { hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash, replace: (x) => { to = x; } };
+    const location = { href: u.href, hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash, replace: (x) => { to = x; } };
     require('node:vm').runInNewContext(scripts[0], { window: { location } });
     return to;
   };
   assert.strictEqual(go('https://chat.masstar.org/nope'), '/');
   assert.strictEqual(go('https://chat.masstar.org/a/b/c.html?channel=x#obs'), '/?channel=x#obs');
+  // A '#' typed at the end of a value: location.hash is '' for it, and it was dropped (keywords=c# became c).
+  assert.strictEqual(go('https://chat.masstar.org/missing?channel=x&keywords=c#'), '/?channel=x&keywords=c#');
+  assert.strictEqual(go('https://chat.masstar.org/missing#top?x=1'), '/#top?x=1');
   // A copy on github.io lives under the repository's name.
   assert.strictEqual(go('https://someone.github.io/Twitch-Chat-Overlay/nope'), '/Twitch-Chat-Overlay/');
   assert.strictEqual(go('https://someone.github.io/'), '/');

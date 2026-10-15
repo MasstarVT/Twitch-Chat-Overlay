@@ -331,6 +331,7 @@ describe('state routing', () => {
   test('user.update set switch calls onSetSwitch(roomId, newSetId, ownerId) once', () => {
     const calls = [];
     const s = setup({ onSetSwitch: function (roomId, setId, ownerId) { calls.push([roomId, setId, ownerId]); } });
+    s.state.registerChannelSet('71092938', CHANNEL_SET, s.channel, OWNER, 0); // its connection index, as v3 REST gives it
     const body = { id: OWNER, kind: 1, updated: [{ key: 'connections', index: 0, nested: true, value: [
       { key: 'emote_set', type: 'object', old_value: { id: CHANNEL_SET }, value: { id: NEW_SET } },
       { key: 'emote_set_id', type: 'string', old_value: CHANNEL_SET, value: NEW_SET }
@@ -462,6 +463,36 @@ describe('state routing', () => {
     state.forgetRoom('71092938');
     switchTo(state, NEW_SET);
     assert.deepEqual(calls, [['kick', NEW_SET]], 'the only room the owner has: as before');
+  });
+
+  // The socket opens in tier 1 and the catalog loads in tier 2: a paint cosmetic.create brought first was kept in its
+  // lossy v3 form (one layer, no opacity, no still frame) for the whole session.
+  test('the catalog replaces a paint cosmetic.create brought first, and names it so its rule is made again', () => {
+    const s = setup();
+    s.state.handleDispatch('cosmetic.create', { id: PAINT_B, kind: 10, object: { id: PAINT_B, kind: 'PAINT', data: {
+      id: PAINT_B, name: 'v3', function: 'LINEAR_GRADIENT', angle: 90, repeat: false, stops: [{ at: 0, color: -1 }], shadows: []
+    } } });
+    assert.match(s.state.paints.get(PAINT_B).bgImage, /^linear-gradient/);
+    s.events.length = 0;
+    const v4 = { id: PAINT_B, name: 'v4', bgImage: 'x', bgColor: null, filter: null };
+    const other = { id: PAINT_A, name: 'v4', bgImage: 'y', bgColor: null, filter: null };
+    s.state.mergeCatalog({ paints: new Map([[PAINT_B, v4], [PAINT_A, other]]), badges: new Map() });
+    assert.equal(s.state.paints.get(PAINT_B), v4);
+    assert.deepEqual(s.events, [{ all: true, paints: [PAINT_B] }]);
+    // A later catalog (a reload) keeps the first one's copy, as for any catalog paint.
+    s.events.length = 0;
+    s.state.mergeCatalog({ paints: new Map([[PAINT_B, { id: PAINT_B, name: 'again' }]]), badges: new Map() });
+    assert.equal(s.state.paints.get(PAINT_B), v4);
+    assert.deepEqual(s.events, [{ all: true }]);
+  });
+
+  test('user.update naming a connection: a lone room whose index is not known confirms over REST, not takes it', () => {
+    const calls = [];
+    const state = stv.createState({ onSetSwitch: function (roomId, setId) { calls.push([roomId, setId]); } });
+    state.registerChannelSet('71092938', CHANNEL_SET, new Map(), OWNER); // the v4 fallback: no connection index
+    state.handleDispatch('user.update', { id: OWNER, updated: [{ key: 'connections', index: 1,
+      value: [{ key: 'emote_set_id', old_value: OTHER_SET, value: NEW_SET }] }] });
+    assert.deepEqual(calls, [['71092938', null]]);
   });
 
   test('cosmetic.create adds at most CAPS.extraCosmetics unknown paints and badges', () => {

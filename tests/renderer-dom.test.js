@@ -651,6 +651,93 @@ test('adopt: a line whose author was banned in this copy after it came stays out
   assert.deepStrictEqual(b.lines().map((l) => l.byClass('message').map((m) => m.textContent).join('')), ['said after']);
 });
 
+test('adopt: a chat clear that reached this copy first keeps the lines it covers out; what came after it stays', (t) => {
+  const s = setup(t, { animate: false });
+  s.r.push(chat('amy', 'before the clear'));
+  s.r.flush();
+  s.tick(1000);
+  const b = second(t, s);
+  b.r.hold(true);
+  b.r.clearAll(); // the /clear reached the new copy's connection first
+  s.tick(1000);
+  const after = chat('bob', 'after the clear');
+  s.r.push(after);
+  s.r.flush();
+  b.r.adopt(s.r.snapshot(), s.r.moderation());
+  b.r.hold(false);
+  assert.deepStrictEqual(b.lines().map((l) => l.byClass('message').map((m) => m.textContent).join('')), ['after the clear']);
+  b.r.push(replyTo(after, 'cy', 'hi'));
+  b.r.flush();
+  assert.notStrictEqual(replyText(b.lines()[1]), null, 'a reply to what was said after the clear keeps its quote');
+});
+
+// Kick sends its sub, gift and host notices without an id: one both copies got was drawn twice when the new copy got it
+// a moment after the old one (its queued copy was newer than the old copy's newest line).
+test('adopt: an id-less notice both copies got goes in once; a later one like it still shows', (t) => {
+  const s = setup(t, { animate: false });
+  const kickSub = () => resub('kev', '', { id: '', userId: '', platform: 'kick', type: 'sub', systemMsg: 'kev subscribed!' });
+  s.r.push(chat('amy', 'hi'));
+  s.r.push(kickSub());
+  s.r.flush();
+  const b = second(t, s);
+  b.r.hold(true);
+  s.tick(30);
+  b.r.push(kickSub()); // the new copy's socket got it 30 ms later
+  b.r.adopt(s.r.snapshot(), s.r.moderation());
+  b.r.hold(false);
+  assert.deepStrictEqual(Array.from(b.lines()).map((l) => l.textContent), ['amy: hi', 'kev subscribed!']);
+  s.tick(10000);
+  b.r.push(kickSub()); // another sub later: shown
+  b.r.flush();
+  assert.strictEqual(b.lines().length, 3);
+});
+
+test('adopt: a reply to what a user said after a timeout this copy saw keeps its quote', (t) => {
+  const s = setup(t, { animate: false });
+  const b = second(t, s);
+  b.r.hold(true);
+  b.r.clearUser(chat('vic', 'x').userId); // the timeout reached only the new copy
+  s.tick(1000);
+  const again = chat('vic', 'back again');
+  s.r.push(again);
+  s.r.flush();
+  b.r.adopt(s.r.snapshot(), s.r.moderation());
+  b.r.hold(false);
+  b.r.push(replyTo(again, 'rex', 'welcome back'));
+  b.r.flush();
+  assert.notStrictEqual(replyText(b.lines()[1]), null);
+});
+
+test('adopt: a reply whose quote was found moderated keeps it out after a restart, also once the lists forget it', (t) => {
+  const s = setup(t, { animate: false });
+  const p = chat('pat', 'deleted text');
+  s.r.push(p);
+  s.r.push(replyTo(p, 'rex', 're pat'));
+  s.r.flush();
+  s.r.clearMessage(p.id);
+  assert.strictEqual(replyText(s.lines()[0]), null);
+  const b = second(t, s);
+  b.r.adopt(s.r.snapshot()); // no moderation handed over: as when the deletion has expired from the lists
+  b.r.flush();
+  assert.deepStrictEqual(b.lines().map(replyText), [null]);
+});
+
+test('adopt: a row line that kept its row_sep mark keeps it in the new copy', (t) => {
+  const row = { layout: 'horizontal', animate: false, row_sep: 'dot', max: 200 };
+  const s = setup(t, row);
+  rowLayout(s, 300);
+  s.r.hold(true);
+  for (let i = 0; i < 20; i++) s.r.push(chat('a', 'x'.repeat(7)));
+  s.r.hold(false);
+  assert.deepStrictEqual(s.lines().map((l) => l.className), ['line keep-sep', 'line', 'line']);
+  const snap = s.r.snapshot();
+  assert.deepStrictEqual(snap.map((en) => !!en.keepSep), [true, false, false]);
+  const b = second(t, s, row);
+  b.r.adopt(snap);
+  b.r.flush();
+  assert.deepStrictEqual(Array.from(b.lines()).map((l) => l.className), ['line keep-sep', 'line', 'line']);
+});
+
 test('adopt: what this copy saw meanwhile counts as newer than the other copy\'s moderation', (t) => {
   const s = setup(t, { animate: false });
   for (let i = 0; i < 5; i++) s.r.clearUser('u-x' + i); // the old copy's counter runs ahead
@@ -1932,6 +2019,25 @@ test('paints: each rule is made for the name\'s drawn size, and made again in pl
   s.r.push(chat('dee', '3'));
   s.r.flush();
   assert.deepStrictEqual(sheet(), [rules(3).concat(['.painted.p-P3{background-image:url("https://cdn.7tv.app/P3/3x.webp")}'])]);
+});
+
+// The 7TV catalog replaced a paint cosmetic.create brought first (a lossy v3 copy): its rule is made again in place.
+test('repaint: the rule of a changed paint is made again, and the names keep their classes', (t) => {
+  let v = 'v3';
+  const s = setup(t, {}, {
+    nameFor: (m) => ({ text: m.displayName, color: '#FFFFFF', paintId: 'P1' }),
+    paintRule: (id) => '.painted.p-' + id + '{background-image:url("https://cdn.7tv.app/' + v + '")}'
+  });
+  s.r.push(chat('amy', '1'));
+  s.r.flush();
+  const st = () => s.doc.head.children.find((e) => e.getAttribute('data-tco') === 'paints').sheet.cssRules.slice();
+  assert.deepStrictEqual(st(), ['.painted.p-P1{background-image:url("https://cdn.7tv.app/v3")}']);
+  v = 'v4';
+  s.r.repaint(['P9']);
+  assert.deepStrictEqual(st(), ['.painted.p-P1{background-image:url("https://cdn.7tv.app/v3")}'], 'a paint not drawn: nothing');
+  s.r.repaint(['P1']);
+  assert.deepStrictEqual(st(), ['.painted.p-P1{background-image:url("https://cdn.7tv.app/v4")}']);
+  assert.strictEqual(s.lines()[0].byClass('name')[0].className, 'name painted p-P1');
 });
 
 test('paints: a HiDPI page (the builder preview) asks for the file for its pixel ratio', (t) => {
@@ -3471,6 +3577,23 @@ function alignedRow(s, W, gap, align) {
     s.lines().forEach((l) => {
       assert.ok(!l.style.left && !l.style.position && !l.style.transition, 'no inline glide style left on ' + l.textContent);
     });
+  });
+});
+
+test('row_align=left: a glide still running stops at once when the settings turn it off', (t) => {
+  [{ animate: false }, { row_align: 'right' }, { layout: 'vertical' }].forEach((change) => {
+    const s = setup(t, { layout: 'horizontal', animate: true, row_align: 'left' });
+    alignedRow(s, 600, 20, 'left');
+    const msgs = ['a', 'b', 'c'].map((n) => chat(n, n.repeat(10)));
+    msgs.forEach((m) => s.r.push(m));
+    s.r.flush();
+    s.tick(1000);
+    s.r.clearMessage(msgs[0].id);
+    assert.ok(s.lines().some((l) => l.style.position === 'relative'), 'gliding');
+    s.r.setConfig(Object.assign({ layout: 'horizontal', animate: true, row_align: 'left' }, change));
+    s.lines().forEach((l) => assert.ok(!l.style.left && !l.style.position, JSON.stringify(change)));
+    s.r.destroy();
+    t.mock.timers.reset();
   });
 });
 

@@ -125,6 +125,17 @@
     };
   }
 
+  // Each trailing U+E0000 (\uDB40\uDC00) with the space before it. A loop: the regex /(?: ?\u{E0000})+$/u retried at every
+  // place in a run of them, so a long line of them that doesn't end the text took time growing with its square.
+  function trimTagSuffix(t) {
+    var end = t.length;
+    while (end >= 2 && t.charCodeAt(end - 1) === 0xDC00 && t.charCodeAt(end - 2) === 0xDB40) {
+      end -= 2;
+      if (end > 0 && t.charCodeAt(end - 1) === 0x20) end--;
+    }
+    return end === t.length ? t : t.slice(0, end);
+  }
+
   function cleanText(text, action) {
     var t = text || '';
     var a = !!action;
@@ -137,7 +148,7 @@
     // Chatterino's and 7TV's newer one, ' U+E0000' (twice on some repeats): its space was drawn, so a repeated message
     // ended a space wider (past a box's edge, or wrapped onto an empty line). Only U+E0000: other invisible characters at
     // the end (an emoji's U+FE0F, a flag's tag characters) are part of what was said.
-    t = t.replace(/(?: ?\u{E0000})+$/u, '');
+    t = trimTagSuffix(t);
     t = t.replace(/\u{E0002}/gu, '\u200D'); // Chatterino-escaped ZWJ (U+E0002) -> real ZWJ
     return { text: t, action: a };
   }

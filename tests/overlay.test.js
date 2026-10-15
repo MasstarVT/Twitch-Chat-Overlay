@@ -193,7 +193,7 @@ async function boot(t, opts) {
         setConfig() {}, hold(on) { h.holds.push(on); }, hasUser() { return false; }, stats() { return null; },
         // An update's restart in place: the lines handed over, and the ones taken.
         snapshot() { return h.pushed.map((m) => ({ msg: m, born: 5 })); },
-        adopt(list) { h.adopted.push(list); return list.length; },
+        adopt(list, mod) { h.adopted.push(list); h.adoptedMod = mod; return list.length; },
         destroy() { h.destroyed++; }
       };
     };
@@ -1600,6 +1600,20 @@ test('reconnect: home data first loaded during the rejoin is not fetched twice',
   await settle();
   assert.strictEqual(h.called('ffz-room').length, 1);
   assert.strictEqual(h.called('bttv-channel').length, 1);
+});
+
+// The link stays in the page after a restart in place: handlers left on it kept the first copy alive for good.
+test('a font stylesheet lets go of its handlers once it has loaded or failed', async (t) => {
+  const h = await boot(t);
+  const link = h.links[0];
+  link.onload();
+  assert.strictEqual(link.onload, null);
+  assert.strictEqual(link.onerror, null);
+  const h2 = await boot(t, { search: '?channel=home&font=Lobster' });
+  const failed = h2.links[h2.links.length - 1];
+  failed.onerror();
+  assert.strictEqual(failed.onload, null);
+  assert.strictEqual(failed.onerror, null);
 });
 
 test('a font stylesheet that failed is requested again when the network returns', async (t) => {
@@ -3733,14 +3747,57 @@ test('update check: new scripts restart the overlay in place: the new copy boots
   assert.strictEqual(h.calls.length, calls, 'and its loads');
 });
 
+// stop() ended the request, which let the held lines into the renderer it then destroyed: after the handoff was taken.
+test('update check: live lines held back for an outage\'s history request go with the handoff', async (t) => {
+  const asks = [];
+  const at = (sec) => String(1e12 + sec * 1000);
+  const h = await boot(t, { location: Object.assign({ reload() {} }, HOSTED, { href: SITE + '/overlay.html?channel=home&history=2' }),
+    stubs: (T, h) => {
+      hostedSite(h);
+      T.irc.loadHistory = () => { const d = deferred(); asks.push(d); return d.promise; };
+    } });
+  asks[0].resolve([]);
+  await settle();
+  join(h);
+  h.feed(priv('pal', 'before the outage', { id: 'p1', 'tmi-sent-ts': at(1) }));
+  const P = globalThis.TCO.ircParse.parseLine; // the page's namespace is the new copy's while it starts
+  const scripts = await readyToRestart(t, h);
+  const api = newCopy();
+  globalThis.TCO.overlay = api;
+  scripts.forEach((s) => s.onload());
+  await settle();
+  h.irc.onStatus('closed');
+  t.mock.timers.tick(1000);
+  h.irc.onStatus('joined', P(ROOMSTATE));
+  assert.strictEqual(asks.length, 2, 'the outage\'s history is asked for');
+  h.irc.receive(P(priv('live', 'held back', { id: 'l1', 'tmi-sent-ts': at(700) })));
+  assert.ok(!texts(h).includes('held back'), 'live chat waits for it');
+  api.booted.handoff.ready();
+  await settle();
+  assert.ok(api.took, 'taken over');
+  assert.deepStrictEqual(api.took.h.lines.map((en) => en.msg.text), ['before the outage', 'held back']);
+});
+
 test('update check: a restart that fails before the old copy stops leaves it running; a second failure reloads', async (t) => {
   let reloads = 0;
   const h = await boot(t, { location: Object.assign({ reload() { reloads++; } }, HOSTED), stubs: (T, h) => hostedSite(h) });
   const oldT = globalThis.TCO;
   const T = oldT;
+  const flag0 = globalThis.TCO_NO_AUTOBOOT;
   let scripts = await readyToRestart(t, h);
+  assert.strictEqual(scripts.length, 2);
   scripts[0].onerror();
   await settle();
+  // A script taken out of the page still runs once loaded: until the other one has, the throwaway namespace and the
+  // no-boot flag stay, so it writes over none of this copy's modules and its overlay.js boots no second overlay.
+  assert.notStrictEqual(globalThis.TCO, oldT, 'not yet');
+  assert.strictEqual(globalThis.TCO_NO_AUTOBOOT, true);
+  const util0 = oldT.util;
+  globalThis.TCO.util = 'the late script';
+  scripts[1].onload();
+  await settle();
+  assert.strictEqual(oldT.util, util0, 'the late script wrote over nothing of this copy');
+  assert.strictEqual(globalThis.TCO_NO_AUTOBOOT, flag0);
   assert.strictEqual(globalThis.TCO, oldT, 'the namespace is put back');
   assert.ok(scripts.every((s) => !s.parentNode || s.parentNode.children.indexOf(s) < 0), 'the new script tags are taken out');
   assert.ok(!h.irc.stopped, 'the running copy runs on');
@@ -3830,6 +3887,42 @@ test('restart in place, the new copy\'s side: it boots unseen, then takes the ol
   t.mock.timers.tick(T.updateCheck.START_MS);
   await settle();
   assert.ok(h.site.fetched.length > 0, 'its update check runs now');
+});
+
+// A gift bomb's single gifts are hidden by the bomb's id, which the new copy never saw if the bomb began before it joined:
+// dozens of single gift lines flooded the overlay after the takeover. A chat clear's test came over as the old copy's
+// function, which kept that whole copy in memory for as long as the clear was kept (a day).
+test('restart in place: gift bombs come over, and chat clears in this copy\'s own terms', async (t) => {
+  const gift = (id) => usernotice('subgift', 'gifter', '', { 'msg-param-community-gift-id': id });
+  const h = await boot(t, {
+    location: { protocol: 'https:', href: HOSTED.href, reload() { assert.fail('no reload'); } },
+    stubs: (T, h) => hostedSite(h),
+    bootOpts: { handoff: { v: 1, lines: [], twitchTs: 0, kickTs: 0, gifts: ['G1', 5, ''], ready() {}, update: null } }
+  });
+  const T = globalThis.TCO;
+  join(h);
+  h.feed(gift('G1')); // a bomb the old copy had seen begin as this one booted: hidden
+  h.feed(gift('G2')); // one that began after that, before this copy joined
+  await settle();
+  assert.deepStrictEqual(h.pushed.map((m) => m.communityGiftId), ['G2']);
+  const page = fakeEl('body');
+  page.replaceChild = function (n, o) { const i = this.children.indexOf(o); this.children[i] = n; n.parentNode = this; o.parentNode = null; return o; };
+  page.appendChild(h.els.chat);
+  const tag = (of, upTo) => { const f = function () { return true; }; f.clearOf = of; if (upTo !== undefined) f.upTo = upTo; return f; };
+  const untagged = function () { return true; };
+  const clears = [tag('twitch'), tag('kick'), tag('twitch', 5000), null, untagged].map((p, i) => ({ seq: i + 1, at: i + 1, pred: p }));
+  assert.strictEqual(T.overlay.takeOver({ v: 1, lines: [], twitchTs: 0, kickTs: 0, gifts: ['G1', 'G2'],
+    mod: { seq: 5, clears: clears } }, h.els.chat), true);
+  assert.deepStrictEqual(h.pushed, [], 'the old copy showed the G2 bomb: its single gifts go');
+  const preds = h.adoptedMod.clears.map((c) => c.pred);
+  assert.ok(preds.slice(0, 3).every((p, i) => p !== clears[i].pred), 'made again');
+  const tw = { kind: 'chat', ts: 4000 }, late = { kind: 'chat', ts: 6000 }, kk = { kind: 'chat', platform: 'kick', ts: 1 };
+  assert.deepStrictEqual([preds[0](tw), preds[0](kk)], [true, false]);
+  assert.deepStrictEqual([preds[1](tw), preds[1](kk)], [false, true]);
+  assert.deepStrictEqual([preds[2](tw), preds[2](late), preds[2](kk)], [true, false, false]);
+  assert.strictEqual(preds[3], null, 'a clear of everything stays one');
+  assert.strictEqual(preds[4], untagged, 'an older copy\'s, which doesn\'t say, as it was');
+  assert.deepStrictEqual(clears.map((c) => c.seq), [1, 2, 3, 4, 5], 'the handoff itself is left as it was');
 });
 
 test('restart in place: a copy refuses a handoff it doesn\'t know, and stop() ends everything of a copy', async (t) => {

@@ -401,6 +401,7 @@
     var gqlStyle = new util.LRU(CAPS.gqlStyle);           // twitch userId -> {paint, badge} | null
     var refetch = new util.LRU(CAPS.refetch);             // personal setId -> time a refetch may start again
     var extraPaints = 0, extraBadges = 0;                 // entries added by cosmetic.create
+    var socketPaints = new Set();                         // ...those paints, in the lossy v3 form the catalog replaces
     var setRooms = new Map();                 // channel setId -> Map<roomId, emotesMap>
     var roomSet = new Map();                  // roomId -> channel setId
     // channel owner's 7TV id -> Map<roomId, the room's connection index in that account (-1: not known)>. One account
@@ -465,10 +466,20 @@
       switched.delete(rid);
     }
 
+    // A paint cosmetic.create brought before the catalog came is a v3 conversion (one layer, no opacity, no still frame):
+    // the catalog's copy replaces it, and the ids are passed on (paints) so their rules are made again.
     function mergeCatalog(cat) {
-      if (cat && cat.paints) cat.paints.forEach(function (p, id) { if (!paints.has(id)) paints.set(id, p); });
+      var redone = [];
+      if (cat && cat.paints) cat.paints.forEach(function (p, id) {
+        if (!paints.has(id)) { paints.set(id, p); return; }
+        if (!socketPaints.has(id)) return;
+        paints.set(id, p);
+        socketPaints.delete(id);
+        extraPaints--;
+        redone.push(id);
+      });
       if (cat && cat.badges) cat.badges.forEach(function (b, id) { if (!badges.has(id)) badges.set(id, b); });
-      emit({ all: true });
+      emit(redone.length ? { all: true, paints: redone } : { all: true });
     }
 
     function wantPersonal() { return !opts.wantPersonal || !!opts.wantPersonal(); }
@@ -507,7 +518,7 @@
         var src = data;
         if (data.id !== id) { src = {}; for (var k in data) src[k] = data[k]; src.id = id; }
         var p = paintCss.fromV3(src);
-        if (p) { paints.set(id, p); extraPaints++; emit({ all: true }); }
+        if (p) { paints.set(id, p); socketPaints.add(id); extraPaints++; emit({ all: true }); }
       } else if (kind === 'BADGE') {
         if (badges.has(id) || extraBadges >= CAPS.extraCosmetics) return;
         var b = normalizeBadgeV3(data);
@@ -568,7 +579,8 @@
         else if (ci === index) hit.push(rid);
       });
       if (known && index >= 0) return { rids: hit, sure: true };
-      return { rids: all, sure: all.length === 1 };
+      // A lone room whose index isn't known, and an event that names one: it may be another connection's, so it confirms.
+      return { rids: all, sure: all.length === 1 && index < 0 };
     }
 
     function announce(rid, next, cleared, sure, ownerId) {

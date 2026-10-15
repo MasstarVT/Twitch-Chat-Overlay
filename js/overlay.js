@@ -48,6 +48,8 @@
   var HANDOFF = 1;
   var READY_MS = 20000;
   var READY_POLL_MS = 250;
+  // How long the new scripts may take to load (and, after a failed restart, to run or fail before it is let go).
+  var SCRIPTS_MS = 30000;
   // Restarts in place that failed before the old copy stopped (it kept running): after this many, a reload instead.
   var RESTART_TRIES = 2;
   var restartFails = 0;
@@ -176,9 +178,11 @@
     // The copy before a restart in place (restartWith) already loaded it.
     var had = document.querySelectorAll ? document.querySelectorAll('link[rel="stylesheet"]') : [];
     for (var i = 0; i < had.length; i++) if (had[i].href === link.href) return;
-    link.onload = function () { delete fontRetry[key]; };
+    // The handlers go once called: the link stays in the page after a restart in place, and would keep this copy alive.
+    link.onload = function () { link.onload = link.onerror = null; delete fontRetry[key]; };
     // A failed request (offline start, or a family Google doesn't host) is marked and asked for again later.
     link.onerror = function () {
+      link.onload = link.onerror = null;
       if (link.parentNode) link.parentNode.removeChild(link);
       loadedFonts[key] = 'failed';
       retryFontLater(name, key);
@@ -238,6 +242,10 @@
 
   function onChanged(e) {
     if (!e) return;
+    if (e.paints) {
+      e.paints.forEach(function (id) { stillProbes.delete(id); });
+      if (S.renderer && S.renderer.repaint) S.renderer.repaint(e.paints);
+    }
     if (e.all) return scheduleRerender(true);
     if (e.roomId === KICK_STV) return scheduleRerender(isKick);
     if (e.roomId) return scheduleRerender(function (m) { return roomIdOf(m) === e.roomId; });
@@ -266,6 +274,23 @@
   // keyed by a Twitch id or fetched from a Twitch-only service (7TV by user id, BTTV and FFZ, cheermotes, paints, the
   // home channel's bot list, a reply's thread) asks this, not '!isKick', so a third platform's lines never reach it.
   function isTwitch(m) { return !m || !m.platform; }
+  // A chat clear's test says which it is (clearOf), so the copy after a restart in place makes it again from its own
+  // functions (ownClearPred): the old one would keep the old copy, and all it held, in memory for as long as the clear is.
+  isKick.clearOf = 'kick';
+  isTwitch.clearOf = 'twitch';
+  // A /clear replayed after an outage (replayClear): the Twitch lines said up to Twitch's time `at`.
+  function clearedUpTo(at) {
+    var pred = function (m) { return !!m && isTwitch(m) && !(Number(m.ts) > at); };
+    pred.clearOf = 'twitch';
+    pred.upTo = at;
+    return pred;
+  }
+  function ownClearPred(p) {
+    if (typeof p !== 'function') return null;
+    if (p.clearOf === 'kick') return isKick;
+    if (p.clearOf === 'twitch') return typeof p.upTo === 'number' ? clearedUpTo(p.upTo) : isTwitch;
+    return p; // from an older copy, which didn't say
+  }
   // Twitch data (IRC, Twitch-keyed badges and BTTV/FFZ) is only needed with a Twitch channel (or the demo).
   function twitchOn() { return !!(S.cfg.channel || S.cfg.demo); }
   // Each line says where it came from once two or more platforms share the overlay.
@@ -1615,6 +1640,7 @@
   function flushLive() {
     var buf = S.liveBuffer;
     S.liveBuffer = [];
+    if (S.stopped) return; // a stopped copy draws and looks up nothing more
     buf.forEach(function (m) {
       if (m.__clear) handleClearchat(m.__clear);
       else if (m.__kick) onKickEvent(m.__kick);
@@ -1869,7 +1895,7 @@
     });
     if (!newer) { onLine(p); return; }
     if (target) before.forEach(function (id) { clearMessage(id); });
-    else S.renderer.clearAll(function (m) { return covers(m) && !(Number(m.ts) > at); });
+    else S.renderer.clearAll(clearedUpTo(at));
   }
 
   // ---------- after a Kick outage ----------
@@ -2342,6 +2368,7 @@
     // The Kick channel's 7TV set as a room's: emotes (S.kickStv), set, owner, its connection index in the owner's 7TV
     // account, the switch in flight; userId: the Kick user id it loads by.
     S.kickCtx = { id: KICK_STV, userId: '', stv: { emotes: S.kickStv, setId: null, ownerId: null, connIndex: -1 } };
+    if (handed) takeGifts(handed.gifts);
     // Settles once the home channel's BTTV data (its bot list) has loaded or failed once (whenBotsKnown).
     S.homeBots = new Promise(function (resolve) { S.homeBotsDone = function () { resolve(); }; });
     S.bus.on('changed', onChanged);
@@ -2507,10 +2534,16 @@
         }
         var now0 = handoff();
         if (api.boot({ handoff: { v: HANDOFF, lines: now0.lines, twitchTs: now0.twitchTs, kickTs: now0.kickTs, assets: now0.assets,
-          update: change.baseline || null, ready: function () { end(); } } }) === false) end(new Error('the new overlay refused'));
+          gifts: now0.gifts, update: change.baseline || null, ready: function () { end(); } } }) === false) {
+          end(new Error('the new overlay refused'));
+        }
       });
     }).then(function () {
       if (S.stopped) throw new Error('this copy was stopped meanwhile');
+      // A history request still out after an outage holds live lines back until it answers: they go in now, so the handoff
+      // has them (stop() would end it after the handoff; the new copy opens YouTube only as it takes over).
+      if (S.gapAbort) S.gapAbort();
+      if (S.kickGapAbort) S.kickGapAbort();
       var h = handoff();
       var oldChat = el('chat');
       stop();
@@ -2525,18 +2558,37 @@
       T.util.log('update: restarted in place on the site\'s new scripts');
       return true;
     }).catch(function (err) {
-      putFlagBack();
       try { if (api && api.state && api.state()) api.stop(); } catch (e) { /* a copy that half started */ }
-      added.forEach(function (s) { if (s.parentNode) s.parentNode.removeChild(s); });
-      root.TCO = oldNS;
-      restartFails++;
-      if (stopped || restartFails >= RESTART_TRIES) {
-        T.util.warn('update: restart in place failed (' + (err && err.message) + '): reloading');
-        root.location.reload();
-        return true;
-      }
-      T.util.warn('update: restart in place failed (' + (err && err.message) + '): still on this version');
-      return false;
+      // A script taken out of the page still runs once it has loaded: the namespace and the no-boot flag stay as they are
+      // until every new one has run or failed, so none writes over this copy's modules and the new overlay.js boots no
+      // second overlay.
+      return idle(added).then(function () {
+        putFlagBack();
+        added.forEach(function (s) { if (s.parentNode) s.parentNode.removeChild(s); });
+        root.TCO = oldNS;
+        restartFails++;
+        if (stopped || restartFails >= RESTART_TRIES) {
+          T.util.warn('update: restart in place failed (' + (err && err.message) + '): reloading');
+          root.location.reload();
+          return true;
+        }
+        T.util.warn('update: restart in place failed (' + (err && err.message) + '): still on this version');
+        return false;
+      });
+    });
+  }
+
+  // Settles once each script loadScripts put in has run or failed (or after SCRIPTS_MS more, for one that never says).
+  function idle(added) {
+    return new Promise(function (resolve) {
+      var timer = setTimeout(resolve, SCRIPTS_MS);
+      var left = added.filter(function (s) { return !s.tcoSettled; });
+      if (!left.length) { clearTimeout(timer); resolve(); return; }
+      left.forEach(function (s) {
+        s.tcoIdle = function () {
+          if (left.every(function (x) { return x.tcoSettled; })) { clearTimeout(timer); resolve(); }
+        };
+      });
     });
   }
 
@@ -2551,7 +2603,7 @@
     return new Promise(function (resolve, reject) {
       if (!urls.length) { reject(new Error('no scripts to load')); return; }
       var left = urls.length;
-      var timer = setTimeout(function () { end(new Error('the new scripts took too long')); }, 30000);
+      var timer = setTimeout(function () { end(new Error('the new scripts took too long')); }, SCRIPTS_MS);
       function end(err) {
         if (!timer) return;
         clearTimeout(timer);
@@ -2561,8 +2613,13 @@
       urls.forEach(function (url) {
         var s = doc.createElement('script');
         s.async = false;
-        s.onload = function () { if (--left === 0) end(); };
-        s.onerror = function () { end(new Error('could not load ' + url)); };
+        // tcoSettled: it ran or failed (idle waits for it).
+        var settle = function () {
+          s.tcoSettled = true;
+          if (s.tcoIdle) s.tcoIdle();
+        };
+        s.onload = function () { settle(); if (--left === 0) end(); };
+        s.onerror = function () { settle(); end(new Error('could not load ' + url)); };
         s.src = url;
         doc.head.appendChild(s);
         added.push(s);
@@ -2611,9 +2668,16 @@
       // Deletions, timeouts, bans and clears: a reload would get them back from the history, which a restart skips.
       mod: S.renderer.moderation ? S.renderer.moderation() : null,
       twitchTs: S.twitchTs, twitchLiveTs: S.twitchLiveTs, kickTs: S.kickTs, kickLiveTs: S.kickLiveTs,
-      assets: Object.assign({}, newAssets)
+      assets: Object.assign({}, newAssets),
+      // The gift bombs whose single gifts aren't shown (giftIds): the new copy may join while one is still arriving.
+      gifts: Array.from(S.giftIds.map.keys())
     };
   }
+  // A handoff's gift bombs (handoff().gifts), taken into giftIds.
+  function takeGifts(list) {
+    if (Array.isArray(list)) list.forEach(function (id) { if (typeof id === 'string' && id) S.giftIds.set(id, true); });
+  }
+  function giftOfShownBomb(m) { return !!m && m.type === 'subgift' && !!m.communityGiftId && S.giftIds.has(m.communityGiftId); }
 
   // Called by the copy this one replaces, right after it stopped and in the same task: this copy's #chat takes the old
   // one's place in the page (its id, and so every #chat rule and OBS's Custom CSS, with it) and draws the old lines as
@@ -2633,7 +2697,16 @@
       warm(m);
       if (m && isTwitch(m) && m.id && S.irc) S.irc.markSeen(String(m.id));
     });
-    S.renderer.adopt(lines, h.mod);
+    // The single gifts of a gift bomb this copy joined in the middle of: the old copy showed the bomb, not them.
+    takeGifts(h.gifts);
+    S.renderer.drop(giftOfShownBomb);
+    var mod = h.mod;
+    if (mod && Array.isArray(mod.clears)) {
+      mod = Object.assign({}, mod, { clears: mod.clears.map(function (c) {
+        return c && typeof c === 'object' ? Object.assign({}, c, { pred: ownClearPred(c.pred) }) : c;
+      }) });
+    }
+    S.renderer.adopt(lines, mod);
     var chat = S.chatEl;
     chat.id = 'chat';
     if (oldChat && oldChat.parentNode) oldChat.parentNode.replaceChild(chat, oldChat);

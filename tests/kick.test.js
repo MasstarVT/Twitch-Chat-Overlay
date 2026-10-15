@@ -241,6 +241,29 @@ test('splitEmotes: a line break or tab is a space, so the words beside it are re
   assert.strictEqual(r.reply.body, 'line one KEKW');
 });
 
+// Kick has no /me: a "\x01ACTION ...\x01" wrapper made the tokenizer take 8 characters off the front, and every Kick emote
+// after it was drawn 8 characters off (KEKW over "re f", its name as text).
+test('splitEmotes: control characters are spaces, so a Kick line is never a /me line and its emotes stay put', () => {
+  const tokenizer = require('../js/tokenizer.js');
+  const m = kick.toMessage(chat({ content: '\x01ACTION hi [emote:1:KEKW] there friend\x01' }));
+  assert.strictEqual(m.text, ' ACTION hi KEKW there friend ');
+  const out = tokenizer.tokenize(m, { lookup: () => null, bttvPrefixes: null, gifs: false });
+  assert.strictEqual(out.action, false);
+  assert.deepStrictEqual(out.items.map((i) => i.type === 'emote' ? 'emote:' + i.emote.provider + ':' + i.emote.name : i.type + ':' + i.text),
+    ['text:ACTION hi', 'emote:kick:KEKW', 'text:there friend']);
+});
+
+// Kick counts an emote code as one character, so a message of emotes can pass the 2000-character cut: it split an
+// "[emote:id:name]" code (its raw text was drawn) or an emoji's surrogate pair.
+test('splitEmotes: a long message is cut between emote codes and whole characters', () => {
+  const code = '[emote:37226:KEKW] ';
+  const r = kick.splitEmotes(code.repeat(200));
+  assert.ok(!/\[|\]/.test(r.text), 'no raw emote code');
+  assert.strictEqual(r.emotes.split(',').length, Math.floor(2000 / code.length));
+  const e = kick.splitEmotes('x'.repeat(1999) + '😀😀');
+  assert.strictEqual(e.text, 'x'.repeat(1999));
+});
+
 test('toMessage builds a namespaced chat message', () => {
   const m = kick.toMessage(chat());
   assert.strictEqual(m.platform, 'kick');

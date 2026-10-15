@@ -53,6 +53,7 @@
   var CLEARED_TTL_MS = 86400000;
   var CLEARED_CAP = 1000;
   var MAX_CLEARS = 8;           // chat clears kept for reply headers (one per platform is the usual most)
+  var SAME_LINE_MS = 5000;      // adopt: an id-less line both copies got came to them at most this far apart
   var MAX_IMAGES = 200;       // emote images per message (base + overlays); the rest render as their names
   var PAINT_ID_RE = /^[0-9A-Za-z]{1,40}$/;
   // BetterTTV Pro username effects (bttv.js EFFECTS, kept equal), drawn by css/overlay.css as .bttv-fx.fx-<name>. The
@@ -1577,6 +1578,15 @@
       var s = paintScale(pxFor(cfg), dpr);
       if (s === paintAt) return;
       paintAt = s;
+      remakePaints();
+    }
+    // A paint that changed (the 7TV catalog replaced a v3 one cosmetic.create brought): its rules are made again, with
+    // the others, as for a new scale. Lines keep their classes, so nothing is redrawn.
+    function repaint(ids) {
+      if (destroyed || !ids || !ids.some(function (id) { return paintState.has(id) || stillState.has(id); })) return;
+      remakePaints();
+    }
+    function remakePaints() {
       if (!paintState.size && !stillState.size) return;
       var ids = [];
       paintState.forEach(function (ok, id) { if (ok) ids.push(id); });
@@ -2374,14 +2384,15 @@
       if (!list.length) return;
       for (var i = 0; i < list.length; i++) list[i].style.animation = 'none';
       void linesEl.offsetHeight; // style flush: cancels the running animations so the new ones start now
-      var exit = exitFor(cfg);
+      var exit = exitFor(cfg), expired = [];
       for (var j = 0; j < list.length; j++) {
         var rec = recs.get(list[j]);
         var t = rec ? fadeTiming(cfg.fade, now - rec.born, cfg.fade_out_ms) : null;
         if (rec) rec.fadeLater = false;
-        if (t && t.expired) removeLine(list[j]);
+        if (t && t.expired) expired.push(list[j]);
         else list[j].style.animation = animString(false, false, t, cfg.layout, null, null, exit);
       }
+      removeLines(expired);
     }
 
     function reverseLines() {
@@ -2486,6 +2497,11 @@
             continue;
           }
           if (en.shown) for (var si = 0; si < g.length; si++) recs.get(g[si]).shown = true;
+          // A line handed over with its kept row_sep mark keeps it (the row is drawn as it was).
+          if (en.keepSep && g.length && rowMarks(cfg)) {
+            recs.get(g[0]).keepSep = true;
+            g[0].classList.add('keep-sep');
+          }
           if (g.length) {
             groups.push(g);
             count++;
@@ -2671,6 +2687,8 @@
       // reversed), or ended by a layout switch or animate=0. Left running, a row's would carry the column in sideways.
       var glide = glideOf(prev);
       if (glide && glide !== glideOf(cfg)) stopGlide();
+      // So do the lines easing into a leaving line's room (row_align left or center) once that glide is off.
+      if (!glideOn()) endGlides();
       // Switched to still paints: the paints already in use get their still rule now (applyRoot set the class).
       // Back to animated, the rules stay, unused without the class.
       if (cfg.paint_images === 'static' && prev.paint_images !== 'static') {
@@ -2909,7 +2927,8 @@
 
     // An update restarts the overlay in place (overlay.js): the new copy's renderer takes the old one's lines.
     // snapshot: the messages on screen and queued, oldest first, each once, as they were pushed (a notice, not the line
-    // drawn from its text), with when each came.
+    // drawn from its text), with when each came. keepSep: the line kept its row_sep mark (.keep-sep). quoteGone: its reply
+    // quote was found moderated (goneQuotes), which the lists handed over may no longer say once they expire.
     function snapshot() {
       var out = [], seen = new Set();
       var list = children();
@@ -2918,7 +2937,10 @@
         var rec = recs.get(line);
         if (!rec || seen.has(rec.gid)) return;
         seen.add(rec.gid);
-        out.push({ msg: rec.src || rec.msg, born: rec.born });
+        var en = { msg: rec.src || rec.msg, born: rec.born };
+        if (rec.keepSep) en.keepSep = true;
+        if (goneQuotes.has(rec.msg)) en.quoteGone = true;
+        out.push(en);
       });
       queue.forEach(function (en) { out.push({ msg: en.msg, born: en.born }); });
       return out;
@@ -2976,6 +2998,10 @@
       clears.sort(function (a, b) { return a.seq - b.seq; });
       while (clears.length > MAX_CLEARS) clears.shift();
     }
+    // What makes two id-less lines the same (adopt).
+    function plainSig(m) {
+      return [m.platform, m.kind, m.type, m.login, m.systemMsg, m.text].map(function (x) { return x == null ? '' : String(x); }).join('\n');
+    }
     // adopt: lines another renderer had (snapshot), drawn as they were there: no entrance, each ageing (and fading) from
     // when it first came. They go before anything queued here already, which drops the ones they repeat. mod: that
     // renderer's moderation(), taken in first. A message deleted, or a chat line whose author was timed out or banned
@@ -2983,6 +3009,8 @@
     function adopt(list, mod) {
       if (destroyed || !Array.isArray(list)) return 0;
       var now = Date.now();
+      // The chat clears this copy saw before it took over: the other copy's own clears had taken its lines already.
+      var ownClears = clears.slice();
       if (mod && typeof mod === 'object') takeModeration(mod, now);
       var queued = queue.drain();
       var ids = new Set();
@@ -2990,6 +3018,9 @@
       // The other renderer saw everything this one queued until its newest line: what came here before that is in the
       // list, or was already shown there and gone (scrolled off, faded, filtered, deleted). Only what is newer stays.
       var last = 0;
+      // Lines without an id (a Kick sub, gift or host notice): one both copies got, queued here a moment after the other
+      // drew it, is the same line, so it doesn't go in twice.
+      var plain = [];
       list.forEach(function (en) {
         var msg = en && en.msg;
         if (!msg || typeof msg !== 'object') return;
@@ -3002,16 +3033,26 @@
         var uid = util.idStr(msg.userId);
         var ban = uid && cleared.has(uid, now) ? cleared.map.get(uid)[0] - cleared.ttl : 0;
         if (ban && ban >= born) return;
+        // A clear that reached this copy first takes what it covers from before it, as the ban above does.
+        if (ownClears.some(function (c) { return c.at >= born && covers(c.pred, msg); })) return;
         heardNow(id, sid, now);
         noteAlias(id, sid, now);
+        noteSpoke(id, sid, uid, now);
         if (!showable(msg)) return;
         if (id) ids.add(id);
-        queue.push({ msg: msg, born: born, shown: true });
+        if (en.quoteGone === true) goneQuotes.add(msg);
+        if (!id) plain.push({ sig: plainSig(msg), born: born });
+        queue.push({ msg: msg, born: born, shown: true, keepSep: en.keepSep === true });
         n++;
       });
       queued.forEach(function (en) {
         var id = util.idStr(en.msg.id);
-        if (en.born > last && (!id || !ids.has(id))) queue.push(en);
+        if (en.born <= last || (id && ids.has(id))) return;
+        if (!id) {
+          var sig = plainSig(en.msg);
+          if (plain.some(function (p) { return p.sig === sig && Math.abs(en.born - p.born) < SAME_LINE_MS; })) return;
+        }
+        queue.push(en);
       });
       schedule();
       return n;
@@ -3067,6 +3108,7 @@
       clearAll: clearAll,
       drop: drop,
       stillReady: stillReady,
+      repaint: repaint,
       rerender: rerender,
       setConfig: setConfig,
       hold: hold,

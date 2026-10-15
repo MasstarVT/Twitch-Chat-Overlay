@@ -146,11 +146,22 @@
   // A Kick message can hold line breaks (BotRix sends "CHECK YOUR CHAT RANK\nhttps://...", and viewers can send several
   // lines), which a line draws as spaces anyway: each one is a space here, so the word after it is read on its own (a 7TV
   // emote's name, a link, a blocked word) as the tokenizer splits words at spaces. One character for one, so the emote
-  // codes' code-point ranges stay as they are.
-  var LINE_BREAK_RE = /[\t\n\v\f\r\u0085\u2028\u2029]/g;
+  // codes' code-point ranges stay as they are. The other control characters too: a Twitch "\x01ACTION ...\x01" wrapper
+  // would be cut off by the tokenizer (a /me line), and every emote after it drawn 8 characters off.
+  var LINE_BREAK_RE = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/g;
   function splitEmotes(content) {
     var src = typeof content === 'string' ? content : '';
-    if (src.length > MAX_CONTENT) src = src.slice(0, MAX_CONTENT);
+    if (src.length > MAX_CONTENT) {
+      // Not in the middle of an emote code (its raw text would show) or of a surrogate pair.
+      var cut = MAX_CONTENT, t;
+      EMOTE_TOKEN_RE.lastIndex = 0;
+      while ((t = EMOTE_TOKEN_RE.exec(src)) && t.index < cut) {
+        if (t.index + t[0].length > cut) { cut = t.index; break; }
+      }
+      var hi = src.charCodeAt(cut - 1);
+      if (hi >= 0xd800 && hi <= 0xdbff) cut--;
+      src = src.slice(0, cut);
+    }
     src = src.replace(LINE_BREAK_RE, ' ');
     var text = '', cp = 0, last = 0, byId = Object.create(null), order = [];
     EMOTE_TOKEN_RE.lastIndex = 0;
