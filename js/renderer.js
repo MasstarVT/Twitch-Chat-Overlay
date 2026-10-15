@@ -54,6 +54,7 @@
   var CLEARED_CAP = 1000;
   var MAX_CLEARS = 8;           // chat clears kept for reply headers (one per platform is the usual most)
   var SAME_LINE_MS = 5000;      // adopt: an id-less line both copies got came to them at most this far apart
+  var ELLIPSIS_EM = 1.2;        // decode: room an ellipsis takes at the end of a cut-off box, in its font size (… is ~.8-1em)
   var MAX_IMAGES = 200;       // emote images per message (base + overlays); the rest render as their names
   var PAINT_ID_RE = /^[0-9A-Za-z]{1,40}$/;
   // BetterTTV Pro username effects (bttv.js EFFECTS, kept equal), drawn by css/overlay.css as .bttv-fx.fx-<name>. The
@@ -1442,6 +1443,7 @@
     var gliders = [], glideTimer = null; // row_align=left/center: lines easing into the room a leaving line left
     var settleUntil = 0, settleTimer = null;
     var decoding = [], decodeTimer = null; // enter_style=decode: lines whose letters are settling (startDecode)
+    var fontWait = false; // a web font was loading as words were measured for decode (remeasureDecodes once it is in)
     var seq = 0, flushes = 0;
     var ro = null;
     // Images are fetched for this pixel ratio: 1 in OBS, 2 in the builder preview on a HiDPI screen.
@@ -2091,8 +2093,10 @@
     // A scrambled letter is seldom as wide as the real one, and a line whose words changed width would wrap anew as it
     // decodes: an emote at its end jumping between two lines. So each word that decodes goes in a .dc box (an
     // inline-block, css/overlay.css) as wide as the word was drawn, and the line keeps its layout to the pixel. A word
-    // the line breaks inside (overflow-wrap) can't be held in one box: it stays as it is. Once settled, the line's own
-    // text nodes go back in place of the boxes. A line with right-to-left text isn't decoded: boxes would reorder it.
+    // the line breaks inside (overflow-wrap) can't be held in one box: it stays as it is. So does a word the ellipsis of a
+    // cut-off box (a row's line, a long name) would reach into: a box there is hidden whole, and the ellipsis jumped back
+    // a word until the line settled. Once settled, the line's own text nodes go back in place of the boxes. A line with
+    // right-to-left text isn't decoded: boxes would reorder it.
     var RTL_RE = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/;
     // The text nodes of a line's name (not a painted one, or one with a BetterTTV effect: its paint is clipped to its own
     // text) and message, in order.
@@ -2146,11 +2150,13 @@
         var d = splitDecode(lines[i], now);
         if (d) ds.push(d);
       }
+      var clips = new Map();
       for (var a = 0; a < ds.length; a++) {
         for (var b = 0; b < ds[a].words.length; b++) {
           var w = ds[a].words[b];
           var rects = w.box.getClientRects ? w.box.getClientRects() : [];
-          w.width = rects.length === 1 ? rects[0].width : -1; // more than one: the line breaks inside the word
+          // more than one: the line breaks inside the word
+          w.width = rects.length === 1 && !(rects[0].right > clipEdge(w.box, ds[a].line, clips) + 0.5) ? rects[0].width : -1;
         }
       }
       for (var c = 0; c < ds.length; c++) {
@@ -2166,6 +2172,61 @@
         paintDecode(d2, 0);
       }
       if (decoding.length && !decodeTimer) decodeTimer = setTimeout(decodeTick, DECODE_TICK_MS);
+      var fonts = doc.fonts;
+      if (decoding.length && !fontWait && fonts && fonts.status === 'loading' && fonts.ready && typeof fonts.ready.then === 'function') {
+        fontWait = true;
+        fonts.ready.then(function () { fontWait = false; remeasureDecodes(); }, function () { fontWait = false; });
+      }
+    }
+    // The overlay's web font (Google Fonts) was still loading when these words were measured: they were held as wide as
+    // the fallback font drew them, and each overflowed its box or fell short of it until the line settled and snapped to
+    // the real widths (on every reload, the lines drawn first). Now that it is in, the words still settling are measured
+    // again in it, each in its own text for that moment (all written, then all read: one layout). One the ellipsis of a
+    // cut-off box would now reach into goes back to plain text, as startDecodes leaves it.
+    function remeasureDecodes() {
+      if (destroyed || !decoding.length) return;
+      var live = decoding.filter(function (d) { return d.words.length && d.line.parentNode === linesEl && d.line.contains(d.words[0].box); });
+      live.forEach(function (d) {
+        d.words.forEach(function (w) { w.box.style.width = ''; w.box.textContent = w.text; });
+      });
+      var clips = new Map();
+      live.forEach(function (d) {
+        d.words.forEach(function (w) {
+          var rects = w.box.getClientRects ? w.box.getClientRects() : [];
+          w.width = rects.length === 1 && !(rects[0].right > clipEdge(w.box, d.line, clips) + 0.5) ? rects[0].width : -1;
+        });
+      });
+      var now = Date.now();
+      live.forEach(function (d) {
+        d.words = d.words.filter(function (w) {
+          if (w.width >= 0) { w.box.style.width = w.width + 'px'; return true; }
+          w.box.className = 'dc-word'; // drawn inline again, in its own text; endDecode puts the line's text back
+          d.total -= w.chars.length;
+          return false;
+        });
+        paintDecode(d, Math.min(1, (now - d.start) / d.ms));
+      });
+    }
+    // Where the ellipsis of a cut-off box (text-overflow, its text wider than it) starts at the most: its content's right
+    // edge less the ellipsis' room (ELLIPSIS_EM). The nearest of el's boxes up to its line, or Infinity where none is cut
+    // off. clips: each box's edge, measured once for all the lines starting.
+    function clipEdge(el, line, clips) {
+      var edge = Infinity;
+      for (var n = el.parentNode; n && n !== linesEl; n = n.parentNode) {
+        var e = clips.get(n);
+        if (e === undefined) {
+          e = Infinity;
+          var cs = typeof win.getComputedStyle === 'function' ? win.getComputedStyle(n) : null;
+          if (cs && cs.textOverflow === 'ellipsis' && cs.overflowX && cs.overflowX !== 'visible' && n.scrollWidth > n.clientWidth) {
+            e = n.getBoundingClientRect().right - (parseFloat(cs.paddingRight) || 0) - (parseFloat(cs.borderRightWidth) || 0) -
+              ELLIPSIS_EM * (parseFloat(cs.fontSize) || 0);
+          }
+          clips.set(n, e);
+        }
+        if (e < edge) edge = e;
+        if (n === line) break;
+      }
+      return edge;
     }
     // Shows a line's decode p (0 to 1) of the way through: that share of its characters settled, from the first.
     function paintDecode(d, p) {
@@ -2192,7 +2253,9 @@
       var now = Date.now(), left = [];
       for (var i = 0; i < decoding.length; i++) {
         var d = decoding[i];
-        // Gone, or redrawn (a rerender writes the line anew, with its real text): nothing more to settle.
+        // Gone, or redrawn (a rerender writes the line anew, with its real text): nothing more to settle. A line whose
+        // every word went back to plain text (remeasureDecodes) has its text put back.
+        if (!d.words.length) { endDecode(d); continue; }
         if (d.line.parentNode !== linesEl || !d.line.contains(d.words[0].box)) continue;
         var p = (now - d.start) / d.ms;
         if (p >= 1) endDecode(d);

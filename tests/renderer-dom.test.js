@@ -1155,6 +1155,80 @@ test('enter_style=decode: each word is held as wide as it was drawn, so the line
   assert.strictEqual(s.lines()[0].byClass('name')[0].textContent, 'amy');
 });
 
+// A row's line (or a long name) cut off with an ellipsis: a word box the ellipsis reaches into is hidden whole, so the
+// ellipsis jumped back a word until the line settled. Those words stay plain text, as a word the line breaks inside does.
+test('enter_style=decode: in a cut-off line, the words the ellipsis would reach into stay as they are', (t) => {
+  const s = setup(t, { animate: true, enter_style: 'decode', enter_ms: 400 });
+  const at = { aa: [0, 20], bbbb: [30, 70], cc: [80, 100], dd: [110, 130] };
+  s.doc.layout = (el) => {
+    if (el.className === 'dc-word' && at[el.textContent]) {
+      const [l, r] = at[el.textContent];
+      return { top: 0, bottom: 20, left: l, right: r, width: r - l, height: 20 };
+    }
+    if (/\bline\b/.test(el.className)) return { top: 0, bottom: 20, left: -60, right: 90, width: 150, height: 20 };
+    return null;
+  };
+  // The line clips with an ellipsis, its text 200 px wide in 150: an ellipsis 1.2em (12 px) wide starts by 78 px.
+  s.doc.defaultView.getComputedStyle = (el) => {
+    if (!/\bline\b/.test(el.className)) return {};
+    el.scrollWidth = 200;
+    return { textOverflow: 'ellipsis', overflowX: 'clip', paddingRight: '0px', borderRightWidth: '0px', fontSize: '10px' };
+  };
+  s.r.push(chat('amy', 'aa bbbb cc dd'));
+  s.r.flush();
+  const msg = s.lines()[0].byClass('message')[0];
+  assert.deepStrictEqual(msg.byClass('dc').map((b) => b.style.width), ['20px', '40px'], 'aa and bbbb are held; cc and dd are not');
+  assert.ok(msg.textContent.endsWith(' cc dd'));
+});
+
+test('enter_style=decode: a line that clips but isn’t cut off holds every word', (t) => {
+  const s2 = setup(t, { animate: true, enter_style: 'decode', enter_ms: 400 });
+  const at = { aa: [0, 20], bbbb: [30, 70], cc: [80, 100], dd: [110, 130] };
+  s2.doc.layout = (el) => {
+    if (el.className === 'dc-word' && at[el.textContent]) {
+      const [l, r] = at[el.textContent];
+      return { top: 0, bottom: 20, left: l, right: r, width: r - l, height: 20 };
+    }
+    if (/\bline\b/.test(el.className)) return { top: 0, bottom: 20, left: -60, right: 90, width: 150, height: 20 };
+    return null;
+  };
+  s2.doc.defaultView.getComputedStyle = (el) => {
+    if (!/\bline\b/.test(el.className)) return {};
+    el.scrollWidth = 150;
+    return { textOverflow: 'ellipsis', overflowX: 'clip', paddingRight: '0px', borderRightWidth: '0px', fontSize: '10px' };
+  };
+  s2.r.push(chat('amy', 'aa bbbb cc dd'));
+  s2.r.flush();
+  assert.strictEqual(s2.lines()[0].byClass('message')[0].byClass('dc').length, 4);
+});
+
+// The overlay's Google font still loading as a line's words were measured: they were held as wide as the fallback font
+// drew them, and snapped to their real widths as the line settled (on every reload, the lines drawn first).
+test('enter_style=decode: words measured while the web font loaded are measured again once it is in', async (t) => {
+  const s = setup(t, { animate: true, enter_style: 'decode', enter_ms: 400 });
+  let ready;
+  s.doc.fonts = { status: 'loading', ready: new Promise((r) => { ready = r; }) };
+  let px = 10;
+  s.doc.layout = (el) => (/^dc(-word)?$/.test(el.className) ? { top: 0, bottom: 20, left: 0, right: px * el.textContent.length,
+    width: px * el.textContent.length, height: 20 } : null);
+  s.r.push(chat('amy', 'hi there'));
+  s.r.flush();
+  const msg = s.lines()[0].byClass('message')[0];
+  assert.deepStrictEqual(msg.byClass('dc').map((b) => b.style.width), ['20px', '50px']);
+  s.tick(40);
+  const scrambled = msg.textContent;
+  px = 12; // the web font is in: a little wider
+  s.doc.fonts.status = 'loaded';
+  ready();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(msg.byClass('dc').map((b) => b.style.width), ['24px', '60px']);
+  assert.notStrictEqual(msg.textContent, 'hi there', 'still decoding');
+  assert.strictEqual(msg.textContent.length, scrambled.length);
+  for (let i = 0; i < 12; i++) s.tick(40);
+  assert.strictEqual(msg.textContent, 'hi there');
+  assert.strictEqual(msg.byClass('dc').length, 0);
+});
+
 test('enter_style=decode: a line with right-to-left text is drawn as it is', (t) => {
   const s = setup(t, { animate: true, enter_style: 'decode', enter_ms: 400 });
   s.r.push(chat('amy', 'مرحبا hello'));
