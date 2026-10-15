@@ -3068,8 +3068,10 @@
     // adopt: lines another renderer had (snapshot), drawn as they were there: no entrance, each ageing (and fading) from
     // when it first came. They go before anything queued here already, which drops the ones they repeat. mod: that
     // renderer's moderation(), taken in first. A message deleted, or a chat line whose author was timed out or banned
-    // after it came, stays out. Returns how many were taken.
-    function adopt(list, mod) {
+    // after it came, stays out. down: { twitch, kick }, since when (this page's clock) the other renderer's copy was down
+    // on that chat (0: it wasn't): what came here of it since then, that copy never saw, so it stays however old it is.
+    // Returns how many were taken.
+    function adopt(list, mod, down) {
       if (destroyed || !Array.isArray(list)) return 0;
       var now = Date.now();
       // The chat clears this copy saw before it took over: the other copy's own clears had taken its lines already.
@@ -3110,7 +3112,8 @@
       });
       queued.forEach(function (en) {
         var id = util.idStr(en.msg.id);
-        if (en.born <= last || (id && ids.has(id))) return;
+        var since = down && typeof down === 'object' ? Number(down[en.msg.platform || 'twitch']) || 0 : 0;
+        if (en.born <= (since > 0 && since < last ? since : last) || (id && ids.has(id))) return;
         if (!id) {
           var sig = plainSig(en.msg);
           if (plain.some(function (p) { return p.sig === sig && Math.abs(en.born - p.born) < SAME_LINE_MS; })) return;

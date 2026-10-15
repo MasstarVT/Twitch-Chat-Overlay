@@ -692,6 +692,31 @@ test('adopt: an id-less notice both copies got goes in once; a later one like it
   assert.strictEqual(b.lines().length, 3);
 });
 
+// The old copy's Twitch chat was down while this one's was up: what this one got in that time was thrown away when a Kick
+// line of the old copy's was newer, and nothing asked for it again.
+test('adopt: what this copy got of a chat the other copy was down on stays, though older than that copy\'s newest line', (t) => {
+  [[{ twitch: 1001000, kick: 0 }, ['before the outage', 'kick news', 'missed']], [undefined, ['before the outage', 'kick news']]]
+    .forEach(([down, want]) => {
+      const s = setup(t, { animate: false });
+      s.r.push(chat('amy', 'before the outage'));
+      s.r.flush();
+      s.tick(1000); // 1001000: the old copy's Twitch goes down
+      const b = second(t, s);
+      b.r.hold(true);
+      s.tick(1000);
+      b.r.push(chat('bob', 'missed'));
+      s.tick(1000);
+      s.r.push(chat('kev', 'kick news', { platform: 'kick', id: 'kick:1', userId: 'kick:9' }));
+      s.r.flush();
+      b.r.adopt(s.r.snapshot(), s.r.moderation(), down);
+      b.r.hold(false);
+      assert.deepStrictEqual(Array.from(b.lines()).map((l) => l.byClass('message')[0].textContent), want);
+      s.r.destroy();
+      b.r.destroy();
+      t.mock.timers.reset();
+    });
+});
+
 test('adopt: a reply to what a user said after a timeout this copy saw keeps its quote', (t) => {
   const s = setup(t, { animate: false });
   const b = second(t, s);

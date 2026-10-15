@@ -193,7 +193,7 @@ async function boot(t, opts) {
         setConfig() {}, hold(on) { h.holds.push(on); }, hasUser() { return false; }, stats() { return null; },
         // An update's restart in place: the lines handed over, and the ones taken.
         snapshot() { return h.pushed.map((m) => ({ msg: m, born: 5 })); },
-        adopt(list, mod) { h.adopted.push(list); h.adoptedMod = mod; return list.length; },
+        adopt(list, mod, down) { h.adopted.push(list); h.adoptedMod = mod; h.adoptedDown = down; return list.length; },
         destroy() { h.destroyed++; }
       };
     };
@@ -3778,6 +3778,40 @@ test('update check: live lines held back for an outage\'s history request go wit
   assert.deepStrictEqual(api.took.h.lines.map((en) => en.msg.text), ['before the outage', 'held back']);
 });
 
+test('update check: the handoff says which chat the old copy was down on, and since when', async (t) => {
+  const h = await boot(t, { location: Object.assign({ reload() {} }, HOSTED, { href: HOSTED.href + '&kick=kickname&kick_room=668' }),
+    stubs: (T, h) => {
+      hostedSite(h);
+      T.kick.lookupChannel = () => Promise.resolve({ chatroomId: '668', channelId: '700', userId: '', slug: 'kickname', username: 'k', subBadges: [] });
+    } });
+  await settle();
+  join(h);
+  const kickStatus = (s) => h.kick.opts.onStatus(s, {});
+  kickStatus('joined');
+  kickStatus('closed');
+  const kickDownAt = Date.now();
+  t.mock.timers.tick(500);
+  kickStatus('closed'); // still down: since the first
+  kickStatus('joined');
+  assert.strictEqual(h.S().kickClosedAt, 0, 'joined again');
+  kickStatus('closed');
+  const kickAgainAt = Date.now();
+  assert.ok(kickAgainAt > kickDownAt);
+  const scripts = await readyToRestart(t, h);
+  const api = newCopy();
+  globalThis.TCO.overlay = api;
+  scripts.forEach((s) => s.onload());
+  await settle();
+  h.irc.onStatus('closed');
+  const downAt = Date.now();
+  t.mock.timers.tick(1000);
+  api.booted.handoff.ready();
+  await settle();
+  assert.ok(api.took, 'taken over');
+  assert.strictEqual(api.took.h.outage.twitch.down, downAt);
+  assert.strictEqual(api.took.h.outage.kick.down, kickAgainAt);
+});
+
 test('update check: a restart that fails before the old copy stops leaves it running; a second failure reloads', async (t) => {
   let reloads = 0;
   const h = await boot(t, { location: Object.assign({ reload() { reloads++; } }, HOSTED), stubs: (T, h) => hostedSite(h) });
@@ -3923,6 +3957,113 @@ test('restart in place: gift bombs come over, and chat clears in this copy\'s ow
   assert.strictEqual(preds[3], null, 'a clear of everything stays one');
   assert.strictEqual(preds[4], untagged, 'an older copy\'s, which doesn\'t say, as it was');
   assert.deepStrictEqual(clears.map((c) => c.seq), [1, 2, 3, 4, 5], 'the handoff itself is left as it was');
+});
+
+// The old copy in an outage as it handed over: nothing asked for what it missed (the new copy had skipped the history),
+// so a message deleted or a user banned in it stayed on stream, and its pending history request was lost.
+test('restart in place: the new copy asks for what the old one missed in an outage, from where it left off', async (t) => {
+  const asks = [];
+  const at = (sec) => String(1e12 + sec * 1000);
+  const P = (raw) => globalThis.TCO.ircParse.parseLine(raw);
+  const h = await boot(t, {
+    location: { protocol: 'https:', href: HOSTED.href + '&history=2', reload() { assert.fail('no reload'); } },
+    stubs: (T, h) => {
+      hostedSite(h);
+      T.irc.loadHistory = (l, n, o) => { const d = deferred(); asks.push({ l: l, d: d }); return d.promise; };
+    },
+    bootOpts: { handoff: { v: 1, lines: [], twitchTs: 0, kickTs: 0, ready() {}, update: null } }
+  });
+  const T = globalThis.TCO;
+  join(h);
+  assert.strictEqual(asks.length, 0, 'no history: the lines come over');
+  const page = fakeEl('body');
+  page.replaceChild = function (n, o) { const i = this.children.indexOf(o); this.children[i] = n; n.parentNode = this; o.parentNode = null; return o; };
+  page.appendChild(h.els.chat);
+  const slur = { kind: 'chat', id: 's1', userId: 'u-troll', login: 'troll', text: 'slur here', roomId: HOME, ts: 1e12 + 1000 };
+  assert.strictEqual(T.overlay.takeOver({ v: 1, lines: [{ msg: slur, born: 1e12 - 9000 }], twitchTs: 1e12 + 2000, kickTs: 0,
+    outage: { twitch: { down: 1e12 - 5000, gapAfter: 0 }, kick: { down: 0, gapAfter: null } } }, h.els.chat), true);
+  assert.deepStrictEqual(h.adoptedDown, { twitch: 1e12 - 5000, kick: 0 }, 'the renderer keeps what came here since');
+  assert.strictEqual(asks.length, 1, 'asked at once: this copy is joined');
+  asks[0].d.resolve([
+    priv('troll', 'slur here', { id: 's1', 'tmi-sent-ts': at(1), 'rm-deleted': '1' }),
+    priv('pal', 'last the old copy had', { id: 'p1', 'tmi-sent-ts': at(2) }),
+    priv('a', 'missed in the outage', { id: 'g1', 'tmi-sent-ts': at(10) })
+  ].map(P));
+  await settle();
+  assert.ok(h.cleared.includes('msg:s1'), 'deleted while the old copy was down');
+  assert.deepStrictEqual(texts(h), ['missed in the outage'], 'from where the old copy left off');
+});
+
+test('restart in place: an old copy\'s own pending request, or a new copy not joined yet, asks from the old copy\'s point', async (t) => {
+  const asks = [];
+  const h = await boot(t, {
+    location: { protocol: 'https:', href: HOSTED.href + '&history=2', reload() { assert.fail('no reload'); } },
+    stubs: (T, h) => {
+      hostedSite(h);
+      T.irc.loadHistory = () => { const d = deferred(); asks.push(d); return d.promise; };
+    },
+    bootOpts: { handoff: { v: 1, lines: [], twitchTs: 0, kickTs: 0, ready() {}, update: null } }
+  });
+  const T = globalThis.TCO;
+  const page = fakeEl('body');
+  page.replaceChild = function (n, o) { const i = this.children.indexOf(o); this.children[i] = n; n.parentNode = this; o.parentNode = null; return o; };
+  page.appendChild(h.els.chat);
+  assert.strictEqual(T.overlay.takeOver({ v: 1, lines: [], twitchTs: 1e12 + 9000, kickTs: 0,
+    outage: { twitch: { down: 0, gapAfter: 1e12 + 3000 }, kick: { down: 0, gapAfter: null } } }, h.els.chat), true);
+  assert.strictEqual(asks.length, 0, 'not joined: asked as it joins');
+  assert.strictEqual(h.S().gapAfter, 1e12 + 3000, 'from the old copy\'s own point, not its newest line');
+  join(h);
+  assert.strictEqual(asks.length, 1);
+});
+
+test('restart in place: Kick chat the old copy was down on is asked for from its newest Kick line', async (t) => {
+  const sec = (s) => new Date(1e12 + s * 1000).toISOString();
+  const asks = [];
+  const h = await boot(t, {
+    location: { protocol: 'https:', href: HOSTED.href + '&kick=kickname&kick_room=668&history=5', reload() { assert.fail('no reload'); } },
+    stubs: (T, h) => {
+      hostedSite(h);
+      T.kick.lookupChannel = () => Promise.resolve({ chatroomId: '668', channelId: '700', userId: '', slug: 'kickname', username: 'k', subBadges: [] });
+      T.kick.loadHistory = () => {
+        asks.push(1);
+        return Promise.resolve([kickChat('KickFan', 'old', { id: 'k1', created_at: sec(1) }),
+          kickChat('KickFan', 'missed on kick', { id: 'k2', created_at: sec(30) })]
+          .map((d) => Object.assign(globalThis.TCO.kick.toMessage(d), { historical: true })));
+      };
+    },
+    bootOpts: { handoff: { v: 1, lines: [], twitchTs: 0, kickTs: 0, ready() {}, update: null } }
+  });
+  const T = globalThis.TCO;
+  await settle();
+  join(h);
+  h.kick.opts.onStatus('joined', {});
+  assert.strictEqual(asks.length, 0, 'no history: the lines come over');
+  const page = fakeEl('body');
+  page.replaceChild = function (n, o) { const i = this.children.indexOf(o); this.children[i] = n; n.parentNode = this; o.parentNode = null; return o; };
+  page.appendChild(h.els.chat);
+  assert.strictEqual(T.overlay.takeOver({ v: 1, lines: [], twitchTs: 0, kickTs: 1e12 + 10000,
+    outage: { twitch: { down: 0, gapAfter: 0 }, kick: { down: 1e12 - 1000, gapAfter: null } } }, h.els.chat), true);
+  assert.strictEqual(asks.length, 1, 'asked at once: this copy is joined to Kick');
+  await settle();
+  assert.deepStrictEqual(texts(h), ['missed on kick'], 'after the old copy\'s newest Kick line');
+  assert.strictEqual(h.S().kickGapAfter, null);
+});
+
+test('restart in place: an old copy that handed over no outage changes nothing (older versions)', async (t) => {
+  const h = await boot(t, {
+    location: { protocol: 'https:', href: HOSTED.href, reload() { assert.fail('no reload'); } },
+    stubs: (T, h) => hostedSite(h),
+    bootOpts: { handoff: { v: 1, lines: [], twitchTs: 0, kickTs: 0, ready() {}, update: null } }
+  });
+  const T = globalThis.TCO;
+  join(h);
+  const page = fakeEl('body');
+  page.replaceChild = function (n, o) { const i = this.children.indexOf(o); this.children[i] = n; n.parentNode = this; o.parentNode = null; return o; };
+  page.appendChild(h.els.chat);
+  const before = h.called('history').length;
+  assert.strictEqual(T.overlay.takeOver({ v: 1, lines: [], twitchTs: 1e12, kickTs: 0 }, h.els.chat), true);
+  assert.deepStrictEqual(h.adoptedDown, { twitch: 0, kick: 0 });
+  assert.strictEqual(h.called('history').length, before);
 });
 
 test('restart in place: a copy refuses a handoff it doesn\'t know, and stop() ends everything of a copy', async (t) => {

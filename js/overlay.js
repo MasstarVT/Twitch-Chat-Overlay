@@ -1378,6 +1378,8 @@
 
   function onKickStatus(status, detail) {
     S.kickStatus = status;
+    if (status === 'joined') S.kickClosedAt = 0;
+    else if (!S.kickClosedAt) S.kickClosedAt = T.util.now();
     if (status === 'joined') {
       // The network works: a font stylesheet that failed is asked for again (a Kick-only overlay has no IRC rejoin).
       applyFonts(S.cfg, true);
@@ -2335,6 +2337,7 @@
       kickTs: 0,
       kickLiveTs: 0,
       kickJoined: false,
+      kickClosedAt: 0, // when Kick chat went down (this PC's clock), 0 while joined: for the handoff (outage)
       kickHistoryLanded: false,
       kickGap: null,
       kickGapAbort: null,
@@ -2670,7 +2673,13 @@
       twitchTs: S.twitchTs, twitchLiveTs: S.twitchLiveTs, kickTs: S.kickTs, kickLiveTs: S.kickLiveTs,
       assets: Object.assign({}, newAssets),
       // The gift bombs whose single gifts aren't shown (giftIds): the new copy may join while one is still arriving.
-      gifts: Array.from(S.giftIds.map.keys())
+      gifts: Array.from(S.giftIds.map.keys()),
+      // What this copy missed and hadn't asked for yet: a chat it isn't joined to (down: since when, by this PC's clock;
+      // 1: never joined), and the point a history request of its own (after an outage, or one that failed) asks from.
+      outage: {
+        twitch: { down: S.cfg.channel && S.ircStatus !== 'joined' ? S.closedAt || 1 : 0, gapAfter: S.gapAfter || 0 },
+        kick: { down: S.cfg.kick && S.kickStatus !== 'joined' ? S.kickClosedAt || 1 : 0, gapAfter: S.kickGapAfter }
+      }
     };
   }
   // A handoff's gift bombs (handoff().gifts), taken into giftIds.
@@ -2706,7 +2715,11 @@
         return c && typeof c === 'object' ? Object.assign({}, c, { pred: ownClearPred(c.pred) }) : c;
       }) });
     }
-    S.renderer.adopt(lines, mod);
+    // A chat the old copy was down on: what this copy got of it since, the old copy never saw (however old it is).
+    var out = h.outage && typeof h.outage === 'object' ? h.outage : {};
+    var tw = out.twitch && typeof out.twitch === 'object' ? out.twitch : {};
+    var kk = out.kick && typeof out.kick === 'object' ? out.kick : {};
+    S.renderer.adopt(lines, mod, { twitch: Number(tw.down) || 0, kick: Number(kk.down) || 0 });
     var chat = S.chatEl;
     chat.id = 'chat';
     if (oldChat && oldChat.parentNode) oldChat.parentNode.replaceChild(chat, oldChat);
@@ -2715,12 +2728,28 @@
     S.renderer.hold(false);
     drawHints();
     if (S.cfg.debug) renderDebug();
-    // Not joined yet: what is said until it joins is asked for then, as after an outage.
-    if (S.cfg.channel && !S.cfg.demo && S.ircStatus !== 'joined') {
-      if (!S.closedAt) S.closedAt = T.util.now();
-      if (!S.gapAfter) S.gapAfter = S.twitchTs;
+    // What the old copy missed and hadn't asked for yet (it was down, or a history request of its own had failed) is
+    // asked for from where it left off: its deletions and bans then reach the lines it handed over, and its lines show
+    // as after an outage. Now, or as this copy joins: not joined yet, what is said until then is asked for too.
+    if (S.cfg.channel && !S.cfg.demo) {
+      var twFrom = tw.down || tw.gapAfter ? Number(tw.gapAfter) || Number(h.twitchTs) || 1 : 0;
+      if (S.ircStatus !== 'joined') {
+        if (!S.closedAt) S.closedAt = T.util.now();
+        if (twFrom && (!S.gapAfter || twFrom < S.gapAfter)) S.gapAfter = twFrom;
+        if (!S.gapAfter) S.gapAfter = S.twitchTs;
+      } else if (twFrom) {
+        S.gapAfter = twFrom;
+        refetchGap();
+      }
     }
-    if (S.cfg.kick && !S.cfg.demo && S.kickStatus !== 'joined') S.kickJoined = true;
+    if (S.cfg.kick && !S.cfg.demo) {
+      var kkAfter = kk.gapAfter !== null && kk.gapAfter !== undefined ? Number(kk.gapAfter) || 0 : null;
+      if (kk.down || kkAfter !== null) {
+        S.kickGapAfter = kkAfter !== null ? kkAfter : Number(h.kickTs) || 0;
+        if (S.kickStatus === 'joined') refetchKick();
+      }
+      if (S.kickStatus !== 'joined') S.kickJoined = true;
+    }
     if (S.cfg.mixitup && !S.cfg.demo) startYouTube();
     if (S.update) S.update.start();
     if (S.demo) S.demo.start();
