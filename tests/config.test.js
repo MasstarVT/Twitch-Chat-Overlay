@@ -590,15 +590,24 @@ describe('coerce', () => {
       ['mr_mammal'], 'reads back the same from the URL');
   });
 
+  // Linear: no name is looked for in the list kept so far (a search per name is what makes a dedupe quadratic). A time
+  // limit failed on a busy PC, and was hardly above what a quadratic dedupe of this list takes (~470 ms against ~45).
   test('list: large lists dedupe in linear time, first occurrence order kept', () => {
     const names = [];
     for (let i = 0; i < 40000; i++) names.push('user' + (i % 20000));
-    const t0 = Date.now();
-    const out = config.coerce('block', names.join(','));
+    const searches = ['indexOf', 'lastIndexOf', 'includes', 'some', 'every', 'find', 'findIndex', 'filter'];
+    const orig = {};
+    let calls = 0;
+    searches.forEach((k) => {
+      orig[k] = Array.prototype[k];
+      Array.prototype[k] = function () { calls++; return orig[k].apply(this, arguments); };
+    });
+    let out;
+    try { out = config.coerce('block', names.join(',')); } finally { searches.forEach((k) => { Array.prototype[k] = orig[k]; }); }
     assert.equal(out.length, 20000);
     assert.equal(out[0], 'user0');
     assert.equal(out[19999], 'user19999');
-    assert.ok(Date.now() - t0 < 500, 'took ' + (Date.now() - t0) + ' ms');
+    assert.ok(calls < 100, calls + ' array searches for 40000 names');
     assert.deepEqual(config.coerce('block', ['constructor', '__proto__', 'constructor']), ['constructor', '__proto__']);
   });
 

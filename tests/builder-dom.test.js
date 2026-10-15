@@ -7,6 +7,7 @@ const path = require('node:path');
 const { createDocument } = require('./fake-dom.js');
 
 const ROOT = path.join(__dirname, '..');
+const NET_FETCH = globalThis.fetch; // the real one: open() keeps tests off it
 const VOID = /^(?:meta|link|input|br|hr|img)$/;
 const PROPS = ['id', 'type', 'name', 'value'];
 
@@ -51,6 +52,11 @@ function readPage(doc) {
 // localStorage (memoryStorage()); without one the builder remembers nothing, as with storage blocked.
 function open(t, href, opts) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
+  // No test reaches the network: one that doesn't stub fetch gets requests that never answer. A real channel lookup
+  // answered after its test had ended, into a later test's page (builder.js draws into the global document), and the
+  // timers it cleared there were that test's: tests failed now and then (a Mix It Up check that never timed out, a
+  // settings.js note replaced by "no channel called home").
+  if (globalThis.fetch === NET_FETCH) t.mock.method(globalThis, 'fetch', () => new Promise(() => {}));
   const doc = createDocument();
   readPage(doc);
   doc.getElementById = (id) => {
