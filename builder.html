@@ -186,7 +186,16 @@
                 </div>
               </div></li>
               <li><div class="step-body">
-                <p class="step-title">Leave <b>Custom CSS</b> at its default and click <b>OK</b>.</p>
+                <p id="css-leave" class="step-title">Leave <b>Custom CSS</b> at its default and click <b>OK</b>.</p>
+                <!-- Shown when the avatar's pictures are too big for the URL (builder.js picturesInCss): they go here instead. -->
+                <div id="obs-css" class="obs-css" hidden>
+                  <p class="step-title">Replace everything in <b>Custom CSS</b> with this, then click <b>OK</b>.</p>
+                  <p class="help">Your avatar’s pictures are too big for the URL, which OBS cuts off at 32,767 characters, so they go here. It starts with OBS’s own default, which keeps the source see-through.</p>
+                  <pre class="code-block"><code id="out-css"></code></pre>
+                  <div class="btns">
+                    <button id="css-copy" class="btn primary" type="button">Copy CSS</button>
+                  </div>
+                </div>
               </div></li>
             </ol>
             <p class="help after">To change it later, paste the URL into <b>Edit an existing overlay</b>, adjust, then replace the URL in OBS.</p>

@@ -1102,8 +1102,13 @@ test('overlay.css: a keyframes rule for every name the renderer writes, animatin
   // The BetterTTV username effects' own two (tco-fx-*) move a name's background and nothing else: they are the effects
   // themselves, not a line's entrance or exit, and paint_images=static stops them.
   const fx = {};
-  for (const m of css.matchAll(/@keyframes ([\w-]+) \{([\s\S]*?)\n\}/g)) (/^tco-fx-/.test(m[1]) ? fx : frames)[m[1]] = m[2];
+  // Avatar mode's own two (tco-avatar-*) move the avatar picture (js/avatar.js), never a line: transform only.
+  const avatar = {};
+  for (const m of css.matchAll(/@keyframes ([\w-]+) \{([\s\S]*?)\n\}/g)) (/^tco-fx-/.test(m[1]) ? fx : /^tco-avatar-/.test(m[1]) ? avatar : frames)[m[1]] = m[2];
   assert.deepStrictEqual(Object.keys(fx).sort(), ['tco-fx-drift', 'tco-fx-flare']);
+  assert.deepStrictEqual(Object.keys(avatar).sort(), ['tco-avatar-breathe', 'tco-avatar-hop']);
+  Object.keys(avatar).forEach((n) => assert.deepStrictEqual(Array.from(new Set(Array.from(avatar[n].matchAll(/([\w-]+):/g), (m) => m[1]))),
+    ['transform'], n));
   Object.keys(fx).forEach((n) => assert.deepStrictEqual(Array.from(new Set(Array.from(fx[n].matchAll(/([\w-]+):/g), (m) => m[1]))),
     ['background-position'], n));
   assert.match(css, /\.paint-static \.bttv-fx \{ animation: none; \}/);
@@ -1124,7 +1129,11 @@ test('overlay.css: a keyframes rule for every name the renderer writes, animatin
   assert.match(frames['tco-in-pop'], /translateX\(var\(--pop-x, -7\.5%\)\) scale\(\.85\)/);
   assert.deepStrictEqual(Array.from(css.matchAll(/([^{}\n]+)\{[^}]*--pop-x:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]), [
     [':where(.layout-vertical.text-center) .lines', '0%'], [':where(.layout-vertical.text-right) .lines', '7.5%']]);
-  assert.doesNotMatch(css, /transform-origin/);
+  // Only avatar mode's pieces (its picture, and the bubble it pops from its tail) have a transform-origin of their own,
+  // and none is animated.
+  Array.from(css.matchAll(/([^{}]+)\{[^}]*transform-origin/g), (m) => m[1].trim()).forEach((sel) => {
+    assert.match(sel, /has-avatar|^\.speaker-bob,/, sel);
+  });
 });
 
 test('decodeText: A-Z, a-z and digits past keep become random ones of their kind; nothing else changes', () => {
@@ -2310,7 +2319,13 @@ test('overlay.css: the layout rules (stage 4) stay off by default, in their own 
   assert.ok(at('.has-maxw .line {') > at('.layout-horizontal .line {') && at('.layout-horizontal .line {') > at('.has-bg .line {'));
   // edge_fade: on #chat (never .lines, which moves), the -webkit- property Chromium 103 has, toward the edge old
   // lines leave by, and never over more than half the source.
-  const masks = Array.from(css.matchAll(/([^{}]+)\{[^}]*mask-image:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]);
+  const allMasks = Array.from(css.matchAll(/([^{}]+)\{[^}]*mask-image:\s*([^;}]+)/g), (m) => [m[1].trim(), m[2].trim()]);
+  // Avatar mode's bubble tail is two SVG shapes, each a single path (its outline, and its fill), drawn as a mask.
+  const tails = allMasks.filter((m) => /has-avatar/.test(m[0]));
+  assert.deepStrictEqual(tails.map((m) => m[0]), ['#chat.has-avatar .lines::before', '#chat.has-avatar .lines::after',
+    '#chat.has-avatar.bubble-above .lines::before', '#chat.has-avatar.bubble-above .lines::after']);
+  tails.forEach((m) => assert.match(m[1], /^url\("data:image\/svg\+xml,%3Csvg xmlns='http:\/\/www\.w3\.org\/2000\/svg' viewBox='[\d ]+'%3E%3Cpath d='[\d.MCcz -]+'( stroke='%23000' stroke-width='5\.6' stroke-linejoin='round')?\/%3E%3C\/svg%3E"\)$/, m[0]));
+  const masks = allMasks.filter((m) => !/has-avatar/.test(m[0]));
   assert.deepStrictEqual(masks, [
     ['.edge-fade.layout-vertical.align-bottom', 'linear-gradient(to bottom, transparent, #000 min(var(--edge-fade, 2em), 50%))'],
     ['.edge-fade.layout-vertical.align-top', 'linear-gradient(to top, transparent, #000 min(var(--edge-fade, 2em), 50%))'],

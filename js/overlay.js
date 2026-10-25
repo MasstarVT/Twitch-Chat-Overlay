@@ -64,8 +64,9 @@
   // settings (a broken settings.js), names (a refused channel name), nochan (no channel set), twitchIrc (Twitch's own
   // "suspended" NOTICE), twitchLookup (the channel lookup found no channel, or a suspended one: third-party data, cleared
   // when IRC joins the room, and not shown beside Twitch's own NOTICE, which says the same), kick (the Kick lookup or
-  // chat, cleared when Kick chat joins). The others stay up.
-  var HINT_ORDER = ['settings', 'names', 'nochan', 'twitchIrc', 'twitchLookup', 'kick', 'youtube'];
+  // chat, cleared when Kick chat joins), avatar (avatar mode's picture didn't load, or there is none: js/avatar.js,
+  // cleared once one loads). The others stay up.
+  var HINT_ORDER = ['settings', 'names', 'nochan', 'twitchIrc', 'twitchLookup', 'kick', 'youtube', 'avatar'];
   function setHint(key, text, withLink) {
     if (!S) return;
     S.hints[key] = { text: text, link: !!withLink };
@@ -535,8 +536,10 @@
   function cfgColor(v) { return typeof v === 'string' && /^[0-9a-f]{6}$/.test(v) ? '#' + v : ''; }
 
   // The box behind the names (bg with its bg_color) when it is light (util.lightBackdrop), else null: readable then
-  // darkens light names (util.readableColor), as it lightens dark ones over dark video.
+  // darkens light names (util.readableColor), as it lightens dark ones over dark video. In avatar mode the names are in
+  // the speech bubble, white unless bubble_color says otherwise (the bubble has no bg box of its own).
   function nameBackdrop(cfg) {
+    if (T.avatar && T.avatar.isOn(cfg)) return T.avatar._internal.bubbleLook(cfg).back;
     if (!(cfg.bg > 0) || !cfgColor(cfg.bg_color)) return null;
     var b = T.util.boxBackdrop(cfg.bg_color, cfg.bg / 100);
     return T.util.lightBackdrop(b) ? b : null;
@@ -2289,9 +2292,10 @@
     var handed = opts && opts.handoff;
     if (handed && (handed.v !== HANDOFF || typeof handed.ready !== 'function')) return false;
     T = root.TCO;
-    // The page's query, a '#' typed in a value and what follows it included (config.pageQuery).
+    // The page's query, a '#' typed in a value and what follows it included (config.pageQuery), and the pictures the
+    // link carries after its '#' (config.pageImages), which win over the query's and settings.js's.
     var query = T.config.pageQuery(root.location);
-    var cfg = T.config.parse(query, root.TCO_SETTINGS);
+    var cfg = T.config.applyObject(T.config.parse(query, root.TCO_SETTINGS), T.config.pageImages(root.location));
     T.util.setDebug(cfg.debug);
     // A copy started unseen draws into a #chat of its own, put in place of the page's at takeOver.
     var chatEl = handed ? document.createElement('div') : el('chat');
@@ -2383,11 +2387,15 @@
     });
     S.rooms = T.rooms.createRooms({ load: loadSourceRoom });
 
-    S.renderer = T.renderer.createRenderer({
+    // Avatar mode (avatar=…) draws through the renderer too, one message at a time in a speech bubble, behind the
+    // renderer's own API (js/avatar.js): everything below works on either.
+    var avatarOn = !!(T.avatar && T.avatar.isOn(cfg));
+    S.renderer = (avatarOn ? T.avatar.createAvatar : T.renderer.createRenderer)({
       root: chatEl,
       cfg: cfg,
       deps: { tokensFor: tokensFor, badgesFor: badgesFor, nameFor: nameFor, paintRule: paintRule, paintStaticRule: paintStaticRule,
-        shouldShow: shouldShow, quoteHidden: quotesHidden }
+        shouldShow: shouldShow, quoteHidden: quotesHidden },
+      onHint: function (text) { if (text) setHint('avatar', text, true); else clearHint('avatar'); }
     });
     S.renderer.hold(true);
     applyFonts(cfg);

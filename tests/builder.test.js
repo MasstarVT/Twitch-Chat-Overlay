@@ -21,7 +21,7 @@ test('every config key except channel is in exactly one form group, with a label
   config.KEYS.filter((k) => k !== 'channel').forEach((k) => assert.ok(seen[k], 'missing field for ' + k));
   assert.ok(!seen.channel);
   assert.deepStrictEqual(builder.groupLayout().map((g) => g.title),
-    ['Look', 'Kick & YouTube', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Advanced']);
+    ['Look', 'Kick & YouTube', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Avatar', 'Advanced']);
   // Kick's and YouTube's tab (id platforms, as old links have it): the icons for every chat, then each platform's part.
   const platforms = builder.GROUPS.filter((g) => g.id === 'platforms')[0];
   assert.deepStrictEqual(platforms.keys, ['platform_icons', 'kick', 'kick_room', 'mixitup', 'mixitup_port']);
@@ -35,7 +35,7 @@ test('every config key except channel is in exactly one form group, with a label
 
 test('sections: one per group plus Add to OBS, each with an id a link can open', () => {
   const ids = builder.sectionIds();
-  assert.deepStrictEqual(ids, ['look', 'platforms', 'messages', 'events', 'filters', 'emotes', 'badges', 'advanced', 'obs']);
+  assert.deepStrictEqual(ids, ['look', 'platforms', 'messages', 'events', 'filters', 'emotes', 'badges', 'avatar', 'advanced', 'obs']);
   assert.strictEqual(new Set(ids).size, ids.length);
   builder.groupLayout().forEach((g) => assert.ok(g.note, g.id + ' says what it holds'));
   assert.strictEqual(builder.sectionFromHash('#obs'), 'obs');
@@ -336,7 +336,7 @@ test('changedKeys, tagText and groupCounts follow the overlay URL', () => {
   assert.strictEqual(builder.tagText('font', cfg), 'font=Open Sans');
   assert.strictEqual(builder.tagText('size', cfg), 'size');
   assert.deepStrictEqual(builder.groupCounts(cfg),
-    { look: 3, platforms: 0, messages: 1, events: 0, filters: 2, emotes: 0, badges: 1, advanced: 0 });
+    { look: 3, platforms: 0, messages: 1, events: 0, filters: 2, emotes: 0, badges: 1, avatar: 0, advanced: 0 });
   // The changed settings are exactly the URL's parameters after the channel.
   const inUrl = builder.urlParts(builder.overlayUrl(cfg, BASE)).params.map((p) => p.key);
   assert.deepStrictEqual(inUrl.slice(1).sort(), Object.keys(builder.changedKeys(cfg)).sort());
@@ -693,7 +693,7 @@ test('parsePasted reads settings.example.js as shipped and once edited by hand',
     .replace('bots: false', 'bots: true');
   const r2 = builder.parsePasted(edited);
   assert.ok(r2, 'edited settings.js parses');
-  assert.strictEqual(r2.count, 12);
+  assert.strictEqual(r2.count, 15);
   assert.strictEqual(r2.cfg.text_color, 'ffe08a');
   assert.strictEqual(r2.cfg.layout, 'horizontal');
   assert.strictEqual(r2.cfg.channel, 'xqc');
@@ -1714,5 +1714,180 @@ test('helpParts: the first sentence, and the rest; short help whole', () => {
     if (!h) return;
     const x = builder.helpParts(h);
     assert.strictEqual(x.lead + (x.rest ? ' ' + x.rest : ''), h, k + ': every word kept');
+  });
+});
+
+// ---------- avatar mode: pictures put in the link ----------
+// A 1 × 1 PNG; big(n): a "PNG" of n more base64 letters, as long as a real picture (only its first bytes are read).
+const PIC_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const PIC = 'data:image/png;base64,' + PIC_PNG;
+const bigPic = (n) => 'data:image/png;base64,' + PIC_PNG.slice(0, 92) + 'A'.repeat(n);
+const HOSTED = 'https://masstarvt.github.io/Twitch-Chat-Overlay/overlay.html';
+
+test('pictures put in the link go after its #, where the host never sees them, and come back through the paste box', () => {
+  const cfg = Object.assign(config.defaults(), { channel: 'forsen', avatar: 'custom', avatar_idle: PIC });
+  const url = builder.overlayUrl(cfg, BASE);
+  assert.strictEqual(url, HOSTED + '?channel=forsen&avatar=custom' + config.imageHash(cfg));
+  assert.strictEqual(builder.overlayUrl(cfg, BASE, true), HOSTED + '?channel=forsen&avatar=custom', 'noPictures');
+  assert.strictEqual(builder.urlTooLong(builder.overlayUrl(Object.assign({}, cfg, { avatar_idle: bigPic(20000) }), BASE)), false,
+    'the host only counts the path and query');
+  const back = builder.parsePasted(url);
+  assert.deepStrictEqual(back.cfg, cfg);
+  assert.strictEqual(back.count, 3);
+  // The preview's URL: every key, the picture written empty in the query (a settings.js can't fill one in), then the '#'.
+  const u = new URL(builder.previewUrl(cfg, BASE));
+  assert.strictEqual(u.searchParams.get('avatar_idle'), '');
+  assert.strictEqual(u.hash, config.imageHash(cfg));
+  assert.deepStrictEqual(Object.assign(config.parse(u.searchParams), config.hashImages(u.hash).values), cfg);
+  assert.strictEqual(new URL(builder.previewSrc(cfg, BASE)).hash, config.imageHash(cfg));
+  // linkCfg: the query's copy of cfg holds no data:image picture; a link to one stays.
+  assert.strictEqual(builder.linkCfg(cfg).avatar_idle, '');
+  assert.strictEqual(cfg.avatar_idle, PIC, 'cfg is left as it is');
+  const linked = Object.assign({}, cfg, { avatar_idle: 'https://i.imgur.com/me.png' });
+  assert.strictEqual(builder.linkCfg(linked), linked);
+  assert.strictEqual(builder.overlayUrl(linked, BASE), HOSTED + '?channel=forsen&avatar=custom&avatar_idle=https%3A%2F%2Fi.imgur.com%2Fme.png');
+  // A picture kept for Your own while another avatar is picked goes in no link, nor in settings.js.
+  const cat = Object.assign({}, cfg, { avatar: 'cat' });
+  assert.strictEqual(builder.overlayUrl(cat, BASE), HOSTED + '?channel=forsen&avatar=cat');
+  assert.strictEqual(new URL(builder.previewUrl(cat, BASE)).hash, '');
+  assert.ok(!builder.settingsSnippet(cat).includes('data:image'));
+  assert.ok(builder.settingsSnippet(cfg).includes(JSON.stringify(PIC)), 'settings.js holds it as it is');
+  // The '#' part in pieces, as the bar draws it; with urlParts, the whole URL again.
+  const both = Object.assign({}, cfg, { avatar_talk: PIC });
+  const hp = builder.hashParts(builder.overlayUrl(both, BASE));
+  assert.deepStrictEqual(hp.map((p) => [p.sep, p.key, p.eq]), [['#', 'avatar_idle', true], ['&', 'avatar_talk', true]]);
+  const join = (url) => { const p = builder.urlParts(url); return p.base + p.params.map((x) => x.sep + x.key + (x.eq ? '=' : '') + x.value).join('') +
+    builder.hashParts(url).map((x) => x.sep + x.key + (x.eq ? '=' : '') + x.value).join(''); };
+  [builder.overlayUrl(both, BASE), builder.previewUrl(both, BASE), builder.overlayUrl(cfg, BASE, true)]
+    .forEach((x) => assert.strictEqual(join(x), x));
+  assert.deepStrictEqual(builder.hashParts(HOSTED + '?channel=x'), []);
+  assert.deepStrictEqual(builder.hashParts(null), []);
+});
+
+test('pictures too big for OBS\'s URL box go in the source\'s Custom CSS', () => {
+  const cfg = Object.assign(config.defaults(), { channel: 'forsen', avatar: 'custom', avatar_idle: bigPic(13000) });
+  assert.strictEqual(builder.picturesInCss(cfg, BASE), false);
+  cfg.avatar_talk = bigPic(13000);
+  assert.strictEqual(builder.picturesInCss(cfg, BASE), false, 'two at the budget fit');
+  assert.ok(builder.overlayUrl(cfg, BASE).length <= builder.OBS_URL_MAX);
+  cfg.avatar_talk = bigPic(20000);
+  assert.ok(builder.overlayUrl(cfg, BASE).length > builder.OBS_URL_MAX);
+  assert.strictEqual(builder.picturesInCss(cfg, BASE), true);
+  assert.strictEqual(builder.OBS_URL_MAX, 32767);
+  assert.ok(2 * builder.PICTURE_BUDGET + 2000 < builder.OBS_URL_MAX, 'two pictures at the budget leave room for the settings');
+  // OBS's own default first (it keeps the page see-through), then the pictures, which win over the ones the URL names.
+  const css = builder.pictureCss(cfg);
+  assert.strictEqual(css, 'body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }\n#chat {\n' +
+    '  --avatar-idle: url("' + cfg.avatar_idle + '") !important;\n  --avatar-talk: url("' + cfg.avatar_talk + '") !important;\n}\n');
+  assert.ok(!builder.pictureCss(Object.assign({}, cfg, { avatar_talk: 'https://x.com/a.png' })).includes('--avatar-talk'),
+    'a link stays in the URL');
+  assert.strictEqual(builder.pictureCss(config.defaults()), '');
+  assert.strictEqual(builder.pictureCss(Object.assign({}, cfg, { avatar: 'bot' })), '');
+  // The CSS overlay.css and avatar.js read: the custom properties on #chat, whose url() a quote can't end early (base64).
+  const ov = fs.readFileSync(path.join(__dirname, '..', 'css', 'overlay.css'), 'utf8');
+  assert.match(ov, /\.speaker-idle \{ background-image: var\(--avatar-idle, none\); \}/);
+  assert.match(ov, /\.speaker-talk \{ background-image: var\(--avatar-talk, var\(--avatar-idle, none\)\);/);
+  // The URL route's note, and the copied note, say the Custom CSS is part of it.
+  const found = { state: 'found', login: 'forsen' };
+  const note = builder.urlNote(cfg, found, builder.overlayUrl(cfg, BASE, true));
+  assert.strictEqual(note.cls, 'warn');
+  assert.strictEqual(note.css, true);
+  assert.match(note.text, /Custom CSS/);
+  assert.strictEqual(builder.urlNote(cfg, found, builder.overlayUrl(Object.assign({}, cfg, { avatar_talk: '' }), BASE)).css, undefined);
+});
+
+test('pictureSize: a picture put in the link, as the line under its field says it', () => {
+  assert.deepStrictEqual(builder.pictureSize(PIC), { type: 'PNG', kb: 0.1, chars: 94 });
+  assert.deepStrictEqual(builder.pictureSize('data:image/webp;base64,' + 'A'.repeat(13652)), { type: 'WebP', kb: 10, chars: 13652 });
+  assert.deepStrictEqual(builder.pictureSize('data:image/jpeg;base64,' + 'A'.repeat(4)), { type: 'JPEG', kb: 0, chars: 4 });
+  ['img/me.png', 'https://x.com/a.png', '', null, undefined, 5].forEach((v) => assert.strictEqual(builder.pictureSize(v), null, String(v)));
+});
+
+test('urlNote and tagText: Your own without a picture is a warning; a picture in the link is said apart', () => {
+  const found = { state: 'found', login: 'forsen' };
+  const cfg = Object.assign(config.defaults(), { channel: 'forsen', avatar: 'custom' });
+  const none = builder.urlNote(cfg, found, builder.overlayUrl(cfg, BASE));
+  assert.strictEqual(none.cls, 'warn');
+  assert.match(none.text, /no picture yet/);
+  // A missing channel still comes first.
+  assert.match(builder.urlNote(Object.assign({}, cfg, { channel: '' }), found, '').text, /Add a channel first/);
+  cfg.avatar_idle = PIC;
+  assert.deepStrictEqual(builder.urlNote(cfg, found, builder.overlayUrl(cfg, BASE)),
+    { text: 'Holds only the 1 setting you changed, and your picture at its end. The rest use the defaults.', cls: '' });
+  cfg.avatar_talk = PIC;
+  assert.match(builder.urlNote(cfg, found, builder.overlayUrl(cfg, BASE)).text, /the 1 setting you changed, and your pictures at its end/);
+  assert.match(builder.urlNote(cfg, found, builder.overlayUrl(cfg, 'file:///C:/overlay/builder.html')).text,
+    /lists every setting, and your pictures at its end/);
+  // One kept for Your own while another avatar is picked is in no link: the note leaves it out.
+  assert.deepStrictEqual(builder.urlNote(Object.assign({}, cfg, { avatar: 'blob' }), found, ''),
+    { text: 'Holds only the 1 setting you changed. The rest use the defaults.', cls: '' });
+  // A link to a picture is a setting like any other.
+  assert.match(builder.urlNote(Object.assign({}, cfg, { avatar_idle: 'img/me.png', avatar_talk: '' }), found, '').text, /the 2 settings you changed\./);
+  // The tag: too long to show, so its kind stands in for it.
+  assert.strictEqual(builder.tagText('avatar_idle', cfg), 'avatar_idle=data:image/png;base64,…');
+  assert.strictEqual(builder.tagText('avatar_idle', Object.assign({}, cfg, { avatar_idle: 'img/me.png' })), 'avatar_idle=img/me.png');
+  assert.strictEqual(builder.tagText('avatar_idle', config.defaults()), 'avatar_idle');
+});
+
+test('startCfg: pictures after the builder link\'s # are part of its setup', () => {
+  const loc = (href) => { const u = new URL(href); return { href: u.href, search: u.search, hash: u.hash, pathname: u.pathname }; };
+  const B = 'https://chat.masstar.org/builder.html';
+  const stored = { size: 'large' };
+  const a = builder.startCfg('?channel=x&avatar=custom', stored, { avatar_idle: PIC });
+  assert.strictEqual(a.fromQuery, true);
+  assert.deepStrictEqual(a.cfg, Object.assign(config.defaults(), { channel: 'x', avatar: 'custom', avatar_idle: PIC }));
+  // Pictures with only a channel are more than the channels: a whole setup, over the defaults.
+  const b = builder.startCfg('?channel=x', stored, { avatar_idle: PIC });
+  assert.deepStrictEqual([b.cfg.size, b.cfg.avatar_idle], ['medium', PIC]);
+  assert.strictEqual(builder.startCfg('', stored, {}).fromStore, true);
+  assert.strictEqual(builder.startCfg('', stored, { size: 'small' }).cfg.size, 'large', 'only pictures are read from the #');
+  assert.strictEqual(builder.startCfg('', null, null).fromQuery, false);
+  // As a page reads its own address: the query, then the pictures.
+  const href = B + '?channel=x&avatar=custom' + config.imageHash({ avatar_idle: PIC });
+  const s = builder.startCfg(builder.startSearch(loc(href)), stored, config.pageImages(loc(href)));
+  assert.deepStrictEqual([s.cfg.channel, s.cfg.avatar, s.cfg.avatar_idle, s.cfg.size], ['x', 'custom', PIC, 'medium']);
+  assert.strictEqual(builder.linkSection(loc(href)), '', 'pictures open no section');
+});
+
+test('avatar mode in the form: its own preview shape, its tab, and the chat settings it leaves unused greyed out', () => {
+  const d = config.defaults();
+  assert.strictEqual(builder.shapeOf(d), 'vertical');
+  assert.strictEqual(builder.shapeOf(Object.assign({}, d, { layout: 'horizontal' })), 'horizontal');
+  assert.strictEqual(builder.shapeOf(Object.assign({}, d, { layout: 'horizontal', avatar: 'cat' })), 'avatar');
+  assert.deepStrictEqual(builder.LAYOUT_SIZES.avatar, { w: 800, h: 600 });
+  assert.deepStrictEqual(builder.layoutPreviewSize({ w: 450, h: 700 }, 'vertical', 'avatar'), { w: 800, h: 600 });
+  assert.deepStrictEqual(builder.layoutPreviewSize({ w: 800, h: 600 }, 'avatar', 'horizontal'), builder.LAYOUT_SIZES.horizontal);
+  assert.strictEqual(builder.layoutPreviewSize({ w: 1000, h: 500 }, 'vertical', 'avatar'), null, 'a size typed in stays');
+  const tab = builder.groupLayout().filter((g) => g.id === 'avatar')[0];
+  assert.deepStrictEqual(tab.keys, ['avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion',
+    'bubble_pos', 'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue']);
+  assert.strictEqual(builder.widgetFor('avatar_idle'), 'image');
+  assert.strictEqual(builder.widgetFor('avatar_talk'), 'image');
+  assert.strictEqual(builder.widgetFor('avatar'), 'seg');
+  // Every avatar setting but the choice waits for it; Your own's pictures wait for Your own.
+  const on = Object.assign({}, d, { avatar: 'blob' });
+  tab.keys.slice(1).forEach((k) => assert.strictEqual(builder.fieldOff(k, d), true, k));
+  assert.strictEqual(builder.fieldOff('avatar', d), false);
+  assert.strictEqual(builder.fieldOff('avatar_size', on), false);
+  assert.strictEqual(builder.fieldOff('avatar_idle', on), true);
+  assert.strictEqual(builder.whyOff('avatar_idle', on), 'Needs Avatar set to Your own.');
+  assert.strictEqual(builder.whyOff('avatar_size', d), 'Needs an Avatar picked.');
+  assert.strictEqual(builder.fieldOff('avatar_idle', Object.assign({}, d, { avatar: 'custom' })), false);
+  // The chat's own look and timing are unused while it is on, and say so.
+  ['layout', 'shadow', 'bg', 'animate', 'fade', 'max'].forEach((k) => {
+    assert.strictEqual(builder.fieldOff(k, on), true, k);
+    assert.match(builder.whyOff(k, on), /^Not used in avatar mode/, k);
+  });
+  ['size', 'font', 'names', 'badges', 'emotes_7tv', 'bots', 'text_color'].forEach((k) => assert.strictEqual(builder.fieldOff(k, on), false, k));
+  // The pictures are live keys (a new picture reaches the preview without a reload); the choice reloads it.
+  ['avatar_idle', 'avatar_talk', 'avatar_size', 'bubble_color'].forEach((k) => assert.strictEqual(builder.isLiveKey(k), true, k));
+  assert.ok(builder.RELOAD_KEYS.indexOf('avatar') >= 0);
+});
+
+test('avatar mode: the bubble is a column, so a horizontal layout left set doesn\'t grey out the big-emote settings', () => {
+  const row = Object.assign(config.defaults(), { layout: 'horizontal' });
+  ['emote_only', 'giant_emotes', 'gif_size'].forEach((k) => {
+    assert.strictEqual(builder.fieldOff(k, row), true, k + ' in a row');
+    assert.strictEqual(builder.fieldOff(k, Object.assign({}, row, { avatar: 'cat' })), false, k + ' in the bubble');
   });
 });

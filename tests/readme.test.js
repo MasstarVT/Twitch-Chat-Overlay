@@ -70,7 +70,8 @@ test('README: the Custom CSS table names the classes overlay.css lists as stable
   // and what the table names is in the overlay's stylesheet or drawn by the renderer: in code, not just in a comment's
   // words ("a colored bar"), or built from a quoted prefix ('platform-' + 'kick')
   const code = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
-  const drawn = code(css) + code(fs.readFileSync(path.join(ROOT, 'js', 'renderer.js'), 'utf8'));
+  const drawn = code(css) + code(fs.readFileSync(path.join(ROOT, 'js', 'renderer.js'), 'utf8')) +
+    code(fs.readFileSync(path.join(ROOT, 'js', 'avatar.js'), 'utf8'));
   const esc = (s) => s.replace(/-/g, '\\-');
   named.forEach((c) => {
     const pre = /^.([\w]+-)/.exec(c);

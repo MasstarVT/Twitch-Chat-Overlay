@@ -1676,10 +1676,13 @@ test('every live config key is handled by the renderer', () => {
   assert.ok(ROOT_KEYS.indexOf('gif_size') >= 0 && ROOT_KEYS.indexOf('giant_emotes') < 0);
   const LIVE_KEYS = require('../js/config.js').LIVE_KEYS;
   assert.ok(Array.isArray(LIVE_KEYS) && LIVE_KEYS.length > 0);
+  // Avatar mode's own settings are applied by js/avatar.js, around the renderer (tests/avatar.test.js checks each).
+  const AVATAR_KEYS = require('../js/avatar.js').LIVE_KEYS;
   for (const k of LIVE_KEYS) {
-    assert.ok(ROOT_KEYS.indexOf(k) >= 0 || R.RERENDER_KEYS.indexOf(k) >= 0 || R.FILTER_KEYS.indexOf(k) >= 0,
-      k + ' is live but the renderer ignores it');
+    assert.ok(ROOT_KEYS.indexOf(k) >= 0 || R.RERENDER_KEYS.indexOf(k) >= 0 || R.FILTER_KEYS.indexOf(k) >= 0 ||
+      AVATAR_KEYS.indexOf(k) >= 0, k + ' is live but the renderer ignores it');
   }
+  AVATAR_KEYS.forEach((k) => assert.ok(R.RERENDER_KEYS.concat(R.FILTER_KEYS, ROOT_KEYS).indexOf(k) < 0, k + ' is avatar.js\'s alone'));
   // and a renderer key that config never sends live is dead weight
   for (const k of R.RERENDER_KEYS.concat(R.FILTER_KEYS)) assert.ok(LIVE_KEYS.indexOf(k) >= 0, k + ' is not a live key');
 });

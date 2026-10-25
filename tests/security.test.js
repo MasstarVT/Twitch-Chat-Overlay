@@ -80,6 +80,12 @@ test('every URL property assignment in js/ is a reviewed one', () => {
   const REVIEWED = {
     'builder.js': [
       /^img\.src = (?:small|full)$/, // the channel avatar preview: IVR logo, isSafeUrl(jtvnw.net) checked
+      // a picture file read from this PC (pictureFile), drawn to shrink it: config.imageUrl took it as a data:image URL
+      // whose own bytes are a PNG, WebP, GIF or JPEG
+      /^img\.src = kept$/,
+      // a picture field's thumbnail: shown only for a data:image setting (config.isDataImage), which config.coerce
+      // took (imageUrl: a PNG, WebP, GIF or JPEG by its bytes)
+      /^thumb\.src = v$/,
       /^\$\('bar-open'\)\.href = url$/, // the generated overlay URL on this site
       /^a\.href = href$/, // builder links on this site
       /^a\.href = kick\.apiUrl\(slug\)$/, // kick.com's channel API for a validated Kick name (config.normalizeKick)
@@ -105,6 +111,11 @@ test('every URL property assignment in js/ is a reviewed one', () => {
     'renderer.js': [
       /^img\.src = url$/, // url comes from pickUrl (https, except the two fixed local badge assets)
       /^img\.src = next\.shift\(\)$/ // a GIF's fallbacks (p.alt, p.orig): partsFor keeps them only when util.isSafeUrl (https)
+    ],
+    'avatar.js': [
+      // avatar mode's picture, never shown, read for its size: the idle picture's own computed background (one config.js
+      // took as a picture: imageUrl, or the streamer's own OBS Custom CSS), or that picture made absolute
+      /^img\.src = src$/
     ]
   };
   // .action is left out: plain objects use it (m.action); a form's action attribute goes through setAttribute (SINKS).
@@ -191,7 +202,10 @@ test('every page: a Content-Security-Policy that only runs the site\'s own scrip
   });
   const overlayCsp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/.exec(read('overlay.html'))[1];
   const imgSrc = overlayCsp.split(';').map((d) => d.trim().split(/\s+/)).find((d) => d[0] === 'img-src');
-  assert.deepStrictEqual(imgSrc, ['img-src', "'self'", 'file:', 'https:'], 'the overlay badge asset loads locally without allowing arbitrary schemes');
+  // data: is avatar mode's: the streamer's own pictures, carried in the link's '#' part or in OBS's Custom CSS. Chat never
+  // names an image (emotes, badges and paints are checked https:// URLs: the tests above), and config.js takes a data:
+  // picture only as a PNG, WebP, GIF or JPEG by its own first bytes (config.test.js).
+  assert.deepStrictEqual(imgSrc, ['img-src', "'self'", 'file:', 'https:', 'data:'], 'the overlay badge asset loads locally without allowing arbitrary schemes');
   // OBS applies Custom CSS as an inline style, so the overlay (only) must allow inline styles.
   assert.match(read('overlay.html'), /style-src [^;]*'unsafe-inline'/);
   assert.doesNotMatch(read('builder.html'), /'unsafe-inline'/);
@@ -472,10 +486,12 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
   const COLORS = config.KEYS.filter((k) => config.SPEC[k].type === 'color');
   assert.deepStrictEqual(COLORS, ['text_color', 'shadow_color', 'outline_color', 'name_color', 'name_fallback', 'bg_color',
     'notice_color', 'first_msg_color', 'mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color',
-    'vip_color']);
-  // The name colors reach the names through overlay.js nameFor (checked at the end); the rest are #chat's.
+    'vip_color', 'bubble_color']);
+  // The name colors reach the names through overlay.js nameFor (checked at the end); avatar mode's bubble_color is
+  // avatar.js's (checked after the renderer's); the rest are #chat's.
   const NAME_COLORS = ['name_color', 'name_fallback'];
-  const ROOT_COLORS = COLORS.filter((k) => NAME_COLORS.indexOf(k) < 0);
+  const AVATAR_COLORS = ['bubble_color'];
+  const ROOT_COLORS = COLORS.filter((k) => NAME_COLORS.indexOf(k) < 0 && AVATAR_COLORS.indexOf(k) < 0);
   const hostile = ['red;background:url(https://evil.example/x)', 'fff}*{display:none}', '#fff;', 'url(x)', 'var(--x)',
     'expression(1)', '000000 !important', 'ffffff\n;x', 'f\\66', '0x123456', '#ff8800aa', ' #12345', 'ｆｆｆ'].concat(PAYLOADS);
   // config never takes them (so neither the URL, settings.js nor the builder's live messages carry them)...
@@ -521,7 +537,32 @@ test('color options: only checked hex digits reach #chat, whatever the URL, sett
     assert.ok(uses.length > 0, k + ' is applied');
     uses.forEach((l) => assert.match(l, new RegExp('(?:hex(?:Rgb|Color)\\(|shadowCss\\(c\\.shadow, |tint\\([^;]*, )c\\.' + k + '\\)'), l.trim()));
   });
-  NAME_COLORS.forEach((k) => assert.ok(apply.indexOf('.' + k) < 0, k + ' never reaches #chat'));
+  NAME_COLORS.concat(AVATAR_COLORS).forEach((k) => assert.ok(apply.indexOf('.' + k) < 0, k + ' never reaches #chat from the renderer'));
+  // Avatar mode: hostile bubble colors (and text colors, which it draws the bubble's text with) never reach #chat either.
+  // bubbleLook takes 6 checked hex digits and nothing else; avatar.js reads bubble_color and text_color nowhere else.
+  const av = require('../js/avatar.js');
+  const AV = av._internal;
+  hostile.concat([123456, true, ['ff0000']]).forEach((v) => {
+    assert.deepStrictEqual(AV.bubbleLook({ bubble_color: v, text_color: v }),
+      { color: '#ffffff', set: false, ink: '#1d1d22', notice: '#5b34c9', back: util.boxBackdrop('ffffff', 1) }, JSON.stringify(String(v)));
+    const adoc = createDocument();
+    const aroot = adoc.createElement('div');
+    adoc.body.appendChild(aroot);
+    const a = av.createAvatar({ root: aroot, cfg: { avatar: 'blob', bubble_color: v, text_color: v }, deps: {} });
+    Object.keys(aroot.style).filter((n) => /^--bubble/.test(n)).forEach((n) => assert.match(aroot.style[n], /^(?:#[0-9a-f]{6}|\d+em)$/, n));
+    assert.strictEqual(aroot.style['--bubble-color'], undefined, 'unset: the stylesheet\'s white');
+    a.destroy();
+  });
+  assert.strictEqual(AV.bubbleLook({ bubble_color: '102030' }).ink, '#ffffff', 'a dark bubble writes white');
+  const avSrc = read('js/avatar.js');
+  assert.match(avSrc, /\n {2}function checkedHex\(v\) \{ return typeof v === 'string' && \/\^\[0-9a-f\]\{6\}\$\/\.test\(v\) \? v : ''; \}/);
+  const avUses = avSrc.split('\n').filter((l) => /\.(bubble_color|text_color)\b/.test(l));
+  assert.ok(avUses.length >= 1, 'the scan finds bubbleLook');
+  avUses.forEach((l) => {
+    const reads = l.match(/[\w.]*\.(?:bubble_color|text_color)\b/g);
+    const checked = l.match(/checkedHex\(cfg && cfg\.(?:bubble_color|text_color)\)/g) || [];
+    assert.strictEqual(checked.length, reads.length, l.trim());
+  });
   assert.match(body('tint'), /var rgb = hexRgb\(hex\);\s*if \(rgb === null\) return s;/);
   assert.match(body('shadowCss'), /return color \? tint\(s, color\) : s;/);
   // overlay.js reads the name colors only through cfgColor, which takes 6 checked hex digits and nothing else

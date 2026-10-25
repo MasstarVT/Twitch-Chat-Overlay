@@ -3350,3 +3350,90 @@ test('Look: a heading opens as it was left last time', (t) => {
   assert.deepStrictEqual(p.$('group-look').byClass('fold-btn').map((b) => b.getAttribute('aria-expanded')),
     ['true', 'false', 'false', 'true', 'false']);
 });
+
+// ---------- avatar mode: a picture field ----------
+const PIC_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const PIC = 'data:image/png;base64,' + PIC_PNG;
+const b64url = (s) => s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const bigPic64 = (n) => PIC_PNG.slice(0, 92) + 'A'.repeat(n);
+function picField(p, key) {
+  const row = rowOf(p, key);
+  const [box, remove] = row.byClass('text-row')[0].children;
+  const adv = row.byClass('pic-adv')[0];
+  return { row, box, remove, adv, file: p.$('f-' + key + '-file'), thumb: row.byClass('pic-thumb')[0], line: p.$('f-' + key + '-in'),
+    err: p.$('e-' + key), tag: () => p.$('l-' + key).parentNode.byClass('tag')[0].textContent };
+}
+
+test('a picture field: a link typed in, a bad one said only once it is in, and Remove; waits for Your own', (t) => {
+  const p = open(t, HREF);
+  const f = picField(p, 'avatar_idle');
+  assert.strictEqual(f.row.className, 'field field-image disabled');
+  assert.deepStrictEqual([f.box.id, f.box.disabled, f.remove.textContent, f.remove.disabled], ['f-avatar_idle', true, 'Remove', true]);
+  assert.deepStrictEqual([f.file.type, f.file.hidden, f.adv.tagName], ['file', true, 'DETAILS']);
+  assert.strictEqual(f.adv.children[0].textContent, 'Advanced: put a picture file in the link');
+  p.$('paste').value = '?channel=forsen&avatar=custom';
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([f.row.className, f.box.disabled, f.remove.disabled], ['field field-image', false, true]);
+  assert.match(p.text('bar-note'), /no picture yet/);
+  // Typed: taken after a pause; a bad link is said only once it is in (Enter or leaving the box).
+  f.box.value = 'https://i.imgur.com/me';
+  f.box.dispatch('input');
+  t.mock.timers.tick(600);
+  assert.deepStrictEqual([f.err.hidden, f.tag()], [true, 'avatar_idle=https://i.imgur.com/me']);
+  f.box.value = 'not a picture';
+  f.box.dispatch('input');
+  t.mock.timers.tick(600);
+  assert.deepStrictEqual([f.err.hidden, f.tag()], [true, 'avatar_idle=https://i.imgur.com/me'], 'still typing');
+  f.box.dispatch('change');
+  assert.deepStrictEqual([f.err.hidden, f.box.getAttribute('aria-invalid')], [false, 'true']);
+  f.box.value = 'img/me.png';
+  f.box.dispatch('change');
+  assert.deepStrictEqual([f.err.hidden, f.tag(), f.remove.disabled], [true, 'avatar_idle=img/me.png', false]);
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?channel=forsen&avatar=custom&avatar_idle=img%2Fme.png');
+  f.remove.dispatch('click');
+  assert.deepStrictEqual([f.box.value, f.tag(), f.remove.disabled], ['', 'avatar_idle', true]);
+});
+
+test('a picture in the link: its thumbnail and size, after the URL\'s #; too big for OBS, the Custom CSS step', (t) => {
+  const p = open(t, HREF);
+  const idle = picField(p, 'avatar_idle'), talk = picField(p, 'avatar_talk');
+  p.$('paste').value = OVERLAY + '?channel=forsen&avatar=custom#avatar_idle=' + b64url(PIC_PNG);
+  p.$('paste-load').dispatch('click');
+  assert.deepStrictEqual([idle.thumb.hidden, idle.thumb.src, idle.adv.open, idle.box.value, idle.box.placeholder],
+    [false, PIC, true, '', 'In the link (see below)']);
+  assert.strictEqual(idle.line.textContent, 'In the URL: a 0.1 KB PNG, 94 of its characters.');
+  assert.strictEqual(idle.tag(), 'avatar_idle=data:image/png;base64,…');
+  assert.deepStrictEqual([talk.thumb.hidden, talk.line.textContent], [true, '']);
+  // The bar: the whole URL as its text (a selection copies it), the picture drawn short.
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?channel=forsen&avatar=custom#avatar_idle=' + b64url(PIC_PNG));
+  const blob = p.$('bar-url').byClass('blob')[0];
+  assert.deepStrictEqual([blob.textContent, blob.getAttribute('aria-hidden')], [b64url(PIC_PNG), 'true']);
+  assert.strictEqual(p.$('bar-url').byClass('blob-size')[0].getAttribute('data-size'), '0.1 KB picture');
+  assert.strictEqual(p.text('out-url'), OVERLAY + '?channel=forsen&avatar=custom#avatar_idle=' + b64url(PIC_PNG));
+  assert.match(p.text('bar-note'), /and your picture at its end/);
+  assert.deepStrictEqual([p.$('obs-css').hidden, !!p.$('css-leave').hidden], [true, false]);
+  // An empty box leaves the picture alone; typing a link replaces it.
+  idle.box.dispatch('change');
+  assert.strictEqual(idle.thumb.src, PIC);
+
+  // Two pictures too big for OBS's URL box together: the URL goes without them, and Add to OBS gives the Custom CSS.
+  p.$('paste').value = OVERLAY + '?channel=forsen&avatar=custom#avatar_idle=' + bigPic64(17000) + '&avatar_talk=' + bigPic64(17000);
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?channel=forsen&avatar=custom');
+  assert.deepStrictEqual([p.$('obs-css').hidden, !!p.$('css-leave').hidden], [false, true]);
+  const css = p.text('out-css');
+  assert.ok(css.startsWith('body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }\n#chat {\n  --avatar-idle: url("data:image/png;base64,'));
+  assert.strictEqual(p.$('out-css').byClass('blob').length, 2);
+  assert.match(p.text('bar-note'), /too big for the URL, so they go in the source’s Custom CSS/);
+  assert.match(idle.line.textContent, /^In the OBS source’s Custom CSS: a 12\.5 KB PNG\./);
+  assert.match(talk.line.textContent, /^In the OBS source’s Custom CSS/);
+  // One removed: the other fits the URL again, and its line says so.
+  talk.remove.dispatch('click');
+  assert.deepStrictEqual([p.$('obs-css').hidden, !!p.$('css-leave').hidden], [true, false]);
+  assert.match(idle.line.textContent, /^In the URL: a 12\.5 KB PNG, 17,092 of its characters\.$/);
+  assert.ok(p.text('bar-url').indexOf('#avatar_idle=') > 0);
+  // Another avatar picked: the picture is kept for Your own, and no link carries it.
+  p.$('paste').value = '?channel=forsen&avatar=cat';
+  p.$('paste-load').dispatch('click');
+  assert.strictEqual(p.text('bar-url'), OVERLAY + '?channel=forsen&avatar=cat');
+});

@@ -35,6 +35,7 @@ It is plain HTML and JavaScript. There is no build step, no login and no server 
   - Timeouts, bans and deleted messages disappear from the overlay.
   - During Shared Chat, every message shows its channel's avatar (your own channel's too, as on Twitch), and partner messages show their badges from that channel.
 - **Vertical or horizontal:** a classic chat column, or a single row that runs sideways like a ticker, for a bar along the top or bottom of the stream.
+- **Avatar mode:** a picture in a corner says each chat message in a speech bubble, typing it out as its mouth moves (`avatar`). Pick one of three built-in characters or use your own PNGtuber pictures: a link, or the picture files themselves carried inside the overlay URL, so nothing needs hosting (see **Avatar mode**).
 - **Clean look by default:** white text with a soft drop shadow on a transparent background. You can change the layout, size, font, weight, colors, outline, shadow, the box behind each message, how names look, alignment, emote and badge size, animations, fade-out and line limit.
 - **Highlights and filters:** highlight mentions of your channel, chosen words or users, and the broadcaster, mods and VIPs; add timestamps; hide messages by word, role, length or link; turn each event type on or off.
 - **Config builder** (`builder.html`) with a live preview, a demo mode, quick looks to start from, and copy or download buttons.
@@ -109,7 +110,7 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 - **Option names** are not case-sensitive, in the URL or in settings.js (`Size=large` works).
 - **Colors** are hex codes, 6 digits or 3 (`ff8800` or `f80`), and the `#` is optional, in a URL too (`text_color=#ff8800` or `text_color=ff8800`; `%23` is the safest way to write a `#` in a URL). An empty value (`text_color=`) means the built-in color.
 - **Builder output** includes only the options you changed. The exception is a `file:///…/overlay.html?…` URL: it lists every setting, so a settings.js in that folder can't override any of them. Such a URL also keeps today's defaults if a later release changes one.
-- **URL length:** GitHub Pages, which hosts the overlay, refuses a URL over about 8,000 characters, and OBS then shows "URI Too Long" in place of chat. A letter outside A–Z takes 6 to 9 characters in a URL (an emoji 12), so long lists of words or names, above all in Japanese or Korean, belong in settings.js. The builder warns when a URL gets that long. A `file:///` URL has no such limit.
+- **URL length:** GitHub Pages, which hosts the overlay, refuses a URL over about 8,000 characters, and OBS then shows "URI Too Long" in place of chat. A letter outside A–Z takes 6 to 9 characters in a URL (an emoji 12), so long lists of words or names, above all in Japanese or Korean, belong in settings.js. The builder warns when a URL gets that long. A `file:///` URL has no such limit, and neither has the part after a `#`, where the builder puts avatar pictures (see **Avatar mode**): a browser never sends it to the server.
 
 | Option | Default | Values | What it does |
 |---|---|---|---|
@@ -211,8 +212,35 @@ Put options in the overlay URL (for example `overlay.html?channel=xqc&size=large
 | `stv_lookup` | `1` | bool | Look up 7TV paints and badges for chatters who don't run a 7TV client (see notes). |
 | `readable` | `1` | bool | Lighten dark name colors so they stay readable on stream. On a light box (a light `bg_color` at a `bg` that shows it: white from about `50`) it darkens light names instead, and leaves dark ones as they are. |
 | `readable_level` | `45` | `30`–`70` | How light `readable` makes a dark name: the contrast with black it aims for (on a light box, how dark it makes a light name: the contrast with the box), times 10 (`45` is 4.5:1, `70` is 7:1; a number under `30`, such as `4.5`, is read as the ratio itself). It lightens in steps, so nearby values often give the same color. `name_color` and `name_fallback` are left as picked. Needs `readable=1`; not used while `name_color` is set. |
+| `avatar` | `off` | `off`, `blob`, `bot`, `cat`, `custom` | Avatar mode (see **Avatar mode**): a picture in a bottom corner says each chat message in a speech bubble, typing it out as its mouth moves, one message at a time. `blob`, `bot` and `cat` are the three built-in characters; `custom` uses `avatar_idle` and `avatar_talk`. Emotes, badges, names, paints, highlights, filters and moderation work as in the chat, but the chat's layout, box, shadow, animation, fade, `max` and `history` settings don't apply while it is on. |
+| `avatar_idle` | none | picture | With `avatar=custom`: the picture with its mouth shut. An `https://` link to a PNG, WebP, GIF or JPEG, a file beside `overlay.html` (`img/me.png`), or the picture itself as a `data:image` URL, which the builder puts after the URL's `#` (see **Avatar mode**). A see-through background looks best. |
+| `avatar_talk` | none | picture | With `avatar=custom`: the same picture with its mouth open, shown in turn with `avatar_idle` while it talks. The same size as `avatar_idle`, so nothing jumps. Without one the avatar keeps its picture and only bobs. |
+| `avatar_size` | `300` | `40`–`1080` | The avatar's height in px, never more than the source's. |
+| `avatar_side` | `left` | `left`, `right` | The bottom corner the avatar sits in. The bubble goes toward the middle of the source. |
+| `avatar_flip` | `0` | bool | Mirror the picture, so it faces its bubble. |
+| `avatar_motion` | `bounce` | `bounce`, `lively`, `none` | `bounce` hops as a message comes and bobs as the mouth moves; `lively` also breathes while it waits; `none` only swaps the pictures. |
+| `bubble_pos` | `side` | `side`, `above` | The bubble beside the avatar's head, its tail toward the mouth, or above the head. |
+| `bubble_width` | `18` | `8`–`60` | The widest the bubble gets, in em (the text size; 18 is about 35 letters). A longer message wraps, and one too tall for the source is cut short with "…". |
+| `bubble_color` | none | hex color | The bubble's color (white when unset). Its text is dark on a light bubble and white on a dark one unless `text_color` is set, and with `readable` on, names too light for a light bubble are darkened. |
+| `bubble_speed` | `30` | `0`–`100` | Letters typed a second, twice as many while other messages wait their turn; an emote takes as long as two letters, and a message never takes more than 8 seconds. `0` shows the whole message at once. |
+| `bubble_time` | `6` | `1`–`30` | The most seconds a bubble stays once it is typed out. A short message stays less, about long enough to read, and half as long while others wait. |
+| `bubble_queue` | `5` | `1`–`20` | How many messages may wait their turn. When another comes, the oldest waiting one is skipped, so a busy chat stays current. |
 | `demo` | `0` | bool | Show looping sample messages instead of live chat. The builder preview uses this. |
 | `debug` | `0` | bool | Show a status line with each provider's load state, and log to the console. |
+
+## Avatar mode
+
+`avatar` turns the chat into a talking avatar: a picture in a bottom corner of the source that says each chat message in a speech bubble, typing it out while its mouth moves, one message after another. Set it up on the builder's **Avatar** tab, where the preview shows it at work; a source of about 800 × 600 leaves room for the avatar and its bubble.
+
+- **Built-in characters:** `avatar=blob`, `bot` or `cat` need nothing else.
+- **Your own pictures** (`avatar=custom`): a picture with the mouth shut (`avatar_idle`) and, if you have one, the same picture with the mouth open (`avatar_talk`), as a PNGtuber has. Each can be:
+  - an `https://` link to the picture file, on a host that lets other sites show it (Discord's links expire after a while);
+  - a file beside `overlay.html` in your own copy (`img/me.png`);
+  - **the picture itself, carried in the overlay URL.** In the builder, open **Advanced: put a picture file in the link** under the picture's field and choose a file on your PC. The builder keeps a picture that is small enough as it is, and otherwise shrinks it to the avatar's height and saves it as WebP. It goes after the URL's `#`, which a browser never sends anywhere: GitHub Pages never sees it, so its URL length limit doesn't apply, and the picture never leaves your PC except inside the URL you paste into OBS. Pasting that URL into **Edit an existing overlay** brings the pictures back too.
+- **Pictures too big for the URL:** OBS's URL box holds 32,767 characters. When your pictures would make the URL longer than that, the builder leaves them out of it and **Add to OBS** gives a few lines for the source's **Custom CSS** box instead, which hold them (`#chat { --avatar-idle: url(...) !important; }`). In the Local file route, `settings.js` holds them, with no limit.
+- **Moderation:** a message a moderator deletes, or whose author is timed out or banned, goes from the bubble at once, or from the queue while it is still waiting its turn; a chat clear empties both.
+
+Pictures in the URL or settings.js are only ever used as pictures: the overlay reads a `data:image` URL's first bytes and takes it only if they are a PNG, WebP, GIF or JPEG, whatever type it names (never an SVG, which could carry script).
 
 ## Custom CSS
 
@@ -240,6 +268,15 @@ OBS's **Custom CSS** box can restyle the overlay. These class names are stable:
 | `#chat.row-left`, `#chat.row-center` | a row's messages at its left end or in its middle while they don't fill it (`row_align`; the horizontal layout only) |
 | `#chat.row-grow` | emote-only messages, GIFs and gigantified emotes drawn at their full size in a row that grows to fit them (`row_grow=1`; the horizontal layout only) |
 | `#chat.has-name-font` | names in a font of their own (`name_font` set); the font is the `--name-font` variable |
+| `#chat.has-avatar` | avatar mode (`avatar` set): `.lines` is the speech bubble, and holds the one message being said |
+| `#chat.avatar-left`, `#chat.avatar-right` | the avatar's corner (`avatar_side`) |
+| `#chat.bubble-side`, `#chat.bubble-above` | the bubble beside the avatar's head or above it (`bubble_pos`) |
+| `#chat.avatar-flip` | the avatar's picture mirrored (`avatar_flip=1`) |
+| `#chat.motion-bounce`, `#chat.motion-lively`, `#chat.motion-none` | how the avatar moves (`avatar_motion`) |
+| `#chat.talking`, `#chat.bubble-on` | while a message is being said, and its bubble is shown |
+| `#chat.mouth-open` | while the avatar's mouth is open: the talking picture shows |
+| `.speaker` | the avatar, in its bottom corner |
+| `.speaker-idle`, `.speaker-talk` | the avatar's two pictures, drawn as background images (`--avatar-idle`, `--avatar-talk`) |
 | `.lines` | the box that holds the messages |
 | `.line` | one message |
 | `.line.notice` | a sub, raid or other notice |
@@ -283,6 +320,8 @@ A `/me` message is italic and in the name's color. `.line.action .message { font
 Emote height is the `--emote-h` variable (default `1.75em`), so `#chat { --emote-h: 2em; }` makes emotes bigger, and badge height is `--badge-h` (default `1em`). `emote_scale` and `badge_size` set the same variables, and they also load the images for the size drawn: emotes or badges enlarged with Custom CSS alone are fetched at their usual size and may look slightly softer. While `emote_scale` or `badge_size` is changed, it wins over Custom CSS that sets the variable on `#chat`.
 
 These options set a variable on `#chat`, and only while they are changed, so Custom CSS can set the same variable instead (`#chat { --text-color: #ffe08a; }`). An option you changed wins over Custom CSS.
+
+In avatar mode the overlay sets `--avatar-size` (the avatar's height), `--avatar-ratio` (its width to its height, read from the picture), `--avatar-idle` and `--avatar-talk` (each a `url()`), `--bubble-w`, `--bubble-ink` (the bubble's text and outline) and `--bubble-notice` (notice text in the bubble) on `#chat` at all times, and `--bubble-color` while `bubble_color` is set. Custom CSS changes those with `!important` (`#chat { --bubble-ink: #4a2a00 !important; }`), as the builder's Custom CSS for pictures too big for the URL does.
 
 | Variable | Option | Default |
 |---|---|---|
@@ -353,6 +392,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Validated styling.** Name and badge colors must be hex colors, and so must the color options, which are checked again before they reach the page's style. 7TV paints are rebuilt from checked numbers and colors, with limited layers and shadows (up to 8 layers and 10 shadows, and the whole shadow chain shares a 32 px reach on each axis and for blur), so a paint can't escape its own rule or draw far outside the name.
 - **Zalgo text** (piles of combining marks) is cut to 4 marks per letter, even with invisible characters between them, so it can reach at most about one text row into the message above instead of covering the chat. Normal accents and emoji are unaffected.
 - **Size limits.** Message text is cut at 1000 characters (a Kick message at 2000 before its emote codes are read, and a Kick frame over 64 KB is dropped), a message draws at most 200 emote images (zero-width layers count) and 300 images in all (GIFs and cheermotes count too), and one emote stacks at most 4 zero-width layers. Real Twitch messages (500 characters) never reach these; only crafted history lines can. BTTV's rotate modifiers draw the emote in a square box, so a rotated wide emote stays within its own line.
+- **Pictures are pictures.** An avatar picture is an `https://` link, a plain file name beside `overlay.html` (no `..`, no other site), or a `data:image` URL the overlay takes only when its own first bytes are a PNG, WebP, GIF or JPEG, so never an SVG, which could carry script. It is only ever drawn as a CSS background, written so it can't end its `url()` early.
 - **Content-Security-Policy.** As a second layer, `overlay.html`, the builder and the home page only run their own script files: no inline scripts, no `eval`, nothing from other sites. Only `overlay.html` allows inline styles, because OBS applies a source's Custom CSS that way.
 - **Sandboxed preview.** When the builder is served over http(s), its live-chat preview runs in a sandboxed frame (`allow-scripts` only) with no access to the builder page. Opened from disk (`file://`), the preview runs unsandboxed, because a sandboxed frame can't load local files; Chrome still gives each local page its own origin.
 
@@ -373,7 +413,7 @@ Anyone can type in a Twitch chat, and emote names, badges and 7TV paints come fr
 - **Still paints:** `paint_images=static` takes an animated paint's still frame from 7TV's own list of its images. A paint that arrives in 7TV's older format (one image URL: when 7TV's paint list can't be loaded, or for a paint newer than the list) doesn't say whether it is animated: the overlay asks 7TV's image server for the still frame beside it once, and uses it when it loads (a still paint has none, and stays as it is).
 - **Right-to-left chat:** the name is kept apart from the message, and a message takes its direction from its first letter, so Arabic and Hebrew chat reads correctly.
 - **Busy chat:** new lines are drawn in batches, at most every 100 ms. Nothing changes below about 10 messages a second.
-- **Builder:** each setting shows its option name while the pointer or the focus is on its row (a click selects it to copy), and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick & YouTube), `#messages`, `#events`, `#filters`, `#emotes`, `#badges` or `#advanced`. The headings in Advanced have links of their own: `#adv-text`, `#adv-names`, `#adv-layout`, `#adv-highlights`, `#adv-filters`, `#adv-emotes` and `#adv-trouble` (Troubleshooting). A setting that needs a switch sits right under that switch, on its tab, so Outline color is under Text outline in Look. After a link's settings (`builder.html?channel=name#obs`) a section's name still opens it, unless the overlay would read it as part of the last value: `?channel=#emotes` is the channel emotes.
+- **Builder:** each setting shows its option name while the pointer or the focus is on its row (a click selects it to copy), and the name reads `option=value` once the setting is off its default; those are the options the overlay URL carries. A link can open a section: `builder.html#obs`, `#look`, `#platforms` (Kick & YouTube), `#messages`, `#events`, `#filters`, `#emotes`, `#badges`, `#avatar` or `#advanced`. The headings in Advanced have links of their own: `#adv-text`, `#adv-names`, `#adv-layout`, `#adv-highlights`, `#adv-filters`, `#adv-emotes` and `#adv-trouble` (Troubleshooting). A setting that needs a switch sits right under that switch, on its tab, so Outline color is under Text outline in Look. After a link's settings (`builder.html?channel=name#obs`) a section's name still opens it, unless the overlay would read it as part of the last value: `?channel=#emotes` is the channel emotes.
 - **Builder quick looks:** Look starts with five one-click looks: Default, Boxed (a dark box, no shadow), Outlined (an outline in place of the shadow), Cards (full-width boxes with a name-color bar and the name on its own line) and Big & bold. Each sets the text size, weight, color and line spacing, the name weight, shadow, outline, box, name-color bar and space between messages, whether the name has a line of its own, and emote and badge size; what a look doesn't name goes back to its default. It changes the overlay URL like any other setting, so tweak it from there. Your channels, font, name colors, layout and position stay. **Undo** puts back the look you had before the first click, until you change something else. Big & bold makes emotes a quarter bigger (their lines grow to fit them), and it can be cut off in a 1920 × 100 horizontal source. Cards puts the name on a line of its own, which in the horizontal layout makes each message a card of two lines: give the source about 130 px of height.
 - **Builder preview:** a live-chat preview disconnects after about a minute in a hidden tab and reconnects when you come back. Opening `builder.html?channel=name` keeps your remembered settings; a link with more settings loads exactly that setup. The builder reads such a link as the overlay does (a `#` in a value included), applies it once and takes it out of the address bar, so a reload keeps the changes you've made since. The builder used to be the home page, so an older link to the home page that carries settings (`/?channel=name`) is passed on to the builder.
 - **Older OBS versions:** OBS 28–30 use an older Chromium (103). The overlay is written to work there too.
@@ -400,6 +440,7 @@ Layout:
 - `js/seventv.js`, `js/bttv.js`, `js/ffz.js`, `js/twitch-badges.js`, `js/extra-badges.js`: emote and badge providers.
 - `js/tokenizer.js`: turns messages into emote and text tokens.
 - `js/renderer.js`: builds the DOM.
+- `js/avatar.js`: avatar mode. It stands in for the renderer, hands it one message at a time to draw in the bubble, and types it out while the avatar talks. `img/avatars/`: the three built-in characters, each a picture with the mouth shut and one with it open.
 - `js/paint-css.js`: 7TV paints.
 - `js/config.js`: every option and its default.
 - `js/util.js`: shared helpers (fetch with timeout and retry, the reconnecting socket, LRU cache, colors).

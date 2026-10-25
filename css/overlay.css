@@ -10,7 +10,9 @@
    modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .size-small .size-medium .size-large .has-bg
    .bg-full .no-names .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static
    .text-center .text-right .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .row-left .row-center .row-grow
-   .has-name-font.
+   .has-name-font, and in avatar mode .has-avatar .avatar-left .avatar-right .bubble-side .bubble-above .avatar-flip
+   .motion-bounce .motion-lively .motion-none .talking .bubble-on .mouth-open, with the avatar .speaker and its two
+   pictures .speaker-idle .speaker-talk (.lines is the speech bubble there).
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
    --name-weight --text-color --line-height --bg-rgb --bg-radius --line-gap --row-gap --notice-color --notice-size
    --first-color --pad-x --emote-h --badge-h --gif-mul --mention-rgb --kw-rgb --hl-rgb --role-broadcaster-rgb
@@ -1071,6 +1073,171 @@ body {
   from { opacity: 1; transform: none; }
   to { opacity: 0; transform: translateX(-.6em); }
 }
+
+/* ---------- avatar mode (avatar=blob, bot, cat or custom: js/avatar.js) ----------
+   A picture in a bottom corner (.speaker) says each chat message in a speech bubble: .lines, which holds the one
+   message being said, drawn as everywhere else. #chat gets .has-avatar, the corner (.avatar-left / .avatar-right), where
+   the bubble goes (.bubble-side / .bubble-above), .avatar-flip, the motion (.motion-bounce / .motion-lively /
+   .motion-none), and while a message is said .talking, .bubble-on (the bubble shown) and .mouth-open (the talking
+   picture, as the mouth flaps). avatar.js sets --avatar-size (the picture's height), --avatar-ratio (its width to its
+   height, read off the picture), --avatar-idle and --avatar-talk (each a url()), --bubble-w, --bubble-color (bubble_color,
+   white when unset), --bubble-ink (the bubble's text and outline: text_color, else dark on a light bubble and white on a
+   dark one) and --bubble-notice (the notices' text on that bubble). Custom CSS can set any of them on #chat, the pictures
+   too: `#chat { --avatar-idle: url(...) !important; }` (the builder writes this for pictures too big for the link). */
+#chat.has-avatar {
+  padding: 0;
+  --av-h: min(var(--avatar-size, 300px), calc(100vh - 4px));
+  --av-w: calc(var(--av-h) * var(--avatar-ratio, 1));
+  --bubble-edge: .14em;
+}
+#chat.has-avatar .speaker {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--av-w);
+  height: var(--av-h);
+  pointer-events: none;
+  transform-origin: 50% 100%;
+}
+#chat.has-avatar.avatar-right .speaker { left: auto; right: 0; }
+.speaker-bob,
+.speaker-body,
+.speaker-idle,
+.speaker-talk {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform-origin: 50% 100%;
+}
+.speaker-idle,
+.speaker-talk {
+  background-repeat: no-repeat;
+  background-position: 50% 100%;
+  background-size: contain;
+}
+.speaker-idle { background-image: var(--avatar-idle, none); }
+/* Without a talking picture the avatar keeps its idle one and only bobs. */
+.speaker-talk { background-image: var(--avatar-talk, var(--avatar-idle, none)); opacity: 0; }
+.mouth-open .speaker-talk { opacity: 1; }
+.mouth-open .speaker-idle { opacity: 0; }
+.avatar-flip :is(.speaker-idle, .speaker-talk) { transform: scaleX(-1); }
+/* avatar_motion=bounce and lively: up a little each time the mouth opens, and a hop as a bubble comes; lively also
+   breathes while it waits. */
+.speaker-bob { transition: transform 90ms ease-out; }
+:where(.motion-bounce, .motion-lively).mouth-open .speaker-bob { transform: translateY(-2.5%); }
+:where(.motion-bounce, .motion-lively) .speaker.hop { animation: tco-avatar-hop 420ms ease-out; }
+:where(.motion-lively) .speaker-body { animation: tco-avatar-breathe 3.6s ease-in-out infinite; }
+@keyframes tco-avatar-hop {
+  from { transform: none; }
+  30% { transform: translateY(-5%) scale(.97, 1.04); }
+  58% { transform: translateY(0) scale(1.04, .96); }
+  80% { transform: translateY(-1%) scale(.99, 1.01); }
+  to { transform: none; }
+}
+@keyframes tco-avatar-breathe {
+  from, to { transform: none; }
+  50% { transform: scale(1.01, 1.025); }
+}
+
+/* The bubble: beside the avatar's head (bubble_pos=side), with its tail toward the mouth, or above it, its tail down.
+   It grows up from where it is anchored, as wide as its message up to --bubble-w, and pops in and out. */
+#chat.has-avatar .lines {
+  top: auto;
+  right: auto;
+  left: calc(var(--av-w) + 1.3em);
+  bottom: calc(var(--av-h) * .4);
+  width: auto;
+  max-width: min(var(--bubble-w, 18em), calc(100vw - var(--av-w) - 1.8em));
+  padding: .42em .72em .48em;
+  border: var(--bubble-edge) solid var(--bubble-ink, #1d1d22);
+  border-radius: .9em;
+  background-color: var(--bubble-color, #fff);
+  color: var(--text-color, var(--bubble-ink, #1d1d22));
+  filter: drop-shadow(0 .08em .2em rgba(0, 0, 0, .4));
+  transform-origin: -1.3em 100%;
+  opacity: 0;
+  transform: scale(.72);
+  transition: opacity 150ms ease-out, transform 240ms cubic-bezier(.34, 1.56, .64, 1);
+}
+#chat.has-avatar.bubble-on .lines { opacity: 1; transform: none; }
+/* A message a moderator took away goes at once. */
+#chat.has-avatar.bubble-cut .lines { transition: none; }
+#chat.has-avatar.avatar-right .lines {
+  left: auto;
+  right: calc(var(--av-w) + 1.3em);
+  transform-origin: calc(100% + 1.3em) 100%;
+}
+#chat.has-avatar.bubble-above .lines {
+  left: calc(var(--av-w) * .28);
+  bottom: calc(var(--av-h) + 1.3em);
+  max-width: min(var(--bubble-w, 18em), calc(100vw - var(--av-w) * .28 - .5em));
+  transform-origin: 1em calc(100% + 1.3em);
+}
+#chat.has-avatar.bubble-above.avatar-right .lines {
+  left: auto;
+  right: calc(var(--av-w) * .28);
+  transform-origin: calc(100% - 1em) calc(100% + 1.3em);
+}
+#chat.has-avatar .line { padding: 0; filter: none; }
+#chat.has-avatar .line + .line { margin-top: .3em; }
+#chat.has-avatar .line.notice .message { color: var(--notice-color, var(--bubble-notice, #5b34c9)); }
+/* The tail: a curved wedge from the bubble's edge, as two SVG masks: its outline in the ink, under its fill in the
+   bubble's color. Both overlap the bubble's own border where they join it (their box starts at its inner edge), so the
+   fill opens the join and the outline runs on into the bubble's. Beside the avatar it points down toward the mouth;
+   above it, down toward the head. */
+#chat.has-avatar .lines::before,
+#chat.has-avatar .lines::after {
+  content: '';
+  position: absolute;
+  right: 100%;
+  bottom: -.05em;
+  width: 1.4em;
+  height: 1.5em;
+  margin-right: -1px;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+}
+#chat.has-avatar .lines::before {
+  background-color: var(--bubble-ink, #1d1d22);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 30'%3E%3Cpath d='M28 2.6C20 9.5 11.5 17.6 3.6 27c9.2-3.2 17.6-8.8 24.4-14.4z' stroke='%23000' stroke-width='5.6' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+#chat.has-avatar .lines::after {
+  background-color: var(--bubble-color, #fff);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 30'%3E%3Cpath d='M29 2.6C20 9.5 11.5 17.6 3.6 27c9.2-3.2 17.6-8.8 25.4-14.4z'/%3E%3C/svg%3E");
+}
+#chat.has-avatar.avatar-right .lines::before,
+#chat.has-avatar.avatar-right .lines::after {
+  right: auto;
+  left: 100%;
+  margin-right: 0;
+  margin-left: -1px;
+  transform: scaleX(-1);
+}
+#chat.has-avatar.bubble-above .lines::before,
+#chat.has-avatar.bubble-above .lines::after {
+  right: auto;
+  bottom: auto;
+  left: .8em;
+  top: 100%;
+  width: 1.5em;
+  height: 1.4em;
+  margin: -1px 0 0;
+  transform: none;
+}
+#chat.has-avatar.bubble-above .lines::before { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 28'%3E%3Cpath d='M6.4 0C7 9 6 17.6 3.6 24.6 10.4 19.4 15 10.6 17.4 0z' stroke='%23000' stroke-width='5.6' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+#chat.has-avatar.bubble-above .lines::after { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 28'%3E%3Cpath d='M6.4-1C7 9 6 17.6 3.6 24.6 10.4 19.4 15 10.6 17.4-1z'/%3E%3C/svg%3E"); }
+#chat.has-avatar.bubble-above.avatar-right .lines::before,
+#chat.has-avatar.bubble-above.avatar-right .lines::after {
+  left: auto;
+  right: .8em;
+  transform: scaleX(-1);
+}
+/* The bubble types its message out: a letter or an emote waiting its turn keeps its room, so the bubble doesn't grow
+   as it types. */
+#chat.has-avatar .tw { visibility: hidden; }
+#chat.has-avatar .tw-cut { display: none; }
 
 /* ---------- status hint and debug line (overlay.html #hint / #debug) ---------- */
 .tco-hint {

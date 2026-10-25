@@ -632,6 +632,33 @@ label.field-label { cursor: pointer; }
 .text-row { display: flex; gap: 8px; min-width: 0; }
 .text-row .text { flex: 1 1 auto; min-width: 0; }
 .text-row .btn { flex: none; padding: 0 16px; }
+/* a picture (the avatar's, builder.js 'image'): its link box with Remove, and under Advanced a picture file from this PC
+   put in the overlay's link: a button for the file picker (the file input itself is hidden), a thumbnail on a checkered
+   ground (a see-through picture shows as one) and a line on where the picture went */
+.pic-adv > summary {
+  display: inline-flex; align-items: center; gap: 10px; min-height: 36px;
+  font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--accent-hi);
+  list-style: none; cursor: pointer;
+}
+.pic-adv > summary::-webkit-details-marker { display: none; }
+.pic-adv > summary::before {
+  content: ""; flex: none; width: 6px; height: 6px; margin: 0 2px 0 1px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg); transition: transform .15s ease-out;
+}
+.pic-adv[open] > summary::before { transform: translateY(-2px) rotate(45deg); }
+.pic-adv > summary:hover { color: var(--focus); }
+.pic-adv-body { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 4px 0 2px 20px; }
+.pic-in { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.pic-in .status { flex: 1 1 auto; }
+.pic-thumb {
+  flex: none; width: 64px; height: 64px; object-fit: contain;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: #23262f conic-gradient(#30343f 25%, transparent 0 50%, #30343f 0 75%, transparent 0) 0 0 / 12px 12px;
+}
+.field.disabled > .pic-adv { opacity: .45; }
+.field.disabled > .pic-adv > summary { cursor: pointer; }
+
 /* a color: the browser's picker as a swatch, the hex code, and Default */
 .field-color input[type=color] {
   flex: none; width: 44px; height: 44px; margin: 0; padding: 3px;
@@ -1011,6 +1038,18 @@ label.field-label { cursor: pointer; }
 .bar-url .q { color: var(--muted); }
 .bar-url .k { color: var(--accent-hi); }
 .bar-url .v { color: var(--warn); }
+/* A picture's base64 in the URL or in code (builder.js appendBlob): its first letters, cut off, then its size, which is
+   generated content, so a selection and a copy take the whole picture and only it. */
+.blob {
+  display: inline-block; vertical-align: bottom;
+  max-width: 10ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.blob-size::after {
+  content: attr(data-size);
+  margin: 0 6px; padding: 1px 8px;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  font: 600 11px/1.4 var(--font-ui); color: var(--muted); white-space: nowrap;
+}
 #bar-copy { grid-area: copy; }
 #bar-open { grid-area: open; }
 
@@ -1023,7 +1062,7 @@ label.field-label { cursor: pointer; }
   .field-head { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; min-height: 46px; }
   .field-name { flex: 1 1 150px; }
   .field-control { flex: none; max-width: 100%; }
-  .field-text .field-control { flex: 1 1 100%; }
+  .field-text .field-control, .field-image .field-control { flex: 1 1 100%; }
   .field-font .field-control { width: 240px; }
   .field-range .field-control, .field-color .field-control { width: 260px; }
   .field-select .field-control { width: 200px; }

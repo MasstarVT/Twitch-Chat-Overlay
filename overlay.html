@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Chat is always inserted as text, never as HTML. As a second line of defence, this policy only runs this
        overlay's own script files: no inline scripts, no eval, nothing from other sites. Styles may be inline, because
-       OBS applies a browser source's Custom CSS (including its transparent background) as an inline style. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: https:; connect-src https: wss: ws://localhost:*; base-uri 'none'; form-action 'none'">
+       OBS applies a browser source's Custom CSS (including its transparent background) as an inline style. Images may be
+       data: ones for avatar mode's own pictures, which the builder puts in the link (after its #) or in Custom CSS:
+       chat can never name an image (only checked https:// emote, badge and paint images are ever drawn). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file: 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: https: data:; connect-src https: wss: ws://localhost:*; base-uri 'none'; form-action 'none'">
   <title>Twitch Chat Overlay</title>
   <link rel="stylesheet" href="css/overlay.css?v=1.13.2">
   <!-- Every script is deferred: none blocks the parser, so all are fetched in parallel (a meta CSP turns off the
@@ -31,6 +33,7 @@
   <script defer src="js/rooms.js?v=1.13.2"></script>
   <script defer src="js/icons.js?v=1.13.2"></script>
   <script defer src="js/renderer.js?v=1.13.2"></script>
+  <script defer src="js/avatar.js?v=1.13.2"></script>
   <script defer src="js/demo.js?v=1.13.2"></script>
   <script defer src="js/update-check.js?v=1.13.2"></script>
   <script defer src="js/overlay.js?v=1.13.2"></script>

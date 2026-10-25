@@ -9,8 +9,10 @@
   // Font weights, lightest first: 300, 400, 600, 700, 800 and 900 (renderer.js WEIGHTS).
   var WEIGHTS = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
 
-  // type: channel | kick | room | mixitup | enum | int | bool | font | list | words | color | chars
+  // type: channel | kick | room | mixitup | enum | int | bool | font | list | words | color | chars | image
   // mixitup: the id of a Mix It Up chat widget (a GUID), or the widget's link, which gives the same id (normalizeMixItUp).
+  // image: a picture (imageUrl): an https:// link, a file next to overlay.html ('img/me.png'), or a data:image URL, which
+  // the builder puts after the link's '#' (hashImages). '' = none.
   // list: Twitch/Kick logins. words: words or phrases, separated by commas or line breaks (a phrase keeps its spaces;
   // WORD_SEP).
   // chars: command prefixes, a few signs from PREFIX_CHARS written together ('!?').
@@ -131,6 +133,25 @@
     readable: { type: 'bool', def: true },
     // The contrast readable lightens dark names to, times 10 (45 = 4.5:1, util.readableColor's own target).
     readable_level: { type: 'int', min: 30, max: 70, def: 45, scale: 10 },
+    // Avatar mode (js/avatar.js): a picture in a bottom corner says each chat message in a speech bubble. off: the chat
+    // as it always was. A bundled picture by name, or custom: avatar_idle and avatar_talk.
+    avatar: { type: 'enum', values: ['off', 'blob', 'bot', 'cat', 'custom'], def: 'off' },
+    avatar_idle: { type: 'image', def: '' },
+    avatar_talk: { type: 'image', def: '' },
+    // The avatar's height in px (at most the source's), its corner, mirrored or not, and how it moves.
+    avatar_size: { type: 'int', min: 40, max: 1080, def: 300 },
+    avatar_side: { type: 'enum', values: ['left', 'right'], def: 'left' },
+    avatar_flip: { type: 'bool', def: false },
+    avatar_motion: { type: 'enum', values: ['bounce', 'lively', 'none'], def: 'bounce' },
+    // The bubble: beside the avatar's head or above it, at most bubble_width em wide, in bubble_color.
+    bubble_pos: { type: 'enum', values: ['side', 'above'], def: 'side' },
+    bubble_width: { type: 'int', min: 8, max: 60, def: 18 },
+    bubble_color: { type: 'color', def: '' },
+    // Letters typed a second (0: the whole message at once), the most seconds a bubble stays once typed, and how many
+    // messages may wait their turn (the oldest waiting goes when another comes).
+    bubble_speed: { type: 'int', min: 0, max: 100, def: 30 },
+    bubble_time: { type: 'int', min: 1, max: 30, def: 6 },
+    bubble_queue: { type: 'int', min: 1, max: 20, def: 5 },
     demo: { type: 'bool', def: false },
     debug: { type: 'bool', def: false }
   };
@@ -150,7 +171,10 @@
     'reply_style', 'mentions', 'mention_color', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight',
     'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'event_subs', 'event_gifts', 'event_raids',
     'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words', 'min_length', 'links',
-    'command_prefixes', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'row_align', 'row_grow'];
+    'command_prefixes', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'row_align', 'row_grow',
+    // avatar itself is not one: it decides whether overlay.js draws the chat or the avatar (createAvatar).
+    'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion', 'bubble_pos', 'bubble_width',
+    'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue'];
 
   // words: at most this many phrases, each at most this many characters (a longer one is left out).
   var MAX_WORDS = 50, MAX_WORD_LEN = 40;
@@ -326,6 +350,94 @@
     return /^[a-z0-9_.]{1,30}$/.test(s) ? s : '';
   }
 
+  // ----- pictures (type image: the avatar's) -----
+  // A picture's type, read from its own first bytes in base64 (standard alphabet): png, webp, gif or jpeg, or null. A data:
+  // URL is taken by what it holds, not by the type it names, so it is only ever one of these four (never an SVG, which
+  // could carry script, or a page).
+  function imageType(b64) {
+    var bytes;
+    try { bytes = atob(b64.slice(0, 16)); } catch (e) { return null; }
+    var at = function (i) { return bytes.charCodeAt(i); };
+    var starts = function (sig, from) {
+      for (var i = 0; i < sig.length; i++) if (at((from || 0) + i) !== sig[i]) return false;
+      return bytes.length >= (from || 0) + sig.length;
+    };
+    if (starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'png';
+    if (starts([0x52, 0x49, 0x46, 0x46]) && starts([0x57, 0x45, 0x42, 0x50], 8)) return 'webp'; // RIFF....WEBP
+    if (starts([0x47, 0x49, 0x46, 0x38])) return 'gif';
+    if (starts([0xff, 0xd8, 0xff])) return 'jpeg';
+    return null;
+  }
+  // A data:image URL as kept: its type as its bytes say, and its base64 padded (a browser decodes it either way). One in
+  // settings.js may be big; the link's '#' part holds far less (OBS takes a URL of up to 32,767 characters).
+  var MAX_IMAGE_CHARS = 8 * 1024 * 1024;
+  function dataImage(b64) {
+    var s = String(b64).replace(/=+$/, '');
+    if (!s || s.length % 4 === 1 || !/^[A-Za-z0-9+/]+$/.test(s) || s.length > MAX_IMAGE_CHARS) return '';
+    while (s.length % 4) s += '=';
+    var t = imageType(s);
+    return t ? 'data:image/' + t + ';base64,' + s : '';
+  }
+  var DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]{1,24};base64,([A-Za-z0-9+/]*={0,2})$/i;
+  // A file beside overlay.html (a folder copy, or the site's own): a relative path in letters, digits, spaces and
+  // - _ . ( ) ~ /, ending in a picture's extension. No scheme, no leading '/', no '//' and no '..' step out of the folder.
+  var IMAGE_PATH_RE = /^[A-Za-z0-9 _.()~\/-]{1,200}\.(?:png|webp|gif|jpe?g|avif)$/i;
+  // A picture setting's value as kept, '' for none, or null when it is no picture: a data:image URL (dataImage), an
+  // https:// link (as the URL parser writes it), or a relative path (IMAGE_PATH_RE).
+  function imageUrl(v) {
+    var s = String(v === undefined || v === null ? '' : v).trim();
+    if (!s) return '';
+    var d = DATA_IMAGE_RE.exec(s);
+    if (d) return dataImage(d[1]) || null;
+    if (/^https:\/\//i.test(s)) {
+      if (s.length > 2048) return null;
+      try {
+        var u = new URL(s);
+        return u.protocol === 'https:' && u.hostname ? u.href : null;
+      } catch (e) { return null; }
+    }
+    if (!IMAGE_PATH_RE.test(s) || s.charAt(0) === '/' || s.indexOf('//') >= 0 || /(^|\/)\.\.(\/|$)/.test(s)) return null;
+    return s;
+  }
+  function isDataImage(v) { return typeof v === 'string' && /^data:/i.test(v); }
+
+  // The pictures a link can carry after its '#': there no web server or log ever sees them, and the overlay's host refuses
+  // no length (a browser keeps that part of an address to itself). avatar_idle=…&avatar_talk=…, each a picture's bytes in
+  // base64url (- and _ for + and /, no = at the end), as the builder writes them (imageHash); a whole data:image URL is
+  // taken too. One starts the '#' part or follows a '&' or another '#' (base64url has neither), so a '#' typed in a value
+  // before them stays that value's. Returns { values: { key: data URL }, rest }: rest is the hash without them for
+  // withHash, the hash as it was when it has none, and null when nothing but pictures was there.
+  var HASH_IMAGES = ['avatar_idle', 'avatar_talk'];
+  var HASH_IMAGE_RE = /(^|[&#])(avatar_idle|avatar_talk)=([^&#]*)/gi;
+  function hashImages(hash) {
+    if (hash === null || hash === undefined) return { values: {}, rest: null };
+    var h = String(hash).replace(/^#/, ''), values = {}, took = false;
+    var rest = h.replace(HASH_IMAGE_RE, function (all, sep, key, v) {
+      took = true;
+      try { v = decodeURIComponent(v); } catch (e) { /* as it is */ }
+      var url = /^data:/i.test(v) ? imageUrl(v) : dataImage(v.replace(/-/g, '+').replace(/_/g, '/'));
+      if (url) values[key.toLowerCase()] = url;
+      return '';
+    });
+    if (!took) return { values: values, rest: h };
+    rest = rest.replace(/^[&#]+|[&#]+$/g, '');
+    return { values: values, rest: rest || null };
+  }
+  // The '#' part (with its '#') that carries cfg's data:image pictures, which hashImages reads back; '' when it has none.
+  function imageHash(cfg) {
+    var parts = [];
+    HASH_IMAGES.forEach(function (k) {
+      var m = cfg && isDataImage(cfg[k]) ? /^data:image\/[a-z]+;base64,([A-Za-z0-9+/]+=*)$/.exec(cfg[k]) : null;
+      if (m) parts.push(k + '=' + m[1].replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''));
+    });
+    return parts.length ? '#' + parts.join('&') : '';
+  }
+  // The pictures a page's own address carries after its '#' (hashImages), as settings for applyObject.
+  function pageImages(loc) {
+    var href = loc && typeof loc.href === 'string' ? loc.href : '', f = href.indexOf('#');
+    return f < 0 ? {} : hashImages(href.slice(f + 1)).values;
+  }
+
   function parseBool(v) {
     if (typeof v === 'boolean') return v;
     if (typeof v === 'number') return v === 1 ? true : v === 0 ? false : undefined;
@@ -449,6 +561,12 @@
         }
         return pre && pre.length <= MAX_PREFIXES ? pre : undefined;
       }
+      // A picture: '' (none) is a value too, so an empty ?avatar_idle= clears settings.js.
+      case 'image': {
+        if (tv !== 'string') return undefined;
+        var img = imageUrl(v);
+        return img === null ? undefined : img;
+      }
     }
     return undefined;
   }
@@ -525,12 +643,13 @@
 
   // A page's query (loc: its location), a '#' typed in a value and what follows it included (withHash): read from the
   // whole href, where a URL ending in '#' still shows it. The overlay reads its own URL so, and the builder its start-up
-  // link. Without a '?' before the first '#', location.search as it is.
+  // link. Without a '?' before the first '#', location.search as it is. Pictures after the '#' are no part of a value
+  // (hashImages; pageImages reads them).
   function pageQuery(loc) {
     if (!loc) return '';
     var href = typeof loc.href === 'string' ? loc.href : '', q = href.indexOf('?'), f = href.indexOf('#');
     if (q < 0 || (f >= 0 && f < q)) return loc.search || '';
-    return withHash(f < 0 ? href.slice(q) : href.slice(q, f), f < 0 ? null : href.slice(f + 1));
+    return withHash(f < 0 ? href.slice(q) : href.slice(q, f), f < 0 ? null : hashImages(href.slice(f + 1)).rest);
   }
 
   // A settings.js value by its key, which is not case-sensitive (the last spelling wins, as applyObject's does), or undefined.
@@ -683,6 +802,13 @@
     parse: parse,
     withHash: withHash,
     pageQuery: pageQuery,
+    HASH_IMAGES: HASH_IMAGES,
+    hashImages: hashImages,
+    imageHash: imageHash,
+    pageImages: pageImages,
+    imageUrl: imageUrl,
+    imageType: imageType,
+    isDataImage: isDataImage,
     refusedChannels: refusedChannels,
     applyObject: applyObject,
     coerce: coerce,

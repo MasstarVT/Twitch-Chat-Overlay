@@ -22,6 +22,7 @@ function flip(cfg, k) {
   else if (s.type === 'words') c[k] = (c[k] || []).concat('some words');
   else if (s.type === 'color') c[k] = c[k] === 'ff8800' ? '336699' : 'ff8800';
   else if (s.type === 'chars') c[k] = c[k] === '!?' ? '!' : '!?';
+  else if (s.type === 'image') c[k] = c[k] === 'https://example.com/a.png' ? 'https://example.com/b.png' : 'https://example.com/a.png';
   else throw new Error('flip: no case for type ' + s.type);
   return c;
 }

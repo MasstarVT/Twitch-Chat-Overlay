@@ -23,7 +23,10 @@ describe('spec', () => {
       gif_size: '3x', emotes_7tv: true, emotes_bttv: true, emotes_ffz: true, emote_scale: 100, emote_only: 'normal', row_grow: false, giant_emotes: true,
       badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
       badges_ffzap: true, badges_chatterino: true, badges_homies: true, homies_lists: 'all', badge_size: 100,
-      paints: true, paint_images: 'animated', stv_lookup: true, readable: true, readable_level: 45, demo: false, debug: false
+      paints: true, paint_images: 'animated', stv_lookup: true, readable: true, readable_level: 45,
+      avatar: 'off', avatar_idle: '', avatar_talk: '', avatar_size: 300, avatar_side: 'left', avatar_flip: false,
+      avatar_motion: 'bounce', bubble_pos: 'side', bubble_width: 18, bubble_color: '', bubble_speed: 30, bubble_time: 6,
+      bubble_queue: 5, demo: false, debug: false
     });
     assert.deepEqual(config.KEYS, Object.keys(config.SPEC));
   });
@@ -37,8 +40,9 @@ describe('spec', () => {
 
   test('LIVE_KEYS plus the reload keys partition every key', () => {
     // homies_lists: the Homies lists fill one index, which can't drop a list once it has loaded.
+    // avatar: it decides whether overlay.js draws the chat or the avatar (js/avatar.js), so a change starts it anew.
     const reload = ['channel', 'kick', 'kick_room', 'mixitup', 'mixitup_port', 'emotes_7tv', 'emotes_bttv', 'emotes_ffz', 'stv_lookup', 'history', 'demo', 'debug',
-      'homies_lists'];
+      'homies_lists', 'avatar'];
     config.LIVE_KEYS.forEach((k) => assert.ok(config.SPEC[k], k + ' is not in SPEC'));
     reload.forEach((k) => assert.ok(!config.LIVE_KEYS.includes(k), k + ' must force a reload'));
     assert.deepEqual([...config.LIVE_KEYS, ...reload].sort(), [...config.KEYS].sort());
@@ -1167,5 +1171,105 @@ describe('mixitup: config and mixitup.js read a widget link alike', () => {
       const a = config.parseMixItUp(s), b = mixitup.parseLink(s);
       assert.deepEqual(a && { guid: a.guid, port: a.port }, b, JSON.stringify(s));
     });
+  });
+});
+
+describe('pictures (type image: avatar mode)', () => {
+  // A 1 × 1 PNG, and the first bytes of the other kinds, as base64.
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const b64 = (bytes) => Buffer.from(bytes).toString('base64');
+  const WEBP = b64([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20]);
+  const GIF = b64([...Buffer.from('GIF89a'), 1, 0, 1, 0, 0, 0, 0]);
+  const JPEG = b64([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+  const SVG = b64(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'));
+  const HTML = b64(Buffer.from('<!doctype html><script>alert(1)</script>'));
+  const url64 = (s) => s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  test('imageType: a picture by its own first bytes', () => {
+    assert.equal(config.imageType(PNG), 'png');
+    assert.equal(config.imageType(WEBP), 'webp');
+    assert.equal(config.imageType(GIF), 'gif');
+    assert.equal(config.imageType(JPEG), 'jpeg');
+    [SVG, HTML, '', 'AAAA', '!!!!', b64(Buffer.from('RIFF'))].forEach((s) => assert.equal(config.imageType(s), null, s));
+  });
+
+  test('imageUrl: a data:image URL by its bytes, never by the type it names; an https link; a file beside overlay.html', () => {
+    const png = 'data:image/png;base64,' + PNG;
+    assert.equal(config.imageUrl(png), png);
+    assert.equal(config.imageUrl('data:image/jpeg;base64,' + PNG), png);
+    assert.equal(config.imageUrl('data:image/svg+xml;base64,' + PNG), png);
+    assert.equal(config.imageUrl('DATA:IMAGE/PNG;BASE64,' + PNG), png);
+    assert.equal(config.imageUrl(png.replace(/=+$/, '')), png, 'the padding is put back');
+    assert.equal(config.imageUrl('data:image/gif;base64,' + GIF), 'data:image/gif;base64,' + GIF);
+    // An SVG (which can carry script) or a page is no picture, whatever it is called.
+    ['data:image/svg+xml;base64,' + SVG, 'data:image/png;base64,' + HTML, 'data:text/html;base64,' + PNG, 'data:image/png,' + PNG,
+      png + '"', png + ')', 'data:image/png;base64,%20' + PNG, 'data:image/png;base64,' + PNG.slice(0, 5)]
+      .forEach((v) => assert.equal(config.imageUrl(v), null, v));
+    assert.equal(config.imageUrl(' https://i.imgur.com/Me.png '), 'https://i.imgur.com/Me.png');
+    assert.equal(config.imageUrl('https://example.com/a b.png'), 'https://example.com/a%20b.png');
+    assert.equal(config.imageUrl('img/me.png'), 'img/me.png');
+    assert.equal(config.imageUrl('My Avatar (talk).webp'), 'My Avatar (talk).webp');
+    ['http://example.com/a.png', 'javascript:alert(1)', '//evil.com/a.png', '/etc/a.png', '../a.png', 'img/../../a.png',
+      'img/a.svg', 'a.png?x=1', 'file:///C:/a.png', 'https://', "img/a'.png", 'img/a".png', 'img\\a.png', 'img/a.png)',
+      'https://x.com/' + 'a'.repeat(2100) + '.png']
+      .forEach((v) => assert.equal(config.imageUrl(v), null, v));
+    assert.equal(config.imageUrl(''), '');
+    assert.equal(config.imageUrl('  '), '');
+    assert.equal(config.imageUrl(null), '');
+    assert.equal(config.isDataImage(png), true);
+    assert.equal(config.isDataImage('img/me.png'), false);
+    assert.equal(config.isDataImage(null), false);
+  });
+
+  test('coerce: a picture or none; a refused one keeps the value from before', () => {
+    assert.equal(config.coerce('avatar_idle', 'img/me.png'), 'img/me.png');
+    assert.equal(config.coerce('avatar_talk', ''), '');
+    assert.equal(config.coerce('avatar_idle', 5), undefined);
+    assert.equal(config.coerce('avatar_idle', 'javascript:alert(1)'), undefined);
+    // An empty one in the URL clears settings.js's; a refused one leaves it.
+    assert.equal(config.parse('?avatar_idle=', { avatar_idle: 'img/me.png' }).avatar_idle, '');
+    assert.equal(config.parse('?avatar_idle=nope!', { avatar_idle: 'img/me.png' }).avatar_idle, 'img/me.png');
+  });
+
+  test('imageHash and hashImages: pictures after a link\'s #, in base64url', () => {
+    const cfg = Object.assign(config.defaults(), { avatar: 'custom', avatar_idle: 'data:image/png;base64,' + PNG, avatar_talk: 'img/talk.png' });
+    // Only a data:image picture goes there, in base64url: - and _ for + and /, and no = at the end.
+    assert.equal(config.imageHash(cfg), '#avatar_idle=' + url64(PNG));
+    assert.ok(/\+/.test(PNG) && !/[+/=]/.test(url64(PNG)), 'the sample has a + to swap');
+    assert.deepEqual(config.hashImages(config.imageHash(cfg)), { values: { avatar_idle: cfg.avatar_idle }, rest: null });
+    assert.equal(config.imageHash(config.defaults()), '');
+    assert.equal(config.imageHash(null), '');
+    const both = Object.assign({}, cfg, { avatar_talk: 'data:image/gif;base64,' + GIF });
+    assert.match(config.imageHash(both), /^#avatar_idle=[\w-]+&avatar_talk=[\w-]+$/);
+    assert.deepEqual(config.hashImages(config.imageHash(both)).values, { avatar_idle: both.avatar_idle, avatar_talk: both.avatar_talk });
+    // A '#' typed in a value before them stays that value's; a whole data:image URL (URI-encoded or not) is taken too;
+    // one that is no picture is dropped all the same.
+    assert.deepEqual(config.hashImages('ff8800&avatar_talk=' + url64(GIF)),
+      { values: { avatar_talk: 'data:image/gif;base64,' + GIF }, rest: 'ff8800' });
+    assert.deepEqual(config.hashImages('avatar_idle=' + encodeURIComponent('data:image/png;base64,' + PNG)).values,
+      { avatar_idle: 'data:image/png;base64,' + PNG });
+    assert.deepEqual(config.hashImages('Avatar_Idle=data:image/png;base64,' + PNG).values, { avatar_idle: 'data:image/png;base64,' + PNG });
+    assert.deepEqual(config.hashImages('avatar_idle=' + url64(SVG)), { values: {}, rest: null });
+    assert.deepEqual(config.hashImages('avatar_idle=' + encodeURIComponent('data:image/svg+xml;base64,' + SVG)), { values: {}, rest: null });
+    // Nothing else is a picture: a section's hash, a keyword's '#', none at all.
+    assert.deepEqual(config.hashImages('top'), { values: {}, rest: 'top' });
+    assert.deepEqual(config.hashImages('x_avatar_idle=' + url64(PNG)), { values: {}, rest: 'x_avatar_idle=' + url64(PNG) });
+    assert.deepEqual(config.hashImages(''), { values: {}, rest: '' });
+    assert.deepEqual(config.hashImages(null), { values: {}, rest: null });
+  });
+
+  test('pageQuery and pageImages: the pictures after the # are no part of a value', () => {
+    const loc = (href) => { const u = new URL(href); return { href: u.href, search: u.search, hash: u.hash }; };
+    const O = 'https://chat.masstar.org/overlay.html';
+    const pic = 'data:image/png;base64,' + PNG;
+    const href = O + '?channel=xqc&text_color=#ff8800&avatar=custom' + config.imageHash({ avatar_idle: pic });
+    const c = config.parse(config.pageQuery(loc(href)));
+    assert.deepEqual([c.channel, c.text_color, c.avatar, c.avatar_idle], ['xqc', 'ff8800', 'custom', '']);
+    assert.deepEqual(config.pageImages(loc(href)), { avatar_idle: pic });
+    const plain = O + '?channel=xqc&avatar=custom' + config.imageHash({ avatar_idle: pic });
+    assert.equal(config.pageQuery(loc(plain)), 'channel=xqc&avatar=custom');
+    assert.deepEqual(config.pageImages(loc(O + '?channel=xqc#top')), {});
+    assert.deepEqual(config.pageImages(loc(O + '?channel=xqc')), {});
+    assert.deepEqual(config.pageImages(null), {});
   });
 });

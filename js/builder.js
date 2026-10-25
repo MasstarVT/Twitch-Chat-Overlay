@@ -28,8 +28,9 @@
   var RAIL_FADE = 24; // px: the faded edge of the rail's tabs where they scroll (css/builder.css .tab-groups.more-below)
   var OBS_SECTION = 'obs'; // the one section that isn't a group of settings (its markup is in builder.html)
   var UI_DEFAULTS = { w: 450, h: 700, backdrop: 'dark', section: 'look' };
-  // Suggested OBS source size per layout: a column, or a full-width bar on a 1080p canvas.
-  var LAYOUT_SIZES = { vertical: { w: 450, h: 700 }, horizontal: { w: 1920, h: 100 } };
+  // Suggested OBS source size per shape (shapeOf): a column, a full-width bar on a 1080p canvas, or (avatar mode) a stage
+  // with room for the avatar and its bubble.
+  var LAYOUT_SIZES = { vertical: { w: 450, h: 700 }, horizontal: { w: 1920, h: 100 }, avatar: { w: 800, h: 600 } };
   // The window that gets the app layout (css/builder.css uses the same query). Any other is one scrolling column.
   var APP_LAYOUT = '(min-width: 1100px) and (min-height: 600px)';
 
@@ -59,8 +60,9 @@
   function readableOwn(cfg) { return readableOn(cfg) && ownNameColors(cfg); }
   // What follows the name: hidden under a name on its own line, in either layout (overlay.css hides .colon there).
   function sepShown(cfg) { return namesOn(cfg) && !cfg.name_line; }
-  // emote_only, gif_size and giant_emotes: a column draws them, and a row only with row_grow (else at emote height).
-  function bigDrawn(cfg) { return cfg.layout !== 'horizontal' || !!cfg.row_grow; }
+  // emote_only, gif_size and giant_emotes: a column draws them, and a row only with row_grow (else at emote height). The
+  // avatar's bubble is a column whatever the layout (js/avatar.js INNER).
+  function bigDrawn(cfg) { return cfg.layout !== 'horizontal' || !!cfg.row_grow || avatarOn(cfg); }
   function gifSizeOn(cfg) { return gifsOn(cfg) && bigDrawn(cfg); }
   // Text size applies until Exact text size (text_px) takes over.
   function sizeOn(cfg) { return !(cfg.text_px > 0); }
@@ -87,6 +89,13 @@
   function animateOn(cfg) { return !!cfg.animate; }
   function fadeOn(cfg) { return cfg.fade > 0; }
   function fadeOutOn(cfg) { return cfg.fade > 0 && cfg.fade_out_ms > 0; }
+  // Avatar mode (js/avatar.js): its settings apply while one is picked, the two pictures while they are your own. While
+  // it is on, the chat's layout, box, shadow, animation and timing settings don't apply (META.noAvatar): the speech
+  // bubble has its own look and says one message at a time.
+  function avatarOn(cfg) { return !!cfg.avatar && cfg.avatar !== 'off'; }
+  function ownPictures(cfg) { return cfg.avatar === 'custom'; }
+  // The preview's shape (LAYOUT_SIZES): a column, a row, or a stage with the avatar in a corner and room for its bubble.
+  function shapeOf(cfg) { return avatarOn(cfg) ? 'avatar' : cfg.layout === 'horizontal' ? 'horizontal' : 'vertical'; }
 
   // Each Text size in px (renderer.js FONT_PX): where Exact text size starts from Auto (META.from0).
   var TEXT_PX = { small: 18, medium: 24, large: 32 };
@@ -164,8 +173,8 @@
       help: 'Line height as a share of the text size (135% by default). Below 135%, in a column, a line with emotes is made taller to fit them, so they don’t reach into the lines next to it. In a row it sets the row’s height.' },
     text_case: { label: 'Letter case', options: { none: 'As typed', upper: 'UPPER', lower: 'lower', smallcaps: 'Small caps' },
       wrap: true, help: 'Names, messages and reply headers. Emotes work either way.' },
-    shadow: { label: 'Text shadow', widget: 'seg', names: ['None', 'Light', 'Medium', 'Strong'] },
-    shadow_color: { label: 'Shadow color', swatch: '#000000', when: shadowOn,
+    shadow: { noAvatar: true, label: 'Text shadow', widget: 'seg', names: ['None', 'Light', 'Medium', 'Strong'] },
+    shadow_color: { noAvatar: true, label: 'Shadow color', swatch: '#000000', when: shadowOn,
       help: 'Black by default. The shadow is drawn around the whole message, so emotes, badges and the box get this color too (unless Shadow method, below, is Text only). Needs Text shadow.' },
     outline: { label: 'Text outline', widget: 'seg', names: ['None', 'Thin', 'Medium', 'Thick'],
       help: 'A sharp edge around the letters, black unless you pick an Outline color (below). Emotes and painted names get none.' },
@@ -185,51 +194,51 @@
       help: 'For Twitch and Kick chatters who never picked a name color, in place of Twitch’s 15 default colors. Drawn as picked (Brighten dark name colors leaves it alone). Not used while a Name color (Look) is set.' },
     name_sep: { label: 'After the name', options: { colon: 'Colon', space: 'Space', dash: 'Dash', arrow: 'Arrow' }, when: sepShown,
       help: 'What sits between the name and the message: “Name: hi”, “Name hi”, “Name – hi” or “Name › hi”. A /me message keeps its space, and a reply header its colon. Needs Show names, and isn’t drawn under Name on its own line.' },
-    bg: { label: 'Line background', widget: 'range', unit: '%', zero: 'Off',
+    bg: { noAvatar: true, label: 'Line background', widget: 'range', unit: '%', zero: 'Off',
       help: 'A rounded box behind each message, black unless you pick a Box color. Helps on bright or busy scenes.' },
-    bg_color: { label: 'Box color', swatch: '#000000', when: bgOn,
+    bg_color: { noAvatar: true, label: 'Box color', swatch: '#000000', when: bgOn,
       help: 'Black by default. A light box needs a dark Text color (and Notice text color, in Chat events); on one, Brighten dark name colors darkens light names instead. Needs Line background.' },
     accent_bar: { label: 'Name-color bar',
       help: 'A bar in the chatter’s name color beside each message. A first-time chatter’s bar takes its place, and announcements keep their own.' },
-    bg_shape: { label: 'Box corners', options: { square: 'Square', soft: 'Soft', round: 'Round', pill: 'Pill' }, when: bgOn,
+    bg_shape: { noAvatar: true, label: 'Box corners', options: { square: 'Square', soft: 'Soft', round: 'Round', pill: 'Pill' }, when: bgOn,
       help: 'Pill gives a one-line box round ends. Needs Line background.' },
-    bg_width: { label: 'Box width', options: { fit: 'Fit the text', full: 'Full width' }, when: bgOn, only: 'vertical',
+    bg_width: { noAvatar: true, label: 'Box width', options: { fit: 'Fit the text', full: 'Full width' }, when: bgOn, only: 'vertical',
       help: 'Full width makes every box as wide as the column. Vertical layout only, with Line background on.' },
-    spacing: { label: 'Space between messages', options: { tight: 'Tight', normal: 'Normal', loose: 'Loose', extra: 'Extra' },
+    spacing: { noAvatar: true, label: 'Space between messages', options: { tight: 'Tight', normal: 'Normal', loose: 'Loose', extra: 'Extra' },
       help: 'In a column, the space above and below each message; in a row, the gap between messages. At Tight, in a column without Line background, a message with emotes keeps the room they need, so emotes don’t overlap.' },
-    layout: { label: 'Layout', options: { vertical: 'Vertical', horizontal: 'Horizontal' },
+    layout: { noAvatar: true, label: 'Layout', options: { vertical: 'Vertical', horizontal: 'Horizontal' },
       help: 'Vertical stacks messages in a column; Horizontal runs them in one row, like a ticker.' },
-    align: { label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' },
+    align: { noAvatar: true, label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' },
       // Shown instead while layout is horizontal (see syncLabels).
       horizontal: { label: 'Row sits', help: 'Whether the row runs along the bottom or the top edge of the source. New messages always come in on the right.' } },
     text_align: { label: 'Text alignment', options: { left: 'Left', center: 'Center', right: 'Right' }, only: 'vertical',
       help: 'Where messages sit in the column, with their boxes. Name-color, first-message and announcement bars stay on the left. Vertical layout only.' },
-    row_align: { label: 'Row alignment', options: { left: 'Left', center: 'Center', right: 'Right' }, only: 'horizontal',
+    row_align: { noAvatar: true, label: 'Row alignment', options: { left: 'Left', center: 'Center', right: 'Right' }, only: 'horizontal',
       help: 'Where the messages sit while they don’t fill the row yet. Once they do, the newest one is always at the right end and older ones slide off the left. Horizontal layout only.' },
-    line_width: { label: 'Max message width', widget: 'stepper', step: 5, unit: 'em', zero: 'No limit',
+    line_width: { noAvatar: true, label: 'Max message width', widget: 'stepper', step: 5, unit: 'em', zero: 'No limit',
       help: 'In em, the text size: 30 em is about 55 letters. A longer message wraps, or in a row ends in “…”. 1 to 4 become 5.' },
-    pad_x: { label: 'Side padding', widget: 'stepper', step: 4, unit: 'px',
+    pad_x: { noAvatar: true, label: 'Side padding', widget: 'stepper', step: 4, unit: 'px',
       help: 'Space between the messages and the left and right edges of the source (8 px by default). At 0, shadows and emotes at the edges are cut off.' },
-    edge_fade: { label: 'Soft edge', widget: 'stepper', unit: 'em', zero: 'Off',
+    edge_fade: { noAvatar: true, label: 'Soft edge', widget: 'stepper', unit: 'em', zero: 'Off',
       help: 'Old messages fade out over this distance (in em, the text size) as they reach the edge they leave by: the top, the bottom when new messages appear at the top, or the left end of a row. It covers at most half the source, so the newest message stays clear unless it is taller than that. In a row the newest message starts after the fade, so a long one is cut that much shorter. Some extra PC work while animated emotes are on screen.' },
-    row_sep: { label: 'Mark between messages', options: { none: 'None', dot: 'Dot', bar: 'Bar', diamond: 'Diamond' }, only: 'horizontal',
+    row_sep: { noAvatar: true, label: 'Mark between messages', options: { none: 'None', dot: 'Dot', bar: 'Bar', diamond: 'Diamond' }, only: 'horizontal',
       help: 'A small mark in the text color between messages in the row. Horizontal layout only.' },
-    animate: { label: 'Animate new messages' },
-    enter_style: { label: 'Entrance', widget: 'select', play: ENTER_FRAMES, when: animateOn,
+    animate: { noAvatar: true, label: 'Animate new messages' },
+    enter_style: { noAvatar: true, label: 'Entrance', widget: 'select', play: ENTER_FRAMES, when: animateOn,
       options: { slide: 'Slide', fade: 'Fade', pop: 'Pop', drop: 'Drop', bounce: 'Bounce', spring: 'Spring', zoom: 'Zoom',
         flip: 'Flip', tilt: 'Tilt', unfold: 'Unfold', glitch: 'Glitch', scan: 'Scan', decode: 'Decode' },
       help: 'How a new message comes in. Point at one in the list, or move to it with the arrow keys, to see it play (for at least half a second, so a short one can be seen). Slide rises from below (in a row, in from the right), Bounce rises and bounces as it lands, Pop and Spring grow into place, Zoom shrinks into place, Drop comes down from above, Flip swings down, Tilt rises turned a little, and Unfold opens out. Glitch flickers and jumps into place, Scan is drawn in from the top (in a row, from the left), and Decode fades in with its letters scrambled, settling one after another: it reads best with an Entrance length of 600 ms or more. Decode scrambles A to Z and digits only, so other scripts and emotes simply fade in. Scan and Decode cost the streaming PC a little more than the others while a message comes in. In a row the older messages still glide left to make room. Needs Animate new messages.' },
-    enter_ms: { label: 'Entrance length', widget: 'stepper', step: 50, unit: 'ms', when: animateOn,
+    enter_ms: { noAvatar: true, label: 'Entrance length', widget: 'stepper', step: 50, unit: 'ms', when: animateOn,
       help: 'How long a new message takes to come in, in milliseconds (180 by default). When a message is removed soon after (Remove messages after, in Messages), its fade-out waits for the entrance to end and takes the time left. Needs Animate new messages.' },
-    fade: { label: 'Remove messages after', widget: 'stepper', step: 5, unit: 's', zero: 'Never',
+    fade: { noAvatar: true, label: 'Remove messages after', widget: 'stepper', step: 5, unit: 's', zero: 'Never',
       help: 'Seconds. The message fades out over the end of that time: the last second, or the Fade-out length set below. Never keeps messages until newer ones push them out.' },
-    fade_out_ms: { label: 'Fade-out length', widget: 'stepper', step: 250, unit: 'ms', zero: 'Instant', when: fadeOn,
+    fade_out_ms: { noAvatar: true, label: 'Fade-out length', widget: 'stepper', step: 250, unit: 'ms', zero: 'Instant', when: fadeOn,
       help: 'How long a message takes to fade out at the end of Remove messages after, in milliseconds (1000, one second, by default), and never longer than it stays. The message is gone at the same moment either way. Instant removes it without a fade. Needs Remove messages after.' },
-    exit_style: { label: 'Exit', options: { fade: 'Fade', slide: 'Slide' }, when: fadeOutOn,
+    exit_style: { noAvatar: true, label: 'Exit', options: { fade: 'Fade', slide: 'Slide' }, when: fadeOutOn,
       help: 'Slide moves a message out as it fades, toward the edge old messages leave by: up, down when new messages appear at the top, or left in a row. Works with or without Animate new messages. Needs Remove messages after and a Fade-out length other than Instant.' },
-    smooth_scroll: { label: 'Smooth scrolling', only: 'vertical', when: animateOn,
+    smooth_scroll: { noAvatar: true, label: 'Smooth scrolling', only: 'vertical', when: animateOn,
       help: 'Older messages glide up (down when new messages appear at the top) to make room for a new one instead of jumping, the way a row glides left. In a busy chat they keep moving. A message removed from the middle, such as one a moderator deletes, still closes its gap at once. Vertical layout only, with Animate new messages on.' },
-    max: { label: 'Max messages on screen', widget: 'stepper', step: 5, help: 'From 1 to 200.' },
+    max: { noAvatar: true, label: 'Max messages on screen', widget: 'stepper', step: 5, help: 'From 1 to 200.' },
     bots: { label: 'Show bot messages',
       help: 'Nightbot, StreamElements, Streamlabs, Moobot, Fossabot, Kick’s KickBot and similar bots, any account with Twitch’s or Kick’s own Bot badge, plus the bots listed on the channel’s BetterTTV page. While they are hidden, a reply to one shows without quoting it.' },
     hide_commands: { label: 'Hide !commands',
@@ -265,7 +274,7 @@
     first_msg: { label: 'Mark first-time chatters', help: 'A colored bar beside someone’s first message in the channel.' },
     first_msg_color: { label: 'First-message bar color', swatch: '#9146ff', when: firstMsgOn,
       help: 'Purple by default. Needs Mark first-time chatters.' },
-    history: { label: 'Recent messages on load', widget: 'stepper', step: 5, zero: 'Off',
+    history: { noAvatar: true, label: 'Recent messages on load', widget: 'stepper', step: 5, zero: 'Off',
       help: 'Shows up to this many recent messages (Twitch’s from recent-messages.robotty.de, Kick’s from kick.com) when the overlay starts, and catches up on what a Twitch or Kick reconnect missed.' },
     shared: { label: 'Include Shared Chat',
       help: 'During a Shared Chat session, also show the other channels’ messages. Every message is marked with its channel’s avatar.' },
@@ -304,7 +313,7 @@
       help: 'Emotes, cheers and GIFs next to the text (100% by default). Images load at the size drawn, up to the largest each emote service has: past that they look soft. A GIF drawn taller than 200 px loads Giphy’s original file. An emote taller than its line makes the line taller: with Medium text, above about 150% (165% without a box) a reply’s header no longer fits a horizontal row along the bottom of the suggested 100 px tall source.' },
     emote_only: { label: 'Emote-only messages', options: { normal: 'Normal', big: 'Big', huge: 'Huge' }, when: bigDrawn,
       help: 'A message of emotes alone, drawn two (Big) or three (Huge) times as tall. Gigantified emotes keep their own size, and a very wide emote is fitted to the column. In a horizontal row only with Let big emotes grow the row on (below); without it a row draws them at emote height.' },
-    row_grow: { label: 'Let big emotes grow the row', only: 'horizontal',
+    row_grow: { noAvatar: true, label: 'Let big emotes grow the row', only: 'horizontal',
       help: 'Draws emote-only messages (Emote-only messages), GIFs (GIF size) and gigantified emotes as big as the vertical layout does, and lets their messages grow the row taller to fit them; the text stays on one line. The source has to be tall enough for them, or they are cut off: about 150 px for Huge with Medium text, more with larger text or Name on its own line (Look). Off draws them at emote height. Horizontal layout only.' },
     giant_emotes: { label: 'Gigantified emotes', when: bigDrawn,
       help: 'Twitch’s Gigantify an Emote power-up draws the emote three times as tall. Off draws it like any other emote, from a smaller image. In a horizontal row only with Let big emotes grow the row on (Emotes); without it a row draws it at emote height either way.' },
@@ -322,7 +331,7 @@
     paints: { label: 'Name paints', help: 'Gradient and image name colors from 7TV, and BetterTTV Pro name effects (glow, flare and textures). A 7TV paint wins when a chatter has both.' },
     paint_images: { label: 'Paint motion', options: { animated: 'Animated', static: 'Still' }, when: paintsOn,
       help: 'Still shows the first frame of an animated 7TV paint and holds BetterTTV name effects still, so painted names stop redrawing many times a second while chat is quiet. Needs Name paints.' },
-    shadow_style: { label: 'Shadow method', options: { filter: 'Whole line', text: 'Text only' }, when: shadowOn,
+    shadow_style: { noAvatar: true, label: 'Shadow method', options: { filter: 'Whole line', text: 'Text only' }, when: shadowOn,
       help: 'Text only draws the shadow on the letters alone, about half the PC work while animated emotes are on screen. Emotes, badges, GIFs, the box and painted names then have no shadow. Needs Text shadow.' },
     stv_lookup: { label: 'Look up 7TV cosmetics for every chatter', when: stvCosmeticsOn,
       help: '7TV only announces paints and badges for people running a 7TV extension. This asks 7TV about everyone else, in small rate-limited batches. The answer isn’t checked against subscriptions, so it can show paints for lapsed 7TV subs. Needs Name paints, or Show badges and 7TV.' },
@@ -332,6 +341,33 @@
       help: 'How light Brighten dark name colors makes a dark name: its contrast with black, from 3:1 to 7:1 (4.5:1 by default); on a light Box color, how dark it makes a light name: its contrast with the box. It lightens in steps, so a small change may leave a name as it was. Needs Brighten dark name colors; not used while a Name color (Look) is set.' },
     badge_size: { label: 'Badge size', widget: 'range', unit: '%',
       help: 'Next to the text (100% by default), with the Twitch, Kick and YouTube icons and Shared Chat avatars, which show even with badges off. Above about 135% lines with badges get taller.' },
+    // Avatar mode (js/avatar.js): its own tab.
+    avatar: { label: 'Avatar', options: { off: 'Off', blob: 'Blob', bot: 'Robot', cat: 'Cat', custom: 'Your own' }, wrap: true,
+      help: 'Off shows the chat. Otherwise a picture in a bottom corner says each chat message in a speech bubble, typing it out as its mouth moves: one of three, or Your own pictures (below). Give the source room for both: 800 × 600 is a good start. The chat’s layout, box, shadow, animation and timing settings don’t apply while it is on: the bubble has its own (below), and it says one message at a time.' },
+    avatar_idle: { label: 'Picture', widget: 'image', when: ownPictures, placeholder: 'https://…/me.png',
+      bad: 'That isn’t a picture link. Use an https:// link to a PNG, WebP, GIF or JPEG file.',
+      help: 'The avatar with its mouth shut: a link to a PNG, WebP, GIF or JPEG picture on https, from a host that lets other sites show it (Discord’s links expire). Or put the picture file itself in the overlay’s link (Advanced, below). A see-through background looks best.' },
+    avatar_talk: { label: 'Talking picture', widget: 'image', when: ownPictures, placeholder: 'https://…/me-talking.png',
+      bad: 'That isn’t a picture link. Use an https:// link to a PNG, WebP, GIF or JPEG file.',
+      help: 'The same picture with its mouth open, shown as it talks: the same size as the Picture, so nothing jumps. Without one the avatar keeps its picture and only bobs.' },
+    avatar_size: { label: 'Avatar height', widget: 'stepper', step: 20, unit: 'px', when: avatarOn,
+      help: 'In px (300 by default), and never taller than the source.' },
+    avatar_side: { label: 'Corner', options: { left: 'Bottom left', right: 'Bottom right' }, when: avatarOn,
+      help: 'The bubble goes toward the middle of the source.' },
+    avatar_flip: { label: 'Mirror the picture', when: avatarOn, help: 'Turns it to face the other way, toward its bubble.' },
+    avatar_motion: { label: 'Motion', options: { bounce: 'Bounce', lively: 'Lively', none: 'Still' }, when: avatarOn,
+      help: 'Bounce hops as a message comes and bobs as the mouth moves. Lively also breathes while it waits. Still only swaps the pictures.' },
+    bubble_pos: { label: 'Speech bubble', options: { side: 'Beside the head', above: 'Above the head' }, wrap: true, when: avatarOn },
+    bubble_width: { label: 'Bubble width', widget: 'stepper', step: 2, unit: 'em', when: avatarOn,
+      help: 'The widest it gets, in em (the text size): 18 is about 35 letters. A longer message wraps, and one too tall for the source is cut short with “…”.' },
+    bubble_color: { label: 'Bubble color', swatch: '#ffffff', when: avatarOn,
+      help: 'White by default. Its text is dark on a light bubble and white on a dark one, unless a Text color (Look) is set, and names too light for a light bubble are darkened (Brighten dark name colors, in Badges & paints).' },
+    bubble_speed: { label: 'Typing speed', widget: 'stepper', step: 5, unit: 'letters/s', zero: 'Instant', when: avatarOn,
+      help: 'Letters a second (30 by default), twice as many while other messages wait, and a long message never takes more than 8 seconds. Instant shows the whole message at once.' },
+    bubble_time: { label: 'Longest a bubble stays', widget: 'stepper', unit: 's', when: avatarOn,
+      help: 'Seconds, once it is typed out (6 by default). A short message stays less, about long enough to read, and half as long while others wait.' },
+    bubble_queue: { label: 'Messages waiting', widget: 'stepper', when: avatarOn,
+      help: 'How many messages may wait their turn (5 by default). When another comes the oldest waiting one is skipped, so a busy chat stays current.' },
     demo: { label: 'Demo messages in OBS too',
       help: 'Plays fake chat in the real overlay, handy for positioning. The preview has its own Demo / Live chat switch.' },
     debug: { label: 'Debug status line', help: 'Shows which providers loaded or failed, and logs details to the browser console.' }
@@ -393,6 +429,11 @@
       foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
       keys: ['badges'].concat(BADGE_SUBS, ['homies_lists', 'paints', 'paint_images', 'stv_lookup', 'readable', 'readable_level',
         'badge_size']) },
+    // Avatar mode: the picture first (Your own's two right under the choice), then where it sits and moves, then the bubble.
+    { id: 'avatar', title: 'Avatar', note: 'A picture in a corner that says each chat message in a speech bubble.',
+      keys: ['avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion', 'bubble_pos',
+        'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue'],
+      subs: [{ title: 'Placement and motion', first: 'avatar_size' }, { title: 'Speech bubble', first: 'bubble_pos' }] },
     // A setting that needs a switch sits under that switch, on its tab; Advanced keeps the fine-tuning that needs none.
     { id: 'advanced', title: 'Advanced', note: 'Fine-tuning for text, names, layout, highlights, filters and emotes, and troubleshooting last.',
       keys: ['text_px', 'line_height', 'text_case', 'name_weight', 'name_font', 'name_fallback', 'spacing',
@@ -468,32 +509,79 @@
   // Commas are legal in a query string; keep block lists readable.
   function tidyQuery(q) { return q.replace(/%2C/gi, ','); }
 
-  // The URL to paste into OBS: only non-default params (config.toParams). A file:/// overlay always
-  // loads the settings.js in its folder, which fills in every key the URL leaves out, so there the
-  // URL lists every setting (like the preview) and a settings.js can't change the source.
-  function overlayUrl(cfg, baseHref) {
+  // cfg as a link's query carries it: a picture put in the link (a data:image one, Avatar's Advanced) goes after its '#'
+  // (config.imageHash), where the overlay's host never sees it, so the query holds none (left out of the overlay URL as
+  // the default, and written empty in the preview's, where a settings.js can't fill one in).
+  function linkCfg(cfg) {
+    if (!config.HASH_IMAGES.some(function (k) { return config.isDataImage(cfg[k]); })) return cfg;
+    var c = copyCfg(cfg);
+    config.HASH_IMAGES.forEach(function (k) { if (config.isDataImage(c[k])) c[k] = ''; });
+    return c;
+  }
+  // The '#' part that carries the pictures put in the link cfg uses: avatar=custom's (config.imageHash). One set while
+  // another avatar is picked stays in the builder, for when Your own is picked again, but the overlay has no use for it,
+  // so no link carries it. '' for none.
+  function linkHash(cfg) { return ownPictures(cfg) ? config.imageHash(cfg) : ''; }
+
+  // The URL to paste into OBS: only non-default params (config.toParams), and the pictures put in the link after its '#'
+  // (noPictures: without them, as they go in OBS's Custom CSS instead: picturesInCss). A file:/// overlay always loads
+  // the settings.js in its folder, which fills in every key the URL leaves out, so there the URL lists every setting
+  // (like the preview) and a settings.js can't change the source.
+  function overlayUrl(cfg, baseHref, noPictures) {
     var u = new URL('overlay.html', baseHref);
-    if (u.protocol === 'file:') return previewUrl(cfg, baseHref);
-    var q = tidyQuery(config.toParams(cfg).toString());
+    if (u.protocol === 'file:') return previewUrl(cfg, baseHref, noPictures);
+    var q = tidyQuery(config.toParams(linkCfg(cfg)).toString());
     u.search = q ? '?' + q : '';
-    u.hash = '';
+    u.hash = noPictures ? '' : linkHash(cfg);
     return u.href;
   }
 
   // The preview iframe URL: every key explicit, so a settings.js next to overlay.html can't leak in.
-  // An empty channel is written too (channel=), for the overlay to read as "no channel".
-  function previewUrl(cfg, baseHref) {
+  // An empty channel is written too (channel=), for the overlay to read as "no channel". The pictures put in the link
+  // go after its '#', as in overlayUrl.
+  function previewUrl(cfg, baseHref, noPictures) {
     var u = new URL('overlay.html', baseHref);
     var p = new URLSearchParams();
+    var lc = linkCfg(cfg);
     for (var i = 0; i < config.KEYS.length; i++) {
-      var k = config.KEYS[i], v = cfg[k];
+      var k = config.KEYS[i], v = lc[k];
       if (k === 'channel') { p.set(k, v ? String(v) : ''); continue; }
       if (v === undefined || v === null) continue;
       p.set(k, config.serialize(k, v));
     }
     u.search = '?' + tidyQuery(p.toString());
-    u.hash = '';
+    u.hash = noPictures ? '' : linkHash(cfg);
     return u.href;
+  }
+
+  // OBS's URL box takes 32,767 characters at most (a Qt line edit's default length) and cuts a longer URL off without a
+  // word: the pictures at its end would be lost. The '#' part counts here, as OBS keeps the whole URL; the overlay's
+  // host never sees it, so it doesn't count toward MAX_URL_BYTES.
+  var OBS_URL_MAX = 32767;
+  // A picture put in the link is made to fit in this many of its characters (pictureFile), so two fit with room for
+  // the settings.
+  var PICTURE_BUDGET = 14000;
+  // Whether cfg's pictures go in OBS's Custom CSS: they would make the link longer than OBS takes.
+  function picturesInCss(cfg, baseHref) {
+    return !!linkHash(cfg) && overlayUrl(cfg, baseHref).length > OBS_URL_MAX;
+  }
+  // What to put in the source's Custom CSS box for that: OBS's own default first (a new browser source's: it keeps the
+  // page see-through), then the pictures, which win over the ones the link names (avatar.js, css/overlay.css).
+  var OBS_DEFAULT_CSS = 'body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }';
+  function pictureCss(cfg) {
+    if (!ownPictures(cfg)) return '';
+    var vars = [];
+    if (config.isDataImage(cfg.avatar_idle)) vars.push('  --avatar-idle: url("' + cfg.avatar_idle + '") !important;');
+    if (config.isDataImage(cfg.avatar_talk)) vars.push('  --avatar-talk: url("' + cfg.avatar_talk + '") !important;');
+    return vars.length ? OBS_DEFAULT_CSS + '\n#chat {\n' + vars.join('\n') + '\n}\n' : '';
+  }
+  // A data:image picture's size, for the line under its field: { type ('WebP'), kb, chars (in the link, base64url) }.
+  function pictureSize(v) {
+    var m = typeof v === 'string' ? /^data:image\/([a-z]+);base64,([A-Za-z0-9+/]*)(=*)$/.exec(v) : null;
+    if (!m) return null;
+    var bytes = Math.floor(m[2].length * 3 / 4); // the base64 without its '=' padding
+    var names = { png: 'PNG', webp: 'WebP', gif: 'GIF', jpeg: 'JPEG' };
+    return { type: names[m[1]] || m[1].toUpperCase(), kb: Math.round(bytes / 102.4) / 10, chars: m[2].length };
   }
 
   // GitHub Pages, which hosts the overlay, answers 414 "URI Too Long" once a request's path and query pass about
@@ -533,10 +621,11 @@
   // at 70x70 (the builder falls back to the full one if that ever fails).
   function smallAvatar(url) { return String(url).replace(/-(\d+)x\1(\.\w+)$/, '-70x70$2'); }
 
+  // A picture put in the link goes in settings.js as it is (a data:image URL), while avatar=custom uses it (linkHash).
   function settingsSnippet(cfg) {
     return '// Twitch Chat Overlay settings. Save as settings.js next to overlay.html.\n' +
       '// Settings in the overlay URL override these.\n' +
-      'window.TCO_SETTINGS = ' + JSON.stringify(config.toObject(cfg), null, 2) + ';\n';
+      'window.TCO_SETTINGS = ' + JSON.stringify(config.toObject(ownPictures(cfg) ? cfg : linkCfg(cfg)), null, 2) + ';\n';
   }
 
   // Own SPEC keys only: '__proto__', 'constructor', 'toString'… are not settings.
@@ -619,7 +708,8 @@
     try { return relaxedJson(s); } catch (e2) { return null; }
   }
 
-  // Pasted overlay URL, bare query string, or settings.js / JSON object -> {cfg, count} or null.
+  // Pasted overlay URL, bare query string, or settings.js / JSON object -> {cfg, count} or null. A URL's pictures after
+  // its '#' (config.hashImages) come with it, as the overlay reads them.
   function parsePasted(text) {
     var s = String(text || '').trim();
     if (!s) return null;
@@ -635,27 +725,37 @@
     else if (s.indexOf('=') > 0) search = s;
     else return null;
     // A '#' typed in a value (text_color=#ff8800, keywords=c#) is part of it, as the overlay reads it (config.withHash).
-    var h = search.indexOf('#');
-    if (h >= 0) search = config.withHash(search.slice(0, h), search.slice(h + 1));
+    var h = search.indexOf('#'), pics = {};
+    if (h >= 0) {
+      var hi = config.hashImages(search.slice(h + 1));
+      pics = hi.values;
+      search = hi.rest === null ? search.slice(0, h) : config.withHash(search.slice(0, h), hi.rest);
+    }
     var params = new URLSearchParams(search);
     // As config.parse reads a query: keys lowercased, the last value wins.
     var fromUrl = {};
     params.forEach(function (v, k) { if (isKnown(k)) fromUrl[String(k).toLowerCase()] = v; });
     var count = countApplied(fromUrl);
-    return count ? { cfg: config.parse(params), count: count } : null;
+    Object.keys(pics).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(fromUrl, k)) count++; });
+    return count ? { cfg: config.applyObject(config.parse(params), pics), count: count } : null;
   }
 
-  // The builder's first config, from its query string and the remembered config. A link with only the channels
-  // (CHANNEL_KEYS: ?channel=, ?kick=, ?mixitup=…, as the overlay's hints link here) keeps the remembered look and
-  // filters; a link with more settings is a whole setup, over the defaults.
-  function startCfg(search, stored) {
+  // The builder's first config, from its query string, the pictures after its '#' (pics: config.pageImages) and the
+  // remembered config. A link with only the channels (CHANNEL_KEYS: ?channel=, ?kick=, ?mixitup=…, as the overlay's
+  // hints link here) keeps the remembered look and filters; a link with more settings is a whole setup, over the defaults.
+  function startCfg(search, stored, pics) {
     var params = new URLSearchParams(search || '');
     var known = [];
     params.forEach(function (v, k) { if (isKnown(k)) known.push(String(k).toLowerCase()); });
+    pics = pics && typeof pics === 'object' ? pics : {};
+    var picKeys = Object.keys(pics).filter(function (k) { return config.HASH_IMAGES.indexOf(k) >= 0; });
+    known = known.concat(picKeys);
     var base = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
     if (known.length) {
       var onlyChannel = known.every(function (k) { return CHANNEL_KEYS.indexOf(k) >= 0; });
       var cfg = config.parse(params, onlyChannel ? base : null);
+      // A picture after the '#' wins over the query's, as on overlay.html.
+      if (picKeys.length) config.applyObject(cfg, pics);
       // The remembered chatroom id is the remembered Kick channel's: a link naming another channel without one (the
       // overlay's hint link) leaves it out, so the new channel is looked up (replaceCfg). As in onKickChanged, an id
       // remembered without a channel stays.
@@ -722,7 +822,7 @@
     if (!(w > 0) || !(h > 0) || !(availW > 0) || !(availH > 0)) return null;
     var whole = fitScale(w, h, availW, availH);
     if (whole >= CROP_BELOW) return null;
-    var row = cfg.layout === 'horizontal';
+    var row = shapeOf(cfg) === 'horizontal';
     var s = row ? Math.min(1, availH / h, ROW_SCALE) : Math.min(1, availW / w);
     if (s < whole * 1.25) return null;
     var at = row ? (cfg.row_align === 'left' ? 'left' : cfg.row_align === 'center' ? 'middle' : 'right')
@@ -756,9 +856,13 @@
     return out;
   }
 
-  // A field's tag: the setting's name in the URL, with its value once it is off the default.
+  // A field's tag: the setting's name in the URL, with its value once it is off the default. A picture put in the link
+  // is too long to show, so its kind stands in for it ('avatar_idle=data:image/webp;base64,…').
   function tagText(key, cfg, changed) {
-    return (changed || changedKeys(cfg))[key] === true ? key + '=' + config.serialize(key, cfg[key]) : key;
+    if ((changed || changedKeys(cfg))[key] !== true) return key;
+    var v = cfg[key];
+    if (config.isDataImage(v)) return key + '=' + v.slice(0, v.indexOf(',') + 1) + '…';
+    return key + '=' + config.serialize(key, v);
   }
 
   // The channels, with the Kick chatroom id that goes with a Kick one, and the Mix It Up widget: what the overlay is for,
@@ -799,7 +903,22 @@
     return { base: s.slice(0, q), params: params };
   }
 
-  // The line beside the overlay URL: what is wrong with it, or what it holds.
+  // An overlay URL's '#' part in pieces, as urlParts gives its query: the pictures put in the link (config.imageHash),
+  // each sep ('#', then '&') + key + '=' + value. [] for none.
+  function hashParts(url) {
+    var s = String(url === undefined || url === null ? '' : url), f = s.indexOf('#');
+    if (f < 0) return [];
+    var out = [];
+    s.slice(f + 1).split('&').forEach(function (pair) {
+      if (!pair) return;
+      var eq = pair.indexOf('=');
+      out.push({ sep: out.length ? '&' : '#', key: eq < 0 ? pair : pair.slice(0, eq), eq: eq >= 0, value: eq < 0 ? '' : pair.slice(eq + 1) });
+    });
+    return out;
+  }
+
+  // The line beside the overlay URL: what is wrong with it, or what it holds. css: the pictures go in OBS's Custom CSS
+  // (the URL has none of cfg's: picturesInCss), which the copied note then asks for too.
   function urlNote(cfg, ch, url) {
     if (!chatOn(cfg)) return { text: 'Add a channel first. Without one the overlay only shows a hint.', cls: 'warn' };
     if (cfg.kick && !cfg.kick_room) {
@@ -808,17 +927,27 @@
     if (ch && ch.state === 'notfound' && ch.login === cfg.channel) {
       return { text: 'Twitch has no channel called “' + cfg.channel + '”. Check the spelling.', cls: 'warn' };
     }
+    if (ownPictures(cfg) && !cfg.avatar_idle) {
+      return { text: 'The avatar has no picture yet: add yours on the Avatar tab, or pick one of the three there.', cls: 'warn' };
+    }
     if (urlTooLong(url)) {
       return { text: URL_LONG_NOTE, cls: 'warn' };
     }
-    if (/^file:/i.test(String(url))) {
-      return { text: 'The URL lists every setting, so a settings.js in the overlay’s folder can’t change this source.', cls: '' };
+    var pics = linkHash(cfg) ? config.HASH_IMAGES.filter(function (k) { return config.isDataImage(cfg[k]); }).length : 0;
+    if (pics && String(url).indexOf('#') < 0) {
+      return { text: 'Your avatar’s pictures are too big for the URL, so they go in the source’s Custom CSS: Add to OBS has it.',
+        cls: 'warn', css: true };
     }
-    var n = settingsChanged(cfg).length;
+    var also = pics ? ', and your picture' + (pics > 1 ? 's' : '') + ' at its end' : '';
+    if (/^file:/i.test(String(url))) {
+      return { text: 'The URL lists every setting' + also + ', so a settings.js in the overlay’s folder can’t change this source.', cls: '' };
+    }
+    // A picture put in the link is said apart (also), and one no link carries isn't in it.
+    var n = settingsChanged(cfg).filter(function (k) { return !config.isDataImage(cfg[k]); }).length;
     return { text: n
-      ? 'Holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed. The rest use the defaults.'
+      ? 'Holds only the ' + n + ' setting' + (n === 1 ? '' : 's') + ' you changed' + also + '. The rest use the defaults.'
       : 'Every setting is at its default, so the URL only needs the ' + (chatCount(cfg) > 1 ? 'channels'
-        : cfg.mixitup ? 'Mix It Up widget' : 'channel') + '.', cls: '' };
+        : cfg.mixitup ? 'Mix It Up widget' : 'channel') + also + '.', cls: '' };
   }
 
   // The chats cfg sets, by name, joined as a sentence says them: 'Twitch', 'Kick and YouTube', 'Twitch, Kick and YouTube'.
@@ -953,6 +1082,7 @@
   function fieldOff(key, cfg) {
     if (fieldAway(key, cfg)) return true;
     var m = META[key] || {};
+    if (m.noAvatar && avatarOn(cfg)) return true;
     return typeof m.when === 'function' && !m.when(cfg);
   }
 
@@ -987,6 +1117,7 @@
   // (goToSetting). null while the field applies.
   function whyParts(key, cfg) {
     var m = META[key] || {};
+    if (m.noAvatar && avatarOn(cfg)) return ['Not used in ', { key: 'avatar', text: 'avatar mode' }, ': its speech bubble has its own look.'];
     var w = m.when;
     if (typeof w !== 'function' || w(cfg)) return null;
     var tabs = tabTitles();
@@ -1009,6 +1140,8 @@
     if (w === wordsOrUsersOn) return ['Needs ', n('keywords'), ' or ', n('highlight_users'), '.'];
     if (w === gifSizeOn) return gifsOn(cfg) ? row : needs('gifs');
     if (w === bigDrawn) return row;
+    if (w === avatarOn) return ['Needs an ', n('avatar'), ' picked.'];
+    if (w === ownPictures) return ['Needs ', n('avatar'), ' set to Your own.'];
     if (w === homiesOn) return badgesOn(cfg) ? needs('badges_homies') : needs('badges');
     if (w === stvCosmeticsOn) return ['Needs ', n('paints'), ', or ', n('badges'), ' with 7TV.'];
     var simple = [[shadowOn, 'shadow'], [outlineOn, 'outline'], [namesOn, 'names'], [bgOn, 'bg'], [animateOn, 'animate'],
@@ -1130,6 +1263,61 @@
     r.textContent = '';
     clearTimeout(B.sayTimer); // two in a row (a stepper clicked fast): only the later one is read
     B.sayTimer = setTimeout(function () { r.textContent = text; }, 30);
+  }
+
+  // ---------- pictures put in the link (avatar mode's own) ----------
+  // A picture file from this PC as a data:image URL for the link (or OBS's Custom CSS): read, checked to be a PNG, WebP, GIF
+  // or JPEG by its own bytes (config.imageUrl), and kept as it is when it fits PICTURE_BUDGET of the link's characters
+  // (an animated GIF or WebP keeps moving). Otherwise drawn again at the Avatar height (height; never larger than it was)
+  // as WebP (PNG in a browser that can't write WebP), at the best quality that fits, and smaller still, to half that
+  // height, before it gives up: then the best of them, fits false (the link may still hold it, or Custom CSS will).
+  // Resolves { url, w, h, kept, fits, gif }; rejects with 'too big' for a file over PICTURE_FILE_MAX.
+  var PICTURE_QUALITY = [0.92, 0.82, 0.72, 0.6];
+  var PICTURE_FILE_MAX = 6 * 1024 * 1024; // its base64 stays under config.js's MAX_IMAGE_CHARS
+  function pictureFile(f, height) {
+    if (f && f.size > PICTURE_FILE_MAX) return Promise.reject(new Error('too big'));
+    return new Promise(function (resolve, reject) {
+      var rd = new root.FileReader();
+      rd.onload = function () { resolve(String(rd.result || '')); };
+      rd.onerror = function () { reject(new Error('unreadable')); };
+      rd.readAsDataURL(f);
+    }).then(function (raw) {
+      var kept = config.imageUrl(raw);
+      if (!kept) throw new Error('not a picture');
+      return new Promise(function (resolve, reject) {
+        var img = new root.Image();
+        img.onload = function () { resolve(img); };
+        img.onerror = function () { reject(new Error('undecodable')); };
+        img.src = kept;
+      }).then(function (img) {
+        var w0 = img.naturalWidth, h0 = img.naturalHeight;
+        if (!(w0 > 0 && h0 > 0)) throw new Error('empty');
+        var chars = function (u) { return u.length - u.indexOf(',') - 1; };
+        var want = Math.max(40, Math.round(Number(height) || 300)), gif = /^data:image\/gif/.test(kept);
+        if (chars(kept) <= PICTURE_BUDGET) return { url: kept, w: w0, h: h0, kept: true, fits: true, gif: gif };
+        var draw = function (hh, q) {
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(w0 * hh / h0));
+          c.height = hh;
+          var g = c.getContext('2d');
+          g.imageSmoothingEnabled = true;
+          g.imageSmoothingQuality = 'high';
+          g.drawImage(img, 0, 0, c.width, c.height);
+          return { url: c.toDataURL('image/webp', q), w: c.width, h: hh };
+        };
+        var top = Math.min(h0, want), best = null;
+        for (var hh = top; hh >= Math.max(40, Math.round(top / 2)); hh = Math.floor(hh * 0.85)) {
+          for (var i = 0; i < PICTURE_QUALITY.length; i++) {
+            var pic = draw(hh, PICTURE_QUALITY[i]);
+            if (!best) best = pic;
+            // A browser that writes PNG for WebP: one try a size, as PNG has no quality.
+            if (chars(pic.url) <= PICTURE_BUDGET) return { url: config.imageUrl(pic.url), w: pic.w, h: pic.h, kept: false, fits: true, gif: gif };
+            if (/^data:image\/png/.test(pic.url)) break;
+          }
+        }
+        return { url: config.imageUrl(best.url), w: best.w, h: best.h, kept: false, fits: false, gif: gif };
+      });
+    });
   }
 
   // ---------- form fields ----------
@@ -1697,6 +1885,151 @@
         };
         break;
       }
+      case 'image': {
+        // A picture (avatar mode's): a link typed or pasted in the box, or, under Advanced, a picture file from this PC
+        // put in the overlay's link itself (pictureFile), drawn small beside its size. Remove takes either away.
+        addLabel(true);
+        var prow = control(h('div', 'text-row'));
+        var pu = h('input', 'text');
+        pu.type = 'text';
+        pu.id = id;
+        pu.autocomplete = 'off';
+        pu.spellcheck = false;
+        pu.placeholder = m.placeholder || 'https://…';
+        var pdel = h('button', 'btn ghost', 'Remove');
+        pdel.type = 'button';
+        pdel.setAttribute('aria-label', 'Remove the ' + labelFor(key).toLowerCase());
+        prow.appendChild(pu);
+        prow.appendChild(pdel);
+        var ph = addHelp(row, key, pu);
+        field.helpEl = ph;
+        var pbad = h('p', 'status err', m.bad || 'That isn’t a picture link.');
+        pbad.id = 'e-' + key;
+        pbad.hidden = true;
+        row.appendChild(pbad);
+        var showBadPic = function (ok) {
+          if (!ok && pbad.hidden) announce(pbad.textContent);
+          pbad.hidden = ok;
+          pu.setAttribute('aria-invalid', ok ? 'false' : 'true');
+          pu.setAttribute('aria-describedby', (ph ? ph.id : '') + (ok ? '' : ' ' + pbad.id));
+        };
+        // Advanced: the file itself, in the link.
+        var adv = h('details', 'pic-adv');
+        adv.appendChild(h('summary', null, 'Advanced: put a picture file in the link'));
+        var advBody = h('div', 'pic-adv-body');
+        // Hidden: the button opens its picker (click() works on a hidden file input).
+        var file = h('input', 'pic-file');
+        file.type = 'file';
+        file.id = id + '-file';
+        file.accept = 'image/png,image/webp,image/gif,image/jpeg';
+        file.hidden = true;
+        var pickBtn = h('button', 'btn', 'Choose a picture…');
+        pickBtn.type = 'button';
+        pickBtn.setAttribute('aria-describedby', id + '-in');
+        var pin = h('div', 'pic-in');
+        var thumb = h('img', 'pic-thumb');
+        thumb.alt = '';
+        thumb.hidden = true;
+        var pst = h('p', 'status');
+        pst.id = id + '-in';
+        pst.setAttribute('role', 'status');
+        pst.setAttribute('aria-live', 'polite');
+        pin.appendChild(thumb);
+        pin.appendChild(pst);
+        advBody.appendChild(h('p', 'help', 'The picture goes inside the overlay’s URL, so nothing needs hosting. One too big for it is ' +
+          'shrunk to the Avatar height and saved as WebP; pictures the URL still can’t hold go in the OBS source’s Custom CSS, and ' +
+          'Add to OBS shows how.'));
+        advBody.appendChild(file);
+        advBody.appendChild(pickBtn);
+        advBody.appendChild(pin);
+        adv.appendChild(advBody);
+        row.appendChild(adv);
+        // What the file picker did to the picture now set (added.v): said before where the picture is (picLine).
+        var added = { v: null, text: '' };
+        // A picture in the link: its size, and where it goes (the URL, or the OBS source's Custom CSS: picturesInCss).
+        var picLine = function (v) {
+          var size = pictureSize(v);
+          if (!size) return { text: '', cls: '' };
+          var what = 'a ' + size.kb + ' KB ' + size.type, css = ownPictures(B.cfg) && picturesInCss(B.cfg, root.location.href);
+          var where = !ownPictures(B.cfg) ? 'Kept for Your own: ' + what + '.'
+            : css ? 'In the OBS source’s Custom CSS: ' + what + '. The URL can’t hold your pictures, so Add to OBS gives the CSS for them.'
+            : 'In the URL: ' + what + ', ' + size.chars.toLocaleString('en-US') + ' of its characters.';
+          var mine = added.v === v;
+          return { text: (mine ? added.text + ' ' : '') + where, cls: css ? 'warn' : mine ? 'ok' : '' };
+        };
+        // What the field shows for the setting: a link in the box; a picture in the link as its thumbnail and that line,
+        // with Advanced open. note: a line of its own instead (reading a file, or one that isn't a picture).
+        var showPic = function (v, note) {
+          var inLink = config.isDataImage(v);
+          pu.value = inLink ? '' : String(v || '');
+          pu.placeholder = inLink ? 'In the link (see below)' : (m.placeholder || 'https://…');
+          pdel.disabled = field.off || !v;
+          thumb.hidden = !inLink;
+          if (inLink) thumb.src = v; else if (thumb.removeAttribute) thumb.removeAttribute('src');
+          var line = note || picLine(v);
+          pst.className = line.cls ? 'status ' + line.cls : 'status';
+          pst.textContent = line.text;
+          if (inLink) adv.open = true;
+        };
+        // The other picture, Your own or not, can move this one between the URL and the Custom CSS (renderOutputs).
+        field.refresh = function () { if (pst.className.indexOf('err') < 0 && pst.className.indexOf('busy') < 0) showPic(B.cfg[key]); };
+        var pt = null;
+        // A link typed in: taken as it is typed, but said to be no picture only once it is in (Enter, or the box is left).
+        var commitPic = function (final) {
+          clearTimeout(pt);
+          var raw = pu.value.trim();
+          // An empty box leaves a picture put in the link alone; Remove takes it away.
+          if (!raw && config.isDataImage(B.cfg[key])) { showBadPic(true); return; }
+          var ok = update(key, raw);
+          if (ok || final) showBadPic(ok);
+          if (ok && final) showPic(B.cfg[key]);
+        };
+        pu.addEventListener('input', function () {
+          clearTimeout(pt);
+          pt = setTimeout(function () { commitPic(false); }, 600);
+        });
+        pu.addEventListener('change', function () { commitPic(true); });
+        pu.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); commitPic(true); } });
+        pdel.addEventListener('click', function () {
+          clearTimeout(pt);
+          update(key, '');
+          showBadPic(true);
+          showPic(B.cfg[key]);
+          if (pu.focus) pu.focus();
+        });
+        pickBtn.addEventListener('click', function () { if (file.click) file.click(); });
+        file.addEventListener('change', function () {
+          var f = file.files && file.files[0];
+          file.value = '';
+          if (!f) return;
+          showPic(B.cfg[key], { text: 'Reading ' + f.name + '…', cls: 'busy' });
+          var tall = B.cfg.avatar_size;
+          pictureFile(f, tall).then(function (pic) {
+            // What was done to it: kept, or shrunk (a GIF then stops moving), and whether it is drawn larger than it is.
+            added = { v: pic.url, text: (pic.kept ? 'Added as it was.' : 'Shrunk to ' + pic.w + ' × ' + pic.h + (pic.gif ? ', as a still picture.' : '.')) +
+              (pic.h < tall * 0.8 ? ' It is ' + pic.h + ' px tall and shown at ' + tall + ', so it may look soft.' : '') };
+            if (!update(key, pic.url)) throw new Error('refused');
+            showBadPic(true);
+            showPic(B.cfg[key]);
+            announce(pst.textContent);
+          }).catch(function (e) {
+            var no = e && e.message === 'too big' ? 'That file is over 6 MB. Save a smaller copy of the picture and choose that.'
+              : 'That file isn’t a picture the builder can read: use a PNG, WebP, GIF or JPEG.';
+            showPic(B.cfg[key], { text: no, cls: 'err' });
+            announce(no);
+          });
+        });
+        field.inputs.push(pu, pdel, pickBtn);
+        field.set = function (v) { clearTimeout(pt); showPic(v); showBadPic(true); };
+        field.setDisabled = function (off) {
+          field.off = off;
+          pu.disabled = off;
+          pickBtn.disabled = off;
+          pdel.disabled = off || !B.cfg[key];
+          if (off) row.classList.add('disabled'); else row.classList.remove('disabled');
+        };
+        break;
+      }
       default: { // text: a list of names (block, highlight_users) or words (keywords), or one value (kick, kick_room, mixitup,
         // mixitup_port, command_prefixes)
         addLabel(true);
@@ -1864,7 +2197,7 @@
     }
     // What a greyed-out field waits for, under its label (syncDisabled fills it in). A switch in a grid has the
     // grid's one line instead (buildGroups).
-    if (m.when && !subgridOf(key)) {
+    if ((m.when || m.noAvatar) && !subgridOf(key)) {
       field.needsEl = h('p', 'needs');
       field.needsEl.hidden = true;
       row.insertBefore(field.needsEl, head.nextSibling);
@@ -2290,7 +2623,7 @@
   function syncDisabled() {
     for (var k in B.fields) {
       var m = META[k];
-      if (m && (m.when || m.only)) B.fields[k].setDisabled(fieldOff(k, B.cfg));
+      if (m && (m.when || m.only || m.noAvatar)) B.fields[k].setDisabled(fieldOff(k, B.cfg));
       if (m && m.only) B.fields[k].row.hidden = fieldAway(k, B.cfg);
       if (B.fields[k].needsEl) showWhyOff(B.fields[k].needsEl, whyParts(k, B.cfg), B.fields[k].helpEl);
     }
@@ -2431,9 +2764,10 @@
     var v = config.coerce(key, raw);
     if (v === undefined) return false;
     if (sameValue(B.cfg[key], v)) return true;
-    var prev = B.cfg[key];
+    var shape = shapeOf(B.cfg);
     B.cfg[key] = v;
-    if (key === 'layout') followLayout(prev, v);
+    if (shapeOf(B.cfg) !== shape) followLayout(shape, shapeOf(B.cfg));
+    else if (key === 'layout') followLayout(shape, shape);
     onChanged(key, auto);
     return true;
   }
@@ -2474,7 +2808,7 @@
     B.fileNote = '';
     RELOAD_KEYS.forEach(function (k) { if (!sameValue(prev[k], next[k])) reload = true; });
     syncForm();
-    if (prev.layout !== next.layout) followLayout(prev.layout, next.layout);
+    if (prev.layout !== next.layout || shapeOf(prev) !== shapeOf(next)) followLayout(shapeOf(prev), shapeOf(next));
     $('channel').value = next.channel || '';
     // A whole config's chatroom id is for its own Kick channel. A new channel or chatroom id clears the status line
     // (it spoke of the old one), and a channel without an id is looked up, the same channel as before too.
@@ -3063,8 +3397,38 @@
     return a;
   }
 
+  // A picture's base64 in a URL or code, drawn short: its first letters, cut off (css/builder.css .blob), then its size,
+  // which is no text (generated content), so a selection, a copy and textContent still give the whole picture, and only
+  // it. Hidden from screen readers, which read the size.
+  function appendBlob(node, b64, cls) {
+    var b = h('span', 'blob' + (cls ? ' ' + cls : ''), b64);
+    b.setAttribute('aria-hidden', 'true');
+    node.appendChild(b);
+    var kb = Math.round(Math.floor(b64.replace(/=+$/, '').length * 3 / 4) / 102.4) / 10;
+    var size = h('span', 'blob-size');
+    size.setAttribute('data-size', kb + ' KB picture');
+    node.appendChild(size);
+  }
+  // node's text as text, with each picture in it drawn short (appendBlob): a data:image URL's base64 (settings.js, the
+  // Custom CSS) or a picture after a link's '#'.
+  var BLOB_RE = /(data:image\/[a-z]+;base64,|[#&]avatar_(?:idle|talk)=)([A-Za-z0-9+\/_-]{64,}={0,2})/gi;
+  function blobText(node, text) {
+    clear(node);
+    var s = String(text), at = 0, m;
+    BLOB_RE.lastIndex = 0;
+    while ((m = BLOB_RE.exec(s))) {
+      var end = m.index + m[1].length;
+      node.appendChild(document.createTextNode(s.slice(at, end)));
+      appendBlob(node, m[2]);
+      at = end + m[2].length;
+    }
+    if (at < s.length) node.appendChild(document.createTextNode(s.slice(at)));
+  }
+
   function renderOutputs() {
-    var url = overlayUrl(B.cfg, root.location.href);
+    // Pictures the URL can't hold go in OBS's Custom CSS, and the URL goes without them.
+    var inCss = picturesInCss(B.cfg, root.location.href);
+    var url = overlayUrl(B.cfg, root.location.href, inCss);
     var changed = url !== B.url;
     // The URL that was copied is no longer the one shown.
     if (changed && B.copied) { B.copied = false; clearTimeout(B.copiedTimer); }
@@ -3085,8 +3449,19 @@
         if (p.eq) line.appendChild(h('span', 'q', '='));
         line.appendChild(h('span', 'v', p.value));
       });
+      // The pictures after its '#', each drawn short.
+      hashParts(url).forEach(function (p) {
+        line.appendChild(h('span', 'q', p.sep));
+        line.appendChild(h('span', 'k', p.key));
+        if (p.eq) line.appendChild(h('span', 'q', '='));
+        if (p.value.length >= 64) appendBlob(line, p.value, 'v'); else line.appendChild(h('span', 'v', p.value));
+      });
       $('bar-open').href = url;
-      $('out-url').textContent = url;
+      // One inline box for the whole of it (.diagram .v is a flex box), as the bar's.
+      var outUrl = $('out-url'), outLine = h('span', 'url-line');
+      clear(outUrl);
+      blobText(outLine, url);
+      outUrl.appendChild(outLine);
       // Add to OBS says why a URL that long won't load, and what to do instead (said aloud as it gets too long).
       var longNote = $('url-long'), tooLong = urlTooLong(url);
       if (longNote.hidden === tooLong) {
@@ -3095,7 +3470,21 @@
       }
     }
     var snippet = settingsSnippet(B.cfg), out = $('out-settings');
-    if (out.textContent !== snippet) out.textContent = snippet;
+    if (out.textContent !== snippet) blobText(out, snippet);
+    // Add to OBS's Custom CSS step: leave it at its default, or put the pictures in it.
+    var css = inCss ? pictureCss(B.cfg) : '';
+    if (css !== B.css) {
+      B.css = css;
+      blobText($('out-css'), css);
+      $('obs-css').hidden = !css;
+      $('css-leave').hidden = !!css;
+    }
+    // The line under each picture says where it goes: one moves between the URL and the Custom CSS with the other one.
+    var picSig = (ownPictures(B.cfg) ? 'own' : '') + (inCss ? ' css' : '');
+    if (picSig !== B.picSig) {
+      B.picSig = picSig;
+      config.HASH_IMAGES.forEach(function (k) { if (B.fields[k] && B.fields[k].refresh) B.fields[k].refresh(); });
+    }
     renderNote();
     syncTags();
     syncPresets();
@@ -3178,6 +3567,14 @@
   // [string] in bold; text: all of it as a screen reader says it (the boxes' whole names, "by" for the times sign).
   // With two or more chats the note says the one URL carries them all, so it doesn't read as Twitch's alone.
   function copiedNote(note, cfg, ui) {
+    if (note.css) {
+      return {
+        parts: ['Copied. Now set the source’s ', ['Custom CSS'], ' too: the avatar’s pictures are in it. '],
+        short: ['Copied. Set its ', ['Custom CSS'], ' too. '],
+        text: 'Copied. Now set the source’s Custom CSS too: the avatar’s pictures are in it, as Add to OBS shows.',
+        cls: 'warn'
+      };
+    }
     if (note.cls === 'warn') return { text: 'Copied. ' + note.text, cls: 'warn' };
     var lead = chatCount(cfg) > 1 ? 'Copied: ' + chatNames(cfg) + ' chat in one source. ' : 'Copied. ';
     return {
@@ -3358,7 +3755,7 @@
   function fit(again) {
     var stage = $('stage'), box = $('frame-box'), tag = $('frame-tag'), hint = $('stage-hint');
     var app = isAppLayout();
-    var wide = wantsWidePreview(B.cfg.layout, B.ui.w, B.ui.h, app);
+    var wide = wantsWidePreview(shapeOf(B.cfg), B.ui.w, B.ui.h, app);
     $('builder').classList.toggle('wide-preview', wide);
     placeForLayout(wide);
     dock(true);
@@ -3669,6 +4066,7 @@
 
   function wireOutputs() {
     $('bar-copy').addEventListener('click', function () { copyText(B.url, $('bar-copy'), $('bar-url'), noteCopied); });
+    $('css-copy').addEventListener('click', function () { copyText(B.css, $('css-copy'), $('out-css')); });
     $('settings-copy').addEventListener('click', function () {
       copyText($('out-settings').textContent, $('settings-copy'), $('out-settings'));
     });
@@ -3780,7 +4178,7 @@
     return linkSection(loc) ? String(loc.search || '') : config.pageQuery(loc);
   }
 
-  function initialCfg() { return startCfg(startSearch(root.location), loadStored(STORE_CFG)); }
+  function initialCfg() { return startCfg(startSearch(root.location), loadStored(STORE_CFG), config.pageImages(root.location)); }
 
   // A link's settings are applied once, at start (then saved as the remembered ones). Left in the address bar, a reload,
   // a tab the browser restores or one opened from the page (More in Advanced with Ctrl) would apply them again, over
@@ -3827,6 +4225,8 @@
       mode: 'demo',
       route: 'url',
       url: '',
+      css: '', // what Add to OBS asks for in the source's Custom CSS ('' for its default): the pictures the URL can't hold
+      picSig: '', // whether Your own is picked, and its pictures go in the Custom CSS: the picture fields' lines say so
       copied: false,
       copiedTimer: null,
       fileNote: '',
@@ -3886,10 +4286,14 @@
     renderChannel();
     replaceCfg(init.cfg);
     if (init.fromQuery) dropQuery();
-    // A stored preview size may belong to the other layout (1920×100 saved in a horizontal session,
-    // then ?channel=… opens a vertical one): swap it like a layout switch would.
-    var other = B.cfg.layout === 'horizontal' ? 'vertical' : 'horizontal';
-    if (layoutPreviewSize(B.ui, other, B.cfg.layout)) followLayout(other, B.cfg.layout);
+    // A stored preview size may belong to another shape (1920×100 saved in a horizontal session, then ?channel=… opens
+    // a vertical one): swap it like a layout switch would.
+    var shape = shapeOf(B.cfg);
+    Object.keys(LAYOUT_SIZES).some(function (other) {
+      if (other === shape || !layoutPreviewSize(B.ui, other, shape)) return false;
+      followLayout(other, shape);
+      return true;
+    });
     scheduleReload(0);
     setupLocalFile(init.fromQuery, ownStore);
     fit();
@@ -3919,6 +4323,14 @@
     overlayUrl: overlayUrl,
     previewUrl: previewUrl,
     previewSrc: previewSrc,
+    linkCfg: linkCfg,
+    OBS_URL_MAX: OBS_URL_MAX,
+    PICTURE_BUDGET: PICTURE_BUDGET,
+    picturesInCss: picturesInCss,
+    pictureCss: pictureCss,
+    pictureSize: pictureSize,
+    hashParts: hashParts,
+    shapeOf: shapeOf,
     MAX_URL_BYTES: MAX_URL_BYTES,
     urlTooLong: urlTooLong,
     settingsSnippet: settingsSnippet,
