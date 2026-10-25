@@ -448,3 +448,7 @@ Layout:
 - `js/rooms.js`: Shared Chat source channels.
 - `js/demo.js`: demo mode (sample messages for the builder preview).
 - `js/update-check.js`: watches the site an open overlay came from for a new deploy (`version.json`, which every release sets to the version in `package.json`), works out which of the overlay's own files changed, and has it swap in a new stylesheet or badge image in place, or restart in place on new scripts (`overlay.js` hands its lines to the new copy).
+
+## License
+
+MIT, see [LICENSE](LICENSE). The provider logos in `img/logos/` remain their owners' marks and keep their own licenses (see `img/logos/NOTICE.md`).
