@@ -1430,7 +1430,9 @@ test('sub-headings go above their field; More in Advanced opens Advanced at its 
     'name_weight', 'name_font', 'name_fallback', 'Layout#adv-layout', 'spacing', 'line_width', 'pad_x', 'edge_fade', 'row_sep',
     'Highlights#adv-highlights', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight', 'points_color', 'role_style',
     'broadcaster_color', 'mod_color', 'vip_color', 'Filters#adv-filters', 'allow_users', 'min_length', 'Emotes#adv-emotes',
-    'giant_emotes', 'Troubleshooting#adv-trouble', 'debug', 'demo']);
+    'giant_emotes', 'Avatar mode#adv-avatar', 'avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip',
+    'avatar_motion', 'Speech bubble#adv-bubble', 'bubble_pos', 'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time',
+    'bubble_queue', 'Troubleshooting#adv-trouble', 'debug', 'demo']);
   // Chat events: the Event types grid under its switch, each style and color under its switch, and a heading over the
   // mentions and timestamps (no anchor: only Advanced's headings have one).
   assert.deepStrictEqual(outline('group-events'), ['events', null, 'notice_color', 'notice_size', 'replies', 'reply_style', 'first_msg',

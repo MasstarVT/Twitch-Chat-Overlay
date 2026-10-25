@@ -207,7 +207,7 @@
     spacing: { noAvatar: true, label: 'Space between messages', options: { tight: 'Tight', normal: 'Normal', loose: 'Loose', extra: 'Extra' },
       help: 'In a column, the space above and below each message; in a row, the gap between messages. At Tight, in a column without Line background, a message with emotes keeps the room they need, so emotes don’t overlap.' },
     layout: { noAvatar: true, label: 'Layout', options: { vertical: 'Vertical', horizontal: 'Horizontal' },
-      help: 'Vertical stacks messages in a column; Horizontal runs them in one row, like a ticker.' },
+      help: 'Vertical stacks messages in a column; Horizontal runs them in one row, like a ticker. For a talking picture that says each message in a speech bubble instead, see Avatar mode in Advanced.' },
     align: { noAvatar: true, label: 'New messages appear', options: { bottom: 'At the bottom', top: 'At the top' },
       // Shown instead while layout is horizontal (see syncLabels).
       horizontal: { label: 'Row sits', help: 'Whether the row runs along the bottom or the top edge of the source. New messages always come in on the right.' } },
@@ -341,7 +341,7 @@
       help: 'How light Brighten dark name colors makes a dark name: its contrast with black, from 3:1 to 7:1 (4.5:1 by default); on a light Box color, how dark it makes a light name: its contrast with the box. It lightens in steps, so a small change may leave a name as it was. Needs Brighten dark name colors; not used while a Name color (Look) is set.' },
     badge_size: { label: 'Badge size', widget: 'range', unit: '%',
       help: 'Next to the text (100% by default), with the Twitch, Kick and YouTube icons and Shared Chat avatars, which show even with badges off. Above about 135% lines with badges get taller.' },
-    // Avatar mode (js/avatar.js): its own tab.
+    // Avatar mode (js/avatar.js): its own headings in Advanced.
     avatar: { label: 'Avatar', options: { off: 'Off', blob: 'Blob', bot: 'Robot', cat: 'Cat', custom: 'Your own' }, wrap: true,
       help: 'Off shows the chat. Otherwise a picture in a bottom corner says each chat message in a speech bubble, typing it out as its mouth moves: one of three, or Your own pictures (below). Give the source room for both: 800 × 600 is a good start. The chat’s layout, box, shadow, animation and timing settings don’t apply while it is on: the bubble has its own (below), and it says one message at a time.' },
     avatar_idle: { label: 'Picture', widget: 'image', when: ownPictures, placeholder: 'https://…/me.png',
@@ -429,21 +429,21 @@
       foot: 'DankChat badges can’t be shown: DankChat’s server doesn’t allow requests from web pages (no CORS header).',
       keys: ['badges'].concat(BADGE_SUBS, ['homies_lists', 'paints', 'paint_images', 'stv_lookup', 'readable', 'readable_level',
         'badge_size']) },
-    // Avatar mode: the picture first (Your own's two right under the choice), then where it sits and moves, then the bubble.
-    { id: 'avatar', title: 'Avatar', note: 'A picture in a corner that says each chat message in a speech bubble.',
-      keys: ['avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion', 'bubble_pos',
-        'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue'],
-      subs: [{ title: 'Placement and motion', first: 'avatar_size' }, { title: 'Speech bubble', first: 'bubble_pos' }] },
     // A setting that needs a switch sits under that switch, on its tab; Advanced keeps the fine-tuning that needs none.
-    { id: 'advanced', title: 'Advanced', note: 'Fine-tuning for text, names, layout, highlights, filters and emotes, and troubleshooting last.',
+    // It also holds avatar mode, which turns the chat into a talking picture: the choice and the pictures first (Your
+    // own's two right under it), where the avatar sits and how it moves, then its bubble.
+    { id: 'advanced', title: 'Advanced',
+      note: 'Fine-tuning for text, names, layout, highlights, filters and emotes, avatar mode, and troubleshooting last.',
       keys: ['text_px', 'line_height', 'text_case', 'name_weight', 'name_font', 'name_fallback', 'spacing',
         'line_width', 'pad_x', 'edge_fade', 'row_sep', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight',
         'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'allow_users', 'min_length',
-        'giant_emotes', 'debug', 'demo'],
+        'giant_emotes', 'avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion',
+        'bubble_pos', 'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue', 'debug', 'demo'],
       // Troubleshooting last: the two switches are for finding a fault, not for the look, and opened Advanced at them.
       subs: [{ id: 'adv-text', title: 'Text', first: 'text_px' }, { id: 'adv-names', title: 'Names', first: 'name_weight' },
         { id: 'adv-layout', title: 'Layout', first: 'spacing' }, { id: 'adv-highlights', title: 'Highlights', first: 'keywords' },
         { id: 'adv-filters', title: 'Filters', first: 'allow_users' }, { id: 'adv-emotes', title: 'Emotes', first: 'giant_emotes' },
+        { id: 'adv-avatar', title: 'Avatar mode', first: 'avatar' }, { id: 'adv-bubble', title: 'Speech bubble', first: 'bubble_pos' },
         { id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }] }
   ];
   // Advanced headings whose settings moved to the tab of the switch they need: an old link to one opens that tab.
@@ -928,7 +928,7 @@
       return { text: 'Twitch has no channel called “' + cfg.channel + '”. Check the spelling.', cls: 'warn' };
     }
     if (ownPictures(cfg) && !cfg.avatar_idle) {
-      return { text: 'The avatar has no picture yet: add yours on the Avatar tab, or pick one of the three there.', cls: 'warn' };
+      return { text: 'The avatar has no picture yet: add yours under Avatar mode in Advanced, or pick one of the three there.', cls: 'warn' };
     }
     if (urlTooLong(url)) {
       return { text: URL_LONG_NOTE, cls: 'warn' };

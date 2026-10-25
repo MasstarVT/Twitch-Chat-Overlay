@@ -268,8 +268,8 @@
         noPictureTimer = setTimeout(function () {
           noPictureTimer = null;
           if (!destroyed && !shownSrc) {
-            onHint('Avatar mode has no picture yet. Pick one in the builder’s Avatar tab (avatar_idle), or paste the ' +
-              'Custom CSS the builder gives into this source’s properties.');
+            onHint('Avatar mode has no picture yet. Add one under Avatar mode in the builder’s Advanced tab (avatar_idle), or ' +
+              'paste the Custom CSS the builder gives into this source’s properties.');
           }
         }, NO_PICTURE_MS);
       }

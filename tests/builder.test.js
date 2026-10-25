@@ -21,7 +21,7 @@ test('every config key except channel is in exactly one form group, with a label
   config.KEYS.filter((k) => k !== 'channel').forEach((k) => assert.ok(seen[k], 'missing field for ' + k));
   assert.ok(!seen.channel);
   assert.deepStrictEqual(builder.groupLayout().map((g) => g.title),
-    ['Look', 'Kick & YouTube', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Avatar', 'Advanced']);
+    ['Look', 'Kick & YouTube', 'Messages', 'Chat events', 'Filters', 'Emotes', 'Badges & paints', 'Advanced']);
   // Kick's and YouTube's tab (id platforms, as old links have it): the icons for every chat, then each platform's part.
   const platforms = builder.GROUPS.filter((g) => g.id === 'platforms')[0];
   assert.deepStrictEqual(platforms.keys, ['platform_icons', 'kick', 'kick_room', 'mixitup', 'mixitup_port']);
@@ -35,7 +35,7 @@ test('every config key except channel is in exactly one form group, with a label
 
 test('sections: one per group plus Add to OBS, each with an id a link can open', () => {
   const ids = builder.sectionIds();
-  assert.deepStrictEqual(ids, ['look', 'platforms', 'messages', 'events', 'filters', 'emotes', 'badges', 'avatar', 'advanced', 'obs']);
+  assert.deepStrictEqual(ids, ['look', 'platforms', 'messages', 'events', 'filters', 'emotes', 'badges', 'advanced', 'obs']);
   assert.strictEqual(new Set(ids).size, ids.length);
   builder.groupLayout().forEach((g) => assert.ok(g.note, g.id + ' says what it holds'));
   assert.strictEqual(builder.sectionFromHash('#obs'), 'obs');
@@ -336,7 +336,7 @@ test('changedKeys, tagText and groupCounts follow the overlay URL', () => {
   assert.strictEqual(builder.tagText('font', cfg), 'font=Open Sans');
   assert.strictEqual(builder.tagText('size', cfg), 'size');
   assert.deepStrictEqual(builder.groupCounts(cfg),
-    { look: 3, platforms: 0, messages: 1, events: 0, filters: 2, emotes: 0, badges: 1, avatar: 0, advanced: 0 });
+    { look: 3, platforms: 0, messages: 1, events: 0, filters: 2, emotes: 0, badges: 1, advanced: 0 });
   // The changed settings are exactly the URL's parameters after the channel.
   const inUrl = builder.urlParts(builder.overlayUrl(cfg, BASE)).params.map((p) => p.key);
   assert.deepStrictEqual(inUrl.slice(1).sort(), Object.keys(builder.changedKeys(cfg)).sort());
@@ -916,6 +916,8 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting la
       'role_style', 'broadcaster_color', 'mod_color', 'vip_color'],
     ['Filters #adv-filters', 'allow_users', 'min_length'],
     ['Emotes #adv-emotes', 'giant_emotes'],
+    ['Avatar mode #adv-avatar', 'avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion'],
+    ['Speech bubble #adv-bubble', 'bubble_pos', 'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue'],
     ['Troubleshooting #adv-trouble', 'debug', 'demo']
   ]);
   // Chat events: the event types right under their switch, each color and style under its switch, the mentions and
@@ -1849,7 +1851,7 @@ test('startCfg: pictures after the builder link\'s # are part of its setup', () 
   assert.strictEqual(builder.linkSection(loc(href)), '', 'pictures open no section');
 });
 
-test('avatar mode in the form: its own preview shape, its tab, and the chat settings it leaves unused greyed out', () => {
+test('avatar mode in the form: its own preview shape, its headings in Advanced, and the chat settings it leaves unused greyed out', () => {
   const d = config.defaults();
   assert.strictEqual(builder.shapeOf(d), 'vertical');
   assert.strictEqual(builder.shapeOf(Object.assign({}, d, { layout: 'horizontal' })), 'horizontal');
@@ -1858,9 +1860,16 @@ test('avatar mode in the form: its own preview shape, its tab, and the chat sett
   assert.deepStrictEqual(builder.layoutPreviewSize({ w: 450, h: 700 }, 'vertical', 'avatar'), { w: 800, h: 600 });
   assert.deepStrictEqual(builder.layoutPreviewSize({ w: 800, h: 600 }, 'avatar', 'horizontal'), builder.LAYOUT_SIZES.horizontal);
   assert.strictEqual(builder.layoutPreviewSize({ w: 1000, h: 500 }, 'vertical', 'avatar'), null, 'a size typed in stays');
-  const tab = builder.groupLayout().filter((g) => g.id === 'avatar')[0];
-  assert.deepStrictEqual(tab.keys, ['avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion',
-    'bubble_pos', 'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue']);
+  // An advanced option: under its own headings in Advanced (builder.html#adv-avatar), not a tab of its own.
+  const adv = builder.groupLayout().filter((g) => g.id === 'advanced')[0];
+  const keys = ['avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion',
+    'bubble_pos', 'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue'];
+  const at = adv.keys.indexOf('avatar');
+  assert.deepStrictEqual(adv.keys.slice(at, at + keys.length), keys);
+  assert.strictEqual(builder.sectionIds().indexOf('avatar'), -1);
+  assert.strictEqual(builder.sectionFromHash('#adv-avatar'), 'advanced');
+  assert.strictEqual(builder.sectionFromHash('#adv-bubble'), 'advanced');
+  const tab = { keys: keys };
   assert.strictEqual(builder.widgetFor('avatar_idle'), 'image');
   assert.strictEqual(builder.widgetFor('avatar_talk'), 'image');
   assert.strictEqual(builder.widgetFor('avatar'), 'seg');
