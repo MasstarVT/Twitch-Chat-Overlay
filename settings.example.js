@@ -20,6 +20,8 @@ window.TCO_SETTINGS = {
   // max: 50,             // maximum lines on screen
   // bots: false,         // show messages from known bots
   // hide_commands: false, // hide messages starting with a command prefix ("!" unless command_prefixes says otherwise)
+  // box_image: '',       // a picture stretched around each message, 'img/box.png' or an https:// link (README: Picture frames)
+  // name_image: '',      // a picture behind each name and its badges, stretched the same way
   // avatar: 'off',       // off | blob | bot | cat | custom: a talking avatar says each message (README: Avatar mode)
   // avatar_idle: '',     // with avatar: 'custom', your picture: 'img/me.png' beside overlay.html, or an https:// link
   // avatar_talk: '',     // the same picture with its mouth open, shown as it talks

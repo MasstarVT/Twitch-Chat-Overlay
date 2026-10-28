@@ -693,7 +693,7 @@ test('parsePasted reads settings.example.js as shipped and once edited by hand',
     .replace('bots: false', 'bots: true');
   const r2 = builder.parsePasted(edited);
   assert.ok(r2, 'edited settings.js parses');
-  assert.strictEqual(r2.count, 15);
+  assert.strictEqual(r2.count, 17);
   assert.strictEqual(r2.cfg.text_color, 'ffe08a');
   assert.strictEqual(r2.cfg.layout, 'horizontal');
   assert.strictEqual(r2.cfg.channel, 'xqc');
