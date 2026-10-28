@@ -133,6 +133,16 @@
     readable: { type: 'bool', def: true },
     // The contrast readable lightens dark names to, times 10 (45 = 4.5:1, util.readableColor's own target).
     readable_level: { type: 'int', min: 30, max: 70, def: 45, scale: 10 },
+    // Picture frames, in a column: box_image drawn around each message (in Line background's place) and name_image behind
+    // each name with its badges, each stretched from its middle so its corners keep their shape. box_slice and name_slice:
+    // how far in from each edge of the picture the corners go, in its px (0: a third of its shorter side). frame_scale
+    // draws them larger or smaller (%), and frame_pixels keeps a pixel-art picture's pixels sharp as it does.
+    box_image: { type: 'image', def: '' },
+    box_slice: { type: 'int', min: 0, max: 200, def: 0 },
+    name_image: { type: 'image', def: '' },
+    name_slice: { type: 'int', min: 0, max: 200, def: 0 },
+    frame_scale: { type: 'int', min: 25, max: 800, def: 100 },
+    frame_pixels: { type: 'bool', def: false },
     // Avatar mode (js/avatar.js): a picture in a bottom corner says each chat message in a speech bubble. off: the chat
     // as it always was. A bundled picture by name, or custom: avatar_idle and avatar_talk.
     avatar: { type: 'enum', values: ['off', 'blob', 'bot', 'cat', 'custom'], def: 'off' },
@@ -172,6 +182,7 @@
     'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'event_subs', 'event_gifts', 'event_raids',
     'event_bits_badge', 'event_announcements', 'role_filter', 'allow_users', 'block_words', 'min_length', 'links',
     'command_prefixes', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'row_align', 'row_grow',
+    'box_image', 'box_slice', 'name_image', 'name_slice', 'frame_scale', 'frame_pixels',
     // avatar itself is not one: it decides whether overlay.js draws the chat or the avatar (createAvatar).
     'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion', 'bubble_pos', 'bubble_width',
     'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue'];
@@ -350,7 +361,7 @@
     return /^[a-z0-9_.]{1,30}$/.test(s) ? s : '';
   }
 
-  // ----- pictures (type image: the avatar's) -----
+  // ----- pictures (type image: the avatar's and the picture frames') -----
   // A picture's type, read from its own first bytes in base64 (standard alphabet): png, webp, gif or jpeg, or null. A data:
   // URL is taken by what it holds, not by the type it names, so it is only ever one of these four (never an SVG, which
   // could carry script, or a page).
@@ -406,9 +417,10 @@
   // base64url (- and _ for + and /, no = at the end), as the builder writes them (imageHash); a whole data:image URL is
   // taken too. One starts the '#' part or follows a '&' or another '#' (base64url has neither), so a '#' typed in a value
   // before them stays that value's. Returns { values: { key: data URL }, rest }: rest is the hash without them for
-  // withHash, the hash as it was when it has none, and null when nothing but pictures was there.
-  var HASH_IMAGES = ['avatar_idle', 'avatar_talk'];
-  var HASH_IMAGE_RE = /(^|[&#])(avatar_idle|avatar_talk)=([^&#]*)/gi;
+  // withHash, the hash as it was when it has none, and null when nothing but pictures was there. The picture frames' two
+  // ride there too (box_image=…&name_image=…).
+  var HASH_IMAGES = ['avatar_idle', 'avatar_talk', 'box_image', 'name_image'];
+  var HASH_IMAGE_RE = new RegExp('(^|[&#])(' + HASH_IMAGES.join('|') + ')=([^&#]*)', 'gi');
   function hashImages(hash) {
     if (hash === null || hash === undefined) return { values: {}, rest: null };
     var h = String(hash).replace(/^#/, ''), values = {}, took = false;
@@ -424,9 +436,11 @@
     return { values: values, rest: rest || null };
   }
   // The '#' part (with its '#') that carries cfg's data:image pictures, which hashImages reads back; '' when it has none.
-  function imageHash(cfg) {
+  // keys: only these of HASH_IMAGES (the builder's link carries the pictures in use only).
+  function imageHash(cfg, keys) {
     var parts = [];
     HASH_IMAGES.forEach(function (k) {
+      if (keys && keys.indexOf(k) < 0) return;
       var m = cfg && isDataImage(cfg[k]) ? /^data:image\/[a-z]+;base64,([A-Za-z0-9+/]+=*)$/.exec(cfg[k]) : null;
       if (m) parts.push(k + '=' + m[1].replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''));
     });

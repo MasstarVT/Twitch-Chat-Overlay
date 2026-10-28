@@ -40,7 +40,10 @@
 
   // A badge source only applies while badges are on (META.when), and so on.
   function badgesOn(cfg) { return !!cfg.badges; }
-  function bgOn(cfg) { return cfg.bg > 0; }
+  // A Box picture (Advanced: picture frames) takes Line background's place in a column, with its settings.
+  function boxPicture(cfg) { return !!cfg.box_image && cfg.layout !== 'horizontal'; }
+  function noBoxPicture(cfg) { return !boxPicture(cfg); }
+  function bgOn(cfg) { return cfg.bg > 0 && !boxPicture(cfg); }
   function namesOn(cfg) { return !!cfg.names; }
   function eventsOn(cfg) { return !!cfg.events; }
   function firstMsgOn(cfg) { return !!cfg.first_msg; }
@@ -94,6 +97,11 @@
   // bubble has its own look and says one message at a time.
   function avatarOn(cfg) { return !!cfg.avatar && cfg.avatar !== 'off'; }
   function ownPictures(cfg) { return cfg.avatar === 'custom'; }
+  // The picture frames (config.js): a column's, with avatar mode off (META.noAvatar, only). Their corners and size apply
+  // while a picture is set.
+  function boxPicOn(cfg) { return !!cfg.box_image; }
+  function namePicOn(cfg) { return !!cfg.name_image; }
+  function framesOn(cfg) { return !!(cfg.box_image || cfg.name_image); }
   // The preview's shape (LAYOUT_SIZES): a column, a row, or a stage with the avatar in a corner and room for its bubble.
   function shapeOf(cfg) { return avatarOn(cfg) ? 'avatar' : cfg.layout === 'horizontal' ? 'horizontal' : 'vertical'; }
 
@@ -194,8 +202,8 @@
       help: 'For Twitch and Kick chatters who never picked a name color, in place of Twitch’s 15 default colors. Drawn as picked (Brighten dark name colors leaves it alone). Not used while a Name color (Look) is set.' },
     name_sep: { label: 'After the name', options: { colon: 'Colon', space: 'Space', dash: 'Dash', arrow: 'Arrow' }, when: sepShown,
       help: 'What sits between the name and the message: “Name: hi”, “Name hi”, “Name – hi” or “Name › hi”. A /me message keeps its space, and a reply header its colon. Needs Show names, and isn’t drawn under Name on its own line.' },
-    bg: { noAvatar: true, label: 'Line background', widget: 'range', unit: '%', zero: 'Off',
-      help: 'A rounded box behind each message, black unless you pick a Box color. Helps on bright or busy scenes.' },
+    bg: { noAvatar: true, label: 'Line background', widget: 'range', unit: '%', zero: 'Off', when: noBoxPicture,
+      help: 'A rounded box behind each message, black unless you pick a Box color. Helps on bright or busy scenes. A Box picture (Advanced) takes its place while one is set.' },
     bg_color: { noAvatar: true, label: 'Box color', swatch: '#000000', when: bgOn,
       help: 'Black by default. A light box needs a dark Text color (and Notice text color, in Chat events); on one, Brighten dark name colors darkens light names instead. Needs Line background.' },
     accent_bar: { label: 'Name-color bar',
@@ -341,6 +349,22 @@
       help: 'How light Brighten dark name colors makes a dark name: its contrast with black, from 3:1 to 7:1 (4.5:1 by default); on a light Box color, how dark it makes a light name: its contrast with the box. It lightens in steps, so a small change may leave a name as it was. Needs Brighten dark name colors; not used while a Name color (Look) is set.' },
     badge_size: { label: 'Badge size', widget: 'range', unit: '%',
       help: 'Next to the text (100% by default), with the Twitch, Kick and YouTube icons and Shared Chat avatars, which show even with badges off. Above about 135% lines with badges get taller.' },
+    // Picture frames: their own heading in Advanced, before avatar mode. frame: a picture put in the link is kept as it is
+    // (frameFile), never drawn again smaller.
+    box_image: { noAvatar: true, only: 'vertical', label: 'Box picture', widget: 'image', frame: true, placeholder: 'https://…/box.png',
+      bad: 'That isn’t a picture link. Use an https:// link to a PNG, WebP, GIF or JPEG file.',
+      help: 'A picture drawn around each message, in Line background’s place, and stretched to fit it: its corners keep their shape while its edges and middle stretch. A link to a PNG, WebP, GIF or JPEG picture on https, or a small picture file put in the overlay’s link (Advanced, below). With Name on its own line (Look) it goes around the message under the name. Bars and tinted highlights don’t show on it. Vertical layout only.' },
+    box_slice: { noAvatar: true, only: 'vertical', label: 'Box picture corners', widget: 'stepper', unit: 'px', zero: 'Auto', when: boxPicOn,
+      help: 'How far each corner goes into the picture, in its own pixels: that much of every edge never stretches, and the text starts that far in. Auto takes a third of its shorter side. For a plain border, its width; for rounded corners, a little more than their size.' },
+    name_image: { noAvatar: true, only: 'vertical', label: 'Name tag picture', widget: 'image', frame: true, placeholder: 'https://…/tag.png',
+      bad: 'That isn’t a picture link. Use an https:// link to a PNG, WebP, GIF or JPEG file.',
+      help: 'A picture behind each name and its badges, stretched to fit like the Box picture. With Name on its own line (Look) and a Box picture, the tag sits right on top of the message’s box. Vertical layout only.' },
+    name_slice: { noAvatar: true, only: 'vertical', label: 'Name tag corners', widget: 'stepper', unit: 'px', zero: 'Auto', when: namePicOn,
+      help: 'Like Box picture corners, for the name tag picture.' },
+    frame_scale: { noAvatar: true, only: 'vertical', label: 'Picture frame size', widget: 'stepper', step: 25, unit: '%', when: framesOn,
+      help: 'How big both pictures’ corners and edges are drawn: 100% (the default) draws one of the picture’s pixels as one pixel of the source. 200% or 300% for pixel art made small.' },
+    frame_pixels: { noAvatar: true, only: 'vertical', label: 'Keep pixels sharp', when: framesOn,
+      help: 'Draws both pictures without smoothing, so pixel art stays crisp as it is stretched and sized up. Emotes, badges and painted names are drawn as always.' },
     // Avatar mode (js/avatar.js): its own headings in Advanced.
     avatar: { label: 'Avatar', options: { off: 'Off', blob: 'Blob', bot: 'Robot', cat: 'Cat', custom: 'Your own' }, wrap: true,
       help: 'Off shows the chat. Otherwise a picture in a bottom corner says each chat message in a speech bubble, typing it out as its mouth moves: one of three, or Your own pictures (below). Give the source room for both: 800 × 600 is a good start. The chat’s layout, box, shadow, animation and timing settings don’t apply while it is on: the bubble has its own (below), and it says one message at a time.' },
@@ -430,20 +454,21 @@
       keys: ['badges'].concat(BADGE_SUBS, ['homies_lists', 'paints', 'paint_images', 'stv_lookup', 'readable', 'readable_level',
         'badge_size']) },
     // A setting that needs a switch sits under that switch, on its tab; Advanced keeps the fine-tuning that needs none.
-    // It also holds avatar mode, which turns the chat into a talking picture: the choice and the pictures first (Your
-    // own's two right under it), where the avatar sits and how it moves, then its bubble.
+    // It also holds the picture frames (a box and a name tag drawn from pictures), and avatar mode, which turns the chat
+    // into a talking picture: the choice and the pictures first (Your own's two right under it), where the avatar sits and
+    // how it moves, then its bubble.
     { id: 'advanced', title: 'Advanced',
-      note: 'Fine-tuning for text, names, layout, highlights, filters and emotes, avatar mode, and troubleshooting last.',
+      note: 'Fine-tuning for text, names, layout, highlights, filters and emotes, picture frames, avatar mode, and troubleshooting last.',
       keys: ['text_px', 'line_height', 'text_case', 'name_weight', 'name_font', 'name_fallback', 'spacing',
         'line_width', 'pad_x', 'edge_fade', 'row_sep', 'keywords', 'highlight_users', 'keyword_color', 'points_highlight',
         'points_color', 'role_style', 'broadcaster_color', 'mod_color', 'vip_color', 'allow_users', 'min_length',
-        'giant_emotes', 'avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion',
+        'giant_emotes', 'box_image', 'box_slice', 'name_image', 'name_slice', 'frame_scale', 'frame_pixels', 'avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion',
         'bubble_pos', 'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue', 'debug', 'demo'],
       // Troubleshooting last: the two switches are for finding a fault, not for the look, and opened Advanced at them.
       subs: [{ id: 'adv-text', title: 'Text', first: 'text_px' }, { id: 'adv-names', title: 'Names', first: 'name_weight' },
         { id: 'adv-layout', title: 'Layout', first: 'spacing' }, { id: 'adv-highlights', title: 'Highlights', first: 'keywords' },
         { id: 'adv-filters', title: 'Filters', first: 'allow_users' }, { id: 'adv-emotes', title: 'Emotes', first: 'giant_emotes' },
-        { id: 'adv-avatar', title: 'Avatar mode', first: 'avatar' }, { id: 'adv-bubble', title: 'Speech bubble', first: 'bubble_pos' },
+        { id: 'adv-frames', title: 'Picture frames', first: 'box_image' }, { id: 'adv-avatar', title: 'Avatar mode', first: 'avatar' }, { id: 'adv-bubble', title: 'Speech bubble', first: 'bubble_pos' },
         { id: 'adv-trouble', title: 'Troubleshooting', first: 'debug' }] }
   ];
   // Advanced headings whose settings moved to the tab of the switch they need: an old link to one opens that tab.
@@ -518,10 +543,17 @@
     config.HASH_IMAGES.forEach(function (k) { if (config.isDataImage(c[k])) c[k] = ''; });
     return c;
   }
-  // The '#' part that carries the pictures put in the link cfg uses: avatar=custom's (config.imageHash). One set while
-  // another avatar is picked stays in the builder, for when Your own is picked again, but the overlay has no use for it,
-  // so no link carries it. '' for none.
-  function linkHash(cfg) { return ownPictures(cfg) ? config.imageHash(cfg) : ''; }
+  // The pictures put in the link that cfg uses: avatar=custom's two, or with avatar mode off the picture frames' in a
+  // column. One set while the other is in use (another avatar picked, or a row) stays in the builder for when it is back,
+  // but the overlay has no use for it, so no link carries it. Never more than two, which PICTURE_BUDGET is sized for.
+  var AVATAR_PICS = ['avatar_idle', 'avatar_talk'];
+  var FRAME_PICS = ['box_image', 'name_image'];
+  function linkPictures(cfg) {
+    if (ownPictures(cfg)) return AVATAR_PICS;
+    return avatarOn(cfg) || cfg.layout === 'horizontal' ? [] : FRAME_PICS;
+  }
+  // The '#' part that carries them (config.imageHash). '' for none.
+  function linkHash(cfg) { return config.imageHash(cfg, linkPictures(cfg)); }
 
   // The URL to paste into OBS: only non-default params (config.toParams), and the pictures put in the link after its '#'
   // (noPictures: without them, as they go in OBS's Custom CSS instead: picturesInCss). A file:/// overlay always loads
@@ -561,9 +593,13 @@
   // A picture put in the link is made to fit in this many of its characters (pictureFile), so two fit with room for
   // the settings.
   var PICTURE_BUDGET = 14000;
-  // Whether cfg's pictures go in OBS's Custom CSS: they would make the link longer than OBS takes.
+  // A picture frame's file is never drawn again smaller (frameFile), so the link holds one of at most this many characters
+  // (about 9 KB): two and the longest settings the host takes (MAX_URL_BYTES) still fit OBS_URL_MAX, with no Custom CSS.
+  var FRAME_BUDGET = 12000;
+  // Whether cfg's pictures go in OBS's Custom CSS: they would make the link longer than OBS takes. The avatar's only: the
+  // picture frames' are kept small enough for the link (FRAME_BUDGET).
   function picturesInCss(cfg, baseHref) {
-    return !!linkHash(cfg) && overlayUrl(cfg, baseHref).length > OBS_URL_MAX;
+    return ownPictures(cfg) && !!linkHash(cfg) && overlayUrl(cfg, baseHref).length > OBS_URL_MAX;
   }
   // What to put in the source's Custom CSS box for that: OBS's own default first (a new browser source's: it keeps the
   // page see-through), then the pictures, which win over the ones the link names (avatar.js, css/overlay.css).
@@ -621,11 +657,16 @@
   // at 70x70 (the builder falls back to the full one if that ever fails).
   function smallAvatar(url) { return String(url).replace(/-(\d+)x\1(\.\w+)$/, '-70x70$2'); }
 
-  // A picture put in the link goes in settings.js as it is (a data:image URL), while avatar=custom uses it (linkHash).
+  // A picture put in the link goes in settings.js as it is (a data:image URL), while cfg uses it (linkPictures).
   function settingsSnippet(cfg) {
+    var keep = linkPictures(cfg), c = cfg;
+    if (config.HASH_IMAGES.some(function (k) { return keep.indexOf(k) < 0 && config.isDataImage(cfg[k]); })) {
+      c = copyCfg(cfg);
+      config.HASH_IMAGES.forEach(function (k) { if (keep.indexOf(k) < 0 && config.isDataImage(c[k])) c[k] = ''; });
+    }
     return '// Twitch Chat Overlay settings. Save as settings.js next to overlay.html.\n' +
       '// Settings in the overlay URL override these.\n' +
-      'window.TCO_SETTINGS = ' + JSON.stringify(config.toObject(ownPictures(cfg) ? cfg : linkCfg(cfg)), null, 2) + ';\n';
+      'window.TCO_SETTINGS = ' + JSON.stringify(config.toObject(c), null, 2) + ';\n';
   }
 
   // Own SPEC keys only: '__proto__', 'constructor', 'toString'… are not settings.
@@ -933,7 +974,7 @@
     if (urlTooLong(url)) {
       return { text: URL_LONG_NOTE, cls: 'warn' };
     }
-    var pics = linkHash(cfg) ? config.HASH_IMAGES.filter(function (k) { return config.isDataImage(cfg[k]); }).length : 0;
+    var pics = linkPictures(cfg).filter(function (k) { return config.isDataImage(cfg[k]); }).length;
     if (pics && String(url).indexOf('#') < 0) {
       return { text: 'Your avatar’s pictures are too big for the URL, so they go in the source’s Custom CSS: Add to OBS has it.',
         cls: 'warn', css: true };
@@ -1143,6 +1184,11 @@
     if (w === avatarOn) return ['Needs an ', n('avatar'), ' picked.'];
     if (w === ownPictures) return ['Needs ', n('avatar'), ' set to Your own.'];
     if (w === homiesOn) return badgesOn(cfg) ? needs('badges_homies') : needs('badges');
+    // The picture frames: a Box picture takes Line background's place, with its settings.
+    if (w === noBoxPicture || (w === bgOn && boxPicture(cfg))) return ['Not used while a ', n('box_image'), ' is set.'];
+    if (w === boxPicOn) return ['Needs a ', n('box_image'), '.'];
+    if (w === namePicOn) return ['Needs a ', n('name_image'), '.'];
+    if (w === framesOn) return ['Needs a ', n('box_image'), ' or a ', n('name_image'), '.'];
     if (w === stvCosmeticsOn) return ['Needs ', n('paints'), ', or ', n('badges'), ' with 7TV.'];
     var simple = [[shadowOn, 'shadow'], [outlineOn, 'outline'], [namesOn, 'names'], [bgOn, 'bg'], [animateOn, 'animate'],
       [fadeOn, 'fade'], [commandsOn, 'hide_commands'], [eventsOn, 'events'], [repliesOn, 'replies'],
@@ -1265,7 +1311,7 @@
     B.sayTimer = setTimeout(function () { r.textContent = text; }, 30);
   }
 
-  // ---------- pictures put in the link (avatar mode's own) ----------
+  // ---------- pictures put in the link (avatar mode's own, and the picture frames') ----------
   // A picture file from this PC as a data:image URL for the link (or OBS's Custom CSS): read, checked to be a PNG, WebP, GIF
   // or JPEG by its own bytes (config.imageUrl), and kept as it is when it fits PICTURE_BUDGET of the link's characters
   // (an animated GIF or WebP keeps moving). Otherwise drawn again at the Avatar height (height; never larger than it was)
@@ -1274,7 +1320,9 @@
   // Resolves { url, w, h, kept, fits, gif }; rejects with 'too big' for a file over PICTURE_FILE_MAX.
   var PICTURE_QUALITY = [0.92, 0.82, 0.72, 0.6];
   var PICTURE_FILE_MAX = 6 * 1024 * 1024; // its base64 stays under config.js's MAX_IMAGE_CHARS
-  function pictureFile(f, height) {
+  // A picture file read and drawn once: { kept: it as a data:image URL (config.imageUrl), img }. Rejects with 'too big',
+  // 'not a picture', 'undecodable' or 'empty'.
+  function readPicture(f) {
     if (f && f.size > PICTURE_FILE_MAX) return Promise.reject(new Error('too big'));
     return new Promise(function (resolve, reject) {
       var rd = new root.FileReader();
@@ -1290,33 +1338,61 @@
         img.onerror = function () { reject(new Error('undecodable')); };
         img.src = kept;
       }).then(function (img) {
-        var w0 = img.naturalWidth, h0 = img.naturalHeight;
-        if (!(w0 > 0 && h0 > 0)) throw new Error('empty');
-        var chars = function (u) { return u.length - u.indexOf(',') - 1; };
-        var want = Math.max(40, Math.round(Number(height) || 300)), gif = /^data:image\/gif/.test(kept);
-        if (chars(kept) <= PICTURE_BUDGET) return { url: kept, w: w0, h: h0, kept: true, fits: true, gif: gif };
-        var draw = function (hh, q) {
-          var c = document.createElement('canvas');
-          c.width = Math.max(1, Math.round(w0 * hh / h0));
-          c.height = hh;
-          var g = c.getContext('2d');
-          g.imageSmoothingEnabled = true;
-          g.imageSmoothingQuality = 'high';
-          g.drawImage(img, 0, 0, c.width, c.height);
-          return { url: c.toDataURL('image/webp', q), w: c.width, h: hh };
-        };
-        var top = Math.min(h0, want), best = null;
-        for (var hh = top; hh >= Math.max(40, Math.round(top / 2)); hh = Math.floor(hh * 0.85)) {
-          for (var i = 0; i < PICTURE_QUALITY.length; i++) {
-            var pic = draw(hh, PICTURE_QUALITY[i]);
-            if (!best) best = pic;
-            // A browser that writes PNG for WebP: one try a size, as PNG has no quality.
-            if (chars(pic.url) <= PICTURE_BUDGET) return { url: config.imageUrl(pic.url), w: pic.w, h: pic.h, kept: false, fits: true, gif: gif };
-            if (/^data:image\/png/.test(pic.url)) break;
-          }
-        }
-        return { url: config.imageUrl(best.url), w: best.w, h: best.h, kept: false, fits: false, gif: gif };
+        if (!(img.naturalWidth > 0 && img.naturalHeight > 0)) throw new Error('empty');
+        return { kept: kept, img: img };
       });
+    });
+  }
+  // The characters a data: URL takes in the link: its base64.
+  function picChars(u) { return u.length - u.indexOf(',') - 1; }
+  function pictureFile(f, height) {
+    return readPicture(f).then(function (r) {
+      var kept = r.kept, img = r.img, w0 = img.naturalWidth, h0 = img.naturalHeight;
+      var want = Math.max(40, Math.round(Number(height) || 300)), gif = /^data:image\/gif/.test(kept);
+      if (picChars(kept) <= PICTURE_BUDGET) return { url: kept, w: w0, h: h0, kept: true, fits: true, gif: gif };
+      var draw = function (hh, q) {
+        var c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w0 * hh / h0));
+        c.height = hh;
+        var g = c.getContext('2d');
+        g.imageSmoothingEnabled = true;
+        g.imageSmoothingQuality = 'high';
+        g.drawImage(img, 0, 0, c.width, c.height);
+        return { url: c.toDataURL('image/webp', q), w: c.width, h: hh };
+      };
+      var top = Math.min(h0, want), best = null;
+      for (var hh = top; hh >= Math.max(40, Math.round(top / 2)); hh = Math.floor(hh * 0.85)) {
+        for (var i = 0; i < PICTURE_QUALITY.length; i++) {
+          var pic = draw(hh, PICTURE_QUALITY[i]);
+          if (!best) best = pic;
+          // A browser that writes PNG for WebP: one try a size, as PNG has no quality.
+          if (picChars(pic.url) <= PICTURE_BUDGET) return { url: config.imageUrl(pic.url), w: pic.w, h: pic.h, kept: false, fits: true, gif: gif };
+          if (/^data:image\/png/.test(pic.url)) break;
+        }
+      }
+      return { url: config.imageUrl(best.url), w: best.w, h: best.h, kept: false, fits: false, gif: gif };
+    });
+  }
+
+  // A picture frame's file (box_image, name_image) for the link, kept pixel for pixel: its corners are counted in its own
+  // px, and pixel art drawn again smaller would blur. One over FRAME_BUDGET is tried once as a lossless WebP of the same
+  // size (Chromium writes one at quality 1; an animated GIF then stops moving); still too big, it is refused with
+  // 'too big for the link' (e.kb: its size). Resolves { url, w, h, kept, gif }.
+  function frameFile(f) {
+    return readPicture(f).then(function (r) {
+      var img = r.img, w = img.naturalWidth, hh = img.naturalHeight, gif = /^data:image\/gif/.test(r.kept);
+      if (picChars(r.kept) <= FRAME_BUDGET) return { url: r.kept, w: w, h: hh, kept: true, gif: gif };
+      var c = document.createElement('canvas');
+      c.width = w;
+      c.height = hh;
+      c.getContext('2d').drawImage(img, 0, 0);
+      var webp = c.toDataURL('image/webp', 1);
+      if (/^data:image\/webp/.test(webp) && picChars(webp) <= FRAME_BUDGET) {
+        return { url: config.imageUrl(webp), w: w, h: hh, kept: false, gif: gif };
+      }
+      var e = new Error('too big for the link');
+      e.kb = Math.round(Math.floor(picChars(r.kept) * 3 / 4) / 102.4) / 10;
+      throw e;
     });
   }
 
@@ -1886,8 +1962,9 @@
         break;
       }
       case 'image': {
-        // A picture (avatar mode's): a link typed or pasted in the box, or, under Advanced, a picture file from this PC
-        // put in the overlay's link itself (pictureFile), drawn small beside its size. Remove takes either away.
+        // A picture (avatar mode's, or a picture frame's: m.frame): a link typed or pasted in the box, or, under Advanced, a
+        // picture file from this PC put in the overlay's link itself (pictureFile, frameFile), drawn small beside its size.
+        // Remove takes either away.
         addLabel(true);
         var prow = control(h('div', 'text-row'));
         var pu = h('input', 'text');
@@ -1930,15 +2007,22 @@
         var thumb = h('img', 'pic-thumb');
         thumb.alt = '';
         thumb.hidden = true;
+        // A picture smaller than the thumbnail is drawn in sharp pixels (css .pic-thumb.small).
+        thumb.addEventListener('load', function () {
+          if (thumb.naturalWidth < 64 && thumb.naturalHeight < 64) thumb.classList.add('small'); else thumb.classList.remove('small');
+        });
         var pst = h('p', 'status');
         pst.id = id + '-in';
         pst.setAttribute('role', 'status');
         pst.setAttribute('aria-live', 'polite');
         pin.appendChild(thumb);
         pin.appendChild(pst);
-        advBody.appendChild(h('p', 'help', 'The picture goes inside the overlay’s URL, so nothing needs hosting. One too big for it is ' +
-          'shrunk to the Avatar height and saved as WebP; pictures the URL still can’t hold go in the OBS source’s Custom CSS, and ' +
-          'Add to OBS shows how.'));
+        advBody.appendChild(h('p', 'help', m.frame
+          ? 'The picture goes inside the overlay’s URL, so nothing needs hosting. It is kept exactly as it is, so it has to be ' +
+            'small: about 9 KB at most (a PNG of a few dozen pixels is a few hundred bytes).'
+          : 'The picture goes inside the overlay’s URL, so nothing needs hosting. One too big for it is ' +
+            'shrunk to the Avatar height and saved as WebP; pictures the URL still can’t hold go in the OBS source’s Custom CSS, and ' +
+            'Add to OBS shows how.'));
         advBody.appendChild(file);
         advBody.appendChild(pickBtn);
         advBody.appendChild(pin);
@@ -1951,7 +2035,9 @@
           var size = pictureSize(v);
           if (!size) return { text: '', cls: '' };
           var what = 'a ' + size.kb + ' KB ' + size.type, css = ownPictures(B.cfg) && picturesInCss(B.cfg, root.location.href);
-          var where = !ownPictures(B.cfg) ? 'Kept for Your own: ' + what + '.'
+          var where = m.frame && linkPictures(B.cfg).indexOf(key) < 0
+            ? 'Not in the URL while ' + (avatarOn(B.cfg) ? 'Avatar mode is on' : 'the layout is Horizontal') + ': ' + what + '.'
+            : !m.frame && !ownPictures(B.cfg) ? 'Kept for Your own: ' + what + '.'
             : css ? 'In the OBS source’s Custom CSS: ' + what + '. The URL can’t hold your pictures, so Add to OBS gives the CSS for them.'
             : 'In the URL: ' + what + ', ' + size.chars.toLocaleString('en-US') + ' of its characters.';
           var mine = added.v === v;
@@ -2004,16 +2090,25 @@
           if (!f) return;
           showPic(B.cfg[key], { text: 'Reading ' + f.name + '…', cls: 'busy' });
           var tall = B.cfg.avatar_size;
-          pictureFile(f, tall).then(function (pic) {
+          // A frame's picture: kept, or saved as a lossless WebP of the same size (a GIF then stops moving).
+          (m.frame ? frameFile(f).then(function (pic) {
+            added = { v: pic.url, text: (pic.kept ? 'Added as it was' : 'Saved as a lossless WebP' + (pic.gif ? ', as a still picture' : '')) +
+              ' (' + pic.w + ' × ' + pic.h + ' px).' };
+            return pic;
+          }) : pictureFile(f, tall).then(function (pic) {
             // What was done to it: kept, or shrunk (a GIF then stops moving), and whether it is drawn larger than it is.
             added = { v: pic.url, text: (pic.kept ? 'Added as it was.' : 'Shrunk to ' + pic.w + ' × ' + pic.h + (pic.gif ? ', as a still picture.' : '.')) +
               (pic.h < tall * 0.8 ? ' It is ' + pic.h + ' px tall and shown at ' + tall + ', so it may look soft.' : '') };
+            return pic;
+          })).then(function (pic) {
             if (!update(key, pic.url)) throw new Error('refused');
             showBadPic(true);
             showPic(B.cfg[key]);
             announce(pst.textContent);
           }).catch(function (e) {
             var no = e && e.message === 'too big' ? 'That file is over 6 MB. Save a smaller copy of the picture and choose that.'
+              : e && e.message === 'too big for the link' ? 'That picture is ' + e.kb + ' KB, too big for the URL (about 9 KB at most). ' +
+                'Save a smaller copy of it, or put it online and paste its https:// link in the box above.'
               : 'That file isn’t a picture the builder can read: use a PNG, WebP, GIF or JPEG.';
             showPic(B.cfg[key], { text: no, cls: 'err' });
             announce(no);
@@ -3480,7 +3575,7 @@
       $('css-leave').hidden = !!css;
     }
     // The line under each picture says where it goes: one moves between the URL and the Custom CSS with the other one.
-    var picSig = (ownPictures(B.cfg) ? 'own' : '') + (inCss ? ' css' : '');
+    var picSig = linkPictures(B.cfg).join(',') + (inCss ? ' css' : '');
     if (picSig !== B.picSig) {
       B.picSig = picSig;
       config.HASH_IMAGES.forEach(function (k) { if (B.fields[k] && B.fields[k].refresh) B.fields[k].refresh(); });
@@ -4326,6 +4421,9 @@
     linkCfg: linkCfg,
     OBS_URL_MAX: OBS_URL_MAX,
     PICTURE_BUDGET: PICTURE_BUDGET,
+    FRAME_BUDGET: FRAME_BUDGET,
+    linkPictures: linkPictures,
+    linkHash: linkHash,
     picturesInCss: picturesInCss,
     pictureCss: pictureCss,
     pictureSize: pictureSize,

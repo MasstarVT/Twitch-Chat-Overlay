@@ -45,9 +45,10 @@
   // ----- pure helpers (unit tested) -----
 
   // The renderer's config for the bubble: the message as a line in a column, with no box, shadow or animation of its own
-  // (the bubble has its own look and pops in itself), and one message at a time.
+  // (the bubble has its own look and pops in itself), and one message at a time. No picture frames either: the bubble is
+  // the message's box.
   var INNER = { layout: 'vertical', align: 'bottom', animate: false, smooth_scroll: false, fade: 0, max: 1, bg: 0, shadow: 0,
-    line_width: 0, edge_fade: 0, row_sep: 'none', row_grow: false };
+    line_width: 0, edge_fade: 0, row_sep: 'none', row_grow: false, box_image: '', name_image: '' };
   function innerCfg(cfg) {
     var c = {};
     for (var k in cfg) if (Object.prototype.hasOwnProperty.call(cfg, k)) c[k] = cfg[k];
@@ -63,19 +64,7 @@
     return { idle: (cfg && cfg.avatar_idle) || '', talk: (cfg && cfg.avatar_idle && cfg.avatar_talk) || '' };
   }
 
-  // A url() for a picture config.js checked (a data:image URL, an https:// link as the URL parser writes it, or a plain
-  // relative path), made absolute against base (the page's address): a url() in a custom property is read where the
-  // var() is used, so a relative one would be taken from css/overlay.css's folder. Quotes, backslashes, parentheses and
-  // line breaks are written as %-escapes, so the value never ends early.
-  function cssUrl(u, base) {
-    var s = String(u);
-    if (base && !/^data:/i.test(s)) {
-      try { s = new URL(s, base).href; } catch (e) { /* as it is */ }
-    }
-    return 'url("' + s.replace(/["'\\()\s]/g, function (c) {
-      return /['()]/.test(c) ? '%' + c.charCodeAt(0).toString(16).toUpperCase() : encodeURIComponent(c);
-    }) + '")';
-  }
+  var cssUrl = util.cssUrl;
 
   // The bubble's color and what is drawn on it: color (white unless bubble_color is set: set), ink, the text and outline
   // (text_color when set, else dark on a light bubble and white on a dark one), notice, a sub or raid notice's text

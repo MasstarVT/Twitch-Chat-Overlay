@@ -540,6 +540,8 @@
   // the speech bubble, white unless bubble_color says otherwise (the bubble has no bg box of its own).
   function nameBackdrop(cfg) {
     if (T.avatar && T.avatar.isOn(cfg)) return T.avatar._internal.bubbleLook(cfg).back;
+    // A box picture (box_image, in a column) takes the box's place: its colors are the picture's own.
+    if (cfg.box_image && cfg.layout !== 'horizontal') return null;
     if (!(cfg.bg > 0) || !cfgColor(cfg.bg_color)) return null;
     var b = T.util.boxBackdrop(cfg.bg_color, cfg.bg / 100);
     return T.util.lightBackdrop(b) ? b : null;

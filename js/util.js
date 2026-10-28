@@ -39,6 +39,19 @@
     if (!m) return false;
     return hostRe ? hostRe.test(m[1].toLowerCase()) : true;
   }
+  // A url() for a picture config.js checked (a data:image URL, an https:// link as the URL parser writes it, or a plain
+  // relative path), made absolute against base (the page's address): a url() in a custom property is read where the
+  // var() is used, so a relative one would be taken from css/overlay.css's folder. Quotes, backslashes, parentheses and
+  // line breaks are written as %-escapes, so the value never ends early. Avatar mode's pictures and the picture frames.
+  function cssUrl(u, base) {
+    var s = String(u);
+    if (base && !/^data:/i.test(s)) {
+      try { s = new URL(s, base).href; } catch (e) { /* as it is */ }
+    }
+    return 'url("' + s.replace(/["'\\()\s]/g, function (c) {
+      return /['()]/.test(c) ? '%' + c.charCodeAt(0).toString(16).toUpperCase() : encodeURIComponent(c);
+    }) + '")';
+  }
   // Giphy: a Twitch gifs tag gives a GIF's 'original' rendition (.../media/<id>/giphy.gif). giphyFile(url, file): the
   // same GIF's other rendition `file` ('200.webp', 'giphy.webp') in its place, the query's rid as well; null for any
   // other URL shape.
@@ -521,6 +534,7 @@
     jitter: jitter,
     absUrl: absUrl,
     isSafeUrl: isSafeUrl,
+    cssUrl: cssUrl,
     giphyFile: giphyFile,
     capMarks: capMarks,
     idStr: idStr,

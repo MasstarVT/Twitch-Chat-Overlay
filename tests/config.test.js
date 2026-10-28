@@ -24,6 +24,7 @@ describe('spec', () => {
       badges: true, badges_twitch: true, badges_kick: true, badges_7tv: true, badges_bttv: true, badges_ffz: true,
       badges_ffzap: true, badges_chatterino: true, badges_homies: true, homies_lists: 'all', badge_size: 100,
       paints: true, paint_images: 'animated', stv_lookup: true, readable: true, readable_level: 45,
+      box_image: '', box_slice: 0, name_image: '', name_slice: 0, frame_scale: 100, frame_pixels: false,
       avatar: 'off', avatar_idle: '', avatar_talk: '', avatar_size: 300, avatar_side: 'left', avatar_flip: false,
       avatar_motion: 'bounce', bubble_pos: 'side', bubble_width: 18, bubble_color: '', bubble_speed: 30, bubble_time: 6,
       bubble_queue: 5, demo: false, debug: false
@@ -1229,6 +1230,22 @@ describe('pictures (type image: avatar mode)', () => {
     // An empty one in the URL clears settings.js's; a refused one leaves it.
     assert.equal(config.parse('?avatar_idle=', { avatar_idle: 'img/me.png' }).avatar_idle, '');
     assert.equal(config.parse('?avatar_idle=nope!', { avatar_idle: 'img/me.png' }).avatar_idle, 'img/me.png');
+  });
+
+  test('imageHash and hashImages: the picture frames ride after the # too, and keys picks the ones a link carries', () => {
+    const P = 'data:image/png;base64,' + PNG;
+    const cfg = Object.assign(config.defaults(), { avatar_idle: P, box_image: P, name_image: 'img/tag.png' });
+    assert.equal(config.imageHash(cfg), '#avatar_idle=' + url64(PNG) + '&box_image=' + url64(PNG));
+    assert.equal(config.imageHash(cfg, ['box_image', 'name_image']), '#box_image=' + url64(PNG));
+    assert.equal(config.imageHash(cfg, ['avatar_idle', 'avatar_talk']), '#avatar_idle=' + url64(PNG));
+    assert.equal(config.imageHash(cfg, []), '');
+    const two = Object.assign({}, cfg, { name_image: P });
+    assert.deepEqual(config.hashImages(config.imageHash(two, ['box_image', 'name_image'])),
+      { values: { box_image: P, name_image: P }, rest: null });
+    // One that is no picture is dropped, and a section's hash before it stays.
+    assert.deepEqual(config.hashImages('top&name_image=' + url64(SVG)), { values: {}, rest: 'top' });
+    assert.equal(config.coerce('box_image', 'https://example.com/box.png'), 'https://example.com/box.png');
+    assert.equal(config.coerce('name_image', 'javascript:alert(1)'), undefined);
   });
 
   test('imageHash and hashImages: pictures after a link\'s #, in base64url', () => {

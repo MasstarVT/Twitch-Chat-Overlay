@@ -299,6 +299,13 @@ const PREREQ = {
   bg_color: { bg: 40 },
   bg_shape: { bg: 40 },
   bg_width: { bg: 40, layout: 'vertical' },
+  // The picture frames: a column's, their corners and size only with a picture.
+  box_image: { layout: 'vertical' },
+  name_image: { layout: 'vertical' },
+  box_slice: { box_image: 'https://example.com/box.png', layout: 'vertical' },
+  name_slice: { name_image: 'https://example.com/tag.png', layout: 'vertical' },
+  frame_scale: { box_image: 'https://example.com/box.png', layout: 'vertical' },
+  frame_pixels: { box_image: 'https://example.com/box.png', layout: 'vertical' },
   notice_color: { events: true },
   notice_size: { events: true },
   first_msg_color: { first_msg: true },

@@ -10,7 +10,7 @@
    modifiers .layout-vertical .layout-horizontal .align-bottom .align-top .size-small .size-medium .size-large .has-bg
    .bg-full .no-names .name-line .case-upper .case-lower .case-smallcaps .has-outline .shadow-text .paint-static
    .text-center .text-right .has-maxw .edge-fade .sep-dot .sep-bar .sep-diamond .row-left .row-center .row-grow
-   .has-name-font, and in avatar mode .has-avatar .avatar-left .avatar-right .bubble-side .bubble-above .avatar-flip
+   .has-name-font .has-box-image .has-name-tag .frame-pixels (with each name tag .name-tag), and in avatar mode .has-avatar .avatar-left .avatar-right .bubble-side .bubble-above .avatar-flip
    .motion-bounce .motion-lively .motion-none .talking .bubble-on .mouth-open, with the avatar .speaker and its two
    pictures .speaker-idle .speaker-talk (.lines is the speech bubble there).
    Options set these #chat variables only when changed (the var() fallbacks below are the defaults): --text-weight
@@ -19,7 +19,8 @@
    --role-mod-rgb --role-vip-rgb. Outline and shadow_style set --tshadow and --tshadow-room,
    line_width --line-max and --line-max-n (with .has-maxw), edge_fade --edge-fade (with .edge-fade), emote_only --eo
    (for .emote-only lines), gif_size=1x --gif-margin and --gif-maxw, name_font --name-font (with .has-name-font),
-   text_px #chat's font-size, and accent_bar sets --line-accent on each line. The rules below give a role's line its
+   text_px #chat's font-size, box_image and name_image --box-image and --name-image (each a url()) with --box-slice and
+   --name-slice, frame_scale --frame-scale, and accent_bar sets --line-accent on each line. The rules below give a role's line its
    color as --role-rgb, and a tinted line its tint as --line-tint */
 
 html,
@@ -103,8 +104,8 @@ body {
    growing a message from where its text starts (tco-in-pop, with the animations). */
 :where(.layout-vertical.text-center) .lines { text-align: center; --pop-x: 0%; }
 :where(.layout-vertical.text-right) .lines { text-align: right; --pop-x: 7.5%; }
-.text-center:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line { margin-left: auto; margin-right: auto; }
-.text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line { margin-left: auto; }
+.text-center:where(.layout-vertical.has-bg, .layout-vertical.has-maxw, .layout-vertical.has-box-image) .line { margin-left: auto; margin-right: auto; }
+.text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw, .layout-vertical.has-box-image) .line { margin-left: auto; }
 
 /* outline=1..3 and shadow_style=text: the outline, then the shadow, as text-shadow layers (--tshadow) on the
    letters only. A reply header draws its own, in step with its smaller text. Painted names keep none (.painted),
@@ -300,6 +301,66 @@ body {
   line-height: min(var(--line-height, 1.35) * var(--row-em), var(--line-height, 1.35) * 1em);
 }
 
+/* ---------- picture frames (box_image and name_image, in a column) ----------
+   A picture stretched from its middle around each message (.has-box-image) and behind each name with its badges
+   (.name-tag, which renderer.js adds only while name_image is set), drawn as a border-image: its corners keep their
+   shape, the edges between them stretch along the sides, and the middle fills the rest. The corners go --box-slice or
+   --name-slice px into the picture, and are drawn --frame-scale times that size, in a border as wide as they are drawn,
+   so the text starts inside the picture's edge. Before a picture has loaded its slice is 0: no border, and the whole
+   picture would fill the box. The box takes Line background's place (renderer.js leaves .has-bg off), and its middle
+   covers the line's own bars and tints. With the name on its own line it goes around the message under the name, so a
+   name tag sits on top of it; a notice, which has no name, has it around the whole line. */
+:where(.layout-vertical.has-box-image) .line,
+:where(.layout-vertical.name-line:not(.no-names).has-box-image .line:not(.notice)) > .message {
+  width: -webkit-fit-content;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: .15em .3em;
+  border-style: solid;
+  border-color: transparent;
+  border-width: calc(var(--box-slice, 0) * var(--frame-scale, 1) * 1px);
+  border-image-source: var(--box-image, none);
+  border-image-slice: var(--box-slice, 0) fill;
+  border-image-repeat: stretch;
+}
+:where(.layout-vertical.has-box-image) .line { margin: var(--line-gap, .15em) 0; }
+/* Under a name the box is the message's, so the line is a plain one again (at (0,1,0), after the box: a bar's room still
+   wins). */
+:where(.layout-vertical.name-line:not(.no-names).has-box-image) .line:where(:not(.notice)) {
+  width: auto;
+  margin: 0;
+  padding: var(--line-gap, .15em) 0;
+  border: 0;
+}
+/* The box under a name moves with text_align, as a whole line's does. */
+:where(.layout-vertical.name-line:not(.no-names).has-box-image.text-center) .line:not(.notice) > .message { margin-left: auto; margin-right: auto; }
+:where(.layout-vertical.name-line:not(.no-names).has-box-image.text-right) .line:not(.notice) > .message { margin-left: auto; }
+/* The name tag: the badges (each with its .25em after it) and the name, inside the picture's edge. On a line of its own it
+   sits on the line's bottom, so a box under it starts right where it ends. names=0 leaves the badges without one. */
+.name-tag {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0 .25em;
+  border-style: solid;
+  border-color: transparent;
+  border-width: calc(var(--name-slice, 0) * var(--frame-scale, 1) * 1px);
+  border-image-source: var(--name-image, none);
+  border-image-slice: var(--name-slice, 0) fill;
+  border-image-repeat: stretch;
+}
+:where(.name-line:not(.no-names)) .name-tag { vertical-align: bottom; }
+:where(.no-names) .name-tag {
+  display: inline;
+  padding: 0;
+  border: 0;
+}
+/* frame_pixels: the frames' pictures scaled without smoothing, so pixel art stays crisp. Only the frames': what is inside
+   them (emotes, badges, painted names) is drawn as always. */
+:where(.frame-pixels) :is(.line, .line > .message, .name-tag) { image-rendering: pixelated; }
+:where(.frame-pixels) .line :not(.message, .name-tag) { image-rendering: auto; }
+
 /* ---------- reply header ----------
    It clips (for the ellipsis), so its clip box reaches .3em past its line above and below: accents and descenders
    that go past a short line_height, and stacked marks (Vietnamese, Thai) at any, are drawn whole instead of cut off
@@ -480,14 +541,14 @@ body {
    - spacing=tight, without a box: at most twice the gap between two lines' text (--emote-hang, set on #chat), so the
      emotes of two lines in a row overlap no more than at normal spacing. The messages of a horizontal row sit side by
      side, so it has none there (the .3em fallback).
-   - In a box (bg), at most the box's own .2em below its line (--emote-drop): an emote's middle is the text's (half its
+   - In a box (bg, or a box picture), at most the box's own .2em below its line (--emote-drop): an emote's middle is the text's (half its
      x-height above the baseline), a little below the middle of its line in most fonts, so with .3em it stuck out of the
      bottom of its box (1.3 px at medium, 2.7 px at large). Where the font puts it lower still, the line grows by the
      rest. Above it takes the same .2em: `vertical-align: middle` centres the margin box, so -.3em above and -.2em below
      would lift the image .05em, twice as far into a reply header or a name_line name as without a box. */
 :where(.layout-vertical:not(.has-bg)) { --emote-hang: calc(2 * var(--line-gap, .15em)); }
 :where(.layout-vertical) { --emote-floor: max(0em, (var(--line-height, 1.35) / 2 - .4) * 1em); }
-:where(.has-bg) { --emote-drop: .2em; }
+:where(.has-bg, .has-box-image) { --emote-drop: .2em; }
 :where(.layout-vertical, .layout-horizontal) .emote-stack {
   margin-top: calc(-1 * max(0em, min(.3em, var(--emote-drop, .3em), var(--emote-hang, .3em), 2.05em - var(--eh),
     (2 * var(--line-height, 1.35) - .65) * 1em - var(--eh))));

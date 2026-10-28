@@ -110,7 +110,10 @@ test('every URL property assignment in js/ is a reviewed one', () => {
     ],
     'renderer.js': [
       /^img\.src = url$/, // url comes from pickUrl (https, except the two fixed local badge assets)
-      /^img\.src = next\.shift\(\)$/ // a GIF's fallbacks (p.alt, p.orig): partsFor keeps them only when util.isSafeUrl (https)
+      /^img\.src = next\.shift\(\)$/, // a GIF's fallbacks (p.alt, p.orig): partsFor keeps them only when util.isSafeUrl (https)
+      // a picture frame's picture, never shown, read for its size (applyFrames): box_image or name_image, which config.js
+      // took as a picture (imageUrl: an https link, a relative file path, or a PNG, WebP, GIF or JPEG data:image URL)
+      /^probe\.src = src$/
     ],
     'avatar.js': [
       // avatar mode's picture, never shown, read for its size: the idle picture's own computed background (one config.js
@@ -202,8 +205,8 @@ test('every page: a Content-Security-Policy that only runs the site\'s own scrip
   });
   const overlayCsp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/.exec(read('overlay.html'))[1];
   const imgSrc = overlayCsp.split(';').map((d) => d.trim().split(/\s+/)).find((d) => d[0] === 'img-src');
-  // data: is avatar mode's: the streamer's own pictures, carried in the link's '#' part or in OBS's Custom CSS. Chat never
-  // names an image (emotes, badges and paints are checked https:// URLs: the tests above), and config.js takes a data:
+  // data: is avatar mode's and the picture frames': the streamer's own pictures, carried in the link's '#' part (or the
+  // avatar's in OBS's Custom CSS). Chat never names an image (emotes, badges and paints are checked https:// URLs: the tests above), and config.js takes a data:
   // picture only as a PNG, WebP, GIF or JPEG by its own first bytes (config.test.js).
   assert.deepStrictEqual(imgSrc, ['img-src', "'self'", 'file:', 'https:', 'data:'], 'the overlay badge asset loads locally without allowing arbitrary schemes');
   // OBS applies Custom CSS as an inline style, so the overlay (only) must allow inline styles.

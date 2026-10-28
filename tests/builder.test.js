@@ -916,6 +916,7 @@ test('Look and Advanced: the headings and what is under each; Troubleshooting la
       'role_style', 'broadcaster_color', 'mod_color', 'vip_color'],
     ['Filters #adv-filters', 'allow_users', 'min_length'],
     ['Emotes #adv-emotes', 'giant_emotes'],
+    ['Picture frames #adv-frames', 'box_image', 'box_slice', 'name_image', 'name_slice', 'frame_scale', 'frame_pixels'],
     ['Avatar mode #adv-avatar', 'avatar', 'avatar_idle', 'avatar_talk', 'avatar_size', 'avatar_side', 'avatar_flip', 'avatar_motion'],
     ['Speech bubble #adv-bubble', 'bubble_pos', 'bubble_width', 'bubble_color', 'bubble_speed', 'bubble_time', 'bubble_queue'],
     ['Troubleshooting #adv-trouble', 'debug', 'demo']
@@ -1899,4 +1900,37 @@ test('avatar mode: the bubble is a column, so a horizontal layout left set doesn
     assert.strictEqual(builder.fieldOff(k, row), true, k + ' in a row');
     assert.strictEqual(builder.fieldOff(k, Object.assign({}, row, { avatar: 'cat' })), false, k + ' in the bubble');
   });
+});
+
+test('picture frames: the link carries their pictures while avatar mode is off in a column, and says why the box settings are off', () => {
+  const cfg = Object.assign(config.defaults(), { channel: 'forsen', box_image: PIC, name_image: PIC });
+  const FRAMES = ['box_image', 'name_image'];
+  assert.deepStrictEqual(builder.linkPictures(cfg), FRAMES);
+  const url = builder.overlayUrl(cfg, BASE);
+  assert.strictEqual(url, HOSTED + '?channel=forsen' + config.imageHash(cfg, FRAMES));
+  assert.deepStrictEqual(builder.parsePasted(url).cfg, cfg);
+  // Kept small enough for the link (FRAME_BUDGET), so never in OBS's Custom CSS: two of them and the longest query the
+  // host takes still fit OBS's URL box.
+  assert.strictEqual(builder.picturesInCss(cfg, BASE), false);
+  assert.strictEqual(builder.pictureCss(cfg), '');
+  assert.ok(HOSTED.length + builder.MAX_URL_BYTES + 2 * ('&name_image='.length + builder.FRAME_BUDGET) < builder.OBS_URL_MAX);
+  assert.ok(builder.settingsSnippet(cfg).includes(JSON.stringify(PIC)), 'settings.js holds them as they are');
+  // In a row, or with an avatar, the overlay draws no frames: no link or settings.js carries their pictures then.
+  [{ layout: 'horizontal' }, { avatar: 'cat' }, { avatar: 'custom' }].forEach((over) => {
+    const c = Object.assign({}, cfg, over);
+    assert.ok(!/box_image|name_image/.test(builder.overlayUrl(c, BASE)), JSON.stringify(over));
+    assert.ok(!builder.settingsSnippet(c).includes('data:image'), JSON.stringify(over));
+  });
+  // Your own avatar's pictures ride alone: never more than two pictures in a link.
+  const own = Object.assign({}, cfg, { avatar: 'custom', avatar_idle: PIC });
+  assert.strictEqual(new URL(builder.overlayUrl(own, BASE)).hash, config.imageHash(own, ['avatar_idle', 'avatar_talk']));
+  // A Box picture takes Line background's place in a column, with its settings; the corners and size wait for a picture.
+  const boxed = Object.assign(config.defaults(), { bg: 40, box_image: 'https://example.com/box.png' });
+  assert.strictEqual(builder.whyOff('bg', boxed), 'Not used while a Box picture (Advanced) is set.');
+  assert.strictEqual(builder.whyOff('bg_color', boxed), 'Not used while a Box picture (Advanced) is set.');
+  assert.strictEqual(builder.whyOff('bg', Object.assign({}, boxed, { layout: 'horizontal' })), '');
+  assert.strictEqual(builder.whyOff('box_slice', config.defaults()), 'Needs a Box picture.');
+  assert.strictEqual(builder.whyOff('name_slice', config.defaults()), 'Needs a Name tag picture.');
+  assert.strictEqual(builder.whyOff('frame_scale', config.defaults()), 'Needs a Box picture or a Name tag picture.');
+  assert.strictEqual(builder.whyOff('frame_scale', Object.assign(config.defaults(), { name_image: 'img/tag.png' })), '');
 });

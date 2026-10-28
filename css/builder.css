@@ -656,6 +656,8 @@ label.field-label { cursor: pointer; }
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
   background: #23262f conic-gradient(#30343f 25%, transparent 0 50%, #30343f 0 75%, transparent 0) 0 0 / 12px 12px;
 }
+/* A picture smaller than its thumbnail (a picture frame's few pixels) is drawn in sharp pixels, not a blur. */
+.pic-thumb.small { image-rendering: pixelated; }
 .field.disabled > .pic-adv { opacity: .45; }
 .field.disabled > .pic-adv > summary { cursor: pointer; }
 

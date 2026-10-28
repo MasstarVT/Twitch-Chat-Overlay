@@ -1647,7 +1647,8 @@ test('every live config key is handled by the renderer', () => {
     'spacing', 'notice_color', 'notice_size', 'first_msg_color', 'shadow_color', 'shadow_style', 'outline', 'outline_color',
     'paint_images', 'text_align', 'line_width', 'pad_x', 'edge_fade', 'row_sep', 'text_px', 'badge_size', 'emote_scale',
     'emote_only', 'gif_size', 'name_font', 'mention_color', 'keyword_color', 'points_color', 'broadcaster_color', 'mod_color',
-    'vip_color', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'row_align', 'row_grow'];
+    'vip_color', 'enter_style', 'enter_ms', 'fade_out_ms', 'exit_style', 'smooth_scroll', 'row_align', 'row_grow',
+    'box_image', 'box_slice', 'name_image', 'name_slice', 'frame_scale', 'frame_pixels'];
   assert.deepStrictEqual(R.ROOT_KEYS.slice().sort(), ROOT_KEYS.slice().sort());
   // 1.6.1: row_align is a class and what the trim and the kept row_sep marks go by, never drawn into a line; row_grow is a
   // class and picks the files (and the emote-only class) of the lines it lets grow the row.

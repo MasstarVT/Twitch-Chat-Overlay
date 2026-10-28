@@ -2305,8 +2305,11 @@ test('overlay.css: the layout rules (stage 4) stay off by default, in their own 
   // A reply header quoting right-to-left text is a flex box (renderer-css round 3): it moves its parts as text-align does.
   assert.deepStrictEqual(selectors.filter((s) => /text-(?:center|right)/.test(s)), [
     ':where(.layout-vertical.text-center) .lines', ':where(.layout-vertical.text-right) .lines',
-    '.text-center:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line',
-    '.text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw) .line',
+    '.text-center:where(.layout-vertical.has-bg, .layout-vertical.has-maxw, .layout-vertical.has-box-image) .line',
+    '.text-right:where(.layout-vertical.has-bg, .layout-vertical.has-maxw, .layout-vertical.has-box-image) .line',
+    // A box picture under a name (name_line) is the message's, and moves with it.
+    ':where(.layout-vertical.name-line:not(.no-names).has-box-image.text-center) .line:not(.notice) > .message',
+    ':where(.layout-vertical.name-line:not(.no-names).has-box-image.text-right) .line:not(.notice) > .message',
     ':where(.layout-vertical.text-center) .reply.rtl', ':where(.layout-vertical.text-right) .reply.rtl']);
   assert.match(css, /\n:where\(\.layout-vertical\.text-center\) \.reply\.rtl \{ justify-content: center; \}/);
   assert.match(css, /\n:where\(\.layout-vertical\.text-right\) \.reply\.rtl \{ justify-content: flex-end; \}/);
@@ -3155,10 +3158,10 @@ test('overlay.css: in a box an emote, cheer or 1x GIF reaches no further below i
   // (half its x-height above the baseline), a little below its line's middle in most fonts: with -.3em it stuck out of
   // the bottom of its box (1.3 px at medium, 2.7 px at large in Inter). --emote-drop caps it at the box's padding.
   const css = overlayCss();
-  assert.match(css, /\n:where\(\.has-bg\) \{ --emote-drop: \.2em; \}/);
+  assert.match(css, /\n:where\(\.has-bg, \.has-box-image\) \{ --emote-drop: \.2em; \}/);
   assert.match(/\n\.has-bg \.line \{([^}]*)\}/.exec(css)[1], /\n  padding: \.2em \.4em;\n/);
-  // Only in a box: without one every margin is as before.
-  assert.deepStrictEqual(Array.from(css.matchAll(/([^{}]+)\{[^}]*--emote-drop:/g), (m) => m[1].trim()), [':where(.has-bg)']);
+  // Only in a box (bg, or a box picture): without one every margin is as before.
+  assert.deepStrictEqual(Array.from(css.matchAll(/([^{}]+)\{[^}]*--emote-drop:/g), (m) => m[1].trim()), [':where(.has-bg, .has-box-image)']);
   [[EMOTE_SEL, 'emotes'], [CHEER_SEL, 'cheers']].forEach(([sel, what]) => {
     const bg = (eh, L) => colMargins(css, sel, eh, L, 0.3, true);
     const nobg = (eh, L) => colMargins(css, sel, eh, L, 0.3, false);
@@ -3892,4 +3895,58 @@ test('overlay.css: row_grow draws a row\'s big images at their column sizes, gro
   assert.deepStrictEqual(rules.slice(2).map((r) => r[2].trim()), ['vertical-align: bottom;', 'vertical-align: top;']);
   // Off (no class) the row is as before: GIFs and gigantified emotes at emote height.
   assert.match(css, /\n\.layout-horizontal \.emote-stack\.big \{ --eh: var\(--emote-h, 1\.75em\); \}/);
+});
+
+test('picture frames: a name tag wraps the badges and the name in a column, live; a box picture takes bg\'s place', (t) => {
+  const s = setup(t, { layout: 'vertical', bg: 40 }, { badgesFor: () => [{ provider: 'twitch', title: 'Moderator', urls: { 1: 'https://b/mod' } }] });
+  s.r.push(chat('amy', 'hi'));
+  s.r.flush();
+  const kids = () => s.lines()[0].children.map((k) => k.className);
+  const has = (c) => s.root.classList.contains(c);
+  assert.deepStrictEqual(kids(), ['badges', 'name', 'colon', 'message']);
+  assert.ok(has('has-bg') && !has('has-box-image') && !has('has-name-tag'));
+  const framed = { layout: 'vertical', bg: 40, name_image: 'img/tag.png', box_image: 'https://example.com/box.png', box_slice: 4,
+    frame_scale: 300, frame_pixels: true };
+  s.r.setConfig(framed);
+  assert.deepStrictEqual(kids(), ['name-tag', 'colon', 'message']);
+  assert.deepStrictEqual(s.lines()[0].children[0].children.map((k) => k.className), ['badges', 'name']);
+  assert.ok(!has('has-bg') && has('has-box-image') && has('has-name-tag') && has('frame-pixels'));
+  const v = (k) => s.root.style.getPropertyValue(k);
+  assert.strictEqual(v('--box-image'), 'url("https://example.com/box.png")');
+  assert.strictEqual(v('--name-image'), 'url("img/tag.png")');
+  assert.strictEqual(v('--box-slice'), '4');
+  assert.strictEqual(v('--name-slice'), '', 'automatic: none until the picture has loaded (this world has no Image)');
+  assert.strictEqual(v('--frame-scale'), '3');
+  // A new line comes in its tag too.
+  s.r.push(chat('bob', 'yo'));
+  s.r.flush();
+  assert.deepStrictEqual(s.lines()[1].children.map((k) => k.className), ['name-tag', 'colon', 'message']);
+  // In a row neither applies: the line's parts are its own, and the box is bg's again.
+  s.r.setConfig(Object.assign({}, framed, { layout: 'horizontal' }));
+  assert.deepStrictEqual(kids(), ['badges', 'name', 'colon', 'message']);
+  assert.ok(has('has-bg') && !has('has-box-image') && !has('has-name-tag') && !has('frame-pixels'));
+  assert.strictEqual(v('--box-image'), '');
+  assert.strictEqual(v('--box-slice'), '');
+});
+
+test('picture frames: automatic corners are a third of the picture\'s shorter side, at most 200', () => {
+  assert.strictEqual(R.autoSlice(6, 6), 2);
+  assert.strictEqual(R.autoSlice(300, 90), 30);
+  assert.strictEqual(R.autoSlice(2, 40), 0);
+  assert.strictEqual(R.autoSlice(3000, 2000), 200);
+  assert.strictEqual(R.autoSlice(0, 0), 0);
+  assert.ok(R.framed({ box_image: 'a.png' }) && !R.framed({ box_image: 'a.png', layout: 'horizontal' }) && !R.framed({}));
+  assert.ok(R.tagged({ name_image: 'a.png' }) && !R.tagged({ name_image: 'a.png', layout: 'horizontal' }) && !R.tagged(null));
+});
+
+test('overlay.css: the picture frames are a column\'s, drawn as a border-image as wide as their corners', () => {
+  const css = overlayCss();
+  const sels = Array.from(css.matchAll(/([^{}]+)\{[^}]*border-image-source:/g), (m) => m[1].trim());
+  assert.deepStrictEqual(sels, [':where(.layout-vertical.has-box-image) .line,\n' +
+    ':where(.layout-vertical.name-line:not(.no-names).has-box-image .line:not(.notice)) > .message', '.name-tag']);
+  assert.match(css, /border-width: calc\(var\(--box-slice, 0\) \* var\(--frame-scale, 1\) \* 1px\);\n  border-image-source: var\(--box-image, none\);\n  border-image-slice: var\(--box-slice, 0\) fill;/);
+  assert.match(css, /border-width: calc\(var\(--name-slice, 0\) \* var\(--frame-scale, 1\) \* 1px\);\n  border-image-source: var\(--name-image, none\);\n  border-image-slice: var\(--name-slice, 0\) fill;/);
+  // Sharp pixels for the frames only: what is inside them is drawn as always.
+  assert.match(css, /\n:where\(\.frame-pixels\) :is\(\.line, \.line > \.message, \.name-tag\) \{ image-rendering: pixelated; \}/);
+  assert.match(css, /\n:where\(\.frame-pixels\) \.line :not\(\.message, \.name-tag\) \{ image-rendering: auto; \}/);
 });

@@ -90,7 +90,9 @@
     'mentions', 'keywords', 'highlight_users', 'points_highlight', 'role_style',
     // links=shorten rewrites the text (overlay.js tokensFor) and reply headers; links=hide is a filter, and a reply
     // header quoting a link goes (deps.quoteHidden).
-    'links'];
+    'links',
+    // name_image: a column's name tag wraps the badges and the name (.name-tag) only while it is set (tagged).
+    'name_image'];
   // Each line goes by deps.shouldShow (overlay.js): a change sweeps the lines it now hides. replies too: block_words
   // matches a reply's "@Parent" only while it is drawn (replies=0).
   var FILTER_KEYS = ['bots', 'hide_commands', 'block', 'events', 'shared', 'event_subs', 'event_gifts', 'event_raids',
@@ -110,7 +112,9 @@
     // A column's glide: the next new line starts one (glideOf); turned off, a running one stops (stopGlide).
     'smooth_scroll',
     // A row's alignment while it isn't full (a class; trimOverflow and dropLoneSep read it), and row_grow's class.
-    'row_align', 'row_grow'];
+    'row_align', 'row_grow',
+    // The picture frames: classes and #chat variables (applyFrames). name_image also wraps the names (RERENDER_KEYS).
+    'box_image', 'box_slice', 'name_image', 'name_slice', 'frame_scale', 'frame_pixels'];
 
   // config.js weight names -> font-weight. The stylesheet's own are 600 (text) and 800 (names).
   var WEIGHT_NAMES = ['light', 'regular', 'semibold', 'bold', 'heavy', 'black'];
@@ -233,7 +237,14 @@
     role_style: { values: ['off', 'bar', 'tint'], def: 'off' },
     broadcaster_color: { hex: true, def: '' },
     mod_color: { hex: true, def: '' },
-    vip_color: { hex: true, def: '' }
+    vip_color: { hex: true, def: '' },
+    // The picture frames' pictures are config.js-checked (config.imageUrl) before they get here.
+    box_image: { str: true, def: '' },
+    box_slice: { min: 0, max: 200, def: 0 },
+    name_image: { str: true, def: '' },
+    name_slice: { min: 0, max: 200, def: 0 },
+    frame_scale: { min: 25, max: 800, def: 100 },
+    frame_pixels: { bool: true, def: false }
   };
   var NORM_KEYS = Object.keys(NORM);
   var NORM_DEFAULTS = {};
@@ -282,6 +293,16 @@
   }
   // The same color as '#rrggbb' for a CSS color value; null for anything else.
   function hexColor(hex) { return hexRgb(hex) === null ? null : '#' + hex; }
+
+  // The picture frames are a column's: box_image draws each message's box (.has-box-image), name_image a name tag
+  // around each name and its badges (.name-tag). A row has neither (its rules place a line's parts one by one).
+  function framed(c) { return !!(c && c.box_image) && c.layout !== 'horizontal'; }
+  function tagged(c) { return !!(c && c.name_image) && c.layout !== 'horizontal'; }
+  // A frame's corners when its slice is 0 (automatic): a third of the picture's shorter side, in its px.
+  function autoSlice(w, h) {
+    var s = Math.floor(Math.min(w, h) / 3);
+    return s > 0 && isFinite(s) ? Math.min(200, s) : 0;
+  }
 
   function sameValue(a, b) {
     if (Array.isArray(a) || Array.isArray(b)) {
@@ -1368,6 +1389,8 @@
     };
     if (fx) model.name.fx = fx;
     if (time) model.time = time;
+    // name_image: the badges and the name go in a name tag (renderInto), part of the model so a change redraws the line.
+    if (tagged(cfg)) model.tag = true;
     return model;
   }
 
@@ -1758,14 +1781,21 @@
       }
       // timestamps: after the reply header (a block of its own), before the badges.
       if (model.time) line.appendChild(span('time', model.time));
+      // name_image: the badges and the name in a name tag of their own, in a column only (a row's rules place them as
+      // the line's own parts).
+      var head = line;
+      if (model.tag) {
+        head = el('span', 'name-tag');
+        line.appendChild(head);
+      }
       var bs = el('span', 'badges');
       for (var i = 0; i < model.badges.length; i++) bs.appendChild(badgeNode(model.badges[i]));
-      line.appendChild(bs);
+      head.appendChild(bs);
       var fx = model.name.fx;
       var nm = span(model.name.paint ? 'name painted p-' + model.name.paint : fx ? 'name bttv-fx fx-' + fx : 'name', model.name.text);
       if (model.name.color) nm.style.color = model.name.color;
       if (fx && FX_STROKE[fx]) ensureFxFilters();
-      line.appendChild(nm);
+      head.appendChild(nm);
       line.appendChild(span('colon', model.colon));
       var ms = el('span', 'message');
       if (model.msgColor) ms.style.color = model.msgColor;
@@ -2110,11 +2140,15 @@
           } else if (c.nodeType === 1) walk(c);
         }
       };
-      for (var c = line.firstElementChild; c; c = c.nextElementSibling) {
-        if (!c.classList) continue;
-        if (c.classList.contains('message') || (c.classList.contains('name') && !c.classList.contains('painted') &&
-          !c.classList.contains('bttv-fx'))) walk(c);
-      }
+      var take = function (parent) {
+        for (var c = parent.firstElementChild; c; c = c.nextElementSibling) {
+          if (!c.classList) continue;
+          if (c.classList.contains('name-tag')) take(c); // the name inside a name tag (name_image)
+          else if (c.classList.contains('message') || (c.classList.contains('name') && !c.classList.contains('painted') &&
+            !c.classList.contains('bttv-fx'))) walk(c);
+        }
+      };
+      take(line);
       return out;
     }
     // Splits a line's text into a box per word (spaces and words with nothing to scramble stay text), each still
@@ -2647,7 +2681,8 @@
       cl.toggle('layout-vertical', c.layout !== 'horizontal');
       cl.toggle('align-top', c.align === 'top');
       cl.toggle('align-bottom', c.align !== 'top');
-      cl.toggle('has-bg', c.bg > 0);
+      // A box picture (box_image) takes Line background's place.
+      cl.toggle('has-bg', c.bg > 0 && !framed(c));
       // The options below add a class or a variable only off their default (css/overlay.css has the rules, with
       // today's values as the var() fallbacks), and take it away again when set back.
       cl.toggle('case-upper', c.text_case === 'upper');
@@ -2716,6 +2751,49 @@
       setVar(st, '--role-broadcaster-rgb', hexRgb(c.broadcaster_color));
       setVar(st, '--role-mod-rgb', hexRgb(c.mod_color));
       setVar(st, '--role-vip-rgb', hexRgb(c.vip_color));
+      applyFrames(c, cl, st);
+    }
+
+    // The picture frames: each picture as a url() (util.cssUrl, absolute against the page), its corners (--box-slice,
+    // --name-slice: a set slice, or autoSlice once the picture has loaded) and frame_scale as --frame-scale.
+    var frameSeq = { box: 0, name: 0 };
+    var frameSize = { box: null, name: null }; // { src, slice } of the last picture measured
+    function applyFrames(c, cl, st) {
+      var box = framed(c), tag = tagged(c);
+      cl.toggle('has-box-image', box);
+      cl.toggle('has-name-tag', tag);
+      cl.toggle('frame-pixels', c.frame_pixels === true && (box || tag));
+      var base = doc.baseURI || (win.location && win.location.href) || '';
+      setVar(st, '--box-image', box ? util.cssUrl(c.box_image, base) : null);
+      setVar(st, '--name-image', tag ? util.cssUrl(c.name_image, base) : null);
+      setVar(st, '--frame-scale', c.frame_scale === 100 ? null : String(c.frame_scale / 100));
+      frameSlice('box', box ? c.box_image : '', c.box_slice, base, st);
+      frameSlice('name', tag ? c.name_image : '', c.name_slice, base, st);
+    }
+    function frameSlice(which, pic, slice, base, st) {
+      var name = '--' + which + '-slice', seq = ++frameSeq[which];
+      if (!pic) { setVar(st, name, null); return; }
+      if (slice > 0) { setVar(st, name, String(slice)); return; }
+      var src = pic;
+      if (!/^data:/i.test(src)) {
+        try { src = new URL(pic, base).href; } catch (e) { /* as it is */ }
+      }
+      var known = frameSize[which];
+      if (known && known.src === src) { setVar(st, name, String(known.slice)); return; }
+      // Not known yet: no corners (the stylesheet's 0) until the picture has loaded.
+      setVar(st, name, null);
+      if (typeof win.Image !== 'function') return;
+      var probe = new win.Image();
+      probe.onload = function () {
+        if (seq !== frameSeq[which] || destroyed) return;
+        var s = autoSlice(probe.naturalWidth, probe.naturalHeight);
+        frameSize[which] = { src: src, slice: s };
+        setVar(st, name, String(s));
+      };
+      probe.onerror = function () {
+        if (seq === frameSeq[which]) util.warn('renderer: the ' + which + ' frame picture didn’t load', src.slice(0, 80));
+      };
+      probe.src = src;
     }
 
     function setConfig(next) {
@@ -3240,6 +3318,9 @@
       setVar: setVar,
       hexRgb: hexRgb,
       hexColor: hexColor,
+      framed: framed,
+      tagged: tagged,
+      autoSlice: autoSlice,
       WEIGHTS: WEIGHTS,
       changedAny: changedAny,
       fontPx: fontPx,
